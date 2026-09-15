@@ -126,8 +126,11 @@ def setup() -> None:
         ],
         task_subset=TaskSubset(),  # the full task set (all splits); TaskSubset(subset="lite") for a first-split trial
         path_setup=_path_setup(),
-        experiment_bundle=TabArenaV0pt1ExperimentBundle(model_verbosity=2),  # override: log model fits
-        resources_setup=TabArenaV0pt1ResourcesSetup(num_cpus=None, memory_limit=None),  # override: auto-detect on node
+        # model_verbosity=2 quiets every model's fit log (the bundle default is 4 with CatBoost at 2).
+        experiment_bundle=TabArenaV0pt1ExperimentBundle(model_verbosity=2),
+        # num_cpus=None resolves to the node's CPU affinity count at run time (24 on gpurtxpro6000flex),
+        # which is what the runner's CPU consistency check expects on an exclusive node.
+        resources_setup=TabArenaV0pt1ResourcesSetup(num_cpus=None, memory_limit=None),
         # GPU: bundle_size=1 (one fit per array task). CPU model: GCPSlurmSetup(cpu_partition="cpun416mtspotinteractive",
         # bundle_size=2), the 16 vCPU / 64 GB partition the CPU tree boosters were timed on.
         scheduler_setup=GCPSlurmSetup(gpu_partition="gpurtxpro6000flex", bundle_size=1),

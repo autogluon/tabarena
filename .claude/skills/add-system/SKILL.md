@@ -44,6 +44,13 @@ Subclass `ExternalSystemModel` (`tabarena/benchmark/exec_models/external.py`) an
 
 Keep the library import inside `_fit_system` (or the method that needs it), never at module top level, so an install without the extra still imports.
 
+A system's environment work is its own. TabArena adds no system-specific warm-up, persist or checkpoint prefetch code: a system that imports its stack, downloads checkpoints or loads from disk inside its fit or predict is measured the way it ships (the `AutoGluonSystemModel` docstring spells this out for AutoGluon). Two generic hooks exist, documented in the `ExternalSystemModel` docstring:
+
+- Warm-up: a system may declare `warmup_modules = ("yourlib",)` and/or `warmup_torch_device = True`; that is import and CUDA-context work only, and the synthetic dummy fit is off for systems. Do not write per-system warm-up logic.
+- `uses_ray`: keep the base default (True) unless no code path of the system can start Ray; the SLURM worker skips the Ray runtime for fits that answer False.
+
+`SystemInfo.prefetch_weights` is a hook for the system's own tooling; the benchmark setup does not call it, and `offline_weights="auto"` stays off while a system is selected because its checkpoints are not prefetched.
+
 ## Step 2: `hpo.py`
 
 ```python
@@ -76,7 +83,7 @@ Each config becomes one benchmarked variant. Prefer a small set of meaningful pr
     config_generator=gen_<system_key>,
     method_metadata=<system_key>_method_metadata,
     pip_extra=("<package>==<version>",),
-    prefetch_weights=None,           # or the system's weight-warming callable
+    prefetch_weights=None,           # optional hook for the system's own tooling; the benchmark setup does not call it
 )
 ```
 

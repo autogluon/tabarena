@@ -71,7 +71,7 @@ Given `MODEL`, read the model's folder `packages/tabarena/src/tabarena/models/<k
 | problem types | `model.py`, the `_supported_problem_types` class attribute (absent means all three) | the eval `subsets`: all types gives `[[], ["binary"], ["multiclass"], ["regression"]]` (`[]` is the full set); regression-only gives `[["regression"]]` plus `task_subset=TaskSubset(subset="regression")` |
 | HPO search space | `info.py`, `search_space` (a `gen_<key>` generator); empty or absent means no HPO | `NUM_CONFIGS`: `"all"` with a search space, `0` without |
 | pip extra | `info.py`, `ModelInfo(pip_extra=...)`, and the matching extra in `packages/tabarena/pyproject.toml` | Step 2 installs it |
-| weights prefetch | `info.py`, `ModelInfo(prefetch_weights=...)`; not `None` means foundation model | a docstring note; `setup` prefetches the checkpoint on the head node before emitting jobs |
+| weights prefetch | `info.py`, `ModelInfo(prefetch_weights=...)`; not `None` means foundation model (so does a `shared_weights` declaration on the class) | a docstring note; `setup` prefetches the checkpoint on the head node before emitting jobs |
 | static memory estimate | `model.py` implements `_estimate_memory_usage_static` | whether `fake_memory_for_estimates` can cap fold parallelism (Step 1a caveat) |
 | device selection | `model.py` reads `num_gpus` (falls back to CPU by itself) or a `device` hyperparameter | `SMOKE_EXTRA_HYPERPARAMETERS = {"device": "cpu"}` in the script when the wrapper must be told and this machine has no CUDA device |
 | smoke config | `tests/tabarena/models/smoke_configs.py`, `SMOKE_OVERRIDES[<MODEL>]` | the `smoke` subcommand reuses it; nothing to copy |
@@ -80,7 +80,7 @@ Prefer reading the files over importing the model. Once the venv from Step 2 is 
 confirm in one line:
 
 ```bash
-$PY -c "from tabarena.models.utils import get_model_info_from_name as g; i=g('<MODEL>'); print(i.method_metadata.compute, i.pip_extra, i.prefetch_weights is not None, i.model_cls.supported_problem_types())"
+$PY -c "from tabarena.models.utils import get_model_info_from_name as g; i=g('<MODEL>'); print(i.method_metadata.compute, i.pip_extra, i.prefetch_weights is not None or getattr(i.model_cls, 'shared_weights', None) is not None, i.model_cls.supported_problem_types())"
 ```
 
 ## Step 1a: GPU model means `fake_memory_for_estimates` is set
@@ -232,6 +232,18 @@ and classify:
 | CUDA out of memory | folds co-scheduled on the card, or one huge table | confirm `fake_memory_for_estimates`; for a single wide table consider `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` in the wrapper's warm-up, a smaller support size, or `fold_fitting_strategy="sequential_local"` |
 | Python traceback in the wrapper | a bug the smoke fit did not reach | fix it in the wrapper, then relaunch |
 | `jq: command not found`, import errors | environment, not the model | fix the venv, then relaunch |
+| `LocalEntryNotFoundError`, `PretrainedWeightsUnavailableError`, `WeightsUnavailableError` | the job ran with `offline_weights` and a checkpoint was not in the shared cache | re-run `setup` (its head-node prefetch fills the cache) or set `offline_weights=False` on the plan for that run |
+| `##### item FAILED` lines with `##### bundle summary: ok=N failed=M` | one item of the bundle failed; the array task continues with its siblings and exits non-zero at the end | count the `results.pkl` files, not the task state: a `FAILED` task may have completed most of its items, and only the failed ones are missing |
+
+A `FAILED` array task is a bundle with at least one failed item. The log carries one `##### item
+FAILED (exit N)` line per failed item and a final `##### bundle summary` line; three consecutive
+failures stop the bundle early. Read the traceback of the first failed item, not the last lines of
+the file. Predictor artifacts of a job live under `$TABARENA_MODEL_ARTIFACTS_BASE_PATH`
+(node-local scratch, removed with the job), so nothing of a failed fit survives on the node; the Ray
+worker logs of a failed item are copied to `slurm_out/<benchmark>/<ARRAY_JOB_ID>/ray_logs/task_<i>/`.
+Every `results.pkl` records `experiment_metadata["warmup_report"]` and `["timing_audit"]`;
+`python -P -m tabarena.tools.audit_warmup --results <WORKSPACE>/output/<benchmark_name>/data`
+summarizes them after the run (warm-up failures, packages imported inside the timed sections).
 
 Relaunching is cheap and cache-aware: re-run `setup` (Step 5) after the fix; the cache check
 re-approves only the items still missing, and you launch the new, smaller `sbatch` command and
@@ -292,7 +304,24 @@ Next in the lifecycle is the `upload-method` skill, pointed at `<WORKSPACE>/outp
 - `"all"` configs on a CPU model is about 200 configs across 816 splits; `setup` splits the array at
   `max_array_size` (29,999) automatically and `--array=...%100` caps concurrency per array.
 - The `smoke` subcommand imports `tests/tabarena/models/smoke_configs.py` from the repo root, so the
-  script must stay under `tmp_scripts/` (it derives the root from its own location).
+  script must stay under `tmp_scripts/` (it derives the root from its own location). Run every
+  python entry point (`smoke`, `setup`, `eval`) from the repo root with `python -P`: a directory
+  named `autogluon/` on `sys.path[0]` shadows the installed AutoGluon and empties the model registry.
+- Before the cluster run, `python -P -m tabarena.tools.audit_warmup --model <Method>` shows whether the
+  model's timed fit and predict still import packages or load weights cold; fix that in the wrapper
+  (`warmup_modules`, a `shared_weights` declaration) rather than paying it on every item.
+- Weights on the cluster: `setup` prefetches the selected models' checkpoints on the head node and,
+  when every selected model prefetched (`offline_weights="auto"`), the jobs run with `HF_HUB_OFFLINE=1`
+  and `AG_FETCH_PRETRAINED_WEIGHTS=false`, so a cache miss fails the item instead of downloading inside
+  the timed fit. The HF cache must be shared between head and compute nodes. Copying the weights onto
+  node-local scratch is opt-in (`GCPSlurmSetup(node_staging=NodeStagingSetup(stage_weights=True))`);
+  the warm-up pre-loads them untimed either way.
+- Two warm-up steps are opt-in until measured on the cluster: the Ray import-only worker pool for CPU
+  bags (`TABARENA_RAY_WORKER_WARMUP=1`) and the CUDA kernel probe (`TABARENA_WARMUP_KERNELS=1`). Before
+  a campaign, launch one `TaskSubset(subset="lite")` bundle of a CPU booster and one of a GPU model with
+  the variable exported in the submitting shell (`--export=ALL` carries it), then read
+  `warmup_report.ray` and the fit timings with `audit_warmup --results`; make them defaults only when
+  the workers were reused or the probe saved time.
 - Spot partitions preempt; requeued tasks show up as `requeued` in the progress line and are not
   failures. Throughput on `gpurtxpro6000flex` is bounded by node provisioning (about 30 concurrent
   tasks was typical), so a full GPU run of a foundation model takes around half a day.
