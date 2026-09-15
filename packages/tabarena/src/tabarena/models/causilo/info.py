@@ -3,7 +3,7 @@ from __future__ import annotations
 from tabarena.models._method_metadata import MethodMetadata
 from tabarena.models._model_info import ModelInfo
 from tabarena.models.causilo.hpo import gen_causilo
-from tabarena.models.causilo.model import CausiloModel, prefetch_weights
+from tabarena.models.causilo.model import CausiloModel
 
 causilo_method_metadata = MethodMetadata.config(
     method="Causilo",
@@ -32,5 +32,5 @@ causilo_info = ModelInfo(
     search_space=gen_causilo,
     method_metadata=causilo_method_metadata,
     pip_extra=("causilo==1.0.0",),
-    prefetch_weights=prefetch_weights,
+    prefetch_weights=CausiloModel.prefetch_weights,
 )

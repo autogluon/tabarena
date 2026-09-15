@@ -3,7 +3,7 @@ from __future__ import annotations
 from tabarena.models._method_metadata import MethodMetadata
 from tabarena.models._model_info import ModelInfo
 from tabarena.models.tabfm.hpo import gen_tabfm
-from tabarena.models.tabfm.model import TabFMModel, prefetch_weights
+from tabarena.models.tabfm.model import TabFMModel
 
 # Superseded by the rerun below; kept so the hosted artifacts stay loadable.
 tabfm_method_metadata = MethodMetadata.config(
@@ -51,8 +51,8 @@ tabfm_info = ModelInfo(
     pip_extra=(
         "tabfm[pytorch] @ git+https://github.com/google-research/tabfm.git@633cd265f498e1d20c9625be0639f6305d8e2541",
     ),
-    prefetch_weights=prefetch_weights,
+    prefetch_weights=TabFMModel.prefetch_weights,
 )
 
-# TabFM+ (TabFM's heavier ``ensemble`` interface) shares this model's checkpoint but is
-# benchmarked as a system, so it lives in `tabarena.systems.tabfm_plus`.
+# TabFM+ (TabFM's heavier ``ensemble`` interface) shares this model's pinned checkpoint and this
+# prefetcher but is benchmarked as a system, so it lives in `tabarena.systems.tabfm_plus`.

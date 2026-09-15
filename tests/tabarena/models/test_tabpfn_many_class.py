@@ -69,6 +69,18 @@ def test_tabpfnv26_many_class(tmp_path):
         # Probabilities should sum to ~1
         row_sums = np.sum(y_pred_proba, axis=1)
         np.testing.assert_allclose(row_sums, 1.0, atol=1e-5)
+
+        # The shared network sits on the wrapper's base estimator; a pickled copy is weightless and
+        # takes the same specs object back from the registry on its first predict.
+        import pickle
+
+        assert model._shared_key is not None
+        assert model._network_attached()
+        specs = model.model.estimator.model_path
+        loaded = pickle.loads(pickle.dumps(model))
+        assert not loaded._network_attached()
+        np.testing.assert_array_equal(loaded.predict_proba(X=X_test), y_pred_proba)
+        assert loaded.model.estimator.model_path is specs
     except ImportError as err:
         pytest.skip(
             f"Import Error, skipping test... Ensure you have the proper dependencies installed to run this test:\n{err}",

@@ -4,9 +4,14 @@ import functools
 import json
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
 
 import numpy as np
+from autogluon.common.utils.pretrained_weights import (
+    PretrainedWeightsUnavailableError,
+    fetch_allowed,
+    unavailable_message,
+)
 from autogluon.common.utils.resource_utils import ResourceManager
 from autogluon.core.constants import (
     BINARY,
@@ -15,8 +20,17 @@ from autogluon.core.constants import (
 from autogluon.features.generators import LabelEncoderFeatureGenerator
 from autogluon.tabular.models.abstract.abstract_torch_model import AbstractTorchModel
 
+from tabarena.models import prefetch as _hub
+from tabarena.models._shared_estimators import check_payload_device, detach_by_path
+from tabarena.models._shared_weights_model import CheckpointSpec, SharedWeightsModelMixin, SharedWeightsSpec
+from tabarena.models._weights import normalize_device
+
 if TYPE_CHECKING:
+    from collections.abc import Iterator
+
     import pandas as pd
+
+    from tabarena.models._weights import WeightsKey
 
 
 logger = logging.getLogger(__name__)
@@ -32,9 +46,37 @@ _DEFAULT_HF_FILENAME = "LimiX-16M.ckpt"
 _DEFAULT_HF_REVISION = "da5f3072bf3633c70d957c02518c30d461007764"
 _DEFAULT_CLS_CONFIG = "cls_default_16M_retrieval.json"
 _DEFAULT_REG_CONFIG = "reg_default_16M_retrieval.json"
+#: Retrieval-free pipelines; the warm-up dummy fit runs the first one (see ``warmup_dummy_fit_hyperparameters``).
+_NORETRIEVAL_CLS_CONFIG = "cls_default_noretrieval.json"
+
+#: The checkpoint-relevant defaults of ``LimiXPredictor``: ``mask_prediction`` is applied to the network's
+#: config when the checkpoint is loaded, so it is part of the registry key.
+DEFAULT_PARAMS: dict[str, Any] = {"mask_prediction": False}
 
 
-class LimiXModel(AbstractTorchModel):
+def _load_bundled_config(filename: str) -> list:
+    cfg_path = _CONFIG_DIR / filename
+    with cfg_path.open("r") as f:
+        return json.load(f)
+
+
+def _mask_prediction_flag(key: WeightsKey) -> bool:
+    return str(dict(key.flags).get("mask_prediction", DEFAULT_PARAMS["mask_prediction"])).lower() == "true"
+
+
+def _attention_steps(predictor: Any) -> Iterator[Any]:
+    """The ``InferenceAttentionMap`` retrieval steps of a predictor's pipelines, which each hold the network.
+
+    Duck-typed on the attribute the step's constructor sets, so the vendored inference modules need
+    not be imported on load.
+    """
+    for pipeline in getattr(predictor, "preprocess_pipelines", None) or ():
+        for step in pipeline:
+            if hasattr(step, "calculate_sample_attention"):
+                yield step
+
+
+class LimiXModel(SharedWeightsModelMixin, AbstractTorchModel):
     """LimiX: Unleashing Structured-Data Modeling Capability for Generalist Intelligence.
 
     Paper: https://arxiv.org/abs/2509.03505
@@ -43,14 +85,30 @@ class LimiXModel(AbstractTorchModel):
 
     Upstream is not pip-installable, so the inference-time sources are
     vendored under ``_vendor/`` next to this file.
+
+    The network is shared through the weights registry (see
+    :mod:`tabarena.models._shared_weights_model`) and handed to the vendored predictor's ``model=``
+    argument, which also routes every ``InferenceAttentionMap`` retrieval step through it instead of
+    the per-step ``load_model`` the upstream code performs. A custom ``model_path`` keeps the
+    upstream load path.
     """
 
     ag_key = "TA-LIMIX"
+    #: Modules the timed fit would otherwise import for the first time: the vendored predictor and
+    #: inference code (which pull in torch, einops, sklearn and kditransform) and the Hub client the
+    #: checkpoint resolver uses.
     warmup_modules: ClassVar[tuple[str, ...]] = (
         "tabarena.models.limix._vendor.inference.predictor",
         "tabarena.models.limix._vendor.inference.inference_method",
         "huggingface_hub",
+        "huggingface_hub.errors",
     )
+    #: Cheapness knob for the warm-up dummy fit: a single retrieval-free pipeline, which also runs on
+    #: a CPU (the retrieval pipelines raise there). ``inference_config`` never touches the network,
+    #: so the primed key is unaffected.
+    warmup_dummy_fit_hyperparameters: ClassVar[dict] = {
+        "inference_config": _load_bundled_config(_NORETRIEVAL_CLS_CONFIG)[:1],
+    }
     ag_name = "TA-LimiX"
     ag_priority = 100
     seed_name = "random_state"
@@ -66,17 +124,26 @@ class LimiXModel(AbstractTorchModel):
     default_num_gpus = 1
     default_resources_physical_cores_only = True
     minimum_num_gpus = 1
-    # Sequential fold fitting avoids contention on the shared HF checkpoint cache.
-    _default_ag_args_ensemble_extra = {
-        "fold_fitting_strategy": "sequential_local",
-        "refit_folds": True,
-    }
+    _default_ag_args_ensemble_extra: ClassVar[dict] = {"refit_folds": True}
     # We set the default to 100k to try to run on all of TabArena.
     # Note, all examples of LimiX code itself says one should skip above 50k.
     _default_auxiliary_params_extra = {
         # "max_rows": 50_000, # Technically from LimiX
         "max_classes": 10,
     }
+
+    shared_weights_spec: ClassVar[SharedWeightsSpec] = SharedWeightsSpec(
+        library="limix",
+        checkpoint=CheckpointSpec(
+            repo_id=_DEFAULT_HF_REPO, filename=_DEFAULT_HF_FILENAME, revision=_DEFAULT_HF_REVISION
+        ),
+        variant="network",  # one ``FeaturesTransformer`` checkpoint serves classification and regression alike
+        default_params=DEFAULT_PARAMS,
+        flag_params=("mask_prediction",),
+        disable_when=("model_path",),
+        network_attr="model",
+        device_attrs=(("device", "torch"),),
+    )
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -103,6 +170,60 @@ class LimiXModel(AbstractTorchModel):
 
         return np.asarray(X.to_numpy(), dtype=np.float32)
 
+    # --- shared weights ---------------------------------------------------------------------------
+
+    @classmethod
+    def _build_shared_weights(cls, key: WeightsKey):
+        """Build the network for ``key`` exactly as the vendored ``load_model`` does.
+
+        ``load_model`` reads the checkpoint on the CPU, builds the ``FeaturesTransformer`` from the
+        stored config with ``mask_prediction`` applied and loads the state dict; the module is then
+        moved to ``key.device`` and its ``encoder_x`` wrapped in the NaN-sanitizing encoder every
+        per-child load also receives (see :func:`_nan_clean_encoder_cls`).
+        """
+        import torch
+
+        from tabarena.models.limix._vendor.utils.loading import load_model
+
+        network = load_model(model_path=key.checkpoint, mask_prediction=_mask_prediction_flag(key))
+        network.encoder_x = _nan_clean_encoder_cls()(network.encoder_x)
+        return network.to(torch.device(key.device))
+
+    def _attach_shared_weights(self, payload: Any, device: str) -> None:
+        """Point the predictor and every ``InferenceAttentionMap`` step at ``payload``."""
+        device_type = normalize_device(device)
+        check_payload_device(payload, device_type)
+        self.model.model = payload
+        for step in _attention_steps(self.model):
+            step.model = payload
+        self._apply_device_bookkeeping(device_type)
+
+    def _detach_for_pickle(self, estimator: Any) -> Any:
+        """A shallow copy of the predictor with the network cleared from it and from every retrieval step."""
+        copy = detach_by_path(estimator, "model")
+        pipelines = getattr(estimator, "preprocess_pipelines", None)
+        if pipelines is not None:
+            copy.preprocess_pipelines = [
+                [detach_by_path(step, "model") if hasattr(step, "calculate_sample_attention") else step for step in p]
+                for p in pipelines
+            ]
+        return copy
+
+    def _resolve_default_checkpoint(self, *, stage: str) -> str:
+        """Local path of the released checkpoint for an unshared fit, honoring ``ag.fetch_pretrained_weights`` at ``stage``."""
+        allow = fetch_allowed(self.aux_params.fetch_pretrained_weights, stage=stage)
+        try:
+            resolved = type(self)._resolve_shared_checkpoint(
+                problem_type=self.problem_type, variant="network", hyperparameters={}, allow_download=allow, stage=stage
+            )
+        except _hub.WeightsUnavailableError as exc:
+            raise PretrainedWeightsUnavailableError(
+                unavailable_message(model_name=self.name, stage=stage, location=str(exc))
+            ) from exc
+        return resolved.path
+
+    # --- fit ------------------------------------------------------------------------------------
+
     def _fit(
         self,
         X: pd.DataFrame,
@@ -110,6 +231,14 @@ class LimiXModel(AbstractTorchModel):
         num_gpus: int = 0,
         **kwargs,
     ):
+        """Fit LimiX: store the (possibly subsampled) support set behind a predictor holding the network.
+
+        With sharing on, the network comes from the registry and is injected through the vendored
+        predictor's ``model=`` argument; the predictor's own state (``inference_config``, ``seed``,
+        the preprocessing pipelines) stays per child. With sharing off, the predictor loads the
+        checkpoint for this child exactly as upstream does, and the NaN-sanitizing encoder wrap is
+        applied to every loaded copy here.
+        """
         import torch
 
         available_num_gpus = ResourceManager.get_gpu_count_torch(cuda_only=True)
@@ -127,13 +256,21 @@ class LimiXModel(AbstractTorchModel):
 
         from tabarena.models.limix._vendor.inference.predictor import LimiXPredictor
 
+        key, network = self._acquire_shared_weights(device=device_str)
+
         hps = self._get_model_params()
         random_state = hps.pop(self.seed_name, 0)
-        model_path = hps.pop("model_path", None) or _download_default_checkpoint()
+        model_path = hps.pop("model_path", None)
         inference_config = hps.pop("inference_config", None)
         if inference_config is None:
             cfg_filename = _DEFAULT_CLS_CONFIG if self.problem_type in ["binary", "multiclass"] else _DEFAULT_REG_CONFIG
             inference_config = _load_bundled_config(cfg_filename)
+
+        if key is None:
+            model_path = model_path or self._resolve_default_checkpoint(stage="fit")
+        else:
+            check_payload_device(network, device_str)
+            model_path = key.checkpoint
 
         X_np = self.preprocess(X, y=y, is_train=True)
         y_np = np.asarray(y.to_numpy(), dtype=np.float32 if self.problem_type == "regression" else None)
@@ -187,23 +324,22 @@ class LimiXModel(AbstractTorchModel):
             inference_config=inference_config,
             categorical_features_indices=self._cat_indices or None,
             seed=int(random_state),
+            model=network,
             **hps,
         )
-        # See `_NaNCleanEncoder` docstring for why this wrap is needed. We have to wrap
-        # every loaded copy of the FeaturesTransformer, not just `LimiXPredictor.model`:
-        # each `InferenceAttentionMap` step in `preprocess_pipelines` calls
-        # `load_model(self.model_path)` in its own `__init__` and holds its own model
-        # instance, used to compute sample-attention scores for retrieval. Without
-        # wrapping those too, the very first attention-map pass at
-        # `_vendor/inference/inference_method.py:309` still hits the NaN guard.
-        from tabarena.models.limix._vendor.inference.inference_method import InferenceAttentionMap
-
-        nan_clean_encoder_cls = _nan_clean_encoder_cls()
-        self.model.model.encoder_x = nan_clean_encoder_cls(self.model.model.encoder_x)
-        for pipeline in self.model.preprocess_pipelines:
-            for step in pipeline:
-                if isinstance(step, InferenceAttentionMap):
-                    step.model.encoder_x = nan_clean_encoder_cls(step.model.encoder_x)
+        if network is None:
+            # See `_NaNCleanEncoder` docstring for why this wrap is needed. We have to wrap
+            # every loaded copy of the FeaturesTransformer, not just `LimiXPredictor.model`:
+            # each `InferenceAttentionMap` step in `preprocess_pipelines` calls
+            # `load_model(self.model_path)` in its own `__init__` and holds its own model
+            # instance, used to compute sample-attention scores for retrieval. Without
+            # wrapping those too, the very first attention-map pass at
+            # `_vendor/inference/inference_method.py:309` still hits the NaN guard.
+            # (A shared network is wrapped once by `_build_shared_weights`.)
+            nan_clean_encoder_cls = _nan_clean_encoder_cls()
+            self.model.model.encoder_x = nan_clean_encoder_cls(self.model.model.encoder_x)
+            for step in _attention_steps(self.model):
+                step.model.encoder_x = nan_clean_encoder_cls(step.model.encoder_x)
         # Save into model so pickling works better
         self.model._X_train = X_np
         self.model._y_train = y_fit
@@ -245,56 +381,8 @@ class LimiXModel(AbstractTorchModel):
 
         return self._convert_proba_to_unified_form(y_pred_proba)
 
-    def get_device(self) -> str:
-        return self.model.device.type if self.model is not None else "cpu"
-
-    def _set_device(self, device: str):
-        import torch
-
-        device = torch.device(device)
-        self.model.device = device
-        if self.model.model is not None:
-            self.model.model.to(device)
-
     def _more_tags(self) -> dict:
         return {"can_refit_full": True}
-
-    @classmethod
-    def prefetch_weights(cls) -> str:
-        """Pre-download the default LimiX checkpoint from Hugging Face.
-
-        Returns the local cache path. Used by the foundation-model pre-download
-        scripts to warm the cache before parallel fit runs. We try the local
-        cache first so offline compute nodes (no internet / proxy timeouts)
-        skip the HEAD-request-for-etag that ``hf_hub_download`` performs by
-        default.
-        """
-        from huggingface_hub import hf_hub_download
-        from huggingface_hub.errors import LocalEntryNotFoundError
-
-        try:
-            return hf_hub_download(
-                repo_id=_DEFAULT_HF_REPO,
-                filename=_DEFAULT_HF_FILENAME,
-                revision=_DEFAULT_HF_REVISION,
-                local_files_only=True,
-            )
-        except LocalEntryNotFoundError:
-            return hf_hub_download(
-                repo_id=_DEFAULT_HF_REPO,
-                filename=_DEFAULT_HF_FILENAME,
-                revision=_DEFAULT_HF_REVISION,
-            )
-
-
-def _load_bundled_config(filename: str) -> list:
-    cfg_path = _CONFIG_DIR / filename
-    with cfg_path.open("r") as f:
-        return json.load(f)
-
-
-def _download_default_checkpoint() -> str:
-    return LimiXModel.prefetch_weights()
 
 
 @functools.cache
@@ -329,7 +417,7 @@ def _nan_clean_encoder_cls() -> type:
         ValueError: embedded_all contains NaN values; please add a NanEncoder
         in the encoder
 
-    Sanitizing here is the most surgical place — it catches NaN regardless of which
+    Sanitizing here is the most surgical place: it catches NaN regardless of which
     upstream stage produced it, without modifying vendor code and without blanket-imputing
     the raw input (the model handles NaN correctly on most datasets and we don't want to
     overwrite that behavior).

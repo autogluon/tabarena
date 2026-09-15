@@ -42,10 +42,11 @@ class LimiXPredictor:
                  mask_prediction:bool=False,
                  categorical_features_indices:List[int]|None=None,
                  inference_with_DDP: bool = False,
-                 seed:int=0):
+                 seed:int=0,
+                 model: torch.nn.Module | None = None):
         """
         init LimiXPredictor
-        
+
         Args:
             device: The device for performing inference; GPU is recommended
             model_path: The model path of LimiX
@@ -58,6 +59,11 @@ class LimiXPredictor:
             inference_config: inference_config_setting,
             inference_with_DDP: If using DDP to inference,
             seed: Random seed
+            model: A network already built from ``model_path`` (with ``mask_prediction`` applied).
+                When given, no checkpoint is read: this module is used for the predictions and
+                for every ``InferenceAttentionMap`` retrieval step, which otherwise each load
+                their own copy from ``model_path``. NOTE (tabarena vendor): added so one
+                process-wide network can be shared by many predictors.
         """
         if isinstance(inference_config, str):
             if os.path.isfile(inference_config):
@@ -91,8 +97,13 @@ class LimiXPredictor:
                 raise ValueError("Retrieval is not supported for CPU inference! Please use the noretrieval configuration when running on a CPU device!")
             self.mix_precision = False
             print("Mixed precision is not supported for CPU inference, so it has been automatically disabled")
-            
-        self.model=load_model(model_path=model_path,mask_prediction=mask_prediction)
+
+        # NOTE (tabarena vendor): an injected network is reused instead of being loaded per predictor.
+        self._model_injected = model is not None
+        if model is None:
+            self.model=load_model(model_path=model_path,mask_prediction=mask_prediction)
+        else:
+            self.model = model
 
         self.preprocess_pipelines = []
         self.preprocess_configs = []
@@ -116,6 +127,14 @@ class LimiXPredictor:
         if seed is not None:
             self.seed = seed
         self.build_preprocess_pipeline()
+
+    def _attention_map_model(self):
+        """The network handed to each ``InferenceAttentionMap`` step: the injected module when one was
+        given, otherwise the checkpoint path (each step then loads its own copy, as upstream does).
+        NOTE (tabarena vendor): added together with the ``model`` argument of ``__init__``."""
+        if getattr(self, "_model_injected", False):
+            return self.model
+        return self.model_path
 
     def build_preprocess_pipeline(self):
         self.preprocess_pipelines = []
@@ -153,7 +172,7 @@ class LimiXPredictor:
                     assert retrieval_config[
                         "calculate_feature_attention"], "Retrieval on sample level must calculate feature attention score before."
                 pipeline.append(
-                    InferenceAttentionMap(self.model_path, retrieval_config["calculate_feature_attention"],
+                    InferenceAttentionMap(self._attention_map_model(), retrieval_config["calculate_feature_attention"],
                                           retrieval_config["calculate_sample_attention"]))
                 pipeline.append(SubSampleData(retrieval_config["subsample_type"], retrieval_config["use_type"]))
             if 'PolynomialInteractionGenerator' in inference_config_item:
@@ -183,7 +202,7 @@ class LimiXPredictor:
                     assert retrieval_config[
                         "calculate_feature_attention"], "Retrieval on sample level must calculate feature attention score before."
                 pipeline.append(
-                    InferenceAttentionMap(self.model_path, retrieval_config["calculate_feature_attention"],
+                    InferenceAttentionMap(self._attention_map_model(), retrieval_config["calculate_feature_attention"],
                                           retrieval_config["calculate_sample_attention"]))
                 pipeline.append(SubSampleData(retrieval_config["subsample_type"], retrieval_config["use_type"]))
             self.preprocess_pipelines.append(pipeline)

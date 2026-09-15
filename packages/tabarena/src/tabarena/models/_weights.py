@@ -36,34 +36,9 @@ Loader contract
     nothing and the exception propagates to the caller.
 
 Wrapper convention
-    There is no mandatory mixin; each foundation-model wrapper implements the convention in its own
-    class body so the pieces stay readable next to the library calls they wrap:
-
-    * ``class_settings_cls = SharedWeightsClassSettings`` so that
-      ``TabularPredictor.fit(model_class_settings={"<ag_key>": {"share_weights": False}})``
-      switches sharing off for that class alone (AutoGluon resolves the settings owner to the
-      nearest class declaring ``class_settings_cls``).
-    * ``warmup_modules``: the modules the warm-up imports before the fit.
-    * ``_default_shared_weights_params()``: the checkpoint-relevant literals of
-      ``_set_default_params``, overlaid on the user hyperparameters before the key is derived.
-    * ``shared_weights_key(*, problem_type, hyperparameters, device) -> WeightsKey | None``: the
-      single source of truth for warm-up and fit; ``None`` disables sharing for that configuration.
-    * ``_load_shared_weights(key)``: the classmethod loader.
-    * ``_shares_network()``: False when ``ag.save_pretrained_weights`` is set, when the class
-      settings disable sharing, or when the configuration is unshareable.
-    * ``_ensure_network(device=None)``: reattaches the registry object to a weightless estimator.
-    * ``__getstate__``: pickles the estimator without the shared object (see :func:`detach_attr`)
-      only when the fit shared its network, so the refit child's save inside the timed fit no
-      longer serializes the checkpoint.
-    * ``_class_tags`` with ``set_device_on_save_to=None``: no CPU round-trip before a weightless
-      save.
-    * ``_set_device``: swaps the registry entry for the new device type and never calls ``.to()``
-      on a shared module.
-    * ``prepare_for_inference()``: untimed and idempotent; ``_ensure_network()``, ``eval()``, a
-      CUDA synchronize.
-    * ``_get_memory_size()``: ``_get_pickled_size() + tensor_bytes(network)``.
-    * ``get_info()["shared_weights"]``: the key as a dict, ``loaded_by``, ``present_before_fit``
-      and ``checkpoint_source``.
+    Wrappers inherit :class:`tabarena.models._shared_weights_model.SharedWeightsModelMixin` and
+    declare a ``SharedWeightsSpec``; that module's docstring is the how-to (key derivation, the
+    weightless pickle, device swaps, the metadata block). This module is the registry only.
 
 This module imports torch only inside the functions that need it, so importing it from a wrapper's
 ``model.py`` keeps ``import tabarena.models`` cheap.
@@ -605,18 +580,24 @@ def load_state_dict_file(
     device: str = "cpu",
     *,
     pin_memory: bool = False,
+    format: Literal["auto", "safetensors", "torch"] = "auto",
 ) -> dict[str, torch.Tensor]:
     """Read a checkpoint file into a state dict on ``device``.
 
-    ``.safetensors`` files go through ``safetensors.torch.load_file``; everything else through
-    ``torch.load(map_location=device, weights_only=True)``. With ``pin_memory`` and CUDA available,
-    CPU tensors are pinned so a later host-to-device copy runs asynchronously; a state dict cached
-    in pinned host memory is what a fine-tuning wrapper copies into each child's own module.
+    With ``format="auto"`` a ``.safetensors`` suffix selects ``safetensors.torch.load_file`` and
+    everything else ``torch.load(map_location=device, weights_only=True)``; a Hugging Face blob path
+    carries no suffix, so callers that know the format name it. With ``pin_memory`` and CUDA
+    available, CPU tensors are pinned so a later host-to-device copy runs asynchronously; a state
+    dict cached in pinned host memory is what a fine-tuning wrapper copies into each child's own
+    module.
     """
     import torch
 
     path = Path(path)
-    if path.suffix == ".safetensors":
+    if format not in ("auto", "safetensors", "torch"):
+        raise ValueError(f"format must be 'auto', 'safetensors' or 'torch', got {format!r}")
+    use_safetensors = format == "safetensors" or (format == "auto" and path.suffix == ".safetensors")
+    if use_safetensors:
         from safetensors.torch import load_file
 
         state_dict = load_file(str(path), device=device)

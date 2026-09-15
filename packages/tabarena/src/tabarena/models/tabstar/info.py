@@ -3,7 +3,7 @@ from __future__ import annotations
 from tabarena.models._method_metadata import MethodMetadata
 from tabarena.models._model_info import ModelInfo
 from tabarena.models.tabstar.hpo import gen_tabstar
-from tabarena.models.tabstar.model import TabSTARModel, prefetch_weights
+from tabarena.models.tabstar.model import TabSTARModel
 
 tabstar_method_metadata = MethodMetadata.config(
     method="TabSTAR",
@@ -26,5 +26,5 @@ tabstar_info = ModelInfo(
     search_space=gen_tabstar,
     method_metadata=tabstar_method_metadata,
     pip_extra=("tabstar==1.1.15",),
-    prefetch_weights=prefetch_weights,
+    prefetch_weights=TabSTARModel.prefetch_weights,
 )

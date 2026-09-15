@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-import time
 from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar
 
@@ -9,18 +8,25 @@ from autogluon.common.utils.pandas_utils import get_approximate_df_mem_usage
 from autogluon.features.generators import LabelEncoderFeatureGenerator
 from autogluon.tabular.models.abstract.abstract_torch_model import AbstractTorchModel
 
+from tabarena.models.tabpfnv2_5._shared import TABPFN_SPEC, TabPFNSharedWeightsMixin
+
 if TYPE_CHECKING:
     import pandas as pd
+
+    from tabarena.models._shared_weights_model import SharedWeightsSpec
 
 logger = logging.getLogger(__name__)
 
 _HAS_LOGGED_TABPFN_LICENSE: bool = False
 
 
-class TabPFNModel(AbstractTorchModel):
+class TabPFNModel(TabPFNSharedWeightsMixin, AbstractTorchModel):
     """TabPFN-2.5 is a tabular foundation model that is developed and maintained by PriorLabs: https://priorlabs.ai/.
 
     This class is an abstract template for various TabPFN versions as subclasses.
+
+    The network is shared through :class:`tabarena.models.tabpfnv2_5._shared.TabPFNSharedWeightsMixin`,
+    including the rows of the ``ManyClassClassifier`` wrapper used for more than ten classes.
 
     Paper: Accurate predictions on small data with a tabular foundation model
     Authors: Noah Hollmann, Samuel Müller, Lennart Purucker, Arjun Krishnakumar, Max Körfer, Shi Bin Hoo, Robin Tibor Schirrmeister & Frank Hutter
@@ -31,10 +37,13 @@ class TabPFNModel(AbstractTorchModel):
     ag_key = "NOTSET"
     warmup_modules: ClassVar[tuple[str, ...]] = (
         "tabpfn",
+        "tabpfn.base",
+        "tabpfn.inference_config",
         "tabpfn.model_loading",
         "tabpfn.finetuning.finetuned_classifier",
         "tabpfn.finetuning.finetuned_regressor",
         "tabpfn_extensions.many_class",
+        "tabarena.models.tabpfnv2_5._estimators",
     )
     ag_name = "NOTSET"
     ag_priority = 105
@@ -51,6 +60,10 @@ class TabPFNModel(AbstractTorchModel):
     default_num_gpus = 1
     default_resources_physical_cores_only = True
     minimum_num_gpus = 1
+
+    #: ``[classifier, regressor]`` checkpoint names; a file lives in ``custom_model_dir`` when set, else in tabpfn's cache.
+    checkpoint_param: ClassVar[str] = "zip_model_path"
+    shared_weights_spec: ClassVar[SharedWeightsSpec] = TABPFN_SPEC
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -83,6 +96,17 @@ class TabPFNModel(AbstractTorchModel):
 
         return X
 
+    def _get_model_class(self):
+        from tabpfn import TabPFNClassifier, TabPFNRegressor
+
+        return TabPFNClassifier if self.problem_type in ("binary", "multiclass") else TabPFNRegressor
+
+    @staticmethod
+    def _get_many_class_class():
+        from tabpfn_extensions.many_class import ManyClassClassifier
+
+        return ManyClassClassifier
+
     # FIXME: Crashes during model download if bagging with parallel fit.
     #  Consider adopting same download logic as TabPFNMix which doesn't crash during model download.
     # FIXME: Maybe support child_oof somehow with using only one model and being smart about inference time?
@@ -97,9 +121,6 @@ class TabPFNModel(AbstractTorchModel):
         time_limit: float | None = None,
         **kwargs,
     ):
-        time.time()
-
-        from tabpfn.model_loading import resolve_model_path
         from torch.cuda import is_available
 
         is_classification = self.problem_type in ["binary", "multiclass"]
@@ -114,7 +135,7 @@ class TabPFNModel(AbstractTorchModel):
 
         X = self.preprocess(X, y=y, is_train=True)
 
-        hps = self._get_model_params()
+        hps = dict(self._get_model_params())
         hps["device"] = device
         hps["n_jobs"] = num_cpus
         hps["categorical_features_indices"] = self._cat_indices
@@ -148,21 +169,10 @@ class TabPFNModel(AbstractTorchModel):
             hps.pop("balance_probabilities", None)
 
         # Resolve model_path
-        if self.custom_model_dir is not None:
-            model_dir = Path(self.custom_model_dir)
-        else:
-            _, model_dir, _, _ = resolve_model_path(
-                model_path=None,
-                which="classifier" if is_classification else "regressor",
-            )
-            model_dir = model_dir[0]
-        clf_path, reg_path = hps.pop(
-            "zip_model_path",
-            [self.default_classification_model, self.default_regression_model],
-        )
-        model_path = clf_path if is_classification else reg_path
-        if model_path is not None:
-            hps["model_path"] = model_dir / model_path
+        checkpoint = self._checkpoint_path(problem_type=self.problem_type, hyperparameters=hps)
+        hps.pop(self.checkpoint_param, None)
+        if checkpoint is not None:
+            hps["model_path"] = checkpoint
 
         # Resolve inference_config
         inference_config = {
@@ -195,20 +205,19 @@ class TabPFNModel(AbstractTorchModel):
         hps = self._adjust_hyperparameters_for_large_data(X=X, hps=hps, is_classification=is_classification)
 
         if not use_finetuning:
-            from tabpfn import TabPFNClassifier, TabPFNRegressor
-
             if self.fixed_random_state is not None:
                 hps[self.seed_name] = self.fixed_random_state
 
+            key, payload = self._acquire_shared_weights(device=device)
+            hps = self._swap_in_shared_specs(hps, payload)
+
             # Use ICL, fit preprocessing only
-            model_base = TabPFNClassifier if is_classification else TabPFNRegressor
+            model_base = self._get_model_class()
             self.model = model_base(**hps)
 
             # Wrap with ManyClassClassifier for datasets with >10 classes
             if is_classification and self.num_classes is not None and self.num_classes > 10:
-                from tabpfn_extensions.many_class import ManyClassClassifier
-
-                self.model = ManyClassClassifier(
+                self.model = self._get_many_class_class()(
                     estimator=self.model,
                     alphabet_size=10,
                     random_state=hps.get(self.seed_name, 0),
@@ -219,6 +228,7 @@ class TabPFNModel(AbstractTorchModel):
                 X=X,
                 y=y,
             )
+            self._finish_shared_fit(payload)
         else:
             raise NotImplementedError(
                 "Finetuning is not supported anymore for now due to other changes!.",
@@ -274,41 +284,6 @@ class TabPFNModel(AbstractTorchModel):
         }
         for param, val in default_params.items():
             self._set_default_param_value(param, val)
-
-    def _get_base_tabpfn_model(self):
-        """Unwrap ManyClassClassifier to get the underlying TabPFN estimator."""
-        try:
-            from tabpfn_extensions.many_class import ManyClassClassifier
-        except ImportError:
-            return self.model
-        if isinstance(self.model, ManyClassClassifier):
-            return self.model.estimator
-        return self.model
-
-    def get_device(self) -> str:
-        base = self._get_base_tabpfn_model()
-        if hasattr(base, "devices_"):
-            return base.devices_[0].type
-        # When wrapped in ManyClassClassifier, the base estimator is not fitted
-        # and devices_ is not available. Fall back to the constructor device param.
-        return base.device
-
-    def _set_device(self, device: str):
-        self._get_base_tabpfn_model().to(device)
-
-    @classmethod
-    def _get_default_ag_args_ensemble(cls, **kwargs) -> dict:
-        """Set fold_fitting_strategy to sequential_local,
-        as parallel folding crashes if model weights aren't pre-downloaded.
-        """
-        default_ag_args_ensemble = super()._get_default_ag_args_ensemble(**kwargs)
-        extra_ag_args_ensemble = {
-            # FIXME: Find a work-around to avoid crash if parallel and weights are not downloaded
-            "fold_fitting_strategy": "sequential_local",
-            "refit_folds": default_ag_args_ensemble.pop("refit_folds", True),
-        }
-        default_ag_args_ensemble.update(extra_ag_args_ensemble)
-        return default_ag_args_ensemble
 
     @classmethod
     def _estimate_memory_usage_static(
@@ -501,11 +476,3 @@ class TabPFNv26Model(TabPFNModel):
             dataclasses.replace(transform, max_features_per_estimator=self.large_data_max_features_per_estimator)
             for transform in transforms
         ]
-
-
-def prefetch_weights() -> None:
-    """Pre-download all TabPFN checkpoints (shared by the v2.5 / v2.6 wrappers)."""
-    from tabpfn.model_loading import download_all_models, resolve_model_path
-
-    _, model_dir, _, _ = resolve_model_path(model_path=None, which="classifier")
-    download_all_models(to=model_dir[0])

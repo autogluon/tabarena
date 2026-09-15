@@ -1,12 +1,20 @@
 """Mitra-v2 estimators: AutoGluon's Mitra sklearn interface running the frozen recipe.
 
+Every bag child fine-tunes its own copy of the 77M-parameter Tab2D backbone. What the children
+share is the starting point, the checkpoint's fp32 state dict held by the shared-weights registry;
+:func:`build_backbone` gives each trainer a backbone built on the meta device with that state dict
+copied into fresh storage on the fit device.
+
 Imports torch and AutoGluon's Mitra internals, so it is only imported from the wrapper's
 fit path, never at module discovery time.
 """
 
 from __future__ import annotations
 
+import functools
+import json
 import time
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -15,8 +23,11 @@ from autogluon.common.utils.random import get_numpy_seed
 from autogluon.tabular.models.mitra._internal.config.enums import LossName, Task
 from autogluon.tabular.models.mitra.sklearn_interface import MitraClassifier, MitraRegressor
 
-from tabarena.models.mitra_v2._internal.recipe import RecipeSettings
+from tabarena.models._shared_estimators import SharedStateDictEstimatorMixin, build_from_state_dict
+from tabarena.models.mitra_v2._internal.recipe import CHECKPOINT_FILES, RecipeSettings
 from tabarena.models.mitra_v2._internal.trainer import MitraV2Trainer, is_cuda_oom
+
+CONFIG_FILE = CHECKPOINT_FILES[0]
 
 #: Fine-tuning context sizes that fit the GPU, learned from the out-of-memory ratchet in
 #: :meth:`MitraV2Mixin._train_ensemble` and keyed on the table shape. The eight children of a bag run
@@ -31,7 +42,40 @@ def _context_memo_key(task, n_rows: int, n_features: int, support_cap: int, quer
     return (str(task), int(n_features), round(n_rows / 256), int(support_cap), int(query_cap))
 
 
-class MitraV2Mixin:
+def read_checkpoint_config(checkpoint_dir: str) -> dict:
+    """The ``config.json`` of a ``Tab2D.save_pretrained`` directory (dim, dim_output, n_layers, n_heads, task)."""
+    with open(Path(checkpoint_dir) / CONFIG_FILE) as f:
+        return json.load(f)
+
+
+def build_backbone(model_cls: type, checkpoint_dir: str, state_dict: dict[str, torch.Tensor], device: str):
+    """A child's own backbone on ``device`` holding a copy of ``state_dict``.
+
+    Same constructor arguments as ``model_cls.from_pretrained`` (config from ``checkpoint_dir``,
+    ``use_pretrained_weights=False``, the device string), so ``use_flash_attn``, ``device_type``,
+    ``task``, ``training`` and ``requires_grad`` match a stock build. The module is constructed
+    under ``torch.device("meta")``, which allocates nothing and draws nothing from torch's random
+    generators (the stock CPU construction randomly initializes every parameter and then overwrites
+    them), then materialized on ``device`` and filled tensor by tensor from ``state_dict`` with
+    ``strict=True``. Tab2D has no buffers, so no uninitialized storage survives, and the child
+    fine-tunes its own parameters while the shared state dict stays untouched.
+    """
+    cfg = read_checkpoint_config(checkpoint_dir)
+    factory = functools.partial(
+        model_cls,
+        dim=cfg["dim"],
+        dim_output=cfg["dim_output"],
+        n_layers=cfg["n_layers"],
+        n_heads=cfg["n_heads"],
+        task=cfg["task"],
+        use_pretrained_weights=False,
+        path_to_weights="",
+        device=str(device),
+    )
+    return build_from_state_dict(factory, state_dict, device)
+
+
+class MitraV2Mixin(SharedStateDictEstimatorMixin):
     """Recipe plumbing shared by :class:`MitraV2Classifier` and :class:`MitraV2Regressor`.
 
     The recipe is attached after construction (:meth:`configure_recipe`) so the sklearn
@@ -40,6 +84,11 @@ class MitraV2Mixin:
     called they join the in-context support of every later prediction. Until then predictions
     condition on the fit rows alone, which is what keeps validation and out-of-fold predictions
     honest.
+
+    With a state dict attached through ``configure_shared_weights`` the backbone of every trainer
+    is built by :func:`build_backbone` from the process-shared checkpoint tensors instead of
+    ``Tab2D.from_pretrained``; the estimator borrows the dict for the duration of ``fit`` and never
+    pickles it.
     """
 
     recipe: RecipeSettings = RecipeSettings()
@@ -49,6 +98,12 @@ class MitraV2Mixin:
     def configure_recipe(self, recipe: RecipeSettings) -> None:
         """Attach the per-fit recipe values (call before ``fit``)."""
         self.recipe = recipe
+
+    def _build_backbone(self, model_cls: type) -> torch.nn.Module:
+        """One trainer's backbone on ``self.device``: a copy of the shared state dict, or the stock load."""
+        if self._shared_state_dict is None:
+            return model_cls.from_pretrained(self.hf_model, device=self.device)
+        return build_backbone(model_cls, self.hf_model, self._shared_state_dict, self.device)
 
     def fit(self, X, y, X_val=None, y_val=None, time_limit=None):
         result = super().fit(X, y, X_val=X_val, y_val=y_val, time_limit=time_limit)
@@ -92,7 +147,13 @@ class MitraV2Mixin:
         return cfg, model_cls
 
     def _train_ensemble(self, X_train, y_train, X_valid, y_valid, task, dim_output, n_classes=0, time_limit=None):
-        """Stock training loop, constructing :class:`MitraV2Trainer` instead of the stock trainer."""
+        """Stock training loop, constructing :class:`MitraV2Trainer` instead of the stock trainer.
+
+        Each trainer's backbone comes from :meth:`_build_backbone`: a private copy of the shared
+        checkpoint state dict when one is attached, the stock load otherwise. A child whose table
+        shape already fitted at the requested caps earlier in the process (a memo hit) skips the
+        trainer's memory preflight on its first attempt; the out-of-memory ratchet re-arms it.
+        """
         cfg, model_cls = self._create_config(task, dim_output, time_limit)
         rng = np.random.RandomState(get_numpy_seed(cfg.seed))
 
@@ -101,6 +162,9 @@ class MitraV2Mixin:
             task, len(X_train), X_train.shape[1], hp["max_samples_support"], hp["max_samples_query"]
         )
         memo = _FITTED_CONTEXT_MEMO.get(memo_key)
+        # A memo equal to the requested caps also proves the context fits, so the hit is not the
+        # strict comparison below, which only shrinks the caps.
+        memo_hit = memo is not None
         if memo is not None and memo < (hp["max_samples_support"], hp["max_samples_query"]):
             print(
                 f"Starting fine-tuning at max_samples_support={memo[0]}, max_samples_query={memo[1]}: the context that fit this table shape earlier in this process."
@@ -108,6 +172,7 @@ class MitraV2Mixin:
             hp["max_samples_support"], hp["max_samples_query"] = memo
 
         success = False
+        attempt = 0
         while not success and cfg.hyperparams["max_samples_support"] > 0 and cfg.hyperparams["max_samples_query"] > 0:
             model = None
             trainer = None
@@ -115,7 +180,7 @@ class MitraV2Mixin:
                 self.trainers.clear()
                 self.train_time = 0
                 for _ in range(self.n_estimators):
-                    model = model_cls.from_pretrained(self.hf_model, device=self.device)
+                    model = self._build_backbone(model_cls)
                     trainer = MitraV2Trainer(
                         cfg,
                         model,
@@ -124,6 +189,7 @@ class MitraV2Mixin:
                         rng=rng,
                         verbose=self.verbose,
                         recipe=self.recipe,
+                        skip_preflight=memo_hit and attempt == 0,
                     )
                     start_time = time.time()
                     trainer.train(X_train, y_train, X_valid, y_valid)
@@ -138,6 +204,7 @@ class MitraV2Mixin:
                 trainer = None
                 model = None
                 torch.cuda.empty_cache()
+                attempt += 1
                 # Same fallback as stock AutoGluon: shrink the fine-tuning context and retry.
                 old_support = cfg.hyperparams["max_samples_support"]
                 cfg.hyperparams["max_samples_support"] = old_support // 2

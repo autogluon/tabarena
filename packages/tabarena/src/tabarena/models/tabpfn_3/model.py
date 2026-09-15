@@ -1,19 +1,51 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import TYPE_CHECKING, ClassVar
 
 from autogluon.common.utils.pandas_utils import get_approximate_df_mem_usage
 from autogluon.tabular.models.abstract.abstract_torch_model import AbstractTorchModel
 
+from tabarena.models.tabpfnv2_5._shared import TABPFN_SPEC, TabPFNSharedWeightsMixin
+
 if TYPE_CHECKING:
     import pandas as pd
 
+    from tabarena.models._shared_weights_model import SharedWeightsSpec
 
-class TabPFN3Model(AbstractTorchModel):
-    """TabPFN-3 TabArena Integration."""
+
+def _device_from_hyperparameters(hyperparameters: dict, allocated: str) -> str | None:
+    """A ``device`` hyperparameter string names the shared network's device; a list or ``"auto"`` disables sharing.
+
+    tabpfn deep-copies the module per device of a device list, and ``"auto"`` is resolved by the
+    library at fit time, so neither can be keyed before the fit.
+    """
+    requested = hyperparameters.get("device")
+    if requested is None:
+        return allocated
+    if not isinstance(requested, str) or requested == "auto":
+        return None
+    return requested
+
+
+class TabPFN3Model(TabPFNSharedWeightsMixin, AbstractTorchModel):
+    """TabPFN-3 TabArena Integration.
+
+    The network is shared through :class:`tabarena.models.tabpfnv2_5._shared.TabPFNSharedWeightsMixin`;
+    a user ``model_path`` keeps the library's own load.
+    """
 
     ag_key = "TA-TABPFN-3"
-    warmup_modules: ClassVar[tuple[str, ...]] = ("tabpfn", "tabpfn.model_loading")
+    #: Every module the loader and the fit import lazily (the tabpfn import chain costs about 0.5 s warm).
+    warmup_modules: ClassVar[tuple[str, ...]] = (
+        "tabpfn",
+        "tabpfn.base",
+        "tabpfn.classifier",
+        "tabpfn.regressor",
+        "tabpfn.model_loading",
+        "tabpfn.inference_config",
+        "tabarena.models.tabpfnv2_5._estimators",
+    )
     ag_name = "TA-TabPFN-3"
     ag_priority = 105
     seed_name = "random_state"
@@ -23,7 +55,7 @@ class TabPFN3Model(AbstractTorchModel):
 
     _supported_problem_types = ["binary", "multiclass", "regression"]
 
-    checkpoint_param_name: str = "checkpoint_per_problem_type"
+    checkpoint_param: ClassVar[str] = "checkpoint_per_problem_type"
     """Name of the optional config hyperparameter that overrides the checkpoint per problem type.
 
     Its value is a dict mapping a problem type to a checkpoint. Keys may be ``"binary"`` /
@@ -33,6 +65,12 @@ class TabPFN3Model(AbstractTorchModel):
     not listed fall back to ``default_classification_model`` / ``default_regression_model``. It is
     popped from the hyperparameters in :meth:`_fit` (it is not a tabpfn estimator argument).
     """
+
+    shared_weights_spec: ClassVar[SharedWeightsSpec] = replace(
+        TABPFN_SPEC,
+        disable_when=(*TABPFN_SPEC.disable_when, "model_path"),
+        device_from_params=_device_from_hyperparameters,
+    )
 
     _categorical_indices: list[int] | None
     """The indices of the categorical features, detected during preprocessing."""
@@ -67,31 +105,6 @@ class TabPFN3Model(AbstractTorchModel):
 
         return TabPFNClassifier if is_classification else TabPFNRegressor
 
-    def _resolve_checkpoint_for_problem_type(self, checkpoint_per_problem_type: dict[str, str] | None) -> str | None:
-        """Select this task's checkpoint name from an optional per-problem-type override.
-
-        Resolution order: the exact ``problem_type`` key (``"binary"`` / ``"multiclass"`` /
-        ``"regression"``) -> the ``"classification"`` umbrella key (for binary/multiclass only) ->
-        the ``default_classification_model`` / ``default_regression_model`` class attribute.
-        """
-        is_classification = self.problem_type in ["binary", "multiclass"]
-        overrides = checkpoint_per_problem_type or {}
-        model = overrides.get(self.problem_type)
-        if model is None and is_classification:
-            model = overrides.get("classification")
-        if model is None:
-            model = self.default_classification_model if is_classification else self.default_regression_model
-        return model
-
-    def _get_model_checkpoint(self, checkpoint_per_problem_type: dict[str, str] | None = None):
-        """Resolve the checkpoint to a full path: pick the name (see
-        :meth:`_resolve_checkpoint_for_problem_type`) then prepend the tabpfn cache dir (a no-op
-        for an absolute path).
-        """
-        from tabpfn.model_loading import prepend_cache_path
-
-        return prepend_cache_path(self._resolve_checkpoint_for_problem_type(checkpoint_per_problem_type))
-
     def _fit(
         self,
         X: pd.DataFrame,
@@ -100,19 +113,27 @@ class TabPFN3Model(AbstractTorchModel):
         num_gpus: int = 0,
         **kwargs,
     ):
+        """Fit TabPFN-3 on the checkpoint that matches the problem type.
+
+        ``num_cpus`` is unused: tabpfn's ``n_jobs`` is deprecated and ignored.
+        """
         X = self.preprocess(X, y=y, is_train=True)
 
         # Set hyperparameters
-        hps = dict(self._get_model_params())
-        checkpoint_per_problem_type = hps.pop(self.checkpoint_param_name, None)
+        user_hps = dict(self._get_model_params())
+        user_hps.pop(self.checkpoint_param, None)
+        device = self._resolve_tabpfn_device(num_gpus=num_gpus)
         default_hps = dict(
-            model_path=self._get_model_checkpoint(checkpoint_per_problem_type),
-            device=self._resolve_tabpfn_device(num_gpus=num_gpus),
-            n_jobs=num_cpus,
+            model_path=self._checkpoint_path(problem_type=self.problem_type, hyperparameters=self._get_model_params()),
+            device=device,
             categorical_features_indices=self._categorical_indices,
         )
         default_hps[self.seed_name] = self.fixed_random_state
-        hps = {**default_hps, **hps}  # hps later to override any conflicting keys default keys.
+        hps = {**default_hps, **user_hps}  # hps later to override any conflicting keys default keys.
+
+        # A device list (several GPUs) keeps the library's own per-device load.
+        key, payload = self._acquire_shared_weights(device=device) if isinstance(device, str) else (None, None)
+        hps = self._swap_in_shared_specs(hps, payload)
 
         # Initialize and fit the model
         model_class = self._get_model_class()
@@ -121,6 +142,7 @@ class TabPFN3Model(AbstractTorchModel):
             X=X,
             y=y,
         )
+        self._finish_shared_fit(payload)
 
     # --- Model Behavior Management ---
     def _set_default_params(self):
@@ -133,17 +155,6 @@ class TabPFN3Model(AbstractTorchModel):
     # TODO:
     #  - add support for many-class wrapper to remove the limit fully
     #  - add row/col limit?
-    @classmethod
-    def _get_default_ag_args_ensemble(cls, **kwargs) -> dict:
-        """Ensure one fold is fit at a time and refits is enabled by default."""
-        default_ag_args_ensemble = super()._get_default_ag_args_ensemble(**kwargs)
-        extra_ag_args_ensemble = {
-            "fold_fitting_strategy": "sequential_local",
-            "refit_folds": default_ag_args_ensemble.pop("refit_folds", True),
-        }
-        default_ag_args_ensemble.update(extra_ag_args_ensemble)
-        return default_ag_args_ensemble
-
     def _more_tags(self) -> dict:
         return {"can_refit_full": True}
 
@@ -169,22 +180,6 @@ class TabPFN3Model(AbstractTorchModel):
 
         return [f"cuda:{i}" for i in range(num_gpus)]
 
-    def get_device(self) -> str:
-        base = self.model
-        if hasattr(base, "devices_"):
-            return base.devices_[0].type
-
-        from collections.abc import Sequence
-
-        device = base.device
-        if isinstance(device, Sequence):
-            return device[0]
-
-        return device
-
-    def _set_device(self, device: str):
-        self.model.to(device)
-
     # TODO: obtain memory estimation with/without chunking
     @classmethod
     def _estimate_memory_usage_static(
@@ -197,11 +192,3 @@ class TabPFN3Model(AbstractTorchModel):
         baseline_mem_est = 10 * 1e9  # 10 GB minimum for TabPFN-3 model + activations
         dataset_mem_est = 5 * get_approximate_df_mem_usage(X).sum()
         return int(baseline_mem_est + dataset_mem_est)
-
-
-def prefetch_weights() -> None:
-    """Pre-download all TabPFN checkpoints via the tabpfn loader (warms the cache)."""
-    from tabpfn.model_loading import download_all_models, resolve_model_path
-
-    _, model_dir, _, _ = resolve_model_path(model_path=None, which="classifier")
-    download_all_models(to=model_dir[0])

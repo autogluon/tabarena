@@ -107,6 +107,23 @@ branch). The downstream ops already expect 2-D input, so removing the
 squeeze is a no-op for the multi-feature case and fixes the one-feature
 case.
 
+### 4. Injectable network: `inference/predictor.py`
+
+**Why:** `LimiXPredictor.__init__` reads the checkpoint through `load_model`,
+and `build_preprocess_pipeline` constructs one `InferenceAttentionMap` per
+retrieval pipeline, each of which calls `load_model(self.model_path)` again in
+its own `__init__`. A bagged fit therefore reads and builds the same 16M network
+many times per child. TabArena keeps one immutable network per process in
+`tabarena.models._weights` (primed by the untimed warm-up) and hands it to every
+fold and refit child.
+
+**Change:** `LimiXPredictor.__init__` gained a keyword-only `model` argument
+(default `None`). When given, no checkpoint is read: `self.model` is the passed
+module and a new helper `_attention_map_model()` hands the same module to every
+`InferenceAttentionMap` (whose constructor already accepted a module instead of
+a path). With `model=None` the behavior is byte-for-byte the upstream one. The
+flag `_model_injected` records which mode a predictor was built in.
+
 ## Known issue not patched: DDP path
 
 `InferenceResultWithRetrieval.inference` in

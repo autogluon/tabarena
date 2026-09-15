@@ -3,7 +3,7 @@ from __future__ import annotations
 from tabarena.models._method_metadata import MethodMetadata
 from tabarena.models._model_info import ModelInfo
 from tabarena.models.mitra_v2.hpo import gen_mitra_v2
-from tabarena.models.mitra_v2.model import MitraV2Model, prefetch_weights
+from tabarena.models.mitra_v2.model import MitraV2Model
 
 mitra_v2_method_metadata = MethodMetadata.config(
     method="Mitra-v2",
@@ -31,5 +31,5 @@ mitra_v2_info = ModelInfo(
     # AutoGluon's Mitra extra (loguru, einops, transformers, huggingface_hub, ...). flash-attn is
     # optional and needs a prebuilt wheel: `pip install flash-attn --no-build-isolation`.
     pip_extra=("autogluon.tabular[mitra]>=1.6,<1.7",),
-    prefetch_weights=prefetch_weights,
+    prefetch_weights=MitraV2Model.prefetch_weights,
 )

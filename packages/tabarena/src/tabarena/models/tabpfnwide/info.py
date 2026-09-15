@@ -28,4 +28,6 @@ tabpfnwide_info = ModelInfo(
     search_space=gen_tabpfnwide,
     method_metadata=tabpfnwide_method_metadata,
     pip_extra=("tabpfnwide>=0.3.0",),
+    # The warm-up primes the shared network local-first; this prefetch puts the files on the head node.
+    prefetch_weights=TabPFNWideModel.prefetch_weights,
 )

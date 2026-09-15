@@ -48,7 +48,8 @@ in ``AbstractExecModel.pre_predict``.
 Dispatch. :func:`warmup_model_cls` runs, for one AutoGluon model class, the layers (1) declared
 ``warmup`` classmethod, (2) torch and CUDA context for ``AbstractTorchModel`` subclasses, (3) the
 ``warmup_modules`` ClassVar collected over the MRO, (4) :data:`WARMUP_STEPS_BY_AG_KEY` for AutoGluon
-built-ins, (5) shared weights via ``shared_weights_key`` and ``_load_shared_weights``, and (6) the
+built-ins, (5) shared weights via the ``SharedWeightsModelMixin`` classmethods ``shared_weights_key``
+and ``_load_shared_weights``, and (6) the
 dummy fit. Every step is recorded in a :class:`WarmupReport`; a failing step is logged and recorded
 and never stops the others. :func:`run_warmup_fn` wraps a whole ``warmup_fn`` and the runner stores
 the report under ``experiment_metadata["warmup_report"]``.
@@ -584,8 +585,9 @@ def warmup_shared_weights(
     """Prime the shared-weights registry with the key the fit of ``model_cls`` will use (layer 5).
 
     Skips silently (recording the step as skipped) when the class declares no ``shared_weights_key``
-    or ``_load_shared_weights``, when the key resolves to ``None`` (an unshareable configuration) or
-    when ``problem_type`` is unknown. The key is derived through :func:`strip_ag_args`,
+    or ``_load_shared_weights`` (``SharedWeightsModelMixin`` provides both, and
+    ``shared_weights_source`` for the entry's provenance), when the key resolves to ``None`` (an
+    unshareable configuration) or when ``problem_type`` is unknown. The key is derived through :func:`strip_ag_args`,
     :func:`resolve_warmup_num_gpus` and :func:`device_for_num_gpus`, the same helpers ``_fit`` uses,
     so the warm-up primes exactly what the fit looks up. The registry runs the loader under its
     random-state guard. A raising key derivation or loader is recorded as a failed step.
@@ -610,7 +612,9 @@ def warmup_shared_weights(
         if key is None:
             report.step(f"{name}:skipped")
             return
-        entry = prime(key, functools.partial(loader_fn, key), source={"stage": "warmup"})
+        source_fn = getattr(model_cls, "shared_weights_source", None)
+        source = {**(source_fn(key) if source_fn is not None else {}), "stage": "warmup"}
+        entry = prime(key, functools.partial(loader_fn, key), source=source)
         report.weights_preloaded.append(entry.to_metadata())
         report.step(name)
     except Exception as exc:
