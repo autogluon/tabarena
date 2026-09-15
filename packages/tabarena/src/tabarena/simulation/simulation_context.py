@@ -586,12 +586,17 @@ class ZeroshotSimulatorContext:
                 if self.dataset_to_problem_type_dict[self.task_to_dataset_dict[task]] in problem_type
             ]
         if as_dataset_fold:
-            tasks = [self._task_to_dataset_fold(task) for task in tasks]
+            # Resolve the tid -> dataset map once; `tid_to_dataset_dict` is a property that
+            # rebuilds the dict on every access, which made this loop quadratic in practice.
+            tid_to_dataset = self.tid_to_dataset_dict
+            tasks = [self._task_to_dataset_fold(task, tid_to_dataset=tid_to_dataset) for task in tasks]
         return tasks
 
-    def _task_to_dataset_fold(self, task: str) -> tuple[str, int]:
+    def _task_to_dataset_fold(self, task: str, tid_to_dataset: dict[int, str] | None = None) -> tuple[str, int]:
+        if tid_to_dataset is None:
+            tid_to_dataset = self.tid_to_dataset_dict
         tid, fold = task_to_tid_fold(task=task)
-        dataset = self.tid_to_dataset_dict[tid]
+        dataset = tid_to_dataset[tid]
         return dataset, fold
 
     def _get_tasks_from_datasets(self, datasets: list[str]):
