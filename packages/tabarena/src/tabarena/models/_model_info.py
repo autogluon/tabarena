@@ -4,7 +4,8 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Iterable, Mapping
+    from pathlib import Path
 
     from tabarena.models._method_metadata import MethodMetadata
 
@@ -36,6 +37,9 @@ class ModelInfo:
         Optional zero-arg ``prefetch_weights`` callable that ensures this model's (foundation)
         weights are present locally — by convention a ``prefetch_weights`` function in the model's
         ``model.py`` (or its ``info.py`` for models supported out of the box via an external class).
+        It may return nothing, or the local path(s) it fetched (a path, an iterable of paths, or a
+        mapping whose values are paths, for example ``{task: local_path}``); returned paths are
+        checked for existence and an empty collection counts as a partial prefetch.
         ``None`` (the default) means the model has nothing to prefetch (tree / linear baselines).
         Consumed by :func:`tabarena.models.prefetch.prefetch_weights`, the single standardized entry
         point for warming weights before a benchmark runs.
@@ -53,5 +57,5 @@ class ModelInfo:
     search_space: Callable
     method_metadata: MethodMetadata
     pip_extra: tuple[str, ...] = field(default_factory=tuple)
-    prefetch_weights: Callable[[], None] | None = None
+    prefetch_weights: Callable[[], Iterable[str | Path] | Mapping[str, str | Path] | str | Path | None] | None = None
     superseded: bool = False
