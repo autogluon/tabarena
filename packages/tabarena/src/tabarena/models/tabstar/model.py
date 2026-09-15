@@ -4,7 +4,8 @@ import logging
 from typing import TYPE_CHECKING, ClassVar
 
 from autogluon.common.utils.resource_utils import ResourceManager
-from autogluon.core.models import AbstractModel
+from autogluon.core.models.abstract import SharedWeights
+from autogluon.tabular.models.abstract.abstract_torch_model import AbstractTorchModel
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -15,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 # TODO:
 #   - support for metric_name was rolled back, so maybe in the future add support for AG metrics again.
-class TabSTARModel(AbstractModel):
+class TabSTARModel(AbstractTorchModel):
     """TabSTAR Model: https://arxiv.org/abs/2505.18125."""
 
     ag_key = "TABSTAR"
@@ -27,6 +28,16 @@ class TabSTARModel(AbstractModel):
     default_num_gpus = 1
     default_resources_physical_cores_only = True
     minimum_num_gpus = 1
+    #: The library builds the base model through ``TabStarModel.from_pretrained`` twice per fit (to
+    #: train, and to attach the saved adapters). The checkpoint is read once per process; every
+    #: fit fine-tunes its own deep copy and pickles it.
+    shared_weights: ClassVar[SharedWeights] = SharedWeights(
+        loader="tabstar.arch.arch:TabStarModel.from_pretrained",
+        key=("pretrained_model_name_or_path",),
+        copy_per_fit=True,
+    )
+    #: Knobs that make the warm-up's dummy fit cheap without touching the network.
+    cheap_hyperparameters: ClassVar[dict] = {"max_epochs": 1}
 
     def _fit(
         self,
@@ -145,6 +156,16 @@ class TabSTARModel(AbstractModel):
 
     def _more_tags(self) -> dict:
         return {"can_refit_full": True}
+
+    @classmethod
+    def _class_tags(cls):
+        # The estimator places its model itself; AutoGluon moves nothing on save or load.
+        return {
+            **super()._class_tags(),
+            "can_set_device": False,
+            "set_device_on_save_to": None,
+            "set_device_on_load": False,
+        }
 
 
 def prefetch_weights() -> None:

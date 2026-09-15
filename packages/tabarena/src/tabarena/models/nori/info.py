@@ -45,7 +45,9 @@ nori_info = ModelInfo(
     model_cls=NoriModel,
     search_space=gen_nori,
     method_metadata=nori_new_method_metadata,
-    pip_extra=("synthefy-nori>=0.7.0",),
+    # >=0.10.0 provides the variant registry (``synthefy_nori.hf.resolve_model_repo``) the wrapper
+    # resolves its checkpoint through; ``NoriPredictor(model=...)`` exists since 0.7.0.
+    pip_extra=("synthefy-nori>=0.10.0",),
     prefetch_weights=NoriModel.prefetch_weights,
 )
 

@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, ClassVar
 import numpy as np
 from autogluon.common.utils.pandas_utils import get_approximate_df_mem_usage
 from autogluon.common.utils.resource_utils import ResourceManager
+from autogluon.core.models.abstract import SharedWeights
 from autogluon.features.generators import LabelEncoderFeatureGenerator
 from autogluon.tabular.models.abstract.abstract_torch_model import AbstractTorchModel
 
@@ -46,6 +47,14 @@ class NoriModel(AbstractTorchModel):
     default_num_gpus = 1
     default_resources_physical_cores_only = True
     minimum_num_gpus = 1
+    #: ``NoriPredictor`` loads its network through ``synthefy_nori.inference.predictor.load_model``;
+    #: one build per checkpoint file and device per process. The loader has no device input, so
+    #: ``_fit`` records the device on ``self.device`` before the fit.
+    shared_weights: ClassVar[SharedWeights] = SharedWeights(
+        loader="synthefy_nori.inference.predictor:load_model", key=("model_path", "mask_prediction")
+    )
+    #: Nori and Nori-30M are registered separately; each owns its ``share_weights`` class setting.
+    class_settings_per_subclass = True
     # Cap context size at 100k rows; no feature or class limits (regression-only).
     _default_auxiliary_params_extra = {
         "max_rows": 100_000,
@@ -109,8 +118,14 @@ class NoriModel(AbstractTorchModel):
 
         # NoriRegressor normalizes y internally and denormalizes its predictions, so
         # we pass y through unchanged (it is coerced to float64 inside fit).
+        self.device = device  # keys the shared network; the library's loader names no device
         self.model = NoriRegressor(device=device, **hps)
         self.model.fit(X, y)
+        # Developer fix: NoriRegressor (synthefy-nori 0.13.0) builds its predictor, and with it reads the
+        # checkpoint, at the first predict. Building it here keeps that load inside the fit (where the
+        # network is shared) and lets the timed predict start with a ready predictor. Library ask: a
+        # public way to build the predictor eagerly (``fit`` doing it, or a ``build_predictor()``).
+        self.model._get_predictor()
 
     def _set_default_params(self):
         default_params = {}

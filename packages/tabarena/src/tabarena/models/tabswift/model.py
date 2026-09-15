@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, ClassVar
 
 import numpy as np
 from autogluon.common.utils.resource_utils import ResourceManager
+from autogluon.core.models.abstract import SharedWeights
 from autogluon.features.generators import LabelEncoderFeatureGenerator
 from autogluon.tabular.models.abstract.abstract_torch_model import AbstractTorchModel
 from sklearn.impute import SimpleImputer
@@ -46,6 +47,17 @@ class TabSwiftModel(AbstractTorchModel):
     default_num_gpus = 1
     default_resources_physical_cores_only = True
     minimum_num_gpus = 1
+    #: The vendored estimators build their network inside ``_load_model``, which ``fit`` calls; one
+    #: build per checkpoint file and device per process (one ``swift.ckpt`` serves both tasks).
+    shared_weights: ClassVar[SharedWeights] = SharedWeights(
+        loader=(
+            "tabarena.models.tabswift._vendor.classifier:TabSwiftClassifier._load_model",
+            "tabarena.models.tabswift._vendor.regressor:TabSwiftRegressor._load_model",
+        ),
+        key=("model_path",),
+    )
+    #: Knobs that make the warm-up's dummy fit cheap without touching the network.
+    cheap_hyperparameters: ClassVar[dict] = {"n_estimators": 1}
     # Sequential fold fitting avoids contention on the shared HF checkpoint cache.
     # ``refit_folds=True`` matches the other TFM wrappers (TabICL, LimiX, TabPFN-3, ...):
     # for an in-context-learning model, refitting one model on all data gives faster

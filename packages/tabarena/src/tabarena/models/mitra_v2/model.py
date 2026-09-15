@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, ClassVar
 import numpy as np
 import pandas as pd
 from autogluon.common.utils.pandas_utils import get_approximate_df_mem_usage
+from autogluon.core.models.abstract import SharedWeights
 from autogluon.tabular.models.mitra.mitra_model import MitraModel
 
 from tabarena.models.mitra_v2._internal import recipe
@@ -97,6 +98,15 @@ class MitraV2Model(MitraModel):
     ag_name = "TA-Mitra-v2"
     ag_priority = 65
     minimum_num_gpus = 1
+    #: Every trainer builds its backbone through ``Tab2D.from_pretrained``; the checkpoint is read once
+    #: per process and each fit fine-tunes its own deep copy of that network.
+    shared_weights: ClassVar[SharedWeights] = SharedWeights(
+        loader="autogluon.tabular.models.mitra._internal.models.tab2d:Tab2D.from_pretrained",
+        key=("path_or_repo_id",),
+        copy_per_fit=True,
+    )
+    #: Knobs that make the warm-up's dummy fit cheap without touching the network.
+    cheap_hyperparameters: ClassVar[dict] = {"fine_tune_steps": 1}
 
     #: Lifts the stock Mitra caps (10,000 rows, 500 features): the recipe subsamples the support
     #: and reduces wide tables itself. The class cap is the checkpoint's head width.

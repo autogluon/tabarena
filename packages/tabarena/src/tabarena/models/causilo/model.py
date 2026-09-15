@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import ClassVar
 
+from autogluon.core.models.abstract import SharedWeights
 from autogluon.tabular.models.abstract.abstract_torch_model import AbstractTorchModel
 
 
@@ -30,6 +31,14 @@ class CausiloModel(AbstractTorchModel):
     minimum_num_gpus = 1
     _default_auxiliary_params_extra = {"valid_raw_types": ["int", "float", "category"]}
     _default_ag_args_ensemble_extra = {"fold_fitting_strategy": "sequential_local", "refit_folds": True}
+    #: ``Engine.fit`` loads the network through ``causilo.checkpoints.load_pretrained_model(task)`` and
+    #: moves it to the engine's device; one build per task and device per process. The loader
+    #: has no device input, so ``_fit`` records the device on ``self.device`` before the fit.
+    shared_weights: ClassVar[SharedWeights] = SharedWeights(
+        loader="causilo.checkpoints:load_pretrained_model", key=("task",)
+    )
+    #: Knobs that make the warm-up's dummy fit cheap without touching the network.
+    cheap_hyperparameters: ClassVar[dict] = {"n_estimators": 1}
 
     def _fit(self, X, y, X_val=None, y_val=None, time_limit=None, num_cpus=1, num_gpus=0, **kwargs):
         import torch
@@ -49,6 +58,7 @@ class CausiloModel(AbstractTorchModel):
         previous_threads = torch.get_num_threads()
         try:
             torch.set_num_threads(num_cpus)
+            self.device = device  # keys the shared network; the library's loader names no device
             self.model = cls(device=device, **params)
             self.model.fit(self.preprocess(X), y)
         finally:
