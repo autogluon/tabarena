@@ -2,10 +2,12 @@
 
 Fakes stand in for AutoGluon (shared ones in ``conftest.py``): metadata bookkeeping (the best
 model's ``get_info()`` is collected once and read consistently, the new inference-side keys), the
-single-child bag-artifact reuse of the timed prediction and its fallbacks, the lazy internal-data
-load of ``get_per_child_val_idx``, the artifact-root environment override and ``uses_ray``. The
-``models``-marked class at the end fits a tiny real RandomForest bag to prove the reuse path is
-bit-identical to the per-child forward pass.
+single-child bag-artifact reuse of the timed prediction and its fallbacks, the bag's per-child
+recorder of the timed predict (switched on in ``pre_predict``, popped by ``bag_artifact``, off again
+afterwards and in ``cleanup``, absent on an older AutoGluon), the lazy internal-data load of
+``get_per_child_val_idx``, the artifact-root environment override and ``uses_ray``. The
+``models``-marked class at the end fits a tiny real RandomForest bag to prove that both the
+single-child reuse and the recorder path are bit-identical to the per-child forward pass.
 """
 
 from __future__ import annotations
@@ -428,6 +430,171 @@ class TestPerChildTestFromTimedOutput:
         assert wrapper._per_child_test_from_timed_output(model=bag, n_rows=4, y_pred=None, y_pred_proba=short) is None
 
 
+class _FakeRecorderBag(_FakeSingleChildBag):
+    """A bag with AutoGluon's per-child recorder; ``predict_proba`` stands in for the timed predict.
+
+    Child ``i`` predicts ``(i + 1) * f0`` for every row, so the recorded arrays carry the row order
+    they were predicted in and the artifact's shuffle inversion is checkable. The recorder mirrors
+    ``BaggedEnsembleModel``: class-level defaults, one list of per-child arrays per recorded call,
+    ``pop_child_pred_proba`` stitching consecutive calls together and clearing.
+    """
+
+    record_child_pred_proba = False
+    _child_pred_proba_recorded = None
+
+    def __init__(self, *, n_children: int = 2, **kwargs):
+        super().__init__(n_children=n_children, **kwargs)
+        self.predict_calls = 0
+
+    def child_outputs(self, X: pd.DataFrame) -> list[np.ndarray]:
+        f0 = X["f0"].to_numpy(dtype=np.float32)
+        return [f0 * np.float32(i + 1) for i in range(self.n_children)]
+
+    def predict_proba(self, X: pd.DataFrame) -> np.ndarray:
+        self.predict_calls += 1
+        children = self.child_outputs(X)
+        if self.record_child_pred_proba:
+            if self._child_pred_proba_recorded is None:
+                self._child_pred_proba_recorded = []
+            self._child_pred_proba_recorded.append(children)
+        return sum(children) / self.n_children
+
+    def pop_child_pred_proba(self):
+        recorded, self._child_pred_proba_recorded = self._child_pred_proba_recorded, None
+        if recorded is None:
+            return None
+        if len(recorded) == 1:
+            return recorded[0]
+        return [np.concatenate(chunks, axis=0) for chunks in zip(*recorded, strict=True)]
+
+
+def _recorder_wrapper(bag, problem_type: str = "binary") -> AGSingleBagWrapper:
+    cleaner = (
+        LabelCleanerDummy(problem_type="regression")
+        if problem_type == "regression"
+        else LabelCleanerBinary(y=pd.Series(["no", "yes", "yes", "no"]), verbose=False)
+    )
+    wrapper = _bag_wrapper(problem_type, cleaner, bag)
+    # AGWrapper.pre_predict's persist step needs a real predictor; the recorder does not.
+    wrapper.persist = False
+    return wrapper
+
+
+class TestPerChildTestFromRecorder:
+    def _timed_predict(self, wrapper, bag) -> None:
+        """Run the fake's predict_proba on the shuffled test rows, as the timed predict does."""
+        X_shuffled, _inv_perm, _index = wrapper._shuffle_test_rows(_X_TEST)
+        assert not np.array_equal(X_shuffled["f0"].to_numpy(), _X_TEST["f0"].to_numpy()), "the shuffle moved rows"
+        bag.predict_proba(X_shuffled)
+
+    def test_recorder_is_armed_in_pre_predict_and_its_arrays_become_the_artifact(self):
+        bag = _FakeRecorderBag()
+        wrapper = _recorder_wrapper(bag)
+
+        wrapper.pre_predict()
+        assert bag.record_child_pred_proba is True
+        assert wrapper._child_pred_proba_recorder_bag is bag
+        self._timed_predict(wrapper, bag)
+
+        artifact = wrapper.bag_artifact(_X_TEST, y_pred_proba=None)
+
+        assert wrapper.per_child_test_source == "timed_prediction_recorder"
+        assert bag.forward_calls == 0
+        assert bag.predict_calls == 1
+        expected = bag.child_outputs(_X_TEST)  # the original row order
+        assert len(artifact["pred_proba_test_per_child"]) == 2
+        for child, exp in zip(artifact["pred_proba_test_per_child"], expected, strict=True):
+            assert child.dtype == np.float32
+            assert np.array_equal(child, exp)
+        # Switched off and emptied after the pop, so a later predict keeps no arrays alive.
+        assert bag.record_child_pred_proba is False
+        assert bag.pop_child_pred_proba() is None
+        assert wrapper._child_pred_proba_recorder_bag is None
+        assert [list(v) for v in artifact["val_idx_per_child"]] == [[0, 2], [1, 3]]
+
+    def test_regression_uses_the_recorder_too(self):
+        bag = _FakeRecorderBag()
+        wrapper = _recorder_wrapper(bag, problem_type="regression")
+        wrapper.pre_predict()
+        self._timed_predict(wrapper, bag)
+
+        children = wrapper.get_per_child_test(_X_TEST, model=bag, y_pred=None)
+
+        assert wrapper.per_child_test_source == "timed_prediction_recorder"
+        assert bag.forward_calls == 0
+        for child, exp in zip(children, bag.child_outputs(_X_TEST), strict=True):
+            assert np.array_equal(child, exp)
+
+    def test_cleanup_switches_the_recorder_off(self, tmp_path):
+        bag = _FakeRecorderBag()
+        wrapper = _recorder_wrapper(bag)
+        wrapper.predictor.path = str(tmp_path / "ag")
+        wrapper.pre_predict()
+        self._timed_predict(wrapper, bag)
+
+        wrapper.cleanup()
+
+        assert bag.record_child_pred_proba is False
+        assert bag.pop_child_pred_proba() is None
+        assert wrapper._child_pred_proba_recorder_bag is None
+
+    def test_bag_without_recorder_takes_the_forward_pass(self):
+        bag = _FakeSingleChildBag(n_children=2)  # an AutoGluon bag that predates the recorder
+        wrapper = _recorder_wrapper(bag)
+
+        wrapper.pre_predict()
+        assert not hasattr(bag, "record_child_pred_proba")
+        assert wrapper._child_pred_proba_recorder_bag is None
+        children = wrapper.get_per_child_test(_X_TEST, model=bag)
+
+        assert bag.forward_calls == 1
+        assert len(children) == 2
+        assert wrapper.per_child_test_source == "child_forward_pass"
+
+    def test_nothing_recorded_takes_the_forward_pass(self):
+        bag = _FakeRecorderBag()
+        wrapper = _recorder_wrapper(bag)
+        wrapper.pre_predict()  # armed, but the timed predict never ran
+
+        children = wrapper.get_per_child_test(_X_TEST, model=bag)
+
+        assert bag.forward_calls == 1
+        assert len(children) == 2
+        assert wrapper.per_child_test_source == "child_forward_pass"
+        assert bag.record_child_pred_proba is False
+
+    def test_row_count_mismatch_takes_the_forward_pass(self):
+        bag = _FakeRecorderBag()
+        wrapper = _recorder_wrapper(bag)
+        wrapper.pre_predict()
+        self._timed_predict(wrapper, bag)
+        self._timed_predict(wrapper, bag)  # a second predict accumulates to twice the rows
+
+        wrapper.get_per_child_test(_X_TEST, model=bag)
+
+        assert bag.forward_calls == 1
+        assert wrapper.per_child_test_source == "child_forward_pass"
+        assert bag.pop_child_pred_proba() is None
+
+    def test_single_child_reuse_wins_and_empties_the_recorder(self):
+        cleaner = LabelCleanerBinary(y=pd.Series(["no", "yes", "yes", "no"]), verbose=False)
+        negative, positive = cleaner.ordered_class_labels
+        p = np.array([0.1, 0.9, 0.6, 0.3])
+        proba = pd.DataFrame({negative: 1 - p, positive: p})
+        bag = _FakeRecorderBag(n_children=1)
+        wrapper = _bag_wrapper("binary", cleaner, bag)
+        wrapper.persist = False
+        wrapper.pre_predict()
+        self._timed_predict(wrapper, bag)
+
+        (child,) = wrapper.get_per_child_test(_X_TEST, model=bag, y_pred_proba=proba)
+
+        assert wrapper.per_child_test_source == "timed_prediction"
+        assert np.array_equal(child, p.astype(np.float32))
+        assert bag.record_child_pred_proba is False
+        assert bag.pop_child_pred_proba() is None
+
+
 class TestGetPerChildValIdx:
     def test_refit_oof_skips_load_data_internal(self):
         bag = _FakeSingleChildBag()
@@ -465,13 +632,22 @@ class TestGetPerChildValIdx:
 
 @pytest.mark.models
 class TestBagArtifactReuseNumerics:
-    """A real (tiny, CPU-only) RandomForest bag: the reuse path equals the per-child forward pass bit for bit."""
+    """A real (tiny, CPU-only) RandomForest bag: the timed-predict paths equal the per-child forward pass bit for bit.
+
+    ``refit_folds=True`` leaves a single child, whose artifact reuses the timed prediction;
+    ``refit_folds=False`` keeps both fold children, whose artifact comes from the bag's per-child
+    recorder when the installed AutoGluon has one (a forward pass otherwise).
+    """
 
     @pytest.mark.parametrize("problem_type", ["binary", "multiclass", "regression"])
     @pytest.mark.parametrize("refit_folds", [True, False])
     def test_reuse_matches_forward_pass(self, tmp_path, problem_type, refit_folds):
         pytest.importorskip("sklearn")
+        from autogluon.core.models import BaggedEnsembleModel
+
         from tabarena.utils.synthetic_data import make_synthetic_frames
+
+        recorder_available = hasattr(BaggedEnsembleModel, "record_child_pred_proba")
 
         X, y, X_test = make_synthetic_frames(problem_type, n_rows=80, n_features=4, n_categorical=1, seed=0)
         metric = {"binary": "roc_auc", "multiclass": "log_loss", "regression": "rmse"}[problem_type]
@@ -494,14 +670,25 @@ class TestBagArtifactReuseNumerics:
         )
         try:
             out = wrapper.fit_custom(X, y, X_test)
+            served_bag = wrapper._load_model()
             reused = wrapper.bag_artifact(X_test, y_pred=out["predictions"], y_pred_proba=out["probabilities"])
             reused_source = wrapper.per_child_test_source
+            if recorder_available:
+                # Popped and switched off, so the second artifact below has to predict per child.
+                assert served_bag.record_child_pred_proba is False
+                assert served_bag.pop_child_pred_proba() is None
             forward = wrapper.bag_artifact(X_test)
         finally:
             wrapper.cleanup()
 
         assert wrapper.per_child_test_source == "child_forward_pass"
-        assert reused_source == ("timed_prediction" if refit_folds else "child_forward_pass")
+        if refit_folds:
+            expected_source = "timed_prediction"
+        elif recorder_available:
+            expected_source = "timed_prediction_recorder"
+        else:
+            expected_source = "child_forward_pass"
+        assert reused_source == expected_source
         n_children = 1 if refit_folds else 2
         assert len(reused["pred_proba_test_per_child"]) == len(forward["pred_proba_test_per_child"]) == n_children
         for a, b in zip(reused["pred_proba_test_per_child"], forward["pred_proba_test_per_child"], strict=True):
