@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import ctypes
+import os
 import subprocess
 import time
+import uuid
 from pathlib import Path
 
 import numpy as np
@@ -66,11 +68,29 @@ class CppMetrics:
         return self._handle.cpp_rmse_ext(y_true, y_pred, len(y_true))
 
     def _compile(self):
+        """Compile the C++ kernels into ``plugin_path()``.
+
+        The library is built into a per-process temporary file next to the target and then
+        moved into place with ``os.replace`` (atomic on POSIX). Several processes may start
+        compiling at once (e.g. ray workers whose first metric call happens on a fresh
+        checkout); with an in-place ``-o cpp_metrics.so`` a process that finished, or whose
+        existence check passed, could ``dlopen`` a half-written file from another linker and
+        fail with "invalid ELF header" / "file too short". With the rename, readers only ever
+        see a missing file or a complete one, and concurrent compiles produce equivalent
+        libraries that replace each other harmlessly.
+        """
         # load compilation command
         with open(self.compile_script_path()) as f:
             # remove \n character from the command line
             compile_command = f.readlines()[1].replace("\n", "")
         assert compile_command.startswith("g++")
+
+        plugin_path = self.plugin_path()
+        tmp_path = plugin_path.with_name(f"{plugin_path.name}.tmp-{os.getpid()}-{uuid.uuid4().hex[:8]}")
+        args = compile_command.split(" ")
+        out_idx = args.index("-o") + 1
+        assert args[out_idx] == plugin_path.name, f"compile.sh must output {plugin_path.name}, got {args[out_idx]}"
+        args[out_idx] = tmp_path.name
 
         # execute compilation command
         print(f'Running "{compile_command}" to compile the c++ metric implementations.')
@@ -81,10 +101,10 @@ class CppMetrics:
         # diagnostics on stderr, which we leave attached to the parent so genuine compile
         # errors remain visible.
         proc = subprocess.Popen(  # noqa: S603
-            compile_command.split(" "),
+            args,
             shell=False,
             stdout=subprocess.DEVNULL,
-            cwd=Path(__file__).parent,
+            cwd=plugin_path.parent,
         )
 
         # wait command completion
@@ -93,11 +113,18 @@ class CppMetrics:
                 break
             time.sleep(0.1)
 
-        # handle potential failure: timeout or error while compiling
-        if proc.poll() is None:
-            raise ValueError("Could not compile after 60 secs.")
-        if proc.poll() != 0:
-            raise ValueError(f"Got an error while compiling, you can try to run manually {self.compile_script_path()}")
+        try:
+            # handle potential failure: timeout or error while compiling
+            if proc.poll() is None:
+                proc.kill()
+                raise ValueError("Could not compile after 60 secs.")
+            if proc.poll() != 0:
+                raise ValueError(
+                    f"Got an error while compiling, you can try to run manually {self.compile_script_path()}"
+                )
+            os.replace(tmp_path, plugin_path)
+        finally:
+            tmp_path.unlink(missing_ok=True)
 
     @staticmethod
     def compile_script_path() -> Path:
