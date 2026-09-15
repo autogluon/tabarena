@@ -1,5 +1,9 @@
 """Mitra-v2 estimators: AutoGluon's Mitra sklearn interface running the frozen recipe.
 
+Every trainer builds its backbone through ``Tab2D.from_pretrained``, the call the wrapper's
+``shared_weights`` declaration names: the checkpoint is read once per process and each trainer
+fine-tunes its own deep copy of that network.
+
 Imports torch and AutoGluon's Mitra internals, so it is only imported from the wrapper's
 fit path, never at module discovery time.
 """
@@ -92,7 +96,12 @@ class MitraV2Mixin:
         return cfg, model_cls
 
     def _train_ensemble(self, X_train, y_train, X_valid, y_valid, task, dim_output, n_classes=0, time_limit=None):
-        """Stock training loop, constructing :class:`MitraV2Trainer` instead of the stock trainer."""
+        """Stock training loop, constructing :class:`MitraV2Trainer` instead of the stock trainer.
+
+        A child whose table shape already fitted at the requested caps earlier in the process (a memo
+        hit) skips the trainer's memory preflight on its first attempt; the out-of-memory ratchet
+        re-arms it.
+        """
         cfg, model_cls = self._create_config(task, dim_output, time_limit)
         rng = np.random.RandomState(get_numpy_seed(cfg.seed))
 
@@ -101,6 +110,9 @@ class MitraV2Mixin:
             task, len(X_train), X_train.shape[1], hp["max_samples_support"], hp["max_samples_query"]
         )
         memo = _FITTED_CONTEXT_MEMO.get(memo_key)
+        # A memo equal to the requested caps also proves the context fits, so the hit is not the
+        # strict comparison below, which only shrinks the caps.
+        memo_hit = memo is not None
         if memo is not None and memo < (hp["max_samples_support"], hp["max_samples_query"]):
             print(
                 f"Starting fine-tuning at max_samples_support={memo[0]}, max_samples_query={memo[1]}: the context that fit this table shape earlier in this process."
@@ -108,6 +120,7 @@ class MitraV2Mixin:
             hp["max_samples_support"], hp["max_samples_query"] = memo
 
         success = False
+        attempt = 0
         while not success and cfg.hyperparams["max_samples_support"] > 0 and cfg.hyperparams["max_samples_query"] > 0:
             model = None
             trainer = None
@@ -124,6 +137,7 @@ class MitraV2Mixin:
                         rng=rng,
                         verbose=self.verbose,
                         recipe=self.recipe,
+                        skip_preflight=memo_hit and attempt == 0,
                     )
                     start_time = time.time()
                     trainer.train(X_train, y_train, X_valid, y_valid)
@@ -138,6 +152,7 @@ class MitraV2Mixin:
                 trainer = None
                 model = None
                 torch.cuda.empty_cache()
+                attempt += 1
                 # Same fallback as stock AutoGluon: shrink the fine-tuning context and retry.
                 old_support = cfg.hyperparams["max_samples_support"]
                 cfg.hyperparams["max_samples_support"] = old_support // 2

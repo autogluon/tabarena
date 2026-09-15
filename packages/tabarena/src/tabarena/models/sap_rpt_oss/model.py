@@ -24,6 +24,8 @@ class SAPRPTOSSModel(AbstractTorchModel):
     seed_name = "random_state"
     _supported_problem_types = ["binary", "multiclass", "regression"]
     default_num_gpus = 1
+    #: Knobs that make the warm-up's dummy fit cheap.
+    cheap_hyperparameters: ClassVar[dict] = {"bagging": 1}
     default_resources_physical_cores_only = True
     minimum_num_gpus = 0.5
 

@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, ClassVar
 
 import numpy as np
 from autogluon.common.utils.resource_utils import ResourceManager
+from autogluon.core.models.abstract import SharedWeights
 from autogluon.features.generators import LabelEncoderFeatureGenerator
 from autogluon.tabular.models.abstract.abstract_torch_model import AbstractTorchModel
 
@@ -40,6 +41,15 @@ class EXAONETabularModel(AbstractTorchModel):
     default_num_gpus = 1
     default_resources_physical_cores_only = True
     minimum_num_gpus = 1
+    #: ``from_pretrained`` builds and loads the network inside one classmethod, so the loading half is
+    #: replicated in ``_estimators.load_network`` (a developer fix, see that module); one build per
+    #: task, compute dtype and device per process. A fit with custom weights or Hub coordinates runs
+    #: the library's ``from_pretrained`` and builds its own.
+    shared_weights: ClassVar[SharedWeights] = SharedWeights(
+        loader="tabarena.models.exaone_tabular._estimators:load_network", key=("task", "compute_dtype")
+    )
+    #: Knobs that make the warm-up's dummy fit cheap without touching the network.
+    cheap_hyperparameters: ClassVar[dict] = {"ensemble_count": 1}
     # Sequential fold fitting avoids contention on the shared Hugging Face checkpoint cache.
     # ``refit_folds=True`` matches the other TFM wrappers (TabICL, TabSwift, TabPFN-3, ...): for
     # an in-context-learning model, refitting one model on all data gives faster inference at
@@ -110,7 +120,7 @@ class EXAONETabularModel(AbstractTorchModel):
                 "Please switch to CPU usage instead.",
             )
 
-        from exaonetabular import EXAONETabularClassifier, EXAONETabularRegressor
+        from tabarena.models.exaone_tabular._estimators import estimator_cls, load_network, released_manifest
 
         hps = self._get_model_params()
         if device == "cpu" and hps.get("compute_dtype") == "float16":
@@ -124,8 +134,21 @@ class EXAONETabularModel(AbstractTorchModel):
         # own support set and maps its predictions back, and the classifier encodes the labels.
         y_np = np.asarray(y.to_numpy())
 
-        estimator_cls = EXAONETabularRegressor if self.problem_type == "regression" else EXAONETabularClassifier
-        self.model = estimator_cls.from_pretrained(device=device, **hps)
+        task = "regression" if self.problem_type == "regression" else "classification"
+        if set(hps) - {"ensemble_count", "compute_dtype", "seed", "max_vram_bytes"}:
+            # Custom weights or Hub coordinates: the library resolves, builds and loads for this fit alone.
+            self.model = estimator_cls(task).from_pretrained(device=device, **hps)
+        else:
+            network = load_network(task, device, hps.get("compute_dtype"))
+            manifest = released_manifest(
+                task,
+                ensemble_count=hps.get("ensemble_count"),
+                compute_dtype=hps.get("compute_dtype"),
+                seed=hps.get("seed"),
+            )
+            self.model = estimator_cls(task)(
+                manifest, device=device, model=network, max_vram_bytes=hps.get("max_vram_bytes")
+            )
         self.model.fit(X_np, y_np)
 
     def _set_default_params(self):
