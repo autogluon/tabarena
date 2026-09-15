@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import numpy as np
+import pandas as pd
 import pytest
 
 from tabarena.repository import EvaluationRepositoryCollection
@@ -171,3 +172,59 @@ def test_repository_collection_single():
     verify_equivalent_repository(repo1=repo, repo2=repo_collection_nested, verify_ensemble=True)
     for v in repo_collection_nested._mapping.values():
         assert v == 0
+
+
+def test_repository_collection_shares_ground_truth():
+    """Repos with interchangeable labels share one Series object per task after merging."""
+    import pickle
+
+    repo = load_repo_artificial()
+    repo_1 = repo.subset(configs=["NeuralNetFastAI_r2"])
+    repo_2 = repo.subset(configs=["NeuralNetFastAI_r1"])
+    gt_1, gt_2 = repo_1._ground_truth, repo_2._ground_truth
+    task = ("abalone", 0)
+    assert gt_1._label_val_dict[task[0]][task[1]] is not gt_2._label_val_dict[task[0]][task[1]]
+    size_separate = len(pickle.dumps([repo_1._ground_truth, repo_2._ground_truth]))
+
+    repo_collection = EvaluationRepositoryCollection(repos=[repo_1, repo_2])
+    for dataset in repo.datasets():
+        for fold in repo.folds:
+            for attr in ("_label_val_dict", "_label_test_dict"):
+                shared = getattr(repo_collection._ground_truth, attr)[dataset][fold]
+                assert getattr(gt_1, attr)[dataset][fold] is shared
+                assert getattr(gt_2, attr)[dataset][fold] is shared
+    size_shared = len(pickle.dumps([repo_1._ground_truth, repo_2._ground_truth, repo_collection._ground_truth]))
+    assert size_shared < size_separate
+    verify_equivalent_repository(repo1=repo, repo2=repo_collection, verify_ensemble=True)
+
+    # the merged dicts are the collection's own: growing it must not touch the first repo
+    repo_3 = repo.subset(datasets=["ada"])
+    repo_4 = repo.subset(datasets=["abalone"])
+    EvaluationRepositoryCollection(repos=[repo_3, repo_4])
+    assert repo_3._ground_truth.datasets == ["ada"]
+
+    # differing labels are not shared, and the last repo wins as before
+    repo_5 = repo.subset(configs=["NeuralNetFastAI_r1"])
+    series = repo_5._ground_truth._label_val_dict["abalone"][0]
+    repo_5._ground_truth._label_val_dict["abalone"][0] = series.copy() + 1
+    repo_collection = EvaluationRepositoryCollection(repos=[repo_1, repo_5])
+    merged = repo_collection._ground_truth._label_val_dict["abalone"][0]
+    assert merged is repo_5._ground_truth._label_val_dict["abalone"][0]
+    assert gt_1._label_val_dict["abalone"][0] is not merged
+    assert np.array_equal(
+        repo_collection.labels_val(dataset="abalone", fold=0), repo_5.labels_val(dataset="abalone", fold=0)
+    )
+
+
+def test_same_labels():
+    from tabarena.repository.evaluation_repository_collection import _same_labels
+
+    s = pd.Series([1.0, np.nan, 3.0], index=[5, 6, 7])
+    assert _same_labels(s, s.copy())
+    assert not _same_labels(s, s.copy() + 1)
+    assert not _same_labels(s, s.astype("float32"))
+    assert not _same_labels(s, pd.Series([1.0, np.nan, 3.0], index=[0, 1, 2]))
+    df = s.to_frame("y")
+    assert _same_labels(df, df.copy())
+    assert not _same_labels(df, s)
+    assert not _same_labels(df, df.rename(columns={"y": "z"}))
