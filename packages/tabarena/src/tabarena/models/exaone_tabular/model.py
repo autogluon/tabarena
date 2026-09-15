@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar
 
 import numpy as np
 from autogluon.common.utils.resource_utils import ResourceManager
@@ -32,6 +32,7 @@ class EXAONETabularModel(AbstractTorchModel):
     """
 
     ag_key = "TA-EXAONE-TABULAR"
+    warmup_modules: ClassVar[tuple[str, ...]] = ("exaonetabular.classifier", "exaonetabular.regressor")
     ag_name = "TA-EXAONE-Tabular"
     ag_priority = 65
     seed_name = "seed"
@@ -146,21 +147,6 @@ class EXAONETabularModel(AbstractTorchModel):
 
     def _more_tags(self) -> dict:
         return {"can_refit_full": True}
-
-    @classmethod
-    def warmup(cls, *, num_gpus: float | None = None, **kwargs) -> None:
-        """Warm torch (+ the CUDA context) and the ``exaonetabular`` import (untimed, data-independent).
-
-        Declaring this overrides the generic ``AbstractTorchModel`` torch warm-up, so the torch part
-        is re-done explicitly here; the extra piece is the library's own import chain (safetensors,
-        scikit-learn, the model modules), which would otherwise land in the timed fit. Both
-        estimator modules are imported regardless of the problem type: they share almost every
-        dependency, so the second one costs nothing measurable.
-        """
-        from tabarena.models.warmup import warmup_imports, warmup_torch
-
-        warmup_torch(cuda=None if num_gpus is None else num_gpus > 0)
-        warmup_imports("exaonetabular.classifier", "exaonetabular.regressor")
 
     @classmethod
     def download_checkpoint(cls, task: str) -> str:

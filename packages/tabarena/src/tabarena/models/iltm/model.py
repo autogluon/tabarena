@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 from contextlib import contextmanager
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar
 
 from autogluon.common.utils.resource_utils import ResourceManager
 from autogluon.tabular.models.abstract.abstract_torch_model import AbstractTorchModel
@@ -35,6 +35,12 @@ class ILTMModel(AbstractTorchModel):
     default_num_gpus = 1
     default_resources_physical_cores_only = True
     minimum_num_gpus = 1
+
+    warmup_modules: ClassVar[tuple[str, ...]] = ()
+    """Deliberately empty: importing ``iltm`` sets ``torch.backends.cuda.matmul.allow_tf32`` (see
+    :func:`_isolate_iltm_global_state`), and whether the first fit in a process runs with that flag
+    depends on where the import happens. Until the TF32 policy is set explicitly in ``_fit``, the
+    import stays inside the fit so every fold behaves as it did before the warm-up existed."""
 
     def _preprocess(self, X: pd.DataFrame, *, is_train: bool = False, **kwargs) -> pd.DataFrame:
         """Detect indices of pandas `category`-dtype columns for iLTM's `cat_features`.

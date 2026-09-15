@@ -208,11 +208,17 @@ def use_text_cache_for_task(task_id_or_object, *, has_text: bool, mode: TextCach
     unseen text raises rather than silently recomputing. If the cache is missing, ``require`` raises
     while ``auto`` falls back to on-the-fly computation. On exit, the generator's prior class state
     is always restored, so per-task caches never leak across tasks in a long-lived process.
+
+    ``SemanticTextFeatureGenerator.encodes_at_fit`` is set to True for the duration whenever a text
+    task will encode on the fly (``off``, or ``auto`` without a cache), so the untimed warm-up can
+    import the encoder stack beforehand; this is the one place where the mode, ``has_text`` and the
+    cache outcome are all known.
     """
     from tabarena.benchmark.preprocessing.text_feature_generators import SemanticTextFeatureGenerator
 
     prev_lookup = SemanticTextFeatureGenerator._embedding_look_up
     prev_only_load = SemanticTextFeatureGenerator.only_load_from_cache
+    prev_encodes = SemanticTextFeatureGenerator.encodes_at_fit
     try:
         if mode != "off" and has_text:
             task_key = text_cache_key(task_id_or_object)
@@ -227,7 +233,11 @@ def use_text_cache_for_task(task_id_or_object, *, has_text: bool, mode: TextCach
                     f"Expected at {text_cache_path(task_key)}. Pre-generate or download it "
                     f"(text_cache mode='require'); use mode='auto' to compute on the fly instead.",
                 )
+            SemanticTextFeatureGenerator.encodes_at_fit = cache_path is None
+        elif has_text:
+            SemanticTextFeatureGenerator.encodes_at_fit = True
         yield
     finally:
         SemanticTextFeatureGenerator._embedding_look_up = prev_lookup
         SemanticTextFeatureGenerator.only_load_from_cache = prev_only_load
+        SemanticTextFeatureGenerator.encodes_at_fit = prev_encodes

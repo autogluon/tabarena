@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar
 
 from autogluon.common.utils.resource_utils import ResourceManager
 from autogluon.core.models import AbstractModel
@@ -19,6 +19,7 @@ class TabSTARModel(AbstractModel):
     """TabSTAR Model: https://arxiv.org/abs/2505.18125."""
 
     ag_key = "TABSTAR"
+    warmup_modules: ClassVar[tuple[str, ...]] = ("torch", "tabstar.tabstar_model", "tabstar.training.hyperparams")
     ag_name = "TabSTAR"
     ag_priority = 65
     seed_name = "random_state"
@@ -128,14 +129,6 @@ class TabSTARModel(AbstractModel):
         }
         for param, val in default_params.items():
             self._set_default_param_value(param, val)
-
-    @classmethod
-    def warmup(cls, *, num_gpus: float | None = None, **kwargs) -> None:
-        """Warm torch (+ CUDA context) and the TabSTAR/transformers imports (untimed, data-independent)."""
-        from tabarena.models.warmup import warmup_imports, warmup_torch
-
-        warmup_torch(cuda=None if num_gpus is None else num_gpus > 0)
-        warmup_imports("tabstar.tabstar_model")
 
     @classmethod
     def _get_default_ag_args_ensemble(cls, **kwargs) -> dict:

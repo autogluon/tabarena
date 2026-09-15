@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar
 
 from autogluon.common.utils.resource_utils import ResourceManager
 from autogluon.core.constants import BINARY, MULTICLASS, REGRESSION
@@ -18,6 +18,7 @@ if TYPE_CHECKING:
 #   - memory limit is not strict and not well supported across threads/ray
 class PerpetualBoosterModel(AbstractModel):
     ag_key = "PB"
+    warmup_modules: ClassVar[tuple[str, ...]] = ("perpetual",)
     ag_name = "PerpetualBooster"
     _supported_problem_types = ["binary", "multiclass", "regression"]
 

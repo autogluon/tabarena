@@ -181,6 +181,13 @@ class SemanticTextFeatureGenerator(AbstractFeatureGenerator):
     """Stable feature names for the generated embedding features."""
     only_load_from_cache: bool = False
     """Whether to only load embeddings from cache and crash for on-the-fly encoding of unseen text values."""
+    encodes_at_fit: bool = False
+    """True while a fit of a text task runs without a loaded embedding cache.
+
+    That is ``text_cache_mode="off"``, or ``"auto"`` with a cache miss: the generator will import
+    ``sentence_transformers`` and build the encoder during the fit. Set and restored by
+    ``use_text_cache_for_task``, read by ``TabArenaModelAgnosticPreprocessing.warmup``. It carries
+    no data, only the fact that on-the-fly encoding will happen."""
 
     def _fit_transform(self, X: pd.DataFrame, **kwargs) -> tuple[pd.DataFrame, dict]:
         """See parameters of the parent class AbstractFeatureGenerator for more details

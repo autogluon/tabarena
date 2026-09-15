@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar
 
 from autogluon.common.utils.resource_utils import ResourceManager
 from autogluon.tabular.models.abstract.abstract_torch_model import AbstractTorchModel
@@ -18,6 +18,7 @@ class SAPRPTOSSModel(AbstractTorchModel):
     """ConTextTab Model: https://github.com/SAP-samples/sap-rpt-1-oss."""
 
     ag_key = "SAP-RPT-OSS"
+    warmup_modules: ClassVar[tuple[str, ...]] = ("sap_rpt_oss", "huggingface_hub")
     ag_name = "SAP-RPT-OSS"
     ag_priority = 65
     seed_name = "random_state"

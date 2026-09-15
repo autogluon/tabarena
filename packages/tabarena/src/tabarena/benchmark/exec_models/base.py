@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, ClassVar, Literal
 
 import numpy as np
 import pandas as pd
@@ -15,6 +15,8 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from autogluon.core.metrics import Scorer
+
+    from tabarena.models.warmup import WarmupReport
 
 
 class AbstractExecModel:
@@ -57,6 +59,21 @@ class AbstractExecModel:
     """Whether per-bagged-child test predictions are available (see ``bag_artifact``)."""
     can_get_per_child_val_idx = False
     """Whether per-bagged-child validation indices are available (see ``bag_artifact``)."""
+
+    # --- Declarative warm-up (untimed; see the ``warmup_fn`` property) ------------------
+    warmup_modules: ClassVar[tuple[str, ...]] = ()
+    """Modules this exec model wants imported untimed before the fit (merged over the MRO).
+
+    Declare the libraries the fit and predict import lazily; a ``"torch"`` entry also creates the
+    CUDA context when the compute budget allows it. A subclass that overrides ``warmup_fn`` must
+    start from ``self._declared_warmup()`` for these declarations to apply."""
+    warmup_torch_device: ClassVar[bool] = False
+    """If True, the default warm-up imports torch and creates the CUDA context (see ``_warmup_cuda``)."""
+    warmup_dummy_fit: ClassVar[bool] = True
+    """Whether the warm-up may fit and predict the wrapped model classes on a small synthetic dataset.
+
+    Read by the AutoGluon wrappers and passed to ``tabarena.models.warmup.warmup_model_cls``; systems
+    that fit a whole pipeline turn it off (see ``ExternalSystemModel``)."""
 
     _can_use_data_in_place: bool
     """Whether the training data may be used in place rather than defensively copied.
@@ -239,33 +256,71 @@ class AbstractExecModel:
 
     # --- Warm-up (untimed) -------------------------------------------------------------
     @property
-    def warmup_fn(self) -> Callable[[], None] | None:
+    def warmup_fn(self) -> Callable[[], WarmupReport | None] | None:
         """Optional zero-arg callable warming the execution environment before the timed fit.
 
         The experiment runner calls it (when not ``None``) after constructing the method and
         *before* ``fit_custom``, so nothing it does counts toward the measured ``time_train_s``
         / ``time_infer_s`` or any fit time limit. This mirrors reality: one-time per-environment
-        costs (library imports, JIT/kernel compilation, CUDA context initialization) are not
-        paid per fit by a long-lived deployment, so they should not inflate a method's measured
-        speed. Warm-up is best-effort — the runner logs a failure and fits cold.
+        costs (library imports, JIT/kernel compilation, CUDA context initialization, Ray startup,
+        shared checkpoint weights) are not paid per fit by a long-lived deployment, so they should
+        not inflate a method's measured speed. The runner records a failed or partial warm-up in
+        ``warmup_report`` and, with ``require_warmup`` (the default), aborts the run before the timed
+        fit instead of measuring a cold process.
+
+        Returning a ``WarmupReport`` lets the runner record what was warmed; returning ``None`` is
+        allowed (the runner still records the imported modules and the CUDA state around the call
+        through ``tabarena.models.warmup.run_warmup_fn``).
 
         This is an *environment* warm-up, not a fit-only one: it runs once per job, and since
         the same process serves the timed fit and the timed inference, everything it warms
         (imports, CUDA context, compiled kernels) also benefits ``time_infer_s``. Two things it
         deliberately does **not** cover: (1) data-dependent first-call inference work (e.g. lazy
         compilation triggered by the first ``predict`` on real data) stays in the measured
-        inference time — ``pre_predict`` / ``post_predict`` are the untimed hooks around
-        inference (used e.g. for model persistence); (2) worker processes spawned inside the fit
-        (parallel/Ray fold fitting) start cold — only disk-backed caches carry over (see
-        ``tabarena.models.warmup``).
+        inference time, with ``pre_predict`` / ``post_predict`` as the untimed hooks around
+        inference (used e.g. for model persistence); (2) parallel (Ray) fold workers spawned inside
+        the fit start cold unless the opt-in worker pool covered them; disk-backed caches carry
+        over (see ``tabarena.models.warmup``).
 
         Implementations may use everything known at construction time (``problem_type``,
         ``eval_metric``, hyperparameters, compute budget) but never the task's data, and must
         not carry task- or data-specific state into the fit.
 
-        Default: ``None`` (nothing to warm).
+        Default: ``self._declared_warmup`` when the class declares ``warmup_modules`` or
+        ``warmup_torch_device``, else ``None`` (nothing to warm). A subclass that overrides this
+        property must call ``self._declared_warmup()`` itself so the declarations still apply.
         """
-        return None
+        from tabarena.models.warmup import collect_warmup_modules
+
+        if not (collect_warmup_modules(type(self)) or self.warmup_torch_device):
+            return None
+        return self._declared_warmup
+
+    def _warmup_cuda(self) -> bool | None:
+        """Whether the default torch warm-up should create the CUDA context; ``None`` auto-detects.
+
+        Reads ``self.num_gpus`` when the exec model stores its compute budget there (systems do);
+        wrappers that keep it elsewhere override this.
+        """
+        num_gpus = getattr(self, "num_gpus", None)
+        return None if num_gpus is None else num_gpus > 0
+
+    def _declared_warmup(self, report: WarmupReport | None = None) -> WarmupReport:
+        """Apply the declarative warm-up (``warmup_torch_device`` then ``warmup_modules``) into a report.
+
+        The building block every ``warmup_fn`` starts from: the default property returns it directly
+        and the AutoGluon wrappers call it before their own layers.
+        """
+        from tabarena.models.warmup import WarmupReport, apply_warmup_entries, collect_warmup_modules, warmup_torch_step
+
+        if report is None:
+            report = WarmupReport()
+        cuda = self._warmup_cuda()
+        torch_done = False
+        if self.warmup_torch_device:
+            torch_done = warmup_torch_step(cuda=cuda, report=report)
+        apply_warmup_entries(collect_warmup_modules(type(self)), cuda=cuda, report=report, torch_done=torch_done)
+        return report
 
     # --- Fit / predict lifecycle hooks (overridable) ----------------------------------
     def post_fit(self, X: pd.DataFrame, y: pd.Series, X_test: pd.DataFrame):
