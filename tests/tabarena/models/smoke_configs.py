@@ -61,6 +61,8 @@ SMOKE_OVERRIDES: dict[str, ModelSmokeTest] = {
     "TabPFN-v2.6": ModelSmokeTest({"n_estimators": 1}),
     "RealTabPFN-v2.5": ModelSmokeTest({"n_estimators": 1}),
     "TabPFN-3": ModelSmokeTest({"n_estimators": 1, "device": "cpu"}),
+    "TabPFN-3.5": ModelSmokeTest({"n_estimators": 1, "device": "cpu"}),
+    "TabPFN-3.5-Fast": ModelSmokeTest({"n_estimators": 1, "device": "cpu"}),
     "TabPFN-Wide": ModelSmokeTest({"device": "cpu"}),
     "TabICL_GPU": ModelSmokeTest({"n_estimators": 1}),
     "TabICLv2": ModelSmokeTest({"n_estimators": 1}),

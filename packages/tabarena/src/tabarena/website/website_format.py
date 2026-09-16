@@ -158,6 +158,8 @@ def get_model_family(model_name: str, system_names: Container[str] = frozenset()
             "TABICLV2",
             "TABSTAR",
             "TA-TABPFN-3",
+            "TA-TABPFN-3.5",
+            "TA-TABPFN-3.5-FAST",
             "TA-ORION-MSP",
             "ORIONMSP",
             "TA-ILTM",

@@ -1,0 +1,283 @@
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any, ClassVar
+
+from autogluon.common.utils.pandas_utils import get_approximate_df_mem_usage
+from autogluon.core.models.abstract import SharedWeights
+from autogluon.tabular.models.abstract.abstract_torch_model import AbstractTorchModel
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+    from pathlib import Path
+
+    import pandas as pd
+
+
+def _mutates_network(params: Mapping[str, Any]) -> bool:
+    """Whether tabpfn writes into or casts the network under these estimator parameters.
+
+    ``fit_mode="fit_with_cache"`` writes the train-set representation into the module, and a
+    ``torch.dtype`` ``inference_precision`` makes the per-device model cache cast the module in
+    place; such a fit builds its own network.
+    """
+    if params.get("fit_mode", "fit_preprocessors") != "fit_preprocessors":
+        return True
+    return not isinstance(params.get("inference_precision", "auto"), str)
+
+
+class TabPFN35Model(AbstractTorchModel):
+    """TabPFN-3.5 TabArena integration.
+
+    TabPFN-3.5 is the September 2026 release of Prior Labs' tabular foundation model, an in-context
+    learner that predicts in a forward pass. From this release on, one multitask checkpoint carries
+    both the classification and the regression head, so the same file backs ``TabPFNClassifier``
+    and ``TabPFNRegressor``. The checkpoint accepts up to 1,000,000 rows, 20,000 features and 160
+    classes natively.
+
+    Codebase: https://github.com/PriorLabs/TabPFN (Apache 2.0)
+    Weights: https://huggingface.co/Prior-Labs/tabpfn_3_5 (TabPFN-3.5 License v1.0, non-commercial)
+    Technical report: https://priorlabs.ai/technical-reports/tabpfn-3-5
+    Model page: https://docs.priorlabs.ai/models
+    """
+
+    ag_key = "TA-TABPFN-3.5"
+    warmup_modules: ClassVar[tuple[str, ...]] = ("tabpfn", "tabpfn.model_loading")
+    ag_name = "TA-TabPFN-3.5"
+    ag_priority = 105
+    seed_name = "random_state"
+
+    model_version: ClassVar[str] = "v3.5"
+    """The tabpfn ``ModelVersion`` value this class runs; it selects the checkpoint's download source."""
+    default_checkpoint: str = "tabpfn-v3.5-20260909.safetensors"
+    """The multitask checkpoint used for every problem type unless ``checkpoint_per_problem_type``
+    names another one. A bare filename, resolved in the tabpfn cache dir."""
+
+    _supported_problem_types = ["binary", "multiclass", "regression"]
+
+    checkpoint_param_name: str = "checkpoint_per_problem_type"
+    """Name of the optional config hyperparameter that overrides the checkpoint per problem type.
+
+    Its value is a dict mapping a problem type to a checkpoint. Keys may be ``"binary"`` /
+    ``"multiclass"`` / ``"regression"``, or the ``"classification"`` umbrella (used for both
+    ``"binary"`` and ``"multiclass"`` unless a more specific key is given). Each value is a bare
+    filename (resolved in the tabpfn cache dir) or an absolute path to a checkpoint, for example
+    ``{"multiclass": "tabpfn-v3.5-20260909_multiclass.safetensors"}`` for the experimental
+    multiclass variant. Problem types not listed fall back to ``default_checkpoint``. It is popped
+    from the hyperparameters in :meth:`_fit` (it is not a tabpfn estimator argument).
+    """
+
+    _categorical_indices: list[int] | None
+    """The indices of the categorical features, detected during preprocessing."""
+    fixed_random_state: int = 0
+    """Using a fixed random seed, as in TabPFN-2.6 and TabPFN-3."""
+    _default_auxiliary_params_extra = {
+        "max_classes": 160,
+        # Batch inference once we exceed 150_000 samples (batching starts at 150_001).
+        "max_batch_size": 150_000,
+    }
+    default_num_gpus = 1
+    default_resources_physical_cores_only = True
+    minimum_num_gpus = 1
+    #: tabpfn builds its network inside ``_initialize_model_variables``, which ``fit`` calls; one
+    #: build per checkpoint and device per process. A fit whose configuration writes into the
+    #: network (a differentiable input, another fit mode, a forced dtype) builds its own.
+    shared_weights: ClassVar[SharedWeights] = SharedWeights(
+        loader=(
+            "tabpfn.classifier:TabPFNClassifier._initialize_model_variables",
+            "tabpfn.regressor:TabPFNRegressor._initialize_model_variables",
+        ),
+        key=("model_path",),
+        disabled_by=("differentiable_input", _mutates_network),
+    )
+    #: TabPFN-3.5 and TabPFN-3.5-Fast are registered separately; each owns its ``share_weights``
+    #: class setting.
+    class_settings_per_subclass = True
+    #: Knobs that make the warm-up's dummy fit cheap without touching the network.
+    cheap_hyperparameters: ClassVar[dict] = {"n_estimators": 1}
+
+    def _preprocess(self, X: pd.DataFrame, *, is_train=False, **kwargs) -> pd.DataFrame:
+        """Minimal model-specific preprocessing to detect the indices of categorical features."""
+        X = super()._preprocess(X, **kwargs)
+
+        if is_train:
+            categorical_cols = X.select_dtypes(include=["category"]).columns.tolist()
+            if categorical_cols:
+                self._categorical_indices = [X.columns.get_loc(col) for col in categorical_cols]
+            else:
+                self._categorical_indices = None
+
+        return X
+
+    def _get_model_class(self):
+        from tabpfn import TabPFNClassifier, TabPFNRegressor
+
+        is_classification = self.problem_type in ["binary", "multiclass"]
+
+        return TabPFNClassifier if is_classification else TabPFNRegressor
+
+    def _resolve_checkpoint_for_problem_type(self, checkpoint_per_problem_type: dict[str, str] | None) -> str:
+        """Select this task's checkpoint name from an optional per-problem-type override.
+
+        Resolution order: the exact ``problem_type`` key (``"binary"`` / ``"multiclass"`` /
+        ``"regression"``), then the ``"classification"`` umbrella key (for binary/multiclass only),
+        then the ``default_checkpoint`` class attribute.
+        """
+        is_classification = self.problem_type in ["binary", "multiclass"]
+        overrides = checkpoint_per_problem_type or {}
+        model = overrides.get(self.problem_type)
+        if model is None and is_classification:
+            model = overrides.get("classification")
+        if model is None:
+            model = self.default_checkpoint
+        return model
+
+    def _get_model_checkpoint(self, checkpoint_per_problem_type: dict[str, str] | None = None) -> str:
+        """Resolve the checkpoint to a full path: pick the name (see
+        :meth:`_resolve_checkpoint_for_problem_type`) then prepend the tabpfn cache dir (a no-op
+        for an absolute path).
+        """
+        from tabpfn.model_loading import prepend_cache_path
+
+        return prepend_cache_path(self._resolve_checkpoint_for_problem_type(checkpoint_per_problem_type))
+
+    def _fit(
+        self,
+        X: pd.DataFrame,
+        y: pd.Series,
+        num_cpus: int = 1,
+        num_gpus: int = 0,
+        **kwargs,
+    ):
+        X = self.preprocess(X, y=y, is_train=True)
+
+        # Set hyperparameters
+        hps = dict(self._get_model_params())
+        checkpoint_per_problem_type = hps.pop(self.checkpoint_param_name, None)
+        default_hps = dict(
+            model_path=self._get_model_checkpoint(checkpoint_per_problem_type),
+            device=self._resolve_tabpfn_device(num_gpus=num_gpus),
+            n_preprocessing_jobs=num_cpus,
+            categorical_features_indices=self._categorical_indices,
+        )
+        default_hps[self.seed_name] = self.fixed_random_state
+        hps = {**default_hps, **hps}  # hps later to override any conflicting keys default keys.
+
+        # Initialize and fit the model
+        model_class = self._get_model_class()
+        self.model = model_class(**hps)
+        self.model = self.model.fit(
+            X=X,
+            y=y,
+        )
+
+    # --- Model Behavior Management ---
+    def _set_default_params(self):
+        default_params = {
+            "ignore_pretraining_limits": True,  # to ignore warnings and size limits
+        }
+        for param, val in default_params.items():
+            self._set_default_param_value(param, val)
+
+    @classmethod
+    def _get_default_ag_args_ensemble(cls, **kwargs) -> dict:
+        """Ensure one fold is fit at a time and refits is enabled by default."""
+        default_ag_args_ensemble = super()._get_default_ag_args_ensemble(**kwargs)
+        extra_ag_args_ensemble = {
+            "fold_fitting_strategy": "sequential_local",
+            "refit_folds": default_ag_args_ensemble.pop("refit_folds", True),
+        }
+        default_ag_args_ensemble.update(extra_ag_args_ensemble)
+        return default_ag_args_ensemble
+
+    def _more_tags(self) -> dict:
+        return {"can_refit_full": True}
+
+    # --- Resource and GPU Management ---
+    @staticmethod
+    def _resolve_tabpfn_device(num_gpus: int) -> str | list[str]:
+        """Return device type based on number of GPUs, ensuring that if
+        GPUs are requested, they are available.
+        """
+        if num_gpus <= 0:
+            return "cpu"
+
+        import torch
+
+        if not torch.cuda.is_available():
+            raise AssertionError(
+                "Fit specified to use GPU, but CUDA is not available on this machine. "
+                "Please switch to CPU usage instead.",
+            )
+
+        if num_gpus == 1:
+            return "cuda"
+
+        return [f"cuda:{i}" for i in range(num_gpus)]
+
+    def get_device(self) -> str:
+        base = self.model
+        if hasattr(base, "devices_"):
+            return base.devices_[0].type
+
+        from collections.abc import Sequence
+
+        device = base.device
+        if isinstance(device, Sequence):
+            return device[0]
+
+        return device
+
+    def _set_device(self, device: str):
+        self.model.to(device)
+
+    # TODO: obtain memory estimation with/without chunking
+    @classmethod
+    def _estimate_memory_usage_static(
+        cls,
+        *,
+        X: pd.DataFrame,
+        **kwargs,
+    ) -> int:
+        """Assume a 10 GB baseline (model + activations) plus the dataset memory footprint."""
+        baseline_mem_est = 10 * 1e9  # 10 GB minimum for TabPFN-3.5 model + activations
+        dataset_mem_est = 5 * get_approximate_df_mem_usage(X).sum()
+        return int(baseline_mem_est + dataset_mem_est)
+
+    @classmethod
+    def prefetch_weights(cls) -> Path:
+        """Download this version's default checkpoint into the tabpfn cache and return its path.
+
+        tabpfn resolves the checkpoint by name through its own download function, which reads the
+        Hugging Face repo and file that ``model_version`` selects (see ``tabpfn.model_loading``).
+        """
+        from pathlib import Path
+
+        from tabpfn.constants import ModelVersion
+        from tabpfn.model_loading import download_model, prepend_cache_path
+
+        target = Path(prepend_cache_path(cls.default_checkpoint))
+        # The multitask checkpoint serves both estimator types, so one download covers both.
+        result = download_model(
+            to=target,
+            version=ModelVersion(cls.model_version),
+            which="classifier",
+            model_name=cls.default_checkpoint,
+        )
+        if result != "ok":
+            raise RuntimeError(f"Downloading {cls.default_checkpoint} failed: {result}") from result[0]
+        return target
+
+
+class TabPFN35FastModel(TabPFN35Model):
+    """TabPFN-3.5-Fast TabArena integration.
+
+    The smaller and faster sibling of TabPFN-3.5, released alongside it from the same Hugging Face
+    repo (Prior Labs reports up to 6x faster inference; the model is marked alpha). Same limits,
+    license and estimator surface as TabPFN-3.5; only the checkpoint differs.
+    """
+
+    ag_key = "TA-TABPFN-3.5-FAST"
+    ag_name = "TA-TabPFN-3.5-Fast"
+
+    model_version: ClassVar[str] = "v3.5-fast"
+    default_checkpoint: str = "tabpfn-v3.5-fast-20260909.safetensors"
