@@ -251,9 +251,9 @@ class ZeroshotSimulatorContext:
         )
         df_configs_ranked = df_configs.copy()
         if len(df_configs_ranked) > 0:
-            df_configs_ranked["rank"] = df_configs_ranked.apply(
-                lambda row: rank_scorer.rank(row["task"], row["metric_error"]),
-                axis=1,
+            df_configs_ranked["rank"] = rank_scorer.rank_many(
+                tasks=df_configs_ranked["task"].to_numpy(),
+                errors=df_configs_ranked["metric_error"].to_numpy(),
             )
         else:
             df_configs_ranked["rank"] = None

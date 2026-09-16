@@ -1,11 +1,7 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 import numpy as np
-
-if TYPE_CHECKING:
-    import pandas as pd
+import pandas as pd
 
 
 def get_rank(
@@ -102,6 +98,53 @@ class RankScorer:
         for task in tasks:
             row = sorted_errors[row_by_task[task]]
             self.error_dict[task] = row[~np.isnan(row)].tolist()
+
+    def rank_many(self, tasks, errors) -> np.ndarray:
+        """Vectorized :meth:`rank` over aligned ``tasks`` and ``errors`` arrays.
+
+        Returns the same values as calling :meth:`rank` per row (including the NaN handling of
+        each branch), computed per task with ``searchsorted`` on the sorted error list.
+        """
+        errors = np.asarray(errors, dtype=np.float64)
+        tasks = np.asarray(tasks)
+        out = np.empty(len(errors), dtype=np.float64)
+        codes, uniques = pd.factorize(tasks)
+        for code, task in enumerate(uniques):
+            idx = np.flatnonzero(codes == code)
+            out[idx] = self._rank_array(task=task, errors=errors[idx])
+        return out
+
+    def _rank_array(self, task: str, errors: np.ndarray) -> np.ndarray:
+        a = np.asarray(self.error_dict[task], dtype=np.float64)
+        n = len(a)
+        left = np.searchsorted(a, errors, side="left")
+        if self.ties_win and not self.include_partial:
+            # mirrors `rank`: a bare searchsorted, so NaN errors sort last (rank n)
+            rank = left.astype(np.float64)
+            return rank / n if self.pct else rank
+        right = np.searchsorted(a, errors, side="right")
+        rank = left.astype(np.float64) if self.ties_win else left + 0.5 * (right - left)
+        if self.include_partial:
+            if n == 0:
+                pass  # nothing to compare against: no partial rank either way
+            else:
+                win = right < n
+                # first win and the element processed just before it (0 when nothing precedes)
+                first_win = a[np.minimum(right, n - 1)]
+                prior = np.where(right > 0, a[np.maximum(right - 1, 0)], 0.0)
+                with np.errstate(divide="ignore", invalid="ignore"):
+                    divisor = first_win - prior
+                    partial_win = np.where(divisor == 0, 0.5, (errors - prior) / divisor / 2)
+                    partial_win = np.minimum(partial_win, 0.5)
+                    partial_loss = np.minimum((errors - prior) / prior, 1) / 2
+                rank = rank + np.where(win & (errors > 0), partial_win, 0.0)
+                rank = rank + np.where(~win & (prior != 0), partial_loss, 0.0)
+        # `get_rank`: a NaN error compares False against everything, so the first element counts
+        # as a win with no partial rank; the result is 0.
+        rank = np.where(np.isnan(errors), 0.0, rank)
+        if self.pct:
+            rank = rank / (n + 0.5 if self.include_partial else n)
+        return rank
 
     def rank(self, task: str, error: float) -> float:
         """Get the rank of a result on a dataset given an error."""
