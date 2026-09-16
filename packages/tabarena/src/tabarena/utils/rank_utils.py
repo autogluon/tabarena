@@ -103,42 +103,52 @@ class RankScorer:
         """Vectorized :meth:`rank` over aligned ``tasks`` and ``errors`` arrays.
 
         Returns the same values as calling :meth:`rank` per row (including the NaN handling of
-        each branch), computed per task with ``searchsorted`` on the sorted error list.
+        each branch). The per-task "how many reference errors are below / at most this error"
+        counts come from two sorts of the reference and query errors together, keyed by task,
+        so no Python loop runs per task; the partial-rank terms are then plain array arithmetic.
         """
         errors = np.asarray(errors, dtype=np.float64)
-        tasks = np.asarray(tasks)
-        out = np.empty(len(errors), dtype=np.float64)
-        codes, uniques = pd.factorize(tasks)
-        for code, task in enumerate(uniques):
-            idx = np.flatnonzero(codes == code)
-            out[idx] = self._rank_array(task=task, errors=errors[idx])
-        return out
+        codes_q, uniques = pd.factorize(np.asarray(tasks))
+        ref_arrays = [np.asarray(self.error_dict[task], dtype=np.float64) for task in uniques]
+        sizes = np.fromiter((a.size for a in ref_arrays), dtype=np.int64, count=len(ref_arrays))
+        offsets = np.concatenate([[0], np.cumsum(sizes)])
+        flat_ref = np.concatenate(ref_arrays) if ref_arrays else np.empty(0)
+        n_ref = flat_ref.size
+        values = np.concatenate([flat_ref, errors])
+        codes_all = np.concatenate([np.repeat(np.arange(len(ref_arrays)), sizes), codes_q])
+        is_query = np.concatenate([np.zeros(n_ref, dtype=np.int8), np.ones(errors.size, dtype=np.int8)])
 
-    def _rank_array(self, task: str, errors: np.ndarray) -> np.ndarray:
-        a = np.asarray(self.error_dict[task], dtype=np.float64)
-        n = len(a)
-        left = np.searchsorted(a, errors, side="left")
+        def refs_before(query_first_on_ties: bool) -> np.ndarray:
+            # Sort by (task, value, tie flag); a query's position minus the references of earlier
+            # tasks counts the references of its own task that sort before it. NaN queries sort
+            # last within their task, as np.searchsorted places them.
+            tie = 1 - is_query if query_first_on_ties else is_query
+            order = np.lexsort((tie, values, codes_all))
+            cum_ref = np.cumsum(order < n_ref)
+            pos = np.empty(values.size, dtype=np.int64)
+            pos[order] = np.arange(values.size)
+            return cum_ref[pos[n_ref:]] - offsets[codes_q]
+
+        left = refs_before(query_first_on_ties=True)  # references strictly below the error
+        right = refs_before(query_first_on_ties=False)  # references at most the error
+        n = sizes[codes_q]
         if self.ties_win and not self.include_partial:
-            # mirrors `rank`: a bare searchsorted, so NaN errors sort last (rank n)
+            # mirrors `rank`: a bare searchsorted, so NaN errors rank n
             rank = left.astype(np.float64)
             return rank / n if self.pct else rank
-        right = np.searchsorted(a, errors, side="right")
         rank = left.astype(np.float64) if self.ties_win else left + 0.5 * (right - left)
-        if self.include_partial:
-            if n == 0:
-                pass  # nothing to compare against: no partial rank either way
-            else:
-                win = right < n
-                # first win and the element processed just before it (0 when nothing precedes)
-                first_win = a[np.minimum(right, n - 1)]
-                prior = np.where(right > 0, a[np.maximum(right - 1, 0)], 0.0)
-                with np.errstate(divide="ignore", invalid="ignore"):
-                    divisor = first_win - prior
-                    partial_win = np.where(divisor == 0, 0.5, (errors - prior) / divisor / 2)
-                    partial_win = np.minimum(partial_win, 0.5)
-                    partial_loss = np.minimum((errors - prior) / prior, 1) / 2
-                rank = rank + np.where(win & (errors > 0), partial_win, 0.0)
-                rank = rank + np.where(~win & (prior != 0), partial_loss, 0.0)
+        if self.include_partial and n_ref:
+            has_refs = n > 0
+            win = right < n
+            # first win and the element processed just before it (0 when nothing precedes)
+            first_win = flat_ref[np.where(has_refs, offsets[codes_q] + np.minimum(right, np.maximum(n - 1, 0)), 0)]
+            prior = np.where((right > 0) & has_refs, flat_ref[offsets[codes_q] + np.maximum(right - 1, 0)], 0.0)
+            with np.errstate(divide="ignore", invalid="ignore"):
+                divisor = first_win - prior
+                partial_win = np.minimum(np.where(divisor == 0, 0.5, (errors - prior) / divisor / 2), 0.5)
+                partial_loss = np.minimum((errors - prior) / prior, 1) / 2
+            rank = rank + np.where(win & (errors > 0) & has_refs, partial_win, 0.0)
+            rank = rank + np.where(~win & (prior != 0), partial_loss, 0.0)
         # `get_rank`: a NaN error compares False against everything, so the first element counts
         # as a win with no partial rank; the result is 0.
         rank = np.where(np.isnan(errors), 0.0, rank)
