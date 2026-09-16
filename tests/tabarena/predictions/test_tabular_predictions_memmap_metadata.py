@@ -61,3 +61,31 @@ def test_from_dir_uses_context_metadata_list(tmp_path, monkeypatch):
     loaded = EvaluationRepository.from_dir(tmp_path, verbose=False)
     assert sorted(loaded.tasks()) == sorted(repo.tasks())
     assert sorted(loaded.configs()) == sorted(repo.configs())
+
+
+def test_memmap_pickle_state_derives_model_indices(tmp_path):
+    import pickle
+
+    repo = load_repo_artificial()
+    repo.to_dir(tmp_path)
+    preds = EvaluationRepository.from_dir(tmp_path, verbose=False)._tabular_predictions
+    dataset, fold = repo.tasks()[0]
+    task_metadata = preds.metadata_dict[dataset][fold]
+    assert task_metadata["models_all"] == repo.configs() and "model_indices" in task_metadata
+    state = preds.__getstate__()
+    assert "model_indices" not in state["metadata_dict"][dataset][fold]
+    # identical model lists are shared across tasks, so they pickle once
+    other_dataset, other_fold = repo.tasks()[-1]
+    assert preds.metadata_dict[other_dataset][other_fold]["models_all"] is task_metadata["models_all"]
+
+    all_models = repo.configs()
+    before = preds.predict_val(dataset, fold, all_models)
+    restored = pickle.loads(pickle.dumps(preds))
+    assert restored.metadata_dict[dataset][fold]["model_indices"] == {m: i for i, m in enumerate(all_models)}
+    assert (restored.predict_val(dataset, fold, all_models) == before).all()
+
+    # restriction keeps the original row indices through a pickle round trip
+    preds.restrict_models([all_models[-1]])
+    restricted = pickle.loads(pickle.dumps(preds))
+    assert restricted.metadata_dict[dataset][fold]["models"] == [all_models[-1]]
+    assert (restricted.predict_val(dataset, fold, [all_models[-1]]) == before[-1:]).all()
