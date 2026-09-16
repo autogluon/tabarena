@@ -133,6 +133,48 @@ class ZeroshotSimulatorContext:
             self._df_configs_ranked = cached
         return cached
 
+    # Frames whose string columns are pickled as categoricals (see __getstate__).
+    _PICKLE_CATEGORICAL_FRAMES = ("df_configs", "df_baselines", "_df_configs_ranked")
+
+    def __getstate__(self):
+        """Pickle the result frames' string columns as categoricals.
+
+        The frames are hundreds of thousands of rows whose ``dataset`` / ``framework`` / ``task``
+        / ``metric`` / ``problem_type`` columns hold a few thousand distinct strings. Pickled as
+        object columns they cost one memo lookup per cell on both ends; as categoricals they are
+        an integer code array (sent out of band) plus the distinct values. ``__setstate__``
+        restores the object dtype, so nothing outside pickling ever sees a categorical and the
+        pandas ``groupby`` / ``value_counts`` semantics of the frames are unchanged. Cuts the ray
+        transfer of a 12-method collection's contexts by about half.
+        """
+        state = dict(self.__dict__)
+        converted: dict[str, list[str]] = {}
+        for attr in self._PICKLE_CATEGORICAL_FRAMES:
+            df = state.get(attr)
+            if df is None or len(df) == 0:
+                continue
+            columns = [
+                c
+                for c in df.columns
+                if df[c].dtype == object and pd.api.types.infer_dtype(df[c], skipna=True) == "string"
+            ]
+            if not columns:
+                continue
+            state[attr] = df.astype(dict.fromkeys(columns, "category"))
+            converted[attr] = columns
+        state["_pickled_categorical_columns"] = converted
+        return state
+
+    def __setstate__(self, state):
+        converted = state.pop("_pickled_categorical_columns", {})
+        self.__dict__.update(state)
+        for attr, columns in converted.items():
+            df = self.__dict__[attr]
+            # column by column: a frame-level astype would copy the numeric columns too, which
+            # arrive as zero-copy views into ray's object store and should stay that way
+            for c in columns:
+                df[c] = df[c].astype(object)
+
     def _compute_dataset_to_tasks(self) -> dict:
         """Returns the mapping of dataset parent to dataset fold names.
         For example:
