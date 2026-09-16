@@ -10,9 +10,10 @@ ONE file, TWO subcommands, ONE switch. `setup` and `eval` share the same ``BENCH
     python experiments/run_tabpfn3.py eval  --scheduler skypilot       # sync the bucket's results, then the leaderboard
 
 TabPFN-3 is a GPU foundation model without a search space (``NUM_CONFIGS = 0``: the default config
-only). Its weights live in the gated Hugging Face repo ``Prior-Labs/tabpfn_3``, so a SkyPilot worker
-needs ``HF_TOKEN`` in the launching shell (forwarded as a SkyPilot secret); on SLURM the shared
-Hugging Face cache already holds them after the head-node prefetch.
+only). Its weights live in the gated Hugging Face repo ``Prior-Labs/tabpfn_3``. On SLURM the shared
+Hugging Face cache holds them after the head-node prefetch; on SkyPilot ``setup`` prefetches them once
+with this node's token into the shared bucket cache and the workers load them offline, so ``HF_TOKEN``
+is only needed here (``secrets=("HF_TOKEN",)`` stays as the fallback for a model that is not seeded).
 
 SkyPilot prerequisites: the cluster's ``sky`` CLI on ``PATH`` (it talks to the shared API server, which
 resolves ``RTXPRO6000`` to a ``g4-standard-48`` and picks the regions; login nodes preset the endpoint,
@@ -30,9 +31,9 @@ workers use the environment and batch staged in the bucket), but do not re-run `
 ``BENCHMARK_NAME`` until ``sky_progress.sh`` reports ``DONE`` or ``WORKERS GONE``: the cache check sees
 only synced results, so in-flight items would be fitted twice (``setup`` warns when that is the case).
 ``eval`` syncs the bucket's results into the workspace itself before building the leaderboard.
-``setup`` also seeds the shared dataset cache in the bucket from the tasks it materialized here, so
-the workers load every task from the bucket instead of OpenML (its summary names any dataset that
-could not be seeded).
+``setup`` also seeds the shared cache in the bucket with the tasks it materialized here and the model
+weights, so the workers load both from the bucket instead of OpenML or the Hub (its summaries name
+anything that could not be seeded).
 """
 
 from __future__ import annotations

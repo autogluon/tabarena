@@ -28,7 +28,8 @@ record_dir = Path(os.environ["STUB_RECORD_DIR"])
 record_dir.mkdir(parents=True, exist_ok=True)
 (record_dir / f"{args.experiment}.json").write_text(json.dumps({
     "argv": sys.argv[1:],
-    "env": {k: os.environ.get(k) for k in ("TMPDIR", "HF_HOME", "TABARENA_CACHE", "OMP_NUM_THREADS", "TABARENA_RAY_LOG_DIR")},
+    "env": {k: os.environ.get(k) for k in ("TMPDIR", "HF_HOME", "TABARENA_CACHE", "OMP_NUM_THREADS", "TABARENA_RAY_LOG_DIR",
+                                            "XDG_CACHE_HOME", "TORCH_HOME", "HF_HUB_OFFLINE")},
     "cached_task_xml": Path(args.cache_root, "openml/org/openml/www/tasks/363612/task.xml").exists(),
 }))
 print("stub runner", args.experiment, flush=True)
@@ -270,3 +271,60 @@ def test_worker_without_a_manifest_runs_as_before(local_storage, tmp_path, stub_
     worker.run()
     assert worker.cache_manifest is None
     assert _records(tmp_path)["cfg_0"]["cached_task_xml"] is False
+
+
+def test_worker_pulls_seeded_weights_at_start_and_loads_them_offline(local_storage, tmp_path, stub_runner, monkeypatch):
+    queue_uri = _stage_queue(local_storage, tmp_path, [[_item("cfg_0")]])
+    cache_uri = "gs://b/tabarena/cache"
+    local_storage.write_text(f"{cache_uri}/huggingface/hub/models--Prior-Labs--tabpfn_3/snapshots/rev1/model.ckpt", "w")
+    local_storage.write_text(f"{cache_uri}/huggingface/hub/models--Prior-Labs--tabpfn_3/refs/main", "rev1")
+    local_storage.write_text(f"{cache_uri}/xdg/tabpfn/tabpfn-v3.ckpt", "ckpt")
+    local_storage.write_text(
+        f"{queue_uri}/cache_manifest.json",
+        json.dumps(
+            {
+                "cache_uri": cache_uri,
+                "datasets": {},
+                "weights": {
+                    "TabPFN-3": [
+                        "huggingface/hub/models--Prior-Labs--tabpfn_3/snapshots",
+                        "huggingface/hub/models--Prior-Labs--tabpfn_3/refs",
+                        "xdg/tabpfn/tabpfn-v3.ckpt",
+                    ]
+                },
+                "offline_weights": True,
+            }
+        ),
+    )
+    cfg = _config(local_storage, tmp_path, stub_runner, queue_uri)
+    cfg.models = ("TabPFN-3",)
+    worker = Worker(cfg)
+    monkeypatch.setattr(
+        worker, "prefetch_weights", lambda models=None: pytest.fail("seeded weights must not be prefetched")
+    )
+    worker.run()
+    cache = tmp_path / "cache"
+    assert (cache / "huggingface/hub/models--Prior-Labs--tabpfn_3/snapshots/rev1/model.ckpt").read_text() == "w"
+    assert (cache / "huggingface/hub/models--Prior-Labs--tabpfn_3/refs/main").read_text() == "rev1"
+    assert (cache / "xdg/tabpfn/tabpfn-v3.ckpt").read_text() == "ckpt"
+    env = _records(tmp_path)["cfg_0"]["env"]
+    assert env["HF_HOME"] == str(cache / "huggingface")
+    assert env["XDG_CACHE_HOME"] == str(cache / "xdg")
+    assert env["TORCH_HOME"] == str(cache / "torch")
+    assert env["HF_HUB_OFFLINE"] == "1"
+
+
+def test_worker_prefetches_only_models_without_seeded_weights(local_storage, tmp_path, stub_runner, monkeypatch):
+    queue_uri = _stage_queue(local_storage, tmp_path, [[_item("cfg_0")]])
+    local_storage.write_text(
+        f"{queue_uri}/cache_manifest.json",
+        json.dumps({"cache_uri": "gs://b/c", "datasets": {}, "weights": {"TabPFN-3": []}, "offline_weights": False}),
+    )
+    cfg = _config(local_storage, tmp_path, stub_runner, queue_uri)
+    cfg.models = ("TabPFN-3", "Linear")
+    worker = Worker(cfg)
+    asked: list = []
+    monkeypatch.setattr(worker, "prefetch_weights", lambda models=None: asked.append(models))
+    worker.run()
+    assert asked == [["TabPFN-3", "Linear"]]
+    assert _records(tmp_path)["cfg_0"]["env"]["HF_HUB_OFFLINE"] is None

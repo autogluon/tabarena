@@ -28,6 +28,9 @@ class Storage(Protocol):
     def list_names(self, uri: str) -> list[str]:
         """The names directly under the prefix ``uri`` (objects and sub-prefixes, without the prefix)."""
 
+    def list_files(self, uri: str) -> list[str]:
+        """Every object under the prefix ``uri``, recursively, as paths relative to it."""
+
     def read_text(self, uri: str) -> str:
         """The content of the text object ``uri``."""
 
@@ -93,6 +96,19 @@ class GcsStorage:
             if line.startswith(prefix) and len(line) > len(prefix):
                 names.append(line[len(prefix) :].rstrip("/"))
         return names
+
+    def list_files(self, uri: str) -> list[str]:
+        """Objects under ``uri`` at any depth (``ls <uri>/**``), relative to the prefix."""
+        prefix = uri.rstrip("/") + "/"
+        result = self._run("ls", prefix + "**", check=False)
+        if result.returncode != 0:
+            return []
+        files = []
+        for line in result.stdout.splitlines():
+            line = line.strip()
+            if line.startswith(prefix) and len(line) > len(prefix) and not line.endswith(("/", ":")):
+                files.append(line[len(prefix) :])
+        return files
 
     def read_text(self, uri: str) -> str:
         """``gcloud storage cat <uri>``."""

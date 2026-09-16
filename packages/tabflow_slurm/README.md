@@ -249,7 +249,7 @@ Runs the bundles as SkyPilot managed jobs draining a **GCS claim queue**. Constr
 
 Knobs: `bucket` / `prefix` (defaults to the org's EU sky-cache bucket and `<user>/tabarena`),
 `api_server_endpoint` (printed as an export; unset means the shell must provide it), `dataset_cache_uri` /
-`seed_dataset_cache` (the static dataset cache above), `infra` (unset by
+`seed_dataset_cache` / `seed_model_weights` (the static cache above), `infra` (unset by
 default: the shared server's admin policy expands the regions and rejects an explicit one), `workers`
 (concurrent worker jobs, the `%N` analogue, and the pool size), `use_pool` / `pool_name`,
 `gpu_accelerator` (`RTXPRO6000:1`, a `g4-standard-48` with 96 GB VRAM, 48 vCPU, 180 GB RAM; pair with
@@ -267,19 +267,31 @@ data-foundry for BeyondArena), so no shared filesystem is needed. Results are co
 `runs/<benchmark>/output/data/`; `sync_results_to_local` mirrors that prefix into
 `<workspace>/output/<benchmark>/data` (nothing deleted, so SLURM and SkyPilot results merge).
 
-**Dataset cache** (`setup/sky_cache.py`). Workers do not fetch datasets from OpenML or the Hub. `setup`
-copies the tasks it materialized on the head node (OpenML task and dataset directories, portable
-`tabarena_tasks/<slug>.pkl` files and their text-embedding caches for BeyondArena) into a static
-prefix laid out like `CacheConfig.from_root`, by default `<bucket>/tabarena/cache`, shared across users
-and runs because datasets are immutable. Only missing files are uploaded, every local file is then
-verified present remotely, and the launch's queue gets a `cache_manifest.json` mapping each dataset to
-its entries. The worker pulls a dataset's entries into `CACHE_ROOT` right before its first item, so the
-runner's `--materialize_tasks` finds them cached (an OpenML task loads from `task.xml`, the splits and
-the dataset's parquet without a network call). Workers only read the prefix. `dataset_cache_uri` points
-it elsewhere (a US bucket for a US pool, or a curated read-only bucket with `seed_dataset_cache=False`,
-in which case `setup` only verifies and the workers download whatever is missing). A legacy
-`tabarena_tasks` pickle that names this machine's `local/datasets/` is skipped with a warning and that
-dataset is downloaded by the workers instead.
+**Dataset and weight cache** (`setup/sky_cache.py`). Workers fetch neither datasets nor model weights
+from OpenML or the Hub. `setup` copies the tasks it materialized on the head node (OpenML task and
+dataset directories, portable `tabarena_tasks/<slug>.pkl` files and their text-embedding caches for
+BeyondArena) into a static prefix laid out like `CacheConfig.from_root`, by default
+`<bucket>/tabarena/cache`, shared across users and runs because datasets are immutable. Only missing
+files are uploaded, every local file is then verified present remotely, and the launch's queue gets a
+`cache_manifest.json` mapping each dataset to its entries. The worker pulls a dataset's entries into
+`CACHE_ROOT` right before its first item, so the runner's `--materialize_tasks` finds them cached (an
+OpenML task loads from `task.xml`, the splits and the dataset's parquet without a network call). A
+legacy `tabarena_tasks` pickle that names this machine's `local/datasets/` is upgraded first: the
+dataset is re-materialized from its container into a scratch OpenML root and the portable pickle
+replaces the legacy file atomically (a SLURM job reading the shared cache meanwhile sees one complete
+file or the other).
+
+Weights follow the same path. For each of the run's models without a remote `weights/<model>.json`,
+`setup` runs the model's prefetch on the head node into a scratch cache root with `HF_HOME`,
+`XDG_CACHE_HOME` (tabpfn's cache) and `TORCH_HOME` redirected, uploads what landed there (Hugging Face
+repositories as their `snapshots` and `refs`, so blobs are not stored twice; tabpfn checkpoints file by
+file) and writes the manifest, so the next setup skips the prefetch. The head node's own token is used
+for gated repositories. Workers pull every model's entries at start and, when all of them are seeded,
+run with `HF_HUB_OFFLINE=1`, so no token reaches the VMs; a model without seeded weights is prefetched
+by the worker from the Hub as before. Workers only read the prefix. `dataset_cache_uri` points it
+elsewhere (a US bucket for a US pool, or a curated read-only bucket with `seed_dataset_cache=False` and
+`seed_model_weights=False`, in which case `setup` only verifies and the workers download whatever is
+missing).
 
 ### `TabArenaBenchmarkSetup` — `setup/benchmark.py` *(internal)*
 The per-run engine for one homogeneous run. Not part of the public API — the plan builds and drives

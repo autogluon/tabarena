@@ -42,7 +42,12 @@ from typing import TYPE_CHECKING, ClassVar
 import yaml
 
 from tabflow_slurm.setup.scheduler import SchedulerSetup
-from tabflow_slurm.setup.sky_cache import collect_cache_entries, local_cache_roots, seed_dataset_cache
+from tabflow_slurm.setup.sky_cache import (
+    collect_cache_entries,
+    local_cache_roots,
+    seed_dataset_cache,
+    seed_model_weights,
+)
 from tabflow_slurm.setup.sky_env import render_env_setup_script, stage_environment
 from tabflow_slurm.setup.sky_storage import GcsStorage
 
@@ -130,7 +135,13 @@ class SkyPilotSetup(SchedulerSetup):
     seed_dataset_cache: bool = True
     """Upload the run's datasets from this node's caches into ``dataset_cache_uri`` at setup (only
     what is missing) and verify. ``False`` only verifies; datasets missing remotely are downloaded by
-    the workers from OpenML or the Hub as a fallback."""
+    the workers from OpenML or the Hub as a fallback. A legacy data-foundry task pickle is upgraded
+    to the portable format first."""
+    seed_model_weights: bool = True
+    """Prefetch the run's model weights on this node into ``dataset_cache_uri`` (once per model; a
+    remote ``weights/<model>.json`` makes later setups skip it) so the workers load them from the
+    bucket with ``HF_HUB_OFFLINE=1`` and need no Hugging Face token. ``False`` leaves the download to
+    each worker (gated weights then need the token in ``secrets``)."""
     workers: int = 8
     """Worker jobs per launch (``--num-jobs``, capped at the number of bundles) and, in pool mode,
     the pool size. The analogue of SLURM's ``%N`` concurrency cap."""
@@ -312,7 +323,10 @@ class SkyPilotSetup(SchedulerSetup):
             defaults={**jobs_dict["defaults"], "item_timeout_seconds": self.item_timeout_seconds(resources_setup)},
             job_batch_dir=Path(jobs_dict["defaults"]["job_batch_dir"]),
         )
-        cache_manifest = self._seed_dataset_cache(Path(jobs_dict["defaults"]["job_batch_dir"]))
+        model_names = list(jobs_dict.get("model_names", []))
+        cache_manifest = self._seed_dataset_cache(
+            Path(jobs_dict["defaults"]["job_batch_dir"]), model_names=model_names, python=str(path_setup.python_path)
+        )
         if cache_manifest is not None:
             (queue_dir / "cache_manifest.json").write_text(json.dumps(cache_manifest))
         (queue_dir / "manifest.json").write_text(
@@ -328,7 +342,6 @@ class SkyPilotSetup(SchedulerSetup):
         queue_uri = layout.queue_uri(launch_id)
         self.storage.upload_dir(queue_dir, queue_uri)
 
-        model_names = list(jobs_dict.get("model_names", []))
         job_yaml = sky_dir / "job.yaml"
         job_yaml.write_text(
             dump_yaml(
@@ -379,12 +392,14 @@ class SkyPilotSetup(SchedulerSetup):
             print("##### Setup Jobs\nRun the following command(s) to start the jobs:\n" + "\n".join(commands) + "\n")
         return commands
 
-    def _seed_dataset_cache(self, job_batch_dir: Path) -> dict | None:
-        """Seed and verify the dataset cache for the batch's tasks; return the worker manifest.
+    def _seed_dataset_cache(self, job_batch_dir: Path, *, model_names: list[str], python: str) -> dict | None:
+        """Seed and verify the dataset and weight cache for this run; return the worker manifest.
 
         Reads the batch's ``task_metadata.csv`` (the tasks ``setup`` just materialized into this
-        node's caches) and copies their cache entries into ``dataset_cache_uri`` (see
-        :func:`tabflow_slurm.setup.sky_cache.seed_dataset_cache`). Returns ``None`` when the batch
+        node's caches; rebound to the suite in ``task_source.json`` so a legacy pickle can be
+        re-materialized) and copies their cache entries into ``dataset_cache_uri`` (see
+        :func:`tabflow_slurm.setup.sky_cache.seed_dataset_cache`), then the models' weights (see
+        :func:`tabflow_slurm.setup.sky_cache.seed_model_weights`). Returns ``None`` when the batch
         directory carries no task metadata.
         """
         csv_path = job_batch_dir / "task_metadata.csv"
@@ -393,12 +408,28 @@ class SkyPilotSetup(SchedulerSetup):
         from tabarena.benchmark.task.metadata import TaskMetadataCollection
 
         collection = TaskMetadataCollection.from_source(csv_path)
+        source_path = job_batch_dir / "task_source.json"
+        if source_path.exists():
+            collection = collection.with_preset(json.loads(source_path.read_text())["preset"])
         openml_root, tabarena_root = local_cache_roots()
-        entries = collect_cache_entries(collection, openml_root=openml_root, tabarena_root=tabarena_root)
+        entries = collect_cache_entries(
+            collection, openml_root=openml_root, tabarena_root=tabarena_root, upgrade_legacy=self.seed_dataset_cache
+        )
+        cache_uri = self.resolved_dataset_cache_uri
         manifest, report = seed_dataset_cache(
-            entries, storage=self.storage, cache_uri=self.resolved_dataset_cache_uri, upload=self.seed_dataset_cache
+            entries, storage=self.storage, cache_uri=cache_uri, upload=self.seed_dataset_cache
         )
         print(report.summary())
+        weights, weights_report = seed_model_weights(
+            model_names, python=python, storage=self.storage, cache_uri=cache_uri, upload=self.seed_model_weights
+        )
+        manifest.update(weights)
+        print(
+            f"model weights: {weights_report.datasets} model(s), {weights_report.files} file(s), "
+            f"{weights_report.total_bytes / 1e6:.0f} MB, {weights_report.uploaded_files} uploaded now; "
+            f"offline_weights={weights['offline_weights']}"
+            + (f"; not seeded: {weights_report.unverified}" if weights_report.unverified else "")
+        )
         return manifest
 
     def draining_launches(self, benchmark_name: str) -> list[tuple[str, int, int]]:

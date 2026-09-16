@@ -13,12 +13,17 @@ pytest.importorskip("tabflow_slurm.setup", reason="tabflow_slurm is not installe
 from tabarena.benchmark.task.metadata import TaskMetadataCollection
 from tabflow_slurm.setup.sky_cache import (
     CacheEntry,
+    CacheSeedReport,
     collect_cache_entries,
+    collect_weight_entries,
     dataset_id_from_task_xml,
     is_portable_user_task,
     openml_task_entries,
     seed_dataset_cache,
+    seed_model_weights,
+    upgrade_legacy_user_task,
     user_task_entries,
+    weight_cache_env,
 )
 
 _TASK_XML = """<oml:task xmlns:oml="http://openml.org/openml"><oml:task_id>363612</oml:task_id>
@@ -164,3 +169,179 @@ class TestSeedDatasetCache:
         _, report = seed_dataset_cache(entries, storage=local_storage, cache_uri="gs://b/c")
         assert local_storage.exists("gs://b/c/openml/tabarena_tasks/slug.pkl")
         assert report.uploaded_files == 0
+
+
+class _UpgradableCollection:
+    """A collection stand-in for one data-foundry dataset whose materialize writes a portable pickle
+    into whatever OpenML root is active (as the real DataFoundryTaskMetadataSource does).
+    """
+
+    def __init__(self, task_id_str: str, dataset: str, *, portable: bool = True, preset: str | None = "BeyondArena"):
+        import types
+
+        self.preset = preset
+        self._ttm = types.SimpleNamespace(
+            task_id_str=task_id_str, tabarena_task_name=dataset, data_foundry_uri="x/uuid"
+        )
+        self.materialized = 0
+        self.portable = portable
+
+    def __iter__(self):
+        return iter([self._ttm])
+
+    def __len__(self):
+        return 1
+
+    def subset_tasks(self, *, dataset_names):
+        assert dataset_names == [self._ttm.tabarena_task_name]
+        return self
+
+    def materialize(self):
+        import openml
+
+        self.materialized += 1
+        root = Path(openml.config._root_cache_directory) / "tabarena_tasks"
+        root.mkdir(parents=True, exist_ok=True)
+        payload = {"format": "tabarena-user-task-v1", "dataset": None} if self.portable else {"legacy": True}
+        pickle.dump(payload, (root / f"{self._ttm.tabarena_task_name}.pkl").open("wb"))
+        return self
+
+
+class TestLegacyUpgrade:
+    @staticmethod
+    def _legacy(tmp_path):
+        from tabarena.benchmark.task.user_task import UserTask
+
+        task = UserTask(task_name="mice/uuid-2")
+        openml_root = tmp_path / "openml"
+        (openml_root / "tabarena_tasks").mkdir(parents=True)
+        pickle.dump(
+            {"data_pickle_file": "/head/local/datasets/abc/data.pkl.py3"},
+            (openml_root / "tabarena_tasks" / f"{task.slug}.pkl").open("wb"),
+        )
+        return task, openml_root
+
+    def test_replaces_the_legacy_pickle_atomically_and_restores_the_openml_root(self, tmp_path):
+        import openml
+
+        task, openml_root = self._legacy(tmp_path)
+        collection = _UpgradableCollection(task.task_id_str, task.slug)
+        saved_root = openml.config._root_cache_directory
+        assert upgrade_legacy_user_task(collection, task.slug, openml_root=openml_root) is True
+        assert collection.materialized == 1
+        assert openml.config._root_cache_directory == saved_root
+        assert is_portable_user_task(openml_root / "tabarena_tasks" / f"{task.slug}.pkl")
+        assert not list(openml_root.glob(".upgrade_*"))  # scratch root removed
+
+    def test_no_preset_means_no_upgrade(self, tmp_path):
+        task, openml_root = self._legacy(tmp_path)
+        collection = _UpgradableCollection(task.task_id_str, task.slug, preset=None)
+        assert upgrade_legacy_user_task(collection, task.slug, openml_root=openml_root) is False
+        assert collection.materialized == 0
+        assert not is_portable_user_task(openml_root / "tabarena_tasks" / f"{task.slug}.pkl")
+
+    def test_a_failed_conversion_keeps_the_legacy_pickle(self, tmp_path):
+        task, openml_root = self._legacy(tmp_path)
+        collection = _UpgradableCollection(task.task_id_str, task.slug, portable=False)
+        with pytest.warns(UserWarning, match="no portable task pickle"):
+            assert upgrade_legacy_user_task(collection, task.slug, openml_root=openml_root) is False
+        assert not is_portable_user_task(openml_root / "tabarena_tasks" / f"{task.slug}.pkl")
+
+    def test_collect_upgrades_then_seeds_the_dataset(self, tmp_path):
+        task, openml_root = self._legacy(tmp_path)
+        collection = _UpgradableCollection(task.task_id_str, task.slug)
+        by_dataset = collect_cache_entries(collection, openml_root=openml_root, tabarena_root=tmp_path / "t")
+        assert [e.rel for e in by_dataset[task.slug]] == [f"openml/tabarena_tasks/{task.slug}.pkl"]
+        assert collection.materialized == 1
+
+
+def _fake_prefetch(models, *, python, cache_root):
+    """Populate a scratch cache root like a real prefetch would: an HF repo with symlinked snapshots, a tabpfn ckpt."""
+    repo = Path(cache_root) / "huggingface" / "hub" / "models--Prior-Labs--tabpfn_3"
+    (repo / "blobs").mkdir(parents=True)
+    (repo / "blobs" / "abc").write_bytes(b"weights")
+    (repo / "snapshots" / "rev1").mkdir(parents=True)
+    (repo / "snapshots" / "rev1" / "model.ckpt").symlink_to(repo / "blobs" / "abc")
+    (repo / "refs").mkdir()
+    (repo / "refs" / "main").write_text("rev1")
+    (repo / ".locks").mkdir()
+    (repo / ".locks" / "x.lock").write_text("")
+    (Path(cache_root) / "xdg" / "tabpfn").mkdir(parents=True)
+    (Path(cache_root) / "xdg" / "tabpfn" / "tabpfn-v3.ckpt").write_bytes(b"ckpt")
+    (Path(cache_root) / "xdg" / "tabpfn" / ".download.lock").write_text("")
+
+
+class TestWeights:
+    def test_weight_cache_env_points_every_cache_under_the_root(self, tmp_path):
+        assert weight_cache_env(tmp_path) == {
+            "HF_HOME": str(tmp_path / "huggingface"),
+            "XDG_CACHE_HOME": str(tmp_path / "xdg"),
+            "TORCH_HOME": str(tmp_path / "torch"),
+        }
+
+    def test_collect_weight_entries_takes_snapshots_refs_and_plain_files(self, tmp_path):
+        _fake_prefetch(["TabPFN-3"], python="x", cache_root=tmp_path)
+        rels = [(e.rel, e.is_dir) for e in collect_weight_entries(tmp_path)]
+        assert rels == [
+            ("huggingface/hub/models--Prior-Labs--tabpfn_3/snapshots", True),
+            ("huggingface/hub/models--Prior-Labs--tabpfn_3/refs", True),
+            ("xdg/tabpfn/tabpfn-v3.ckpt", False),
+        ]
+
+    def test_seed_model_weights_prefetches_once_and_reuses_the_remote_manifest(self, tmp_path, local_storage):
+        calls: list = []
+
+        def prefetch(models, *, python, cache_root):
+            calls.append(list(models))
+            _fake_prefetch(models, python=python, cache_root=cache_root)
+
+        kwargs = {
+            "python": "/venv/bin/python",
+            "storage": local_storage,
+            "cache_uri": "gs://b/tabarena/cache",
+            "scratch_dir": tmp_path / "scratch",
+            "prefetch": prefetch,
+            "has_prefetcher": lambda m: m == "TabPFN-3",
+        }
+        manifest, report = seed_model_weights(["TabPFN-3", "Linear"], **kwargs)
+        assert calls == [["TabPFN-3"]]
+        assert manifest == {
+            "weights": {
+                "TabPFN-3": [
+                    "huggingface/hub/models--Prior-Labs--tabpfn_3/snapshots",
+                    "huggingface/hub/models--Prior-Labs--tabpfn_3/refs",
+                    "xdg/tabpfn/tabpfn-v3.ckpt",
+                ],
+                "Linear": [],
+            },
+            "offline_weights": True,
+        }
+        # Symlinked snapshot files were uploaded as real content; the per-model manifest was written.
+        assert (
+            local_storage.read_text(
+                "gs://b/tabarena/cache/huggingface/hub/models--Prior-Labs--tabpfn_3/snapshots/rev1/model.ckpt"
+            )
+            == "weights"
+        )
+        assert local_storage.exists("gs://b/tabarena/cache/weights/TabPFN-3.json")
+        assert report.uploaded_files == 3 and not list((tmp_path / "scratch").glob("*"))
+        # A second setup takes the remote manifest and never prefetches again.
+        manifest_again, report_again = seed_model_weights(["TabPFN-3"], **kwargs)
+        assert calls == [["TabPFN-3"]]
+        assert manifest_again["weights"]["TabPFN-3"] == manifest["weights"]["TabPFN-3"]
+        assert report_again.uploaded_files == 0
+
+    def test_read_only_mode_leaves_unseeded_weights_to_the_workers(self, tmp_path, local_storage):
+        manifest, report = seed_model_weights(
+            ["TabPFN-3"],
+            python="x",
+            storage=local_storage,
+            cache_uri="gs://curated",
+            upload=False,
+            scratch_dir=tmp_path,
+            prefetch=lambda *a, **k: pytest.fail("must not prefetch"),
+            has_prefetcher=lambda m: True,
+        )
+        assert manifest == {"weights": {}, "offline_weights": False}
+        assert report.unverified == ["weights of TabPFN-3"]
+        assert isinstance(report, CacheSeedReport)

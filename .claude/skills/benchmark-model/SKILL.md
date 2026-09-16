@@ -361,10 +361,13 @@ Next in the lifecycle is the `upload-method` skill, pointed at `<WORKSPACE>/outp
   same RTX PRO 6000 as the SLURM partition (`fake_memory_for_estimates` 96 on both; the template's
   `_scheduler_setup` returns the pair). A preempted worker job is recovered by SkyPilot and resumes
   the bundles it owns; a cancelled launch leaves orphan claims that the next `setup` re-enumerates.
-  Workers never fetch datasets from OpenML or the Hub: `setup` seeds the tasks it materialized into the
-  shared prefix `<bucket>/tabarena/cache` (`dataset_cache_uri`), verifies it and prints a summary; the
-  worker pulls a dataset's entries before its first item. A `not cached on this node` or `MISSING
-  remotely` line in that summary means those datasets are downloaded by the workers instead.
+  Workers never fetch datasets or weights from OpenML or the Hub: `setup` seeds the tasks it materialized
+  (upgrading legacy BeyondArena pickles in place) and the models' weights (prefetched once on the head
+  node with its own token) into the shared prefix `<bucket>/tabarena/cache` (`dataset_cache_uri`),
+  verifies it and prints two summaries; the worker pulls the weights at start and a dataset's entries
+  before its first item, and loads with `HF_HUB_OFFLINE=1` when every model is seeded. A `not cached on
+  this node`, `MISSING remotely` or `not seeded` line means the workers download those themselves (gated
+  weights then need `HF_TOKEN` in `secrets`).
 - Spot partitions preempt; requeued tasks show up as `requeued` in the progress line and are not
   failures. Throughput on `gpurtxpro6000flex` is bounded by node provisioning (about 30 concurrent
   tasks was typical), so a full GPU run of a foundation model takes around half a day.

@@ -102,7 +102,17 @@ def batch_dir(tmp_path, monkeypatch) -> Path:
 
 @pytest.fixture
 def staged_env(monkeypatch):
+    from tabflow_slurm.setup.sky_cache import CacheSeedReport
+
     monkeypatch.setattr(sky_mod, "stage_environment", lambda **_: _env())
+    monkeypatch.setattr(
+        sky_mod,
+        "seed_model_weights",
+        lambda model_names, **_: (
+            {"weights": {m: ["huggingface/hub/models--x/snapshots"] for m in model_names}, "offline_weights": True},
+            CacheSeedReport(cache_uri="gs://b/tabarena/cache"),
+        ),
+    )
 
 
 class TestConfiguration:
@@ -283,6 +293,8 @@ class TestGetRunCommands:
         assert cache_manifest == {
             "cache_uri": "gs://b/tabarena/cache",
             "datasets": {"anneal": ["openml/org/openml/www/tasks/363612", "openml/org/openml/www/datasets/46904"]},
+            "weights": {"TabPFN-3": ["huggingface/hub/models--x/snapshots"]},
+            "offline_weights": True,
         }
         assert (
             local_storage.read_text("gs://b/tabarena/cache/openml/org/openml/www/datasets/46904/dataset_46904.pq")

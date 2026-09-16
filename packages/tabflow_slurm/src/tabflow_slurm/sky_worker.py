@@ -40,6 +40,7 @@ from typing import TYPE_CHECKING
 
 from tabflow_slurm.run_local import _build_item_command
 from tabflow_slurm.setup.paths import get_run_script_path
+from tabflow_slurm.setup.sky_cache import weight_cache_env
 from tabflow_slurm.setup.sky_storage import GcsStorage
 
 if TYPE_CHECKING:
@@ -183,16 +184,21 @@ class Worker:
             self.cache_manifest = json.loads(self.storage.read_text(manifest_uri))
             n_datasets = len(self.cache_manifest.get("datasets", {}))
             _log(f"dataset cache {self.cache_manifest.get('cache_uri')} covers {n_datasets} dataset(s)")
-        if self.cfg.models:
-            self.prefetch_weights()
+        weights = (self.cache_manifest or {}).get("weights", {})
+        if weights:
+            self.pull_entries([rel for rels in weights.values() for rel in rels])
+        # Models whose weights are not in the seeded cache are prefetched from the Hub as a fallback.
+        unseeded = [m for m in self.cfg.models if not weights.get(m)]
+        if unseeded and not (self.cache_manifest or {}).get("offline_weights"):
+            self.prefetch_weights(unseeded)
 
-    def prefetch_weights(self) -> None:
-        """Warm the selected models' weights into the worker's cache (best effort, once per job start)."""
+    def prefetch_weights(self, models: list[str] | None = None) -> None:
+        """Warm the given models' weights into the worker's cache from the Hub (best effort, once per job start)."""
+        models = list(self.cfg.models if models is None else models)
         code = (
-            "from tabarena.models.prefetch import prefetch_weights; "
-            f"prefetch_weights({list(self.cfg.models)!r}, raise_on_error=False)"
+            f"from tabarena.models.prefetch import prefetch_weights; prefetch_weights({models!r}, raise_on_error=False)"
         )
-        _log(f"prefetching weights for {', '.join(self.cfg.models)}")
+        _log(f"prefetching weights for {', '.join(models)}")
         result = subprocess.run(  # noqa: S603
             [self.cfg.python, "-P", "-c", code], env=self.item_env(self.launch_dir / "prefetch"), check=False
         )
@@ -258,19 +264,23 @@ class Worker:
         """Copy the dataset's seeded cache entries into ``CACHE_ROOT`` (once per worker process)."""
         if not self.cache_manifest:
             return
-        base = str(self.cache_manifest.get("cache_uri", "")).rstrip("/")
-        for rel in self.cache_manifest.get("datasets", {}).get(dataset, []):
+        self.pull_entries(self.cache_manifest.get("datasets", {}).get(dataset, []))
+
+    def pull_entries(self, rels: list[str]) -> None:
+        """Copy the given cache entries (relative to the cache layout) from the bucket into ``CACHE_ROOT``."""
+        base = str((self.cache_manifest or {}).get("cache_uri", "")).rstrip("/")
+        for rel in rels:
             if rel in self._pulled:
                 continue
             local = self.cfg.cache_root / rel
             try:
-                if rel.endswith((".pkl", ".parquet")):
+                if Path(rel).suffix and not rel.endswith(("/snapshots", "/refs")):
                     if not local.exists():
                         self.storage.download_file(f"{base}/{rel}", local)
                 else:
                     self.storage.download_dir(f"{base}/{rel}", local)
             except Exception as exc:
-                _log(f"WARNING: could not pull {rel} from the dataset cache ({exc!r}); the runner downloads it")
+                _log(f"WARNING: could not pull {rel} from the cache ({exc!r}); the runner downloads it")
                 continue
             self._pulled.add(rel)
 
@@ -278,11 +288,13 @@ class Worker:
         """The environment of one item process: local caches, per-item scratch, no inherited thread pools."""
         cache = self.cfg.cache_root
         env = {k: v for k, v in os.environ.items() if k not in THREAD_ENV_VARS}
+        env.update(weight_cache_env(cache))  # HF_HOME, XDG_CACHE_HOME (tabpfn), TORCH_HOME under CACHE_ROOT
+        if (self.cache_manifest or {}).get("offline_weights"):
+            env["HF_HUB_OFFLINE"] = "1"  # every model's weights were pulled from the seeded cache
         env.update(
             {
                 "TMPDIR": str(scratch / "tmp"),
                 "TABARENA_MODEL_ARTIFACTS_BASE_PATH": str(scratch / "ag"),
-                "HF_HOME": str(cache / "huggingface"),
                 "TABARENA_CACHE": str(cache / "tabarena"),
                 "DATA_FOUNDRY_CACHE": str(cache / "data_foundry"),
                 "NUMBA_CACHE_DIR": str(cache / "jit" / "numba"),

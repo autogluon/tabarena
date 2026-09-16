@@ -52,6 +52,14 @@ def test_list_names_strips_the_prefix_and_trailing_slashes(recorder):
     assert GcsStorage().list_names("gs://b/q/tasks") == ["000000.json", "000001.json", "sub"]
 
 
+def test_list_files_is_recursive_and_relative(recorder):
+    recorder.answers = [
+        (0, "gs://b/c/snapshots/rev1/model.ckpt\ngs://b/c/snapshots/rev1/config.json\ngs://b/c/snapshots/rev1/:\n")
+    ]
+    assert GcsStorage().list_files("gs://b/c/snapshots") == ["rev1/model.ckpt", "rev1/config.json"]
+    assert recorder.calls[0][-1] == "gs://b/c/snapshots/**"
+
+
 def test_list_names_is_empty_for_a_missing_prefix(recorder):
     recorder.answers = [(1, "")]
     assert GcsStorage().list_names("gs://b/q/claims") == []

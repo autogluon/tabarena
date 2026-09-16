@@ -16,11 +16,28 @@ them into its ``CACHE_ROOT`` (the same layout) before an item runs, so the runne
 the prefix is shared across users and runs: seeding uploads only what is missing and then verifies
 that every local file is present remotely. Workers only read the prefix. A curated bucket that this
 account cannot write to is used the same way with ``upload=False``: the setup then only verifies.
+
+A data-foundry task the head node still holds as a legacy pickle (one that points at this machine's
+``local/datasets/``) is upgraded in place: the dataset is re-materialized from its container into a
+scratch OpenML root and the portable pickle replaces the legacy one atomically, so a SLURM job reading
+the shared cache meanwhile sees one complete file or the other.
+
+Model weights go the same way (:func:`seed_model_weights`): the run's models are prefetched on the
+head node into a scratch cache root with ``HF_HOME``, ``XDG_CACHE_HOME`` (tabpfn's cache) and
+``TORCH_HOME`` redirected, whatever lands there is uploaded under ``huggingface/``, ``xdg/`` and
+``torch/`` (Hugging Face repos as their ``snapshots`` and ``refs``, so no blob is stored twice), and a
+per-model manifest ``weights/<model>.json`` makes the next setup skip the prefetch. Workers pull the
+entries at start and, when every model's weights are present, load them with ``HF_HUB_OFFLINE=1``, so
+no token is needed on the VMs.
 """
 
 from __future__ import annotations
 
+import json
+import os
 import re
+import shutil
+import subprocess
 import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -29,6 +46,8 @@ from typing import TYPE_CHECKING
 from tabarena.benchmark.task.metadata.schema import tid_from_task_id_str
 
 if TYPE_CHECKING:
+    from collections.abc import Callable, Iterable
+
     from tabarena.benchmark.task.metadata import TaskMetadataCollection
     from tabflow_slurm.setup.sky_storage import Storage
 
@@ -113,10 +132,60 @@ def user_task_entries(task_id_str: str, *, openml_root: Path, tabarena_root: Pat
     return entries
 
 
+def upgrade_legacy_user_task(collection: TaskMetadataCollection, dataset: str, *, openml_root: Path) -> bool:
+    """Replace ``dataset``'s legacy task pickle by the portable format; ``True`` when it was upgraded.
+
+    Re-materializes the dataset through the collection's source (its recorded suite) into a scratch
+    OpenML root next to the real one, then moves the new ``tabarena_tasks/<slug>.pkl`` over the legacy
+    file with ``os.replace`` (atomic on one filesystem). The text cache lands in the TabArena cache as
+    usual. Nothing changes when the collection has no materializing source or the conversion fails.
+    """
+    import openml
+
+    scoped = collection.subset_tasks(dataset_names=[dataset])
+    if scoped.preset is None or len(scoped) == 0:
+        return False
+    slug = dataset  # a data-foundry task's tabarena_task_name is its slug
+    target = openml_root / "tabarena_tasks" / f"{slug}.pkl"
+    scratch_root = openml_root / f".upgrade_{os.getpid()}"
+    scratch_root.mkdir(parents=True, exist_ok=True)
+    saved_root = openml.config._root_cache_directory
+    try:
+        openml.config.set_root_cache_directory(str(scratch_root))
+        scoped.materialize()
+    except Exception as exc:
+        warnings.warn(f"Could not re-materialize {dataset!r} to upgrade its legacy task pickle: {exc!r}", stacklevel=2)
+        shutil.rmtree(scratch_root, ignore_errors=True)
+        return False
+    finally:
+        openml.config.set_root_cache_directory(str(saved_root))
+    fresh = scratch_root / "tabarena_tasks" / f"{slug}.pkl"
+    ok = fresh.exists() and is_portable_user_task(fresh)
+    if ok:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        os.replace(fresh, target)
+        print(f"upgraded the legacy task pickle of {dataset!r} to the portable format")
+    else:
+        warnings.warn(
+            f"Re-materializing {dataset!r} produced no portable task pickle; keeping the legacy one.", stacklevel=2
+        )
+    shutil.rmtree(scratch_root, ignore_errors=True)
+    return ok
+
+
 def collect_cache_entries(
-    collection: TaskMetadataCollection, *, openml_root: Path, tabarena_root: Path
+    collection: TaskMetadataCollection,
+    *,
+    openml_root: Path,
+    tabarena_root: Path,
+    upgrade_legacy: bool = True,
 ) -> dict[str, list[CacheEntry]]:
-    """Per dataset (``tabarena_task_name``), the cache entries the head node holds for it."""
+    """Per dataset (``tabarena_task_name``), the cache entries the head node holds for it.
+
+    With ``upgrade_legacy`` a data-foundry task held as a legacy pickle is converted first (see
+    :func:`upgrade_legacy_user_task`) so it can be seeded; without it, or when the conversion is not
+    possible, that dataset has no entries and the workers download it.
+    """
     by_dataset: dict[str, list[CacheEntry]] = {}
     for ttm in collection:
         dataset = ttm.tabarena_task_name
@@ -124,6 +193,9 @@ def collect_cache_entries(
             continue
         task_id_str = str(ttm.task_id_str)
         if task_id_str.startswith(_USER_TASK_PREFIX):
+            legacy = openml_root / "tabarena_tasks" / f"{dataset}.pkl"
+            if upgrade_legacy and legacy.exists() and not is_portable_user_task(legacy):
+                upgrade_legacy_user_task(collection, dataset, openml_root=openml_root)
             entries = user_task_entries(task_id_str, openml_root=openml_root, tabarena_root=tabarena_root)
         else:
             entries = openml_task_entries(tid_from_task_id_str(task_id_str), openml_root=openml_root)
@@ -213,5 +285,149 @@ def seed_dataset_cache(
 
 
 def _remote_files(storage: Storage, uri: str) -> list[str]:
-    """Relative paths of the objects under ``uri`` (OpenML task and dataset directories are flat)."""
-    return [name for name in storage.list_names(uri) if not name.endswith("/")]
+    """Relative paths of the objects under ``uri`` at any depth (Hugging Face snapshots nest one level)."""
+    return storage.list_files(uri)
+
+
+# ---------------------------------------------------------------------------- model weights
+
+#: Environment variable -> sub-directory of a cache root; the libraries that read them: huggingface_hub
+#: (``HF_HOME``), tabpfn and other platformdirs users (``XDG_CACHE_HOME``), torch hub (``TORCH_HOME``).
+WEIGHT_CACHE_ENV: dict[str, str] = {"HF_HOME": "huggingface", "XDG_CACHE_HOME": "xdg", "TORCH_HOME": "torch"}
+
+
+def weight_cache_env(cache_root: Path) -> dict[str, str]:
+    """The environment that points every weight cache under ``cache_root``."""
+    return {var: str(Path(cache_root) / sub) for var, sub in WEIGHT_CACHE_ENV.items()}
+
+
+def head_hf_token() -> str | None:
+    """The Hugging Face token of this node: ``HF_TOKEN``, else the token file of the ambient ``HF_HOME``."""
+    token = os.environ.get("HF_TOKEN")
+    if token:
+        return token
+    home = Path(os.environ.get("HF_HOME") or Path.home() / ".cache" / "huggingface")
+    try:
+        return (home / "token").read_text().strip() or None
+    except OSError:
+        return None
+
+
+def prefetch_weights_into(model_names: Iterable[str], *, python: str, cache_root: Path) -> None:
+    """Run tabarena's weight prefetch for ``model_names`` in a subprocess whose caches live under ``cache_root``.
+
+    The head node's own token is passed as ``HF_TOKEN`` so gated repositories download; the redirected
+    caches never see the node's other weights, so what lands under ``cache_root`` is exactly this run's.
+    """
+    env = {k: v for k, v in os.environ.items() if k not in ("HF_HUB_CACHE", "HUGGINGFACE_HUB_CACHE", "HF_HUB_OFFLINE")}
+    env.update(weight_cache_env(cache_root))
+    token = head_hf_token()
+    if token:
+        env["HF_TOKEN"] = token
+    for path in weight_cache_env(cache_root).values():
+        Path(path).mkdir(parents=True, exist_ok=True)
+    code = (
+        "from tabarena.models.prefetch import prefetch_weights; "
+        f"prefetch_weights({list(model_names)!r}, raise_on_error=True)"
+    )
+    subprocess.run([python, "-P", "-c", code], env=env, check=True)  # noqa: S603
+
+
+def _is_hidden(path: Path, root: Path) -> bool:
+    return any(part.startswith(".") for part in path.relative_to(root).parts)
+
+
+def collect_weight_entries(cache_root: Path) -> list[CacheEntry]:
+    """The seedable files a prefetch left under ``cache_root``.
+
+    Hugging Face repositories contribute their ``snapshots`` and ``refs`` directories (the snapshot files
+    are symlinks into ``blobs``; the upload follows them, so the blobs are not stored twice). Everything
+    else (``xdg/tabpfn/*.ckpt``, torch hub checkpoints) is taken file by file; lock files and hidden
+    directories are skipped.
+    """
+    cache_root = Path(cache_root)
+    entries: list[CacheEntry] = []
+    hub = cache_root / "huggingface" / "hub"
+    if hub.is_dir():
+        for repo in sorted(hub.iterdir()):
+            if not repo.is_dir() or not repo.name.startswith("models--"):
+                continue
+            for sub in ("snapshots", "refs"):
+                if (repo / sub).is_dir():
+                    entries.append(CacheEntry(rel=f"huggingface/hub/{repo.name}/{sub}", local=repo / sub, is_dir=True))
+    for top in ("xdg", "torch"):
+        root = cache_root / top
+        if not root.is_dir():
+            continue
+        for path in sorted(root.rglob("*")):
+            if path.is_file() and not _is_hidden(path, cache_root) and not path.name.endswith(".lock"):
+                entries.append(CacheEntry(rel=path.relative_to(cache_root).as_posix(), local=path, is_dir=False))
+    return entries
+
+
+def model_has_prefetcher(model_name: str) -> bool:
+    """Whether the registry model declares weights to prefetch (foundation models do, trees do not)."""
+    from tabarena.models.utils import get_model_info_from_name
+
+    try:
+        return get_model_info_from_name(model_name).prefetch_weights is not None
+    except ValueError:
+        return False
+
+
+def seed_model_weights(
+    model_names: Iterable[str],
+    *,
+    python: str,
+    storage: Storage,
+    cache_uri: str,
+    upload: bool = True,
+    scratch_dir: Path | None = None,
+    prefetch: Callable[..., None] = prefetch_weights_into,
+    has_prefetcher: Callable[[str], bool] = model_has_prefetcher,
+) -> tuple[dict, CacheSeedReport]:
+    """Make the weights of ``model_names`` available under ``cache_uri``; return ``(manifest, report)``.
+
+    A model whose ``weights/<model>.json`` exists remotely is taken from there. Otherwise (and only when
+    ``upload``) it is prefetched into a fresh scratch root, its entries are seeded and verified, and the
+    remote manifest is written. The returned manifest is
+    ``{"weights": {"<model>": [rels]}, "offline_weights": bool}``; ``offline_weights`` is True when every
+    model that declares weights has verified entries, which lets the workers load with ``HF_HUB_OFFLINE=1``.
+    """
+    cache_uri = cache_uri.rstrip("/")
+    report = CacheSeedReport(cache_uri=cache_uri)
+    weights: dict[str, list[str]] = {}
+    complete = True
+    scratch = Path(scratch_dir) if scratch_dir is not None else Path.home() / ".cache" / "tabarena_sky_seed"
+    for model in dict.fromkeys(model_names):
+        remote_manifest = f"{cache_uri}/weights/{model}.json"
+        if storage.exists(remote_manifest):
+            weights[model] = list(json.loads(storage.read_text(remote_manifest))["entries"])
+            continue
+        if not has_prefetcher(model):
+            weights[model] = []
+            continue
+        if not upload:
+            report.unverified.append(f"weights of {model}")
+            complete = False
+            continue
+        root = scratch / model
+        shutil.rmtree(root, ignore_errors=True)
+        root.mkdir(parents=True)
+        try:
+            prefetch([model], python=python, cache_root=root)
+            entries = collect_weight_entries(root)
+            seeded, part = seed_dataset_cache({model: entries}, storage=storage, cache_uri=cache_uri, upload=True)
+            report.files += part.files
+            report.total_bytes += part.total_bytes
+            report.uploaded_files += part.uploaded_files
+            report.unverified.extend(part.unverified)
+            rels = seeded["datasets"].get(model, [])
+            if not entries or part.unverified:
+                complete = False
+            storage.write_text(remote_manifest, json.dumps({"model": model, "entries": rels}))
+            weights[model] = rels
+        finally:
+            shutil.rmtree(root, ignore_errors=True)
+    report.datasets = len(weights)
+    return {"weights": weights, "offline_weights": complete}, report

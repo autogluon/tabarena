@@ -35,6 +35,10 @@ class LocalDirStorage:
         path = self.path_for(uri.rstrip("/"))
         return sorted(p.name for p in path.iterdir()) if path.is_dir() else []
 
+    def list_files(self, uri: str) -> list[str]:
+        path = self.path_for(uri.rstrip("/"))
+        return sorted(p.relative_to(path).as_posix() for p in path.rglob("*") if p.is_file()) if path.is_dir() else []
+
     def read_text(self, uri: str) -> str:
         return self.path_for(uri).read_text()
 
