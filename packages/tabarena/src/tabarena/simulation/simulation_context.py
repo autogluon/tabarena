@@ -47,6 +47,20 @@ def _default_label_load_threads() -> int:
     return LABEL_LOAD_THREADS if threading.current_thread() is threading.main_thread() else 1
 
 
+def _narrow_int_dtype(column: pd.Series) -> str | None:
+    """The narrowest integer dtype below 64 bits that holds ``column``, or None if the column is
+    empty, already that narrow, or needs 64 bits.
+    """
+    if len(column) == 0:
+        return None
+    lo, hi = column.min(), column.max()
+    for dtype in ("int8", "uint8", "int16", "uint16", "int32", "uint32"):
+        info = np.iinfo(dtype)
+        if info.min <= lo and hi <= info.max:
+            return None if column.dtype == np.dtype(dtype) else dtype
+    return None
+
+
 class ZeroshotSimulatorContext:
     def __init__(
         self,
@@ -177,9 +191,14 @@ class ZeroshotSimulatorContext:
         restores the object dtype, so nothing outside pickling ever sees a categorical and the
         pandas ``groupby`` / ``value_counts`` semantics of the frames are unchanged. Cuts the ray
         transfer of a 12-method collection's contexts by about half.
+
+        Integer columns are pickled in the narrowest integer dtype that holds their values
+        (``fold``, ``tid`` and the resource counts are int64 columns whose values fit in one to
+        four bytes) and widened back on load, again column by column.
         """
         state = dict(self.__dict__)
         converted: dict[str, list[str]] = {}
+        narrowed: dict[str, dict[str, str]] = {}
         for attr in self._PICKLE_CATEGORICAL_FRAMES:
             df = state.get(attr)
             if df is None or len(df) == 0:
@@ -189,15 +208,22 @@ class ZeroshotSimulatorContext:
                 for c in df.columns
                 if df[c].dtype == object and pd.api.types.infer_dtype(df[c], skipna=True) == "string"
             ]
-            if not columns:
+            ints = {c: _narrow_int_dtype(df[c]) for c in df.columns if pd.api.types.is_integer_dtype(df[c].dtype)}
+            ints = {c: d for c, d in ints.items() if d is not None}
+            if not columns and not ints:
                 continue
-            state[attr] = df.astype(dict.fromkeys(columns, "category"))
-            converted[attr] = columns
+            state[attr] = df.astype({**dict.fromkeys(columns, "category"), **ints})
+            if columns:
+                converted[attr] = columns
+            if ints:
+                narrowed[attr] = {c: str(df[c].dtype) for c in ints}
         state["_pickled_categorical_columns"] = converted
+        state["_pickled_narrowed_columns"] = narrowed
         return state
 
     def __setstate__(self, state):
         converted = state.pop("_pickled_categorical_columns", {})
+        narrowed = state.pop("_pickled_narrowed_columns", {})
         self.__dict__.update(state)
         for attr, columns in converted.items():
             df = self.__dict__[attr]
@@ -205,6 +231,10 @@ class ZeroshotSimulatorContext:
             # arrive as zero-copy views into ray's object store and should stay that way
             for c in columns:
                 df[c] = df[c].astype(object)
+        for attr, dtypes in narrowed.items():
+            df = self.__dict__[attr]
+            for c, dtype in dtypes.items():
+                df[c] = df[c].astype(dtype)
 
     def _compute_dataset_to_tasks(self) -> dict:
         """Returns the mapping of dataset parent to dataset fold names.

@@ -177,3 +177,40 @@ def test_context_pickles_string_columns_as_categoricals_and_restores_them():
         assert list(a.dtypes) == list(b.dtypes)
     assert restored.unique_tasks == zsc.unique_tasks
     assert np.array_equal(restored.rank_scorer.error_dict["11_0"], zsc.rank_scorer.error_dict["11_0"])
+
+
+def test_context_pickles_int_columns_narrow_and_restores_them():
+    """Integer result columns travel in the narrowest dtype that holds them and come back as
+    they were; a column that needs int64 stays int64 on the wire.
+    """
+    import pickle
+
+    import numpy as np
+
+    from tabarena.simulation.context_artificial import load_repo_artificial
+
+    context = load_repo_artificial()._zeroshot_context
+    df = context.df_configs
+    df["wide_int"] = np.int64(2**40) + np.arange(len(df), dtype=np.int64)
+    df["already_narrow"] = np.arange(len(df), dtype=np.int8)
+    int_columns = [c for c in df.columns if df[c].dtype.kind == "i"]
+    assert "fold" in int_columns
+    before = {c: str(df[c].dtype) for c in df.columns}
+
+    state = context.__getstate__()
+    narrowed = state["_pickled_narrowed_columns"]["df_configs"]
+    assert narrowed["fold"] == "int64"
+    assert "wide_int" not in narrowed
+    assert "already_narrow" not in narrowed
+    assert str(state["df_configs"]["fold"].dtype) == "int8"
+    assert str(state["df_configs"]["wide_int"].dtype) == "int64"
+    # the live frame is untouched
+    assert {c: str(df[c].dtype) for c in df.columns} == before
+
+    restored = pickle.loads(pickle.dumps(context, protocol=5))
+    pd.testing.assert_frame_equal(restored.df_configs, df)
+    assert {c: str(restored.df_configs[c].dtype) for c in df.columns} == before
+    assert "_pickled_narrowed_columns" not in restored.__dict__
+    assert len(pickle.dumps(context, protocol=5)) < len(
+        pickle.dumps(state["df_configs"].astype({"fold": "int64"}), protocol=5)
+    ) + len(pickle.dumps({k: v for k, v in state.items() if k != "df_configs"}, protocol=5))
