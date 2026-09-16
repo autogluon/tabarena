@@ -255,6 +255,7 @@ class BenchmarkContext:
         load_predictions: bool = True,
         prediction_format: str = "memmap",
         verbose: bool = True,
+        validate: bool = False,
     ) -> tuple[ZeroshotSimulatorContext, TabularModelPredictions, GroundTruth]:
         """:param folds: If None, uses self.folds as default.
             If specified, must be a subset of `self.folds`. This will filter the results to only the specified folds.
@@ -264,6 +265,12 @@ class BenchmarkContext:
             "memmap": Fast and low memory usage.
             "memopt": Very fast and high memory usage.
             "mem": Slow and high memory usage, simplest format to debug.
+        :param validate: If True, list every task directory first and raise ``FileNotFoundError``
+            naming all required files that are missing, before anything is loaded. Off by default:
+            processed artifacts arrive as one unpacked archive, the listings cost seconds per
+            artifact on network filesystems, and a missing file still fails, just later and one at a
+            time (results and label files when they are read here, prediction ``.dat`` files when
+            they are first memmapped at predict time).
         :return: Returns three objects in the following order:
             zsc: ZeroshotSimulatorContext
                 The zeroshot simulator context object.
@@ -277,9 +284,8 @@ class BenchmarkContext:
                 The target ground truth for both validation and test samples for all tasks.
                 Will be None if `load_predictions=False`.
 
-        Raises FileNotFoundError listing every required file that is missing locally. Artifacts
-        are fetched as a whole beforehand (``MethodMetadata.method_downloader``), so loading
-        itself never downloads.
+        Artifacts are fetched as a whole beforehand (``MethodMetadata.method_downloader``), so
+        loading itself never downloads.
         """
         assert prediction_format in ["memmap", "memopt", "mem"]
         if folds is None:
@@ -295,10 +301,13 @@ class BenchmarkContext:
                 f"\tdate: {self.date}\n"
                 f"\tfolds: {folds}"
             )
-        missing_files = self.benchmark_paths.missing_files(check_zs=load_predictions)
-        if missing_files:
-            missing_files_str = [f'\n\t"{m}"' for m in missing_files]
-            raise FileNotFoundError(f"Missing {len(missing_files)} required files: \n[{','.join(missing_files_str)}\n]")
+        if validate:
+            missing_files = self.benchmark_paths.missing_files(check_zs=load_predictions)
+            if missing_files:
+                missing_files_str = [f'\n\t"{m}"' for m in missing_files]
+                raise FileNotFoundError(
+                    f"Missing {len(missing_files)} required files: \n[{','.join(missing_files_str)}\n]"
+                )
 
         configs_hyperparameters = self.load_configs_hyperparameters()
         zsc = self._load_zsc(folds=folds, configs_hyperparameters=configs_hyperparameters, verbose=verbose)
@@ -319,12 +328,14 @@ class BenchmarkContext:
         load_predictions: bool = True,
         prediction_format: str = "memmap",
         verbose: bool = True,
+        validate: bool = False,
     ) -> EvaluationRepository:
         zsc, zeroshot_pred_proba, zeroshot_gt = self.load(
             folds=folds,
             load_predictions=load_predictions,
             prediction_format=prediction_format,
             verbose=verbose,
+            validate=validate,
         )
         return EvaluationRepository(
             zeroshot_context=zsc,
@@ -346,7 +357,7 @@ class BenchmarkContext:
         prediction_format: str,
         verbose: bool = True,
     ) -> tuple[TabularModelPredictions, GroundTruth, ZeroshotSimulatorContext]:
-        # validate=False: `load` has already verified all required files exist.
+        # validate=False: `load` runs the existence check itself when asked to (its `validate`).
         return self.benchmark_paths.load_predictions(
             zsc=zsc, prediction_format=prediction_format, verbose=verbose, validate=False
         )

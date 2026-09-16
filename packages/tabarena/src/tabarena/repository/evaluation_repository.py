@@ -327,7 +327,11 @@ class EvaluationRepository(AbstractRepository, EnsembleMixin, GroundTruthMixin):
         prediction_format: Literal["memmap", "memopt", "mem"] = "memmap",
         update_relative_path: bool = True,
         verbose: bool = True,
+        validate: bool = False,
     ) -> Self:
+        """``validate=True`` checks that every file the context lists exists before loading and
+        raises ``FileNotFoundError`` naming the missing ones (see ``BenchmarkContext.load``).
+        """
         from tabarena.simulation.benchmark_context import BenchmarkContext
 
         path_context = str(Path(path) / "context.json")
@@ -335,7 +339,7 @@ class EvaluationRepository(AbstractRepository, EnsembleMixin, GroundTruthMixin):
         if update_relative_path:
             context.benchmark_paths.relative_path = str(Path(path))
 
-        return context.load_repo(prediction_format=prediction_format, verbose=verbose)
+        return context.load_repo(prediction_format=prediction_format, verbose=verbose, validate=validate)
 
     @classmethod
     def _convert_sim_artifacts(
