@@ -10,6 +10,7 @@ import numpy as np
 import pandas as pd
 from autogluon.core.data.label_cleaner import LabelCleanerMulticlassToBinary
 from autogluon.core.models import AbstractModel
+from autogluon.core.utils import get_pred_from_proba
 from loguru import logger
 
 from tabarena.benchmark.exec_models.autogluon_utils import (
@@ -787,12 +788,11 @@ class AGSingleWrapper(AGWrapper):
     per_child_test_source: str | None = None
     """How the per-child test artifact was produced, when a bag artifact was collected.
 
-    ``"timed_prediction"`` when a single-child bag reused the timed prediction,
-    ``"timed_prediction_recorder"`` when the bag's per-child recorder captured each child's output
-    during the timed predict (see ``AGSingleBagWrapper.pre_predict``), ``"child_forward_pass"`` when
-    the children predicted again, ``None`` before ``bag_artifact`` ran (and always for a non-bagged
-    wrapper). Recorded in the fit metadata so reruns of nondeterministic GPU models can be interpreted
-    without logs.
+    ``"timed_children_pass"`` when the timed predict ran the children pass and kept each child's
+    output (see ``AGSingleBagWrapper.pre_predict``), ``"timed_prediction"`` when a single-child bag
+    reused the timed prediction, ``"child_forward_pass"`` when the children predicted again, ``None``
+    before ``bag_artifact`` ran (and always for a non-bagged wrapper). Recorded in the fit metadata so
+    reruns of nondeterministic GPU models can be interpreted without logs.
     """
 
     def __init__(
@@ -978,7 +978,7 @@ class AGSingleWrapper(AGWrapper):
         ``shared_weights`` (the process-wide registry ``report()`` and each bagged child's
         ``info["shared_weights"]`` when present; see ``tabarena.models._weights``) and
         ``per_child_test_source`` (how the bag artifact's per-child test predictions were produced:
-        ``"timed_prediction"``, ``"timed_prediction_recorder"`` or ``"child_forward_pass"``; ``None``
+        ``"timed_children_pass"``, ``"timed_prediction"`` or ``"child_forward_pass"``; ``None``
         until ``bag_artifact`` ran; the OOF runner refreshes it after the artifact).
         """
         metadata = {}
@@ -1075,12 +1075,13 @@ class AGSingleBagWrapper(AGSingleWrapper):
     validation protocol, and it advertises and provides the per-bagged-child out-of-fold validation
     indices and test predictions needed for ensemble simulation.
 
-    The per-child test predictions come out of the timed predict whenever possible. A single-child
-    bag's output is its child's, and a multi-child bag on an AutoGluon whose ``BaggedEnsembleModel``
-    has the per-child recorder (``record_child_pred_proba`` / ``pop_child_pred_proba``) keeps each
-    child's array while the bag predicts: ``pre_predict`` switches the recorder on for the served bag,
-    ``bag_artifact`` pops the arrays and ``cleanup`` switches it off. Without the recorder, or when
-    nothing was recorded, every child predicts a second time.
+    The per-child test predictions come out of the timed predict. When the served bag supports it
+    (AutoGluon's ``predict_proba_children`` and ``predict_proba_from_children``), the timed predict
+    runs the children pass: every child predicts once, its array is kept, and the bag's own output is
+    derived from the arrays with the arithmetic ``predict_proba`` uses, so ``bag_artifact`` hands them
+    over instead of predicting again. Otherwise the timed predict takes the predictor's path; a
+    single-child bag's artifact is then its timed output, and every other bag predicts a second time
+    per child.
     """
 
     bagged_fit: ClassVar[bool | None] = True
@@ -1089,81 +1090,116 @@ class AGSingleBagWrapper(AGSingleWrapper):
     can_get_per_child_oof = True
     can_get_per_child_val_idx = True
 
-    _child_pred_proba_recorder_bag = None
-    """The served bag whose per-child recorder ``pre_predict`` switched on; ``None`` once switched off."""
+    _timed_children_bag = None
+    """The served bag ``pre_predict`` cleared for the children pass; ``None`` when the timed predict takes the predictor's path."""
+    _timed_children: list[np.ndarray] | None = None
+    """The per-child arrays the timed predict's children pass kept (child output space, timed row order), until
+    ``bag_artifact`` takes them or ``cleanup`` drops them."""
 
     def pre_predict(self):
-        """Persist the served bag (``AGWrapper.pre_predict``), then switch on its per-child recorder.
+        """Persist the served bag (``AGWrapper.pre_predict``), then decide the timed predict's path.
 
-        With ``BaggedEnsembleModel.record_child_pred_proba`` set, the timed ``predict_proba`` keeps
-        each child's array for ``bag_artifact`` (``pop_child_pred_proba``), so the per-child test
-        artifact needs no second forward pass over the children. The recorder is feature-detected: a
-        bag without the attribute (an AutoGluon that predates it) is left alone and ``bag_artifact``
-        predicts with every child. Its cost inside the timed predict is one copy of the first child's
-        output array. A failure here is logged and inference proceeds without the recorder.
+        When the served bag supports it, the timed predict runs the children pass
+        (``_predict_children_pass``): ``predict_proba_children`` once, ``predict_proba_from_children``
+        for the bag's own output, the learner's post-processing for the user-facing frame; the per-child
+        arrays it keeps become the bag artifact, so no child predicts a second time. The checks run
+        here, outside the timer. A bag that fails them (an AutoGluon without
+        ``predict_proba_from_children``, a learner without the post-processing hooks, a label cleaner
+        that changes the problem type) keeps the predictor's own ``predict_proba`` / ``predict``, and
+        the artifact predicts per child afterwards.
         """
         super().pre_predict()
-        self._start_child_pred_proba_recorder()
-
-    def cleanup(self):
-        """Switch the per-child recorder off, then release the served models (``AGWrapper.cleanup``)."""
-        self._stop_child_pred_proba_recorder()
-        super().cleanup()
-
-    @staticmethod
-    def _bag_has_child_pred_proba_recorder(model) -> bool:
-        """Whether ``model`` exposes AutoGluon's per-child recorder (the flag attribute and the pop method)."""
-        return hasattr(model, "record_child_pred_proba") and callable(getattr(model, "pop_child_pred_proba", None))
-
-    def _start_child_pred_proba_recorder(self) -> None:
-        """Switch the served bag's per-child recorder on, when the bag has one, and remember the bag."""
+        self._timed_children = None
+        self._timed_children_bag = None
         try:
             model = self._load_model()
-            if not self._bag_has_child_pred_proba_recorder(model):
-                logger.info("The served bag has no per-child recorder; the bag artifact will predict per child.")
-                return
-            model.pop_child_pred_proba()  # drop anything recorded before the timed predict
-            model.record_child_pred_proba = True
-            self._child_pred_proba_recorder_bag = model
+            reason = self._children_pass_unavailable_reason(model)
         except Exception as exc:
-            logger.warning(f"Switching on the bag's per-child recorder failed; predicting per child instead. ({exc!r})")
+            reason = f"the served bag could not be inspected: {exc!r}"
+        if reason is None:
+            self._timed_children_bag = model
+        else:
+            logger.info(
+                f"The timed predict takes the predictor's path; the bag artifact predicts per child ({reason})."
+            )
 
-    def _stop_child_pred_proba_recorder(self) -> None:
-        """Switch the recorder off on the bag ``pre_predict`` armed, drop its arrays and forget the bag."""
-        model, self._child_pred_proba_recorder_bag = self._child_pred_proba_recorder_bag, None
-        if model is None:
-            return
-        try:
-            model.record_child_pred_proba = False
-            model.pop_child_pred_proba()
-        except Exception as exc:
-            logger.warning(f"Switching off the bag's per-child recorder failed. ({exc!r})")
+    def cleanup(self):
+        """Drop the timed predict's per-child arrays, then release the served models (``AGWrapper.cleanup``)."""
+        self._timed_children = None
+        self._timed_children_bag = None
+        super().cleanup()
 
-    def _pop_child_pred_proba_recorder(self, model) -> list[np.ndarray] | None:
-        """Pop what the timed predict recorded on ``model`` and switch the recorder off.
+    def _children_pass_unavailable_reason(self, model) -> str | None:
+        """Why the timed predict cannot run the children pass on ``model``, or ``None`` when it can."""
+        for method in ("predict_proba_children", "predict_proba_from_children"):
+            if not callable(getattr(model, method, None)):
+                return f"the served bag has no {method}, an AutoGluon older than the per-child pass"
+        if self.problem_type not in ("regression", "quantile") and not model.can_predict_proba():
+            return "the served bag cannot predict probabilities"
+        learner = self.predictor._learner
+        for method in ("transform_features", "_post_process_predict_proba", "_post_process_predict"):
+            if not callable(getattr(learner, method, None)):
+                return f"the learner has no {method}"
+        if learner.label_cleaner.problem_type_transform != self.problem_type:
+            return "the learner's label cleaner changes the problem type"
+        return None
 
-        Returns ``None`` when ``model`` has no recorder or nothing was recorded (the timed predict did
-        not run on this object). The bag armed in ``pre_predict`` is switched off too, so no recording
-        outlives the artifact collection.
+    @staticmethod
+    def _children_pass_covers(model, *, n_rows: int) -> bool:
+        """Whether the children pass reproduces ``predict_proba`` on ``n_rows`` rows: no bag-level chunking applies.
+
+        ``predict_proba_children`` does not chunk by the bag's own ``ag.max_batch_size`` (each child
+        chunks by its own), so a bag whose limit is below the row count keeps the predictor's path.
         """
-        recorded = None
-        if self._bag_has_child_pred_proba_recorder(model):
-            try:
-                model.record_child_pred_proba = False
-                recorded = model.pop_child_pred_proba()
-            except Exception as exc:
-                logger.warning(f"Popping the bag's recorded per-child predictions failed. ({exc!r})")
-                recorded = None
-        self._stop_child_pred_proba_recorder()
-        return recorded
+        max_batch_size = model._get_max_batch_size()
+        return max_batch_size is None or max_batch_size >= n_rows
+
+    def _predict_proba(self, X: pd.DataFrame) -> pd.DataFrame:
+        """The timed ``predict_proba``: the children pass when ``pre_predict`` cleared it, else the predictor's own."""
+        bag = self._timed_children_bag
+        if bag is None or not self._children_pass_covers(bag, n_rows=len(X)):
+            return super()._predict_proba(X)
+        y_pred_proba, children = self._predict_children_pass(bag, X)
+        y_pred_proba = self.predictor._learner._post_process_predict_proba(
+            y_pred_proba=y_pred_proba, as_pandas=True, index=X.index, as_multiclass=True, inverse_transform=True
+        )
+        self._timed_children = children
+        return y_pred_proba
+
+    def _predict(self, X: pd.DataFrame) -> pd.Series:
+        """The timed ``predict`` (regression): the children pass when ``pre_predict`` cleared it, else the predictor's own."""
+        bag = self._timed_children_bag
+        if bag is None or not self._children_pass_covers(bag, n_rows=len(X)):
+            return super()._predict(X)
+        learner = self.predictor._learner
+        y_pred_proba, children = self._predict_children_pass(bag, X)
+        problem_type = learner.label_cleaner.problem_type_transform or learner.problem_type
+        y_pred = get_pred_from_proba(y_pred_proba=y_pred_proba, problem_type=problem_type)
+        y_pred = learner._post_process_predict(y_pred=y_pred, as_pandas=True, index=X.index, inverse_transform=True)
+        self._timed_children = children
+        return y_pred
+
+    def _predict_children_pass(self, bag, X: pd.DataFrame) -> tuple[np.ndarray, list[np.ndarray]]:
+        """``TabularPredictor.predict_proba``'s work for the served bag, keeping every child's array.
+
+        The learner's feature transform, then ``BaggedEnsembleModel.predict_proba_children`` (one pass
+        over the children, each array kept) and ``predict_proba_from_children`` (their mean and the
+        bag's calibration, the arithmetic ``predict_proba`` uses), so the bag's output is what the
+        predictor's path computes and the per-child arrays cost no second pass. Returns the bag's
+        output in the internal label space and the per-child arrays: each child's ``predict_proba`` on
+        the preprocessed rows, before the bag's calibration, in ``X``'s row order.
+        """
+        X_inner = self.predictor._learner.transform_features(X)
+        children = bag.predict_proba_children(X=X_inner)
+        return bag.predict_proba_from_children(children), children
 
     def bag_artifact(self, X_test: pd.DataFrame, *, y_pred=None, y_pred_proba=None) -> dict:
         """Collect per-child test predictions and validation indices for the bagged model.
 
         The timed outputs (``y_pred`` / ``y_pred_proba`` in the caller's original row order) are
-        forwarded to ``get_per_child_test``, which reuses them for a single-child bag and otherwise
-        takes the arrays the per-child recorder captured during the timed predict, instead of
-        predicting again; ``per_child_test_source`` records which path produced the artifact.
+        forwarded to ``get_per_child_test``, which takes the arrays the timed predict's children pass
+        kept, or reuses the outputs for a single-child bag, instead of predicting again;
+        ``per_child_test_source`` records which path produced the artifact.
         """
         model = self._load_model()
         bag_info = {}
@@ -1226,18 +1262,21 @@ class AGSingleBagWrapper(AGSingleWrapper):
         """Return each child's predictions on ``X_test`` (float32), in the original row order.
 
         Three paths, tried in this order; ``per_child_test_source`` records which one produced the
-        artifact. A single-child bag whose output equals its child's reuses the timed prediction
-        (``_per_child_test_from_timed_output``). A bag whose per-child recorder ``pre_predict``
-        switched on hands over the arrays it captured during the timed predict
-        (``_per_child_test_from_recorder``). Otherwise every child predicts on the served bag: the
-        same deterministic test-row shuffle as inference is applied (see ``_shuffle_test_rows``) and
-        inverted on the per-child outputs. The recorder is popped and switched off before the paths
-        are tried, so its arrays never outlive the artifact.
+        artifact. The arrays the timed predict's children pass kept are the artifact
+        (``_take_timed_children``). A single-child bag whose output equals its child's reuses the timed
+        prediction (``_per_child_test_from_timed_output``). Otherwise every child predicts on the served
+        bag: the same deterministic test-row shuffle as inference is applied (see ``_shuffle_test_rows``)
+        and inverted on the per-child outputs. The pass's arrays are taken, and dropped, before the
+        paths are tried, so they never outlive the artifact.
         """
         if model is None:
             model = self._load_model()
 
-        recorded = self._pop_child_pred_proba_recorder(model)
+        timed_children = self._take_timed_children(model=model, n_rows=len(X_test))
+        if timed_children is not None:
+            self.per_child_test_source = "timed_children_pass"
+            logger.info("Per-child test artifact taken from the timed predict's children pass.")
+            return timed_children
         reused = self._per_child_test_from_timed_output(
             model=model, n_rows=len(X_test), y_pred=y_pred, y_pred_proba=y_pred_proba
         )
@@ -1245,11 +1284,6 @@ class AGSingleBagWrapper(AGSingleWrapper):
             self.per_child_test_source = "timed_prediction"
             logger.info("Per-child test artifact reused the timed prediction (single-child bag).")
             return reused
-        from_recorder = self._per_child_test_from_recorder(recorded, model=model, n_rows=len(X_test))
-        if from_recorder is not None:
-            self.per_child_test_source = "timed_prediction_recorder"
-            logger.info("Per-child test artifact taken from the bag's per-child recorder of the timed prediction.")
-            return from_recorder
         self.per_child_test_source = "child_forward_pass"
         logger.info("Per-child test artifact computed by a per-child forward pass.")
 
@@ -1322,46 +1356,39 @@ class AGSingleBagWrapper(AGSingleWrapper):
             return None
         return [arr.astype(np.float32)]
 
-    def _per_child_test_from_recorder(
-        self,
-        recorded: list[np.ndarray] | None,
-        *,
-        model,
-        n_rows: int,
-    ) -> list[np.ndarray] | None:
-        """The per-child test artifact built from the recorder's arrays, or ``None`` to fall back.
+    def _take_timed_children(self, *, model, n_rows: int) -> list[np.ndarray] | None:
+        """The per-child test artifact from the timed predict's children pass, or ``None`` to fall back.
 
-        ``recorded`` is what ``pop_child_pred_proba`` returned after the timed predict: one array per
-        child in ``model.models`` order, already in the child's internal output space (the bag records
-        each child's ``predict_proba`` on the preprocessed rows, the very call
-        ``predict_proba_children`` makes), taken before the bag's ``temperature_scalar`` /
-        ``conformalize`` transform, with chunked predictions stitched back together. The timed predict
-        ran on the shuffled test rows, so the inverse of the same deterministic permutation
-        (``shuffle_seed``) is applied, as the forward-pass path does to its own outputs; the arrays are
-        then cast to float32.
+        Takes, and drops, the arrays ``_predict_children_pass`` kept: one per child in ``model.models``
+        order, each child's ``predict_proba`` on the preprocessed rows before the bag's calibration, the
+        very arrays ``predict_proba_children`` returns. The timed predict ran on the shuffled test rows,
+        so the inverse of the same deterministic permutation (``shuffle_seed``) is applied, as the
+        forward-pass path does to its own outputs; the arrays are then cast to float32.
 
-        Falls back when nothing was recorded, when the number of arrays or their row count does not
-        match the bag's children and ``n_rows`` (a predict that did not run on this object, or ran more
-        than once), or when the forward pass would call ``predict_children`` rather than
-        ``predict_proba_children`` on a classification bag, where the two differ.
+        Falls back when the pass did not run, when ``model`` is not the bag it ran on, or when the
+        number of arrays or their row count does not match the bag's children and ``n_rows`` (a predict
+        that ran on other rows).
         """
-        if recorded is None:
+        children, self._timed_children = self._timed_children, None
+        if children is None:
+            return None
+        bag = self._timed_children_bag
+        if bag is None or getattr(model, "name", None) != getattr(bag, "name", None):
+            logger.warning("The timed predict's children pass ran on another bag; predicting per child instead.")
             return None
         n_children = getattr(model, "n_children", None)
         if n_children is None:
             n_children = len(getattr(model, "models", None) or [])
-        if len(recorded) != n_children or any(len(arr) != n_rows for arr in recorded):
+        if len(children) != n_children or any(len(arr) != n_rows for arr in children):
             logger.warning(
-                f"The bag's per-child recorder holds {len(recorded)} arrays with {[len(arr) for arr in recorded]} "
+                f"The timed predict's children pass kept {len(children)} arrays with {[len(arr) for arr in children]} "
                 f"rows for a bag of {n_children} children on {n_rows} rows; predicting per child instead."
             )
             return None
-        if self.problem_type not in ("regression", "quantile") and not model.can_predict_proba():
-            return None
         if self.shuffle_test:
             _perm, inv_perm = _make_perm(n_rows, seed=self.shuffle_seed)
-            recorded = [_apply_inv_perm(arr, inv_perm) for arr in recorded]
-        return [np.asarray(arr).astype(np.float32) for arr in recorded]  # memory opt
+            children = [_apply_inv_perm(arr, inv_perm) for arr in children]
+        return [np.asarray(arr).astype(np.float32, copy=False) for arr in children]  # memory opt
 
     def _bag_output_equals_child_output(self, model, *, n_rows: int) -> bool:
         """Whether the served bag's prediction on ``n_rows`` rows is exactly its single child's output.
