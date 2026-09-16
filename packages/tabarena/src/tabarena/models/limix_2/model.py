@@ -154,7 +154,9 @@ class LimiX2Model(AbstractTorchModel):
         X = X.copy()
         for col in X.columns:
             dtype = X[col].dtype
-            if isinstance(dtype, pd.CategoricalDtype) or (pd.api.types.is_string_dtype(dtype) and dtype != object):
+            if isinstance(dtype, pd.CategoricalDtype) or (
+                pd.api.types.is_string_dtype(dtype) and not pd.api.types.is_object_dtype(dtype)
+            ):
                 X[col] = X[col].astype(object)
         return X
 
