@@ -27,6 +27,7 @@ dependencies = [
     "scipy",
     "numpy",
     "pandas",
+    "tabulate",  # pandas DataFrame.to_markdown() for validation errors
     "tqdm",
     "typing-extensions>=4.11,<5",  # used for `Self` type hint
     "scikit-learn",
