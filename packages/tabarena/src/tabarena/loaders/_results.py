@@ -98,12 +98,20 @@ def get_metric_error_from_score(score: float, metric: str) -> float:
     return get_metric(metric=metric).convert_score_to_error(score=score)
 
 
+def _canonical_metric_names(metric: pd.Series) -> pd.Series:
+    """``metric.apply(get_metric_name)`` evaluated once per distinct value (a handful) rather than
+    once per row (tens of thousands).
+    """
+    mapping = {m: get_metric_name(metric=m) for m in metric.unique()}
+    return metric.map(mapping)
+
+
 def preprocess_configs(df_configs: pd.DataFrame, inplace=True) -> pd.DataFrame:
     if not inplace:
         df_configs = df_configs.copy(deep=True)
     if "tid" in df_configs:
         df_configs["tid"] = df_configs["tid"].astype(int)
-    df_configs["metric"] = df_configs["metric"].apply(lambda m: get_metric_name(metric=m))
+    df_configs["metric"] = _canonical_metric_names(df_configs["metric"])
     if "metric_error_val" not in df_configs:
         df_configs["metric_error_val"] = df_configs[["score_val", "metric"]].apply(
             lambda row: get_metric_error_from_score(score=row["score_val"], metric=row["metric"]),
@@ -119,5 +127,5 @@ def preprocess_baselines(df_baselines: pd.DataFrame, inplace=True) -> pd.DataFra
         df_baselines = df_baselines.copy(deep=True)
     if "tid" in df_baselines:
         df_baselines["tid"] = df_baselines["tid"].astype(int)
-    df_baselines["metric"] = df_baselines["metric"].apply(lambda m: get_metric_name(metric=m))
+    df_baselines["metric"] = _canonical_metric_names(df_baselines["metric"])
     return df_baselines
