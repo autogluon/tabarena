@@ -47,7 +47,7 @@ call, and state the defaults you took in the plan.
 | `fake_memory_for_estimates` | `96` | required for every GPU model: the partition's VRAM in GB (Step 1a). Ask when it cannot be determined from context. |
 | `PYTHON_PATH` | `~/.venvs/tabarena_<...>/bin/python` | the venv whose `tabarena` imports **this** checkout (Step 2). Never assume a name. |
 | `WORKSPACE` | the shared cluster workspace | the template value unless the maintainer names another |
-| `--scheduler` | `slurm`, `skypilot`, `skypilot-pool` | `slurm` (the GCP SLURM cluster). `skypilot` runs the same plan as SkyPilot managed jobs on their own spot VMs, `skypilot-pool` on a SkyPilot job pool (venv built once per worker; better for many short bundles and for BeyondArena). Only when the maintainer asks for SkyPilot; it needs `tabflow_slurm[skypilot]` in the run venv, `sky check gcp`, and `HF_TOKEN` in the shell for gated weights. The GPU is an `A100-80GB` (VRAM 80) unless the maintainer picks another catalog card. |
+| `--scheduler` | `slurm`, `skypilot`, `skypilot-pool` | `slurm` (the GCP SLURM cluster). `skypilot` runs the same plan as SkyPilot managed jobs on their own spot VMs, `skypilot-pool` on a SkyPilot job pool (venv built once per worker; better for many short bundles and for BeyondArena). Only when the maintainer asks for SkyPilot; it needs the cluster's `sky` CLI with `SKYPILOT_API_SERVER_ENDPOINT` set (login nodes preset it), `sky check gcp`, and `HF_TOKEN` in the shell for gated weights. The GPU is the same RTX PRO 6000 (VRAM 96) as the SLURM partition unless the maintainer picks another card. |
 
 Then ask the mode question with `AskUserQuestion`, in the same call as the VRAM question when that
 one is needed:
@@ -203,7 +203,7 @@ End-to-end mode: run each `sbatch` command exactly as printed and record the id 
 
 SkyPilot (`--scheduler skypilot` / `skypilot-pool`): `setup` also freezes the run venv, archives the
 checkouts it installs and copies the batch plus one task file per bundle into the bucket, then prints
-a command block instead of `sbatch`: `sky check gcp` (once per machine), then either one
+a command block instead of `sbatch`: an endpoint guard, `sky check gcp` (once per machine), then either one
 `sky jobs launch -y -d -n <launch_id> --num-jobs N <job.yaml>` (per-job mode) or
 `sky jobs pool apply -y -p <pool> --workers N <pool.yaml>`, `sky jobs pool status --all <pool>` (wait
 for READY) and `sky jobs launch -y -d --pool <pool> ...` (pool mode). Run them as printed and record
@@ -350,9 +350,10 @@ Next in the lifecycle is the `upload-method` skill, pointed at `<WORKSPACE>/outp
   the variable exported in the submitting shell (`--export=ALL` carries it), then read
   `warmup_report.ray` and the fit timings with `audit_warmup --results`; make them defaults only when
   the workers were reused or the probe saved time.
-- SkyPilot runs use the plain upstream `sky` CLI with its local API server (no shared server, no
-  endpoint variable). The upstream GCP catalog has no RTX PRO 6000; `A100-80GB:1` is the default
-  card, so `fake_memory_for_estimates` is 80 there and 96 on the SLURM partition (the template's
+- SkyPilot runs go through the cluster's `sky` CLI and the shared API server (endpoint
+  `http://skypilot-api:46580`, preset on login nodes), which resolves `RTXPRO6000:1` to a spot
+  `g4-standard-48` and picks the regions itself, so the YAML pins no `infra`. The default card is the
+  same RTX PRO 6000 as the SLURM partition (`fake_memory_for_estimates` 96 on both; the template's
   `_scheduler_setup` returns the pair). A preempted worker job is recovered by SkyPilot and resumes
   the bundles it owns; a cancelled launch leaves orphan claims that the next `setup` re-enumerates.
 - Spot partitions preempt; requeued tasks show up as `requeued` in the progress line and are not

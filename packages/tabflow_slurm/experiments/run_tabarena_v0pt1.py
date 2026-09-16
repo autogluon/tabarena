@@ -60,7 +60,7 @@ def _scheduler_setup(kind: str) -> tuple[SchedulerSetup, int]:
     """The scheduler for ``kind`` and the VRAM in GB of its GPU (for ``fake_memory_for_estimates``)."""
     if kind == "slurm":
         return GCPSlurmSetup(), 96  # RTX PRO 6000
-    return SkyPilotSetup(secrets=("HF_TOKEN",), use_pool=kind == "skypilot-pool"), 80  # A100-80GB
+    return SkyPilotSetup(secrets=("HF_TOKEN",), use_pool=kind == "skypilot-pool"), 96  # RTX PRO 6000 as well
 
 
 def setup(scheduler: str = "slurm") -> None:

@@ -11,7 +11,8 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# The `sky` CLI for `SkyPilotSetup` (plain upstream SkyPilot with its local API server).
+# A `sky` CLI for `SkyPilotSetup` on a machine without the cluster's own client (which is preferred:
+# `SkyPilotSetup` picks up `sky` from PATH first). Upstream SkyPilot; use it with its local API server.
 skypilot = ["skypilot[gcp]==0.13.0"]
 
 [tool.uv.sources]

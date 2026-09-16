@@ -37,15 +37,18 @@ uv pip install -e ./packages/tabflow_slurm                              # this p
 You also need the cluster to have `jq` available on the compute nodes (the submit script parses the
 job JSON with it) and a Python venv reachable from the nodes (passed as `python_path`).
 
-For SkyPilot runs install the extra into the run venv, which puts the `sky` CLI next to its python:
+For SkyPilot runs the cluster's `sky` CLI (the PriorLabs fork, installed as a `uv` tool) must be on
+`PATH` and connected to the shared API server, which resolves `RTXPRO6000` and picks the regions
+(login nodes preset the endpoint; elsewhere export it):
 
 ```bash
-uv pip install -e "./packages/tabflow_slurm[skypilot]"   # skypilot[gcp], plain upstream
-$(dirname <python_path>)/sky check gcp                   # GCP must show as enabled
+export SKYPILOT_API_SERVER_ENDPOINT=http://skypilot-api:46580   # only where the login shell does not preset it
+sky api info && sky check gcp                                   # server HEALTHY, GCP enabled
 ```
 
-The CLI runs its own local API server against the machine's GCP credentials; no shared SkyPilot server
-or endpoint variable is involved. The `gcloud` CLI must be on `PATH` (it is on the cluster's login nodes).
+`SkyPilotSetup` uses that `sky` from `PATH` (`sky_binary` overrides it). Without the cluster CLI the
+`tabflow_slurm[skypilot]` extra installs upstream `skypilot[gcp]` next to the run venv's python; that
+one runs its own local API server, so set `infra` yourself then. The `gcloud` CLI must be on `PATH`.
 
 ---
 
@@ -244,9 +247,12 @@ Runs the bundles as SkyPilot managed jobs draining a **GCS claim queue**. Constr
 - renders `job.yaml` (and `pool_<name>.yaml` with `use_pool=True`) under `setup_out/<benchmark>/sky/`
   and prints **one `sky jobs launch -y -d --num-jobs N`** per run group (never one launch per bundle).
 
-Knobs: `bucket` / `prefix` (defaults to the org's EU sky-cache bucket and `<user>/tabarena`), `infra`
-(`gcp/europe-west4`), `workers` (concurrent worker jobs, the `%N` analogue, and the pool size),
-`use_pool` / `pool_name`, `gpu_accelerator` (`A100-80GB:1`; pair with `fake_memory_for_estimates=80`),
+Knobs: `bucket` / `prefix` (defaults to the org's EU sky-cache bucket and `<user>/tabarena`),
+`api_server_endpoint` (printed as an export; unset means the shell must provide it), `infra` (unset by
+default: the shared server's admin policy expands the regions and rejects an explicit one), `workers`
+(concurrent worker jobs, the `%N` analogue, and the pool size), `use_pool` / `pool_name`,
+`gpu_accelerator` (`RTXPRO6000:1`, a `g4-standard-48` with 96 GB VRAM, 48 vCPU, 180 GB RAM; pair with
+`fake_memory_for_estimates=96`),
 `cpu_cpus` / `cpu_memory` / `cpu_instance_type`, `use_spot`, `disk_size`, `item_time_limit_overhead`
 (seconds per **item**, the worker kills an item over budget and its bundle mates still run), `secrets`
 (names forwarded from the shell, e.g. `HF_TOKEN`), `requirements_extra_lines`, `sky_binary`.
@@ -369,9 +375,10 @@ its own; everything else is passed through unchanged.
   SkyPilot workers have no shared cache: they run with `--cache_root` and `--materialize_tasks`, which
   needs the batch's `task_source.json` (written by every setup since the preset is recorded; an older
   batch cannot materialize data-foundry tasks on a VM).
-- **SkyPilot: mind the card and the pool.** The upstream catalog has no RTX PRO 6000, so
-  `gpu_accelerator` defaults to `A100-80GB:1` and `fake_memory_for_estimates` must be 80 there (96 on
-  the SLURM partition). Gated weights need their token in `secrets`. In pool mode run
+- **SkyPilot: mind the endpoint, the card and the pool.** The `sky` commands need the shared API
+  server (`SKYPILOT_API_SERVER_ENDPOINT`, preset on login nodes); the printed block fails fast without
+  it. The default card is the same RTX PRO 6000 as the SLURM partition, so `fake_memory_for_estimates`
+  stays 96. Gated weights need their token in `secrets`. In pool mode run
   `sky jobs pool down -y <pool>` when the benchmark is finished. A cancelled launch leaves orphaned
   claims; the next `setup` re-enumerates the missing items into a fresh queue. `sky jobs cancel -n
   <launch_id> -y` stops a launch.

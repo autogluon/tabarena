@@ -93,18 +93,21 @@ class TestConfiguration:
 
     def test_resources_block_for_gpu_cpu_and_pinned_instance(self, local_storage):
         setup = _setup(local_storage)
-        assert setup.resources_block(_resources(num_gpus=1)) == {
-            "infra": "gcp/europe-west4",
-            "accelerators": {"A100-80GB": 1},
-        }
-        assert setup.resources_block(_resources()) == {"infra": "gcp/europe-west4", "cpus": "16+", "memory": "64+"}
-        pinned = _setup(local_storage, cpu_instance_type="n2-standard-16", infra="gcp")
-        assert pinned.resources_block(_resources()) == {"infra": "gcp", "instance_type": "n2-standard-16"}
+        # No infra by default: the shared API server's admin policy picks the regions.
+        assert setup.resources_block(_resources(num_gpus=1)) == {"accelerators": {"RTXPRO6000": 1}}
+        assert setup.resources_block(_resources()) == {"cpus": "16+", "memory": "64+"}
+        pinned = _setup(local_storage, cpu_instance_type="n2-standard-16", infra="gcp/europe-west4")
+        assert pinned.resources_block(_resources()) == {"infra": "gcp/europe-west4", "instance_type": "n2-standard-16"}
 
     def test_describe_target_and_pool_names(self, local_storage):
         setup = _setup(local_storage, workers=4)
         assert setup.describe_target(_resources(num_gpus=1)) == (
-            "sky gcp/europe-west4 (accelerators={'A100-80GB': 1}, spot, 4 worker job(s))"
+            "sky gcp (accelerators={'RTXPRO6000': 1}, spot, 4 worker job(s))"
+        )
+        assert (
+            _setup(local_storage, infra="gcp/europe-west4")
+            .describe_target(_resources())
+            .startswith("sky gcp/europe-west4 (cpus=16+")
         )
         pool = _setup(local_storage, use_pool=True)
         assert pool.pool_for(_resources(num_gpus=1)) == "tabarena-gpu"
@@ -121,9 +124,12 @@ class TestConfiguration:
         setup = _setup(local_storage, item_time_limit_overhead=600)
         assert setup.item_timeout_seconds(_resources(time_limit=3600)) == 4200
 
-    def test_sky_binary_defaults_to_the_run_venv(self, local_storage):
+    def test_sky_binary_prefers_path_then_the_run_venv(self, local_storage, monkeypatch):
         ps = PathSetup(workspace="/ws", python_path="/venv/bin/python")
-        assert _setup(local_storage).sky_command(ps) == "/venv/bin/sky"
+        monkeypatch.setattr(sky_mod.shutil, "which", lambda name: "/home/me/.local/bin/sky" if name == "sky" else None)
+        assert _setup(local_storage).sky_command(ps) == "/home/me/.local/bin/sky"  # the cluster's sky CLI
+        monkeypatch.setattr(sky_mod.shutil, "which", lambda name: None)
+        assert _setup(local_storage).sky_command(ps) == "/venv/bin/sky"  # fallback: the skypilot extra
         assert _setup(local_storage, sky_binary="/opt/sky").sky_command(ps) == "/opt/sky"
 
 
@@ -142,13 +148,8 @@ class TestRenderSpecs:
                 )
             )
         )
-        assert spec["resources"] == {
-            "infra": "gcp/europe-west4",
-            "accelerators": {"A100-80GB": 1},
-            "use_spot": True,
-            "disk_size": 128,
-        }
-        for forbidden in ("cloud", "region", "zone"):
+        assert spec["resources"] == {"accelerators": {"RTXPRO6000": 1}, "use_spot": True, "disk_size": 128}
+        for forbidden in ("cloud", "region", "zone", "infra"):
             assert forbidden not in spec["resources"]
         assert spec["envs"] == {
             "ENV_SPEC": "gs://b/me/tabarena/env/abc/env.json",
@@ -170,7 +171,7 @@ class TestRenderSpecs:
         )
         pool = yaml.safe_load(dump_yaml(setup.render_pool_spec(resources=_resources(), env=_env())))
         assert "setup" not in job
-        assert job["resources"] == {"infra": "gcp/europe-west4", "cpus": "16+", "memory": "64+"}
+        assert job["resources"] == {"cpus": "16+", "memory": "64+"}
         assert pool["name"] == "tabarena-cpu"
         assert pool["pool"] == {"workers": 5}
         assert pool["resources"]["use_spot"] is True and pool["resources"]["disk_size"] == 128
@@ -210,7 +211,7 @@ class TestGetRunCommands:
     def test_stages_the_queue_and_prints_one_launch(self, local_storage, tmp_path, batch_dir, staged_env, monkeypatch):
         ps = self._ps(tmp_path)
         ps.ensure_runtime_dirs("bench")
-        setup = _setup(local_storage, workers=8, item_time_limit_overhead=600)
+        setup = _setup(local_storage, workers=8, item_time_limit_overhead=600, sky_binary="/venv/bin/sky")
         commands = setup.get_run_commands(
             jobs_dict=_jobs_dict(batch_dir, n_bundles=3),
             path_setup=ps,
@@ -237,7 +238,8 @@ class TestGetRunCommands:
         assert "bundle_size" not in task
         # The batch copy (with its recorded preset) travels with the launch.
         assert local_storage.read_text(f"{queue_uri}/job_batch/task_source.json") == '{"preset": "TabArena-v0.1"}'
-        # The command block: check, one launch capped at the bundle count, no pool.
+        # The command block: endpoint guard, check, one launch capped at the bundle count, no pool.
+        assert '"${SKYPILOT_API_SERVER_ENDPOINT:?' in block
         assert "/venv/bin/sky check gcp" in block
         assert f"/venv/bin/sky jobs launch -y -d -n {launch_id} --num-jobs 3 " in block
         assert "pool" not in block
@@ -250,7 +252,9 @@ class TestGetRunCommands:
     def test_pool_mode_prints_apply_status_launch_and_down(self, local_storage, tmp_path, batch_dir, staged_env):
         ps = self._ps(tmp_path)
         ps.ensure_runtime_dirs("bench")
-        setup = _setup(local_storage, workers=2, use_pool=True, sky_binary="sky")
+        setup = _setup(
+            local_storage, workers=2, use_pool=True, sky_binary="sky", api_server_endpoint="http://skypilot-api:46580"
+        )
         block = setup.get_run_commands(
             jobs_dict=_jobs_dict(batch_dir, n_bundles=5),
             path_setup=ps,
@@ -261,6 +265,8 @@ class TestGetRunCommands:
         )[0]
         pool_yaml = ps.get_setup_out_path("bench") / "sky" / "pool_tabarena-gpu.yaml"
         assert pool_yaml.exists()
+        assert "export SKYPILOT_API_SERVER_ENDPOINT=http://skypilot-api:46580" in block
+        assert "${SKYPILOT_API_SERVER_ENDPOINT:?" not in block
         assert f"sky jobs pool apply -y -p tabarena-gpu --workers 2 {pool_yaml}" in block
         assert "sky jobs pool status --all tabarena-gpu" in block
         assert "sky jobs launch -y -d --pool tabarena-gpu -n bench_gpu-" in block

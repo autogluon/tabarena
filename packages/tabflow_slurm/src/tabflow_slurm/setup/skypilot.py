@@ -17,9 +17,11 @@ exchange into a bucket and ships the environment along:
   mirrors that ``output/data`` prefix into the workspace, so relaunches skip finished items and
   ``eval`` reads the same paths it reads after a SLURM run.
 
-Everything goes through the plain upstream ``sky`` CLI against the launching machine's GCP
-credentials (a local API server starts on demand). The YAML never names a cloud, region or zone
-directly; :attr:`SkyPilotSetup.infra` carries the target.
+Everything goes through the cluster's ``sky`` CLI and its shared API server, which resolves the
+accelerator names of this cluster (``RTXPRO6000`` is a spot ``g4-standard-48``) and whose admin
+policy expands a request across every region the VPC reaches. The YAML therefore names no cloud,
+region or zone and, by default, no ``infra`` either; :attr:`SkyPilotSetup.infra` exists for a
+server without that policy (a local upstream API server).
 """
 
 from __future__ import annotations
@@ -111,9 +113,10 @@ class SkyPilotSetup(SchedulerSetup):
     account must both be able to write it)."""
     prefix: str | None = None
     """Path under the bucket; ``None`` means ``<login user>/tabarena``."""
-    infra: str = "gcp/europe-west4"
-    """SkyPilot ``infra`` of the workers. The default region holds the GPU quota and the default
-    bucket; ``"gcp"`` lets SkyPilot search every region."""
+    infra: str | None = None
+    """SkyPilot ``infra`` of the workers. ``None`` (default) leaves the choice to the shared API
+    server, whose admin policy expands a request across every region the VPC reaches and rejects an
+    explicit one. Set it (e.g. ``"gcp/europe-west4"``) only against a server without that policy."""
     workers: int = 8
     """Worker jobs per launch (``--num-jobs``, capped at the number of bundles) and, in pool mode,
     the pool size. The analogue of SLURM's ``%N`` concurrency cap."""
@@ -121,9 +124,10 @@ class SkyPilotSetup(SchedulerSetup):
     """Run on a job pool instead of one VM per managed job (see the class docstring)."""
     pool_name: str | None = None
     """Pool name in pool mode; ``None`` means ``tabarena-gpu`` or ``tabarena-cpu`` by the run's resources."""
-    gpu_accelerator: str = "A100-80GB:1"
-    """SkyPilot accelerator spec for GPU runs. The upstream catalog names (``L4``, ``A100``,
-    ``A100-80GB``, ``H100``); pair it with ``fake_memory_for_estimates`` set to that card's VRAM."""
+    gpu_accelerator: str = "RTXPRO6000:1"
+    """SkyPilot accelerator spec for GPU runs. The default is the card of the SLURM GPU partition (a
+    ``g4-standard-48``: 96 GB VRAM, 48 vCPU, 180 GB RAM, spot); ``sky gpus list`` names the others.
+    Pair it with ``fake_memory_for_estimates`` set to that card's VRAM (96 for the default)."""
     cpu_cpus: str = "16+"
     """``resources.cpus`` for CPU runs (the SLURM CPU partition's 16 vCPU / 64 GB shape by default)."""
     cpu_memory: str = "64+"
@@ -145,7 +149,12 @@ class SkyPilotSetup(SchedulerSetup):
     requirements_extra_lines: tuple[str, ...] = ()
     """Lines appended to the staged ``requirements.txt`` (e.g. an index URL for another torch build)."""
     sky_binary: str | None = None
-    """The ``sky`` executable for the printed commands; ``None`` means the one next to ``PathSetup.python_path``."""
+    """The ``sky`` executable for the printed commands; ``None`` means the cluster's ``sky`` on ``PATH``,
+    else the one next to ``PathSetup.python_path`` (the ``skypilot`` extra)."""
+    api_server_endpoint: str | None = None
+    """The shared API server (``http://skypilot-api:46580`` on this cluster). When set, the printed
+    block exports ``SKYPILOT_API_SERVER_ENDPOINT``; when ``None`` it requires the shell to provide it
+    (login nodes preset it) and fails fast otherwise, so a launch never lands on a local server."""
     storage: Storage = field(default_factory=GcsStorage, compare=False, repr=False)
     """Object-store client; tests inject a directory backed one."""
 
@@ -174,27 +183,31 @@ class SkyPilotSetup(SchedulerSetup):
         return "tabarena-gpu" if resources.num_gpus > 0 else "tabarena-cpu"
 
     def sky_command(self, path_setup: PathSetup) -> str:
+        """The ``sky`` executable: ``sky_binary``, else the cluster's ``sky`` on ``PATH``, else the run venv's."""
         if self.sky_binary is not None:
             return self.sky_binary
-        return str(Path(path_setup.python_path).parent / "sky")
+        return shutil.which("sky") or str(Path(path_setup.python_path).parent / "sky")
 
     def item_timeout_seconds(self, resources: ResourcesSetup) -> int:
         return int(resources.time_limit_per_config) + int(self.item_time_limit_overhead)
 
     def resources_block(self, resources: ResourcesSetup) -> dict:
         """The ``resources`` fields that pick a worker's hardware (without spot / disk)."""
+        block: dict = {} if self.infra is None else {"infra": self.infra}
         if resources.num_gpus > 0:
             name, _, count = self.gpu_accelerator.partition(":")
-            return {"infra": self.infra, "accelerators": {name: int(count or 1)}}
-        if self.cpu_instance_type is not None:
-            return {"infra": self.infra, "instance_type": self.cpu_instance_type}
-        return {"infra": self.infra, "cpus": self.cpu_cpus, "memory": self.cpu_memory}
+            block["accelerators"] = {name: int(count or 1)}
+        elif self.cpu_instance_type is not None:
+            block["instance_type"] = self.cpu_instance_type
+        else:
+            block.update({"cpus": self.cpu_cpus, "memory": self.cpu_memory})
+        return block
 
     def describe_target(self, resources: ResourcesSetup) -> str:
         block = self.resources_block(resources)
         hardware = ", ".join(f"{k}={v}" for k, v in block.items() if k != "infra")
         mode = f"pool {self.pool_for(resources)}" if self.use_pool else f"{self.workers} worker job(s)"
-        return f"sky {self.infra} ({hardware}, {'spot' if self.use_spot else 'on-demand'}, {mode})"
+        return f"sky {self.infra or 'gcp'} ({hardware}, {'spot' if self.use_spot else 'on-demand'}, {mode})"
 
     def get_extra_default_args(self) -> dict:
         """No shared filesystem, so no shared-resources Ray setup (each VM is its own node)."""
@@ -387,7 +400,14 @@ class SkyPilotSetup(SchedulerSetup):
         sky = self.sky_command(path_setup)
         num_jobs = min(self.workers, n_tasks)
         lines = [f"# --- {launch_id}: {self.describe_target(resources)}, {n_tasks} bundle(s) ---"]
-        lines.append(f"{sky} check gcp    # once per machine; GCP must be enabled")
+        if self.api_server_endpoint is not None:
+            lines.append(f"export SKYPILOT_API_SERVER_ENDPOINT={self.api_server_endpoint}")
+        else:
+            lines.append(
+                ': "${SKYPILOT_API_SERVER_ENDPOINT:?set it to the shared SkyPilot API server, '
+                'e.g. http://skypilot-api:46580 (login nodes preset it)}"'
+            )
+        lines.append(f"{sky} check gcp    # once per machine; GCP must be enabled on the server")
         if pool_yaml is not None:
             pool = self.pool_for(resources)
             lines.append(

@@ -14,15 +14,16 @@ only). Its weights live in the gated Hugging Face repo ``Prior-Labs/tabpfn_3``, 
 needs ``HF_TOKEN`` in the launching shell (forwarded as a SkyPilot secret); on SLURM the shared
 Hugging Face cache already holds them after the head-node prefetch.
 
-SkyPilot prerequisites (plain upstream SkyPilot with its local API server, no shared server):
+SkyPilot prerequisites: the cluster's ``sky`` CLI on ``PATH`` (it talks to the shared API server, which
+resolves ``RTXPRO6000`` to a ``g4-standard-48`` and picks the regions; login nodes preset the endpoint,
+elsewhere export it), ``HF_TOKEN`` for the gated weights, and ``gcloud`` for the bucket::
 
-    uv pip install --python $PYTHON_PATH -e "./packages/tabflow_slurm[skypilot]"
-    export HF_TOKEN=...            # gated TabPFN weights
-    $(dirname $PYTHON_PATH)/sky check gcp
+    export SKYPILOT_API_SERVER_ENDPOINT=http://skypilot-api:46580   # only where the login shell does not
+    export HF_TOKEN=...
+    sky check gcp
 
-``fake_memory_for_estimates`` must name the VRAM of the card the jobs land on: AutoGluon budgets the
-parallel bagging folds against it (the RTX PRO 6000 of the SLURM partition has 96 GB, the A100-80GB of
-the SkyPilot default has 80), so ``_scheduler_setup`` returns the two together.
+Both schedulers land on an RTX PRO 6000 (96 GB), so ``fake_memory_for_estimates`` is 96 either way;
+``_scheduler_setup`` still returns the VRAM next to the scheduler so a different card stays a one-line change.
 """
 
 from __future__ import annotations
@@ -62,19 +63,24 @@ def _scheduler_setup(kind: str) -> tuple[SchedulerSetup, int]:
     """The scheduler for ``kind`` and the VRAM in GB of the GPU its jobs land on.
 
     The VRAM feeds ``fake_memory_for_estimates`` so AutoGluon budgets the parallel bagging folds
-    against the card instead of the node's RAM. Both SkyPilot modes use the same worker hardware;
-    ``skypilot-pool`` builds the venv once per pool worker instead of once per job.
+    against the card instead of the node's RAM. Both SkyPilot modes use the same worker hardware
+    (the default ``gpu_accelerator``, an RTX PRO 6000 like the SLURM partition); ``skypilot-pool``
+    builds the venv once per pool worker instead of once per job.
+
+    ``bundle_size=1``: one fit per claimed bundle. The worker budgets and records every item on its
+    own, so a bigger bundle only shrinks the queue (fewer task objects to list); with 816 splits that
+    is not worth the coarser load balancing. ``workers=32`` is the concurrency, SLURM's ``%N``: about
+    what the RTX PRO 6000 partition sustains, and 32 spot g4-standard-48 at $1.80/h each.
     """
     if kind == "slurm":
         return GCPSlurmSetup(gpu_partition="gpurtxpro6000flex", bundle_size=1), 96
     sky = SkyPilotSetup(
         bundle_size=1,
-        workers=8,
-        gpu_accelerator="A100-80GB:1",
+        workers=32,
         secrets=("HF_TOKEN",),  # gated TabPFN weights; the value comes from the launching shell
         use_pool=kind == "skypilot-pool",
     )
-    return sky, 80
+    return sky, 96
 
 
 def setup(scheduler: str) -> None:
