@@ -54,6 +54,7 @@ class TabularModelPredictions:
         datasets: list[str] | None = None,
         metadata_by_dir: dict[str, dict] | None = None,
         metadata_files: list[str | Path] | None = None,
+        metadata_dict: dict[str, dict[int, dict]] | None = None,
     ):
         raise NotImplementedError()
 
@@ -243,9 +244,14 @@ class TabularPredictionsInMemory(TabularModelPredictions):
         datasets: list[str] | None = None,
         metadata_by_dir: dict[str, dict] | None = None,
         metadata_files: list[str | Path] | None = None,
+        metadata_dict: dict[str, dict[int, dict]] | None = None,
     ):
         memmap = TabularPredictionsMemmap.from_data_dir(
-            data_dir=data_dir, datasets=datasets, metadata_by_dir=metadata_by_dir, metadata_files=metadata_files
+            data_dir=data_dir,
+            datasets=datasets,
+            metadata_by_dir=metadata_by_dir,
+            metadata_files=metadata_files,
+            metadata_dict=metadata_dict,
         )
         return cls.from_dict(pred_dict=memmap.to_dict(), datasets=datasets)
 
@@ -318,22 +324,28 @@ class TabularPredictionsMemmap(TabularModelPredictions):
         datasets: list[str] | None = None,
         metadata_by_dir: dict[str, dict] | None = None,
         metadata_files: list[str | Path] | None = None,
+        metadata_dict: dict[str, dict[int, dict]] | None = None,
     ):
         """:param data_dir: data where the predictions has been saved
         :param datasets: if specified, the predictions only contains those datasets
         :param metadata_by_dir: optional cache of parsed per-task ``metadata.json`` keyed by
-            task directory (e.g. filled by ``ZeroshotSimulatorContext.load_groundtruth``);
-            cached directories skip the file read
+            task directory; cached directories skip the file read
         :param metadata_files: the per-task ``metadata.json`` paths to load. When given, only
-            these tasks are loaded and ``data_dir`` is not walked; a processed artifact's
-            ``context.json`` lists them, and walking thousands of task directories on a network
-            filesystem costs seconds per artifact. ``None`` walks ``data_dir`` for
-            ``*metadata.json`` as before.
+            these tasks are loaded and ``data_dir`` is not walked. ``None`` walks ``data_dir`` for
+            ``*metadata.json``.
+        :param metadata_dict: the per-task metadata already loaded, ``dataset -> fold -> {"models",
+            "pred_val_shape", "pred_test_shape", "dtype"}`` (e.g. from a dataset's ``tasks.dat``, see
+            :mod:`tabarena.simulation.task_data`); no metadata file is read when given.
         """
         self.data_dir = Path(data_dir)
-        self.metadata_dict = self._load_metadatas(
-            data_dir, metadata_by_dir=metadata_by_dir, metadata_files=metadata_files
-        )
+        if metadata_dict is not None:
+            self.metadata_dict = self._finalize_metadata(
+                {dataset: dict(folds) for dataset, folds in metadata_dict.items()}
+            )
+        else:
+            self.metadata_dict = self._load_metadatas(
+                data_dir, metadata_by_dir=metadata_by_dir, metadata_files=metadata_files
+            )
         super().__init__(datasets=datasets)
 
     @classmethod
@@ -343,8 +355,15 @@ class TabularPredictionsMemmap(TabularModelPredictions):
         datasets: list[str] | None = None,
         metadata_by_dir: dict[str, dict] | None = None,
         metadata_files: list[str | Path] | None = None,
+        metadata_dict: dict[str, dict[int, dict]] | None = None,
     ):
-        return cls(data_dir=data_dir, datasets=datasets, metadata_by_dir=metadata_by_dir, metadata_files=metadata_files)
+        return cls(
+            data_dir=data_dir,
+            datasets=datasets,
+            metadata_by_dir=metadata_by_dir,
+            metadata_files=metadata_files,
+            metadata_dict=metadata_dict,
+        )
 
     @classmethod
     def from_dict(
@@ -397,12 +416,17 @@ class TabularPredictionsMemmap(TabularModelPredictions):
             dataset = metadata.pop("dataset")
             fold = metadata.pop("fold")
             res[dataset][fold] = metadata
+        return TabularPredictionsMemmap._finalize_metadata(res)
+
+    @staticmethod
+    def _finalize_metadata(res: dict) -> dict:
         for dataset in res:
             for fold in res[dataset]:
-                metadata_task = res[dataset][fold]
+                metadata_task = dict(res[dataset][fold])
                 model_indices = {m: i for i, m in enumerate(metadata_task["models"])}
                 # This is required to keep track of the indices of models after `restrict_models` is called.
                 metadata_task["model_indices"] = model_indices
+                res[dataset][fold] = metadata_task
         return res
 
     def predict_val(
