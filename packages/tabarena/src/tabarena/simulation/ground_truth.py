@@ -8,6 +8,12 @@ import numpy as np
 from tabarena.simulation.label_files import as_label_array, widen_labels, write_labels_dat
 
 
+def _as_stored_array(labels) -> np.ndarray:
+    if not (isinstance(labels, np.ndarray) and labels.ndim == 1):
+        raise TypeError(f"normalize=False requires 1-D arrays, got {type(labels).__name__}")
+    return labels
+
+
 class GroundTruth:
     """Per-task validation and test labels, as 1-D arrays in row order.
 
@@ -16,18 +22,23 @@ class GroundTruth:
     :meth:`labels_val` / :meth:`labels_test`; floats keep their dtype.
     """
 
-    def __init__(self, label_val_dict: dict[str, dict[int, object]], label_test_dict: dict[str, dict[int, object]]):
+    def __init__(
+        self,
+        label_val_dict: dict[str, dict[int, object]],
+        label_test_dict: dict[str, dict[int, object]],
+        normalize: bool = True,
+    ):
         """:param label_val_dict: dataset -> fold -> labels (array, Series or single-column DataFrame;
         normalized to arrays, row ids of a Series/DataFrame index are dropped)
         :param label_test_dict: same as `label_val_dict`
+        :param normalize: pass ``False`` when every value is already a 1-D array in the stored form
+        (as decoded from ``tasks.dat`` / ``labels.dat``, or taken from another GroundTruth): skips
+        the per-array min/max scan behind the narrowing check, about 0.15 s per BeyondArena method.
         """
         assert set(label_val_dict.keys()) == set(label_test_dict.keys())
-        self._label_val_dict = {
-            d: {f: as_label_array(v) for f, v in folds.items()} for d, folds in label_val_dict.items()
-        }
-        self._label_test_dict = {
-            d: {f: as_label_array(v) for f, v in folds.items()} for d, folds in label_test_dict.items()
-        }
+        convert = as_label_array if normalize else _as_stored_array
+        self._label_val_dict = {d: {f: convert(v) for f, v in folds.items()} for d, folds in label_val_dict.items()}
+        self._label_test_dict = {d: {f: convert(v) for f, v in folds.items()} for d, folds in label_test_dict.items()}
 
     @property
     def datasets(self) -> list[str]:

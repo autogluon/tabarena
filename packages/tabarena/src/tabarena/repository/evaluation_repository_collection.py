@@ -429,7 +429,8 @@ def merge_ground_truth(ground_truths: list[GroundTruth]) -> GroundTruth:
                         own[fold] = existing
                     else:
                         merged[fold] = series
-    return GroundTruth(label_test_dict=label_test_dict, label_val_dict=label_val_dict)
+    # the repos' arrays are already in the stored form; re-normalizing would scan each of them
+    return GroundTruth(label_test_dict=label_test_dict, label_val_dict=label_val_dict, normalize=False)
 
 
 #: Task-metadata columns that define evaluation semantics: a cross-repo disagreement here

@@ -165,3 +165,16 @@ def test_ground_truth_accepts_legacy_frame_entries():
     assert gt.labels_val("d", 0).dtype == np.int64
     assert np.array_equal(gt.labels_val("d", 0), [1, 0])
     assert gt.labels_test("d", 0).dtype == np.int64
+
+
+def test_ground_truth_normalize_flag():
+    from tabarena.simulation.ground_truth import GroundTruth
+
+    wide = np.array([0, 1, 1], dtype=np.int64)
+    gt = GroundTruth(label_val_dict={"d": {0: wide}}, label_test_dict={"d": {0: wide}})
+    assert gt._label_val_dict["d"][0].dtype == np.int8  # normalized (narrowed)
+    raw = GroundTruth(label_val_dict={"d": {0: wide}}, label_test_dict={"d": {0: wide}}, normalize=False)
+    assert raw._label_val_dict["d"][0] is wide  # taken as given
+    assert raw.labels_val("d", 0).dtype == np.int64
+    with pytest.raises(TypeError):
+        GroundTruth(label_val_dict={"d": {0: pd.Series(wide)}}, label_test_dict={"d": {0: wide}}, normalize=False)
