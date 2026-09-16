@@ -16,6 +16,12 @@ affinity (before any heavy import and before Ray starts), the offline-weights en
 config and the validation check), then Ray only when the experiment's fit can reach it,
 then the fit. The submit template runs this process with ``TMPDIR`` inside a per-job
 node-local scratch directory that the shell removes afterwards, also when the process is killed.
+
+Two flags make the runner self-sufficient on a node without the head node's filesystem (a
+cloud VM): ``--cache_root`` keeps every cache under one local directory instead of the batch's
+head-node cache config, and ``--materialize_tasks`` downloads the job's dataset through the
+suite the batch recorded (``task_source.json``) before fitting. SLURM and local runs leave both
+off and behave as before.
 """
 
 from __future__ import annotations
@@ -46,8 +52,13 @@ def load_job(
     dataset: str,
     fold: int,
     repeat: int,
+    cache_root: str | None = None,
 ) -> tuple[JobBatch, Job]:
     """Load the batch, apply its cache config and return the job named by the coordinates.
+
+    With ``cache_root`` every cache (OpenML, HuggingFace, data-foundry, TabArena) lives under that
+    local directory (``CacheConfig.from_root``) and the batch's own ``cache_config``, which names
+    head-node paths, is ignored: for nodes that do not share the head node's filesystem.
 
     The coordinates are a lookup key into the batch's serialized job list: the job that runs is
     the one loaded from disk, and coordinates that do not name a job of the batch (e.g. a stale
@@ -62,7 +73,12 @@ def load_job(
     # Point this worker at the caches the run was configured with (OpenML / HuggingFace /
     # TabArena / TabPFN) before the task is loaded and before Ray starts, so fold workers inherit
     # them too. The config was embedded in the batch at setup time; absent means library defaults.
-    if batch.cache_config is not None:
+    if cache_root is not None:
+        from tabarena.caching import CacheConfig
+
+        # `results` stays unset: the output dir is passed explicitly to the runner.
+        CacheConfig.from_root(cache_root, results=None).apply()
+    elif batch.cache_config is not None:
         batch.cache_config.apply()
     wanted = (experiment_name, dataset, fold, repeat)
     job = next(
@@ -116,8 +132,13 @@ def run_job(
     cleanup_on_failure: bool = True,
     cpu_budget_check: Literal["error", "warn", "off"] = "warn",
     require_warmup: bool = True,
+    materialize_tasks: bool = False,
 ) -> list[dict]:
     """Run one loaded job through ``ExperimentBatchRunner.run_jobs`` and return its results.
+
+    ``materialize_tasks`` downloads and converts the job's dataset first, through the suite the batch
+    recorded (see :func:`_materialize_job_task`); the runner then resolves against the job-scoped
+    collection.
 
     ``cleanup_on_failure``, ``cpu_budget_check`` and ``require_warmup`` are the benchmark-worker settings of
     ``ExperimentRunner``; they are placed on the loaded experiment's ``experiment_kwargs`` (only
@@ -132,9 +153,13 @@ def run_job(
         experiment_kwargs.setdefault("cpu_budget_check", cpu_budget_check)
         experiment_kwargs.setdefault("require_warmup", require_warmup)
 
+    task_metadata = batch.task_metadata
+    if materialize_tasks:
+        task_metadata = _materialize_job_task(batch, job)
+
     runner = ExperimentBatchRunner(
         expname=output_dir,
-        task_metadata=batch.task_metadata,
+        task_metadata=task_metadata,
         cache_mode="ignore" if ignore_cache else "default",
         # Benchmark mode: record model failures instead of debugger-friendly behavior. A failure
         # still raises (raise_on_failure defaults to True), so the process exits non-zero and the
@@ -171,6 +196,41 @@ def _check_validation_expectation(batch, job, *, job_batch_dir: str) -> None:
         )
 
 
+def _materialize_job_task(batch, job, *, job_batch_dir: str | None = None):
+    """Download and convert the job's dataset on this node; return the job-scoped collection.
+
+    The batch's collection was rebuilt from ``task_metadata.csv`` and rebound to the suite recorded
+    in ``task_source.json`` (``TaskMetadataCollection.with_preset``), so ``materialize()`` downloads
+    exactly this job's task: an OpenML task through ``openml.tasks.get_task``, a data-foundry task
+    (BeyondArena) through its HF container plus the bundled text cache. Without a recorded suite the
+    collection's source is in-memory and cannot download; OpenML tasks still load lazily, data-foundry
+    tasks cannot, so those raise here rather than on a missing pickle inside the fit. A ``UserTask``
+    id that embeds a cache path (the 4-segment form) names a directory of another machine and is
+    refused as well.
+    """
+    collection = batch.task_metadata.subset_to_jobs([job])
+    data_foundry_backed = False
+    for ttm in collection:
+        task_id_str = ttm.task_id_str
+        if isinstance(task_id_str, str) and task_id_str.startswith("UserTask|") and task_id_str.count("|") != 2:
+            raise ValueError(
+                f"Task id {task_id_str!r} of dataset {ttm.tabarena_task_name!r} embeds a cache path, so it cannot be "
+                "materialized on another machine. Rebuild the task with the portable (path-free) id.",
+            )
+        data_foundry_backed |= isinstance(ttm.data_foundry_uri, str) and bool(ttm.data_foundry_uri)
+    if collection.preset is None:
+        if data_foundry_backed:
+            raise ValueError(
+                f"The batch{f' at {job_batch_dir!r}' if job_batch_dir else ''} records no task-metadata suite (task_source.json), so its "
+                "data-foundry task cannot be materialized here. Regenerate the batch; a JobBatch built through an "
+                "arena context records the suite.",
+            )
+        # OpenML tasks download lazily when loaded; nothing to prefetch without a suite source.
+        return collection
+    collection.materialize()
+    return collection
+
+
 def run_experiment(
     *,
     job_batch_dir: str,
@@ -183,6 +243,8 @@ def run_experiment(
     cleanup_on_failure: bool = True,
     cpu_budget_check: Literal["error", "warn", "off"] = "warn",
     require_warmup: bool = True,
+    cache_root: str | None = None,
+    materialize_tasks: bool = False,
 ) -> list[dict]:
     """Run a single ``(experiment, dataset, fold, repeat)`` work unit from a job batch.
 
@@ -210,8 +272,10 @@ def run_experiment(
     ignore_cache : bool
         Whether to ignore the cache or not. If True, the cache will be ignored and the
         experiment will be run from scratch and potentially overwrite existing results.
-    cleanup_on_failure, cpu_budget_check, require_warmup :
+    cleanup_on_failure, cpu_budget_check, require_warmup, materialize_tasks :
         See :func:`run_job`.
+    cache_root :
+        See :func:`load_job`.
     """
     batch, job = load_job(
         job_batch_dir=job_batch_dir,
@@ -219,6 +283,7 @@ def run_experiment(
         dataset=dataset,
         fold=fold,
         repeat=repeat,
+        cache_root=cache_root,
     )
     return run_job(
         batch,
@@ -228,6 +293,7 @@ def run_experiment(
         cleanup_on_failure=cleanup_on_failure,
         cpu_budget_check=cpu_budget_check,
         require_warmup=require_warmup,
+        materialize_tasks=materialize_tasks,
     )
 
 
@@ -388,6 +454,21 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Export HF_HUB_OFFLINE=1, HF_HUB_DISABLE_PROGRESS_BARS=1 and AG_FETCH_PRETRAINED_WEIGHTS=false before "
         "any model library import. Set by the setup when every selected model had its weights prefetched.",
     )
+    # Nodes without the head node's filesystem (cloud VMs)
+    parser.add_argument(
+        "--cache_root",
+        type=str,
+        default=None,
+        help="Keep every cache (OpenML / HuggingFace / data-foundry / TabArena) under this local directory "
+        "instead of the batch's cache config. For nodes that do not share the head node's filesystem.",
+    )
+    parser.add_argument(
+        "--materialize_tasks",
+        type=_str2bool,
+        default=False,
+        help="If True, download and convert the job's dataset here before fitting, through the suite the batch "
+        "recorded (task_source.json).",
+    )
     return parser
 
 
@@ -425,6 +506,7 @@ if __name__ == "__main__":
         dataset=_strip_quotes(args.dataset),
         fold=args.fold,
         repeat=args.repeat,
+        cache_root=args.cache_root,
     )
     setup_ray = resolve_setup_ray(args.setup_ray_for_slurm_shared_resources_environment, batch, job)
     if args.setup_ray_for_slurm_shared_resources_environment and not setup_ray:
@@ -447,6 +529,7 @@ if __name__ == "__main__":
             cleanup_on_failure=True,
             cpu_budget_check=args.cpu_budget_check,
             require_warmup=args.require_warmup,
+            materialize_tasks=args.materialize_tasks,
         )
         failed = False
     finally:
