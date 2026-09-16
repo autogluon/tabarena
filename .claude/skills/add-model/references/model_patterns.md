@@ -368,32 +368,24 @@ finally:
 
 ---
 
-## Warm-up classmethod (untimed environment warm-up)
+## Warm-up (untimed environment warm-up)
 
-TabArena runs an untimed warm-up before the timed fit (`tabarena.models.warmup.warmup_model_cls`
-dispatches it), so one-time per-environment costs (heavy imports, JIT/kernel compilation, CUDA
-context) don't inflate the measured fit/inference times. `AbstractTorchModel` subclasses are
-covered automatically (generic torch + CUDA warm-up) — declare a classmethod only when the model
-is torch-backed on plain `AbstractModel`, has a heavy extra import, or its library pre-compiles
-kernels. Warm-up must be data-independent (never touch task data), and it only warms the main job
-process + disk-backed caches — parallel-fold (Ray) workers are fresh processes, so prefer library
-warm-ups whose compile cache persists to disk.
+TabArena warms the environment before the timed fit (`tabarena.models.warmup.warmup_model_cls`):
+an optional `warmup` classmethod, torch and the CUDA context for `AbstractTorchModel` subclasses,
+the class's `warmup_modules`, the shared checkpoint weights of a foundation model, then a dummy fit
+on synthetic data. Declare the lazy imports; write a classmethod only for what the layers cannot
+express. Everything must be data-independent, and only the main job process and disk-backed caches
+are warm (parallel-fold Ray workers are fresh processes).
 
 ```python
-# Torch-backed model on AbstractModel (generic fallback doesn't reach these).
+# Torch-backed model on AbstractModel: "torch" also creates the CUDA context.
 # References: modernnca, xrfm, tabstar.
-@classmethod
-def warmup(cls, *, num_gpus: float | None = None, **kwargs) -> None:
-    """Warm torch (+ CUDA context) and the library import (untimed, data-independent)."""
-    from tabarena.models.warmup import warmup_imports, warmup_torch
-
-    warmup_torch(cuda=None if num_gpus is None else num_gpus > 0)
-    warmup_imports("somelib.model")  # only if the import is heavy (e.g. pulls transformers)
+warmup_modules: ClassVar[tuple[str, ...]] = ("torch", "somelib", "somelib.model")
 ```
 
 ```python
 # Library with its own kernel pre-compilation (numba / JAX / custom kernels).
-# Reference: chimeraboost (warmup() exists from chimeraboost>=0.14.1 — pin the pip extra
+# Reference: chimeraboost (warmup() exists from chimeraboost>=0.14.1; pin the pip extra
 # accordingly). Ask the user for the entry point + minimum version if the docs don't say.
 @classmethod
 def warmup(cls, **kwargs) -> None:
@@ -403,65 +395,204 @@ def warmup(cls, **kwargs) -> None:
     somelib.warmup()
 ```
 
-The dispatch always passes `problem_type` / `num_cpus` / `num_gpus` / `hyperparameters` as
-keyword arguments — declare the ones you read, keep `**kwargs` for the rest.
+The dispatch passes `problem_type` / `num_cpus` / `num_gpus` / `hyperparameters` as keyword
+arguments; declare the ones you read, keep `**kwargs` for the rest. Dummy-fit opt-outs:
+`warmup_dummy_fit = False`, `warmup_dummy_fit_kwargs`, and `cheap_hyperparameters` (merged over the
+config; `smoke_configs.smoke_for` gives the same dict to the model smoke test).
 
-Inference side: the exec model persists the fitted model in memory around the inference timer by
-default (`AGWrapper.persist`, memory-guarded), and calls an optional **instance** method
-`prepare_for_inference(self) -> None` on every persisted model object (incl. bagged children) —
-untimed, for model-only prep like moving weights offloaded at the end of `_fit` back to the
-inference device; never touch test data there. Outer/direct fits (`AGModelWrapper`) dispatch the
-same hook on their in-memory model, so declaring it covers every fit path. Avoid deferring other
-one-time work to the first `_predict` (put it in `_fit` or `warmup`).
+Foundation models declare `shared_weights`; "Shared pretrained weights" below has the declaration
+and the worked example.
 
----
+Inference side: the exec model persists the fitted model around the predict timer and calls an
+optional instance method `prepare_for_inference(self) -> None` on every persisted object, bagged
+children included. The contract lives in `AbstractExecModel.pre_predict` (`exec_models/base.py`).
+
+Verify with `python -P -m tabarena.tools.audit_warmup --model <Method>` from the repo root: the
+timed fit and predict should import no new package (`new_packages=[]`).
+
+
+## Shared pretrained weights (foundation models)
+
+A bagged fit of an in-context model would build the same frozen network once per fold child and
+once more for the refit child, inside the timed fit. Every foundation-model library builds its
+network inside one call its `fit` makes: a method on the estimator (tabpfn
+`_initialize_model_variables`, tabicl and tabldm `_load_model`), a module function (causilo
+`load_pretrained_model`, the vendored LimiX `load_model`) or a classmethod (`Tab2D.from_pretrained`,
+`TabStarModel.from_pretrained`). The wrapper declares that call and the inputs that decide which
+network it builds; AutoGluon's `AbstractTorchModel` memoizes it per process (the mechanism lives in
+`autogluon.core.models.abstract.shared_weights`, whose module docstring is the reference):
+
+```python
+from __future__ import annotations
+
+from typing import ClassVar
+
+from autogluon.core.models.abstract import SharedWeights
+from autogluon.tabular.models.abstract.abstract_torch_model import AbstractTorchModel
+
+
+class {ClassName}Model(AbstractTorchModel):
+    ag_key = "TA-{MODEL_KEY_UPPER}"
+    ag_name = "TA-{ModelName}"
+    ...
+
+    #: The library builds its network inside ``_load_model``, which ``fit`` calls; one build per
+    #: checkpoint and device per process. A key-value cache writes into the network, so that
+    #: configuration builds its own.
+    shared_weights: ClassVar[SharedWeights] = SharedWeights(
+        loader=("somelib:SomeClassifier._load_model", "somelib:SomeRegressor._load_model"),
+        key=("checkpoint_version", "model_path"),
+        disabled_by=("kv_cache",),
+    )
+    #: Knobs that make the warm-up's dummy fit cheap without touching the network.
+    cheap_hyperparameters: ClassVar[dict] = {"n_estimators": 1}
+
+    def _fit(self, X, y, num_cpus=1, num_gpus=0, **kwargs):
+        from somelib import SomeClassifier
+
+        device = self._resolve_fit_device(num_gpus)
+        hps = self._get_model_params()
+        # Unchanged: the library estimator, constructed and fit as the library documents.
+        self.model = SomeClassifier(device=device, n_jobs=num_cpus, **hps).fit(self.preprocess(X, y=y), y)
+```
+
+The declaration, field by field:
+
+- `loader`: `"package.module:Class.method"` for a method the estimator's `fit` calls (the estimator
+  is its first argument), or `"package.module:function"`, also `"package.module:Class.classmethod"`,
+  for a call that returns the network. A tuple when the library has one class per task. Name the
+  attribute the library's code looks up at call time: a class for a method or classmethod, the
+  module that binds the function for a function (`from x import f` binds `f` in the caller's module,
+  so declare `"caller.module:f"`, not `"x:f"`; LimiX declares both modules that bind it).
+- `key`: the loader's inputs that decide which network is built, as estimator attribute names for a
+  method or argument names for a function. Inputs that only change how the network is used (an
+  ensemble size, a seed) stay out. The device is part of the key by itself: the loader's `device`
+  input (`device_param` renames it), else `self.device` when `_fit` sets it before the loader runs
+  (Causilo, LimiX and Nori do, since their loaders name no device), else the fit's `num_gpus`.
+- `disabled_by`: input names (disable when truthy) or predicates over the inputs, for
+  configurations under which the library writes into or casts the network (a compiled module, a
+  cached training context, a forced dtype); that fit builds its own.
+- `copy_per_fit`: `True` for a fine-tuning model (Mitra-v2, TabSTAR): the registry keeps the pristine
+  network and every fit, the one that built the entry included, trains a deep copy and pickles it.
+
+Everything else is `AbstractTorchModel`'s: the first call in the process runs the library's code and
+registers what it produced (the return value, and for a method the attributes it set on the
+estimator; lists and dicts are copied per estimator, modules and tensors shared), every later call
+with the same inputs and device reuses it, a network the library built on the CPU is moved to the
+key's device once (as the library's `fit` would), the fitted model pickles without the network and
+takes it back on load (or rebuilds it through the loader in another process), `set_device` swaps
+registry entries instead of moving a shared module, `prepare_for_inference` attaches and `eval()`s,
+and `get_info()["shared_weights"]` records the key, the device, `loaded_by` and
+`present_before_fit`. Sharing is off for a fit with `ag_args_fit={"share_pretrained_weights": False}`,
+per class through `model_class_settings={"<ag_key>": {"share_weights": False}}` (a base with several
+registered versions sets `class_settings_per_subclass = True` so each owns its switch), and for a
+configuration named in `disabled_by`. `fold_fitting_strategy` and `refit_folds` stay the wrapper's
+ordinary ensemble arguments: sharing pays off with `sequential_local` and is harmless otherwise.
+
+**The library contract, and adapters.** A library is shareable when it has one loader call whose
+inputs are estimator parameters and whose effect is to produce the network. Check that before
+integrating, and when the library loads inside `__init__` ask its maintainers for a separable
+loader (a `_load_model` its `fit` calls) or a `network=` constructor argument first. Only then
+write an adapter in `<model>/_estimators.py`: a `load_network(...)` function replicating the loading
+half of the constructor (declared as the loader; its parameters are the key) and, when the
+constructor cannot take a prebuilt network, a constructor replica around it. The module docstring
+opens with "Developer fix", names what the library should offer instead, links the upstream ask, and
+the replica is guarded against library bumps (a signature check the convention test runs). In-tree:
+`tabdpt/_estimators.py` (loader plus replica; only TabDPT-Turbo declares it, `compile=True` falls back
+to the library's own class; the separable loader is proposed upstream in
+layer6ai-labs/TabDPT-inference#79, after which the module goes) and `exaone_tabular/_estimators.py`
+(loader only; the constructor accepts `model=`). Nori's predictor loads lazily at the first predict,
+so `_fit` builds it eagerly (one private call, noted as a library ask). Wrappers that do not care
+about sharing declare nothing. "Developer fixes" below is the general form of this pattern.
+
+References: `tabicl/model.py` (the example above), `tabpfn_3/model.py` (a predicate in
+`disabled_by`; TabPFN-2.5 keeps its own copy in `tabpfnv2_5/model.py`), `causilo/model.py` and
+`limix/model.py` (function loaders without a device input), `tabfm/model.py` (a module function with
+`dtype` in the key), `mitra_v2/model.py` and `tabstar/model.py` (`copy_per_fit`).
+
+Tests: `tests/tabarena/models/test_shared_weights_models.py` discovers every registered class that
+declares `shared_weights` and checks the declaration: well-formed, the loader resolves when the
+library is installed, the keyed inputs are the loader's parameters, the named disablers switch
+sharing off, the class settings carry `share_weights`. Nothing to add per wrapper.
+`pytest -m models tests/tabarena/models/test_shared_weights_models.py -k <Model>` fits the real
+library twice and asserts one network, a weightless pickle that reloads and predicts the same, and
+equal predictions with sharing switched off (a fine-tuning model: its own copy in the pickle).
+
+
+## Developer fixes: when the library gets in the way of the warm-up
+
+The warm-up and the shared weights assume a library that imports without side effects, builds its
+network in one separable call and leaves process-global state alone. When a library does not, the
+wrapper carries the smallest workaround that restores those assumptions, and the workaround is
+marked so it can be found, reviewed and removed. Switching the warm-up off for the model
+(`warmup_modules = ()`, `warmup_dummy_fit = False`) is not the answer: it moves the library's cost
+back into the timed fit for that one model, which is what the warm-up exists to prevent.
+
+The header is the contract. The module docstring, function docstring or comment opens with
+`Developer fix` (inline: `# Developer fix: ...`) and then states, in this order:
+
+1. what the library does (the import-time flag, the lazy load, the constructor load, the leaked
+   handler) and the version this was written against;
+2. what the wrapper does about it, in one sentence;
+3. what the library should offer instead, and the upstream issue or PR once filed.
+
+```python
+"""TabDPT's network load as a separable call, and a constructor that takes the network.
+
+Developer fix. ``tabdpt.estimator.TabDPTEstimator.__init__`` (tabdpt 1.2.0) reads the checkpoint and
+builds the network inside the constructor and offers neither a constructor argument nor a reload
+hook for an existing network. ... The library could offer both itself, as a ``network=`` constructor
+argument or a ``_load_model`` method its ``fit`` calls; that is proposed upstream in
+https://github.com/layer6ai-labs/TabDPT-inference/pull/79 ...
+"""
+```
+
+Shapes seen so far, each with its in-tree reference:
+
+| The library... | The fix | Reference |
+|---|---|---|
+| sets a global torch flag when imported (`allow_tf32`), or cuDNN flags and the root logger when it fits | pin the flag in `_fit` right after the import, so every fit computes the same way whichever fit imported the library first; save and restore the rest around the fit in a context manager | `iltm/model.py`: `torch.backends.cuda.matmul.allow_tf32 = False` after `from iltm import ...`, `_isolate_iltm_global_state` |
+| builds its network at the first predict, not in `fit` | call the build at the end of `_fit` (the load is then shared and the timed predict starts warm) | `nori/model.py`: `self.model._get_predictor()` |
+| loads the checkpoint inside `__init__` | `load_network(...)` in `<model>/_estimators.py`, the loading half of the constructor, declared as the `shared_weights` loader; a constructor replica when the constructor cannot take a prebuilt network, guarded by a signature check | `tabdpt/_estimators.py`, `exaone_tabular/_estimators.py` |
+| a bug on the fit or predict path (a module-level `logger` that only `__init__` defines, so an unpickled child crashes) | the narrowest idempotent patch, applied where the code path enters the library | `iltm/model.py`: `_ensure_iltm_logger_patched` |
+
+Before writing one: ask the maintainers for the seam (an import without side effects, a
+`_load_model` the estimator's `fit` calls, a `network=` argument, an eager build), file the issue or
+PR, and link it from the header. `grep -rn "Developer fix" packages/tabarena/src/tabarena/models`
+lists the outstanding ones; remove each when a release ships the fix and bump the pin in
+`pyproject.toml` together with it. Global-state fixes keep working with the warm-up because the
+policy is explicit: iLTM's TF32 decision (off, full fp32, 2026-09-16) holds whether the warm-up's
+dummy fit or the first fold imported the library.
+
 
 ## Foundation-model weights: always pin the HF checkpoint revision
 
-Any foundation model whose weights come from Hugging Face (`hf_hub_download` /
-`snapshot_download`) must pin `revision=` to a specific commit — never resolve against the repo's
-current default branch. Without it, a push to the HF repo silently changes the weights every
-subsequent fit uses, with nothing in this repo recording that it happened (see
-autogluon/tabarena#510 for the incident that prompted this).
+Any foundation model whose weights come from Hugging Face must pin `revision=` to a specific
+commit on every `hf_hub_download` / `snapshot_download` call the wrapper or its `prefetch_weights`
+makes, and hand the pinned file to the library where it takes a path; never resolve against the
+repo's current default branch. Without it, a push to the HF repo silently changes the weights every subsequent fit uses,
+with nothing in this repo recording that it happened (see autogluon/tabarena#510 for the incident
+that prompted this).
 
 ```python
-_DEFAULT_HF_REPO = "SomeOrg/SomeModel"
-_DEFAULT_HF_FILENAME = "checkpoint.safetensors"
-#: Commit pinned so the checkpoint fetched here never silently changes if the
-#: repo's default branch moves. Bump deliberately (with a note on what changed)
-#: when picking up a newer checkpoint.
-_DEFAULT_HF_REVISION = "<commit-sha-from-huggingface.co/api/models/{repo}>"
-
+#: Commit pinned so the checkpoint fetched here never silently changes if the repo's default
+#: branch moves. Bump deliberately (with a note on what changed) when picking up a newer checkpoint.
+_HF_REVISION = "<commit-sha-from-huggingface.co/api/models/{repo}>"
 
 @classmethod
 def prefetch_weights(cls) -> str:
-    """Pre-download the checkpoint from Hugging Face and return its local path.
-
-    Tries the local cache first so offline compute nodes skip the etag
-    HEAD-request that ``hf_hub_download`` performs by default.
-    """
+    """Download the pinned checkpoint into the Hub cache and return its local path (head-node prefetch)."""
     from huggingface_hub import hf_hub_download
-    from huggingface_hub.errors import LocalEntryNotFoundError
 
-    try:
-        return hf_hub_download(
-            repo_id=_DEFAULT_HF_REPO,
-            filename=_DEFAULT_HF_FILENAME,
-            revision=_DEFAULT_HF_REVISION,
-            local_files_only=True,
-        )
-    except LocalEntryNotFoundError:
-        return hf_hub_download(
-            repo_id=_DEFAULT_HF_REPO,
-            filename=_DEFAULT_HF_FILENAME,
-            revision=_DEFAULT_HF_REVISION,
-        )
+    return hf_hub_download(repo_id="SomeOrg/SomeModel", filename="checkpoint.safetensors", revision=_HF_REVISION)
 ```
 
-Resolve `_DEFAULT_HF_REVISION` from `https://huggingface.co/api/models/{repo_id}` (the `sha`
-field) at the time you write the wrapper, not by hand-guessing a commit. Wire this same
-classmethod into `ModelInfo(prefetch_weights=...)` in `info.py` so the foundation-model
-pre-download scripts (see the `benchmark-model` skill) pick it up.
+Resolve the commit from `https://huggingface.co/api/models/{repo_id}` (the `sha` field) at the time
+you write the wrapper, not by hand-guessing. Wire the function or classmethod into
+`ModelInfo(prefetch_weights=...)` so the `benchmark-model` skill's head-node prefetch fills the cache
+before the jobs run; a wrapper that needs assets beyond its checkpoint (a tokenizer, a config
+repository) fetches them there too, with the same pinned `revision=`. A library that resolves its
+own checkpoint by name (tabpfn, tabdpt) is prefetched through its own download function.
 
 ---
 
