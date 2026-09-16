@@ -13,8 +13,11 @@ worker job of a launch runs this module and shares the queue through three marke
   skipping items that already have a marker, then claims new ones. When nothing is claimable the
   worker exits; orphaned claims of a cancelled job are re-enumerated by the next ``setup``.
 
-Each item runs the bundled runner in its own process, built with the same argument list the local
-runner uses (``run_local._build_item_command``) plus ``--cache_root`` and ``--materialize_tasks``,
+Before an item runs, the dataset's cache entries listed in the queue's ``cache_manifest.json`` (seeded
+by the setup, see :mod:`tabflow_slurm.setup.sky_cache`) are pulled into ``CACHE_ROOT``, so the runner
+finds the task cached and contacts neither OpenML nor the Hub; a dataset without entries is
+downloaded by the runner as a fallback. Each item runs the bundled runner in its own process, built
+with the same argument list the local runner uses (``run_local._build_item_command``) plus ``--cache_root`` and ``--materialize_tasks``,
 under a per-item wall-clock budget, in a fresh scratch directory, with the caches under
 ``CACHE_ROOT``. A successful item's ``data/`` tree is copied into ``<RUN_URI>/output/data``; a
 failed or timed-out item uploads nothing but its log. Configuration comes from the environment the
@@ -137,6 +140,8 @@ class Worker:
         self.done_uri = f"{config.queue_uri}/done"
         self.failed_uri = f"{config.queue_uri}/failed"
         self.tasks_uri = f"{config.queue_uri}/tasks"
+        self.cache_manifest: dict | None = None
+        self._pulled: set[str] = set()
 
     # ------------------------------------------------------------------ queue views
     def list_tasks(self) -> list[str]:
@@ -173,6 +178,11 @@ class Worker:
         self.launch_dir.mkdir(parents=True, exist_ok=True)
         if not self.job_batch_dir.exists():
             self.storage.download_dir(f"{self.cfg.queue_uri}/job_batch", self.job_batch_dir)
+        manifest_uri = f"{self.cfg.queue_uri}/cache_manifest.json"
+        if self.storage.exists(manifest_uri):
+            self.cache_manifest = json.loads(self.storage.read_text(manifest_uri))
+            n_datasets = len(self.cache_manifest.get("datasets", {}))
+            _log(f"dataset cache {self.cache_manifest.get('cache_uri')} covers {n_datasets} dataset(s)")
         if self.cfg.models:
             self.prefetch_weights()
 
@@ -244,6 +254,26 @@ class Worker:
         self.storage.write_text(f"{self.done_uri}/{idx}", "\n".join(records) + "\n")
         _log(f"bundle {idx} done ({len(task['items'])} item(s))")
 
+    def pull_dataset_cache(self, dataset: str) -> None:
+        """Copy the dataset's seeded cache entries into ``CACHE_ROOT`` (once per worker process)."""
+        if not self.cache_manifest:
+            return
+        base = str(self.cache_manifest.get("cache_uri", "")).rstrip("/")
+        for rel in self.cache_manifest.get("datasets", {}).get(dataset, []):
+            if rel in self._pulled:
+                continue
+            local = self.cfg.cache_root / rel
+            try:
+                if rel.endswith((".pkl", ".parquet")):
+                    if not local.exists():
+                        self.storage.download_file(f"{base}/{rel}", local)
+                else:
+                    self.storage.download_dir(f"{base}/{rel}", local)
+            except Exception as exc:
+                _log(f"WARNING: could not pull {rel} from the dataset cache ({exc!r}); the runner downloads it")
+                continue
+            self._pulled.add(rel)
+
     def item_env(self, scratch: Path) -> dict[str, str]:
         """The environment of one item process: local caches, per-item scratch, no inherited thread pools."""
         cache = self.cfg.cache_root
@@ -302,6 +332,7 @@ class Worker:
             f"experiment={item['experiment']} dataset={item['dataset']} fold={item['fold']} repeat={item['repeat']}"
         )
         _log(f"item {idx}.{k} start: {coords} (budget {timeout}s)")
+        self.pull_dataset_cache(item["dataset"])
         started = time.monotonic()
         rc = self._run_process(
             self.item_command(defaults, item, output_dir), env=env, log_path=log_path, timeout=timeout

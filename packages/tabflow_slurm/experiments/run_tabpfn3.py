@@ -30,6 +30,9 @@ workers use the environment and batch staged in the bucket), but do not re-run `
 ``BENCHMARK_NAME`` until ``sky_progress.sh`` reports ``DONE`` or ``WORKERS GONE``: the cache check sees
 only synced results, so in-flight items would be fitted twice (``setup`` warns when that is the case).
 ``eval`` syncs the bucket's results into the workspace itself before building the leaderboard.
+``setup`` also seeds the shared dataset cache in the bucket from the tasks it materialized here, so
+the workers load every task from the bucket instead of OpenML (its summary names any dataset that
+could not be seeded).
 """
 
 from __future__ import annotations

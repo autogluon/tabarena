@@ -248,7 +248,8 @@ Runs the bundles as SkyPilot managed jobs draining a **GCS claim queue**. Constr
   and prints **one `sky jobs launch -y -d --num-jobs N`** per run group (never one launch per bundle).
 
 Knobs: `bucket` / `prefix` (defaults to the org's EU sky-cache bucket and `<user>/tabarena`),
-`api_server_endpoint` (printed as an export; unset means the shell must provide it), `infra` (unset by
+`api_server_endpoint` (printed as an export; unset means the shell must provide it), `dataset_cache_uri` /
+`seed_dataset_cache` (the static dataset cache above), `infra` (unset by
 default: the shared server's admin policy expands the regions and rejects an explicit one), `workers`
 (concurrent worker jobs, the `%N` analogue, and the pool size), `use_pool` / `pool_name`,
 `gpu_accelerator` (`RTXPRO6000:1`, a `g4-standard-48` with 96 GB VRAM, 48 vCPU, 180 GB RAM; pair with
@@ -261,10 +262,24 @@ The worker (`sky_worker.py`) resumes the bundles its job already owns after a pr
 `SKYPILOT_TASK_ID` across recoveries), then claims unowned bundles until nothing is left, writing
 `done/<bundle>.<item>` and `failed/...` markers the progress watcher counts. Each item runs the bundled
 runner with `--cache_root` (every cache under one local directory) and `--materialize_tasks True` (the
-dataset is downloaded through the suite the batch recorded in `task_source.json`, OpenML for TabArena
-and data-foundry for BeyondArena), so no shared cache is needed. Results are copied per item into
+dataset is resolved through the suite the batch recorded in `task_source.json`, OpenML for TabArena and
+data-foundry for BeyondArena), so no shared filesystem is needed. Results are copied per item into
 `runs/<benchmark>/output/data/`; `sync_results_to_local` mirrors that prefix into
 `<workspace>/output/<benchmark>/data` (nothing deleted, so SLURM and SkyPilot results merge).
+
+**Dataset cache** (`setup/sky_cache.py`). Workers do not fetch datasets from OpenML or the Hub. `setup`
+copies the tasks it materialized on the head node (OpenML task and dataset directories, portable
+`tabarena_tasks/<slug>.pkl` files and their text-embedding caches for BeyondArena) into a static
+prefix laid out like `CacheConfig.from_root`, by default `<bucket>/tabarena/cache`, shared across users
+and runs because datasets are immutable. Only missing files are uploaded, every local file is then
+verified present remotely, and the launch's queue gets a `cache_manifest.json` mapping each dataset to
+its entries. The worker pulls a dataset's entries into `CACHE_ROOT` right before its first item, so the
+runner's `--materialize_tasks` finds them cached (an OpenML task loads from `task.xml`, the splits and
+the dataset's parquet without a network call). Workers only read the prefix. `dataset_cache_uri` points
+it elsewhere (a US bucket for a US pool, or a curated read-only bucket with `seed_dataset_cache=False`,
+in which case `setup` only verifies and the workers download whatever is missing). A legacy
+`tabarena_tasks` pickle that names this machine's `local/datasets/` is skipped with a warning and that
+dataset is downloaded by the workers instead.
 
 ### `TabArenaBenchmarkSetup` — `setup/benchmark.py` *(internal)*
 The per-run engine for one homogeneous run. Not part of the public API — the plan builds and drives

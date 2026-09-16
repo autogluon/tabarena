@@ -29,6 +29,7 @@ record_dir.mkdir(parents=True, exist_ok=True)
 (record_dir / f"{args.experiment}.json").write_text(json.dumps({
     "argv": sys.argv[1:],
     "env": {k: os.environ.get(k) for k in ("TMPDIR", "HF_HOME", "TABARENA_CACHE", "OMP_NUM_THREADS", "TABARENA_RAY_LOG_DIR")},
+    "cached_task_xml": Path(args.cache_root, "openml/org/openml/www/tasks/363612/task.xml").exists(),
 }))
 print("stub runner", args.experiment, flush=True)
 if "slow" in args.experiment:
@@ -239,3 +240,33 @@ def test_stub_runner_env_isolation_leaves_the_parent_untouched(local_storage, tm
     assert {k: v for k, v in os.environ.items() if k != "STUB_RECORD_DIR"} == {
         k: v for k, v in before.items() if k != "STUB_RECORD_DIR"
     }
+
+
+def test_worker_pulls_the_seeded_dataset_cache_before_an_item_runs(local_storage, tmp_path, stub_runner):
+    queue_uri = _stage_queue(local_storage, tmp_path, [[_item("cfg_0")]])
+    cache_uri = "gs://b/tabarena/cache"
+    local_storage.write_text(f"{cache_uri}/openml/org/openml/www/tasks/363612/task.xml", "<oml/>")
+    local_storage.write_text(f"{cache_uri}/openml/org/openml/www/datasets/46904/dataset_46904.pq", "pq")
+    local_storage.write_text(
+        f"{queue_uri}/cache_manifest.json",
+        json.dumps(
+            {
+                "cache_uri": cache_uri,
+                "datasets": {"d": ["openml/org/openml/www/tasks/363612", "openml/org/openml/www/datasets/46904"]},
+            }
+        ),
+    )
+    worker = Worker(_config(local_storage, tmp_path, stub_runner, queue_uri))
+    worker.run()
+    # The runner saw the task in CACHE_ROOT (its --cache_root), pulled from the bucket, not from OpenML.
+    assert _records(tmp_path)["cfg_0"]["cached_task_xml"] is True
+    assert (tmp_path / "cache" / "openml/org/openml/www/datasets/46904/dataset_46904.pq").read_text() == "pq"
+    assert worker._pulled == {"openml/org/openml/www/tasks/363612", "openml/org/openml/www/datasets/46904"}
+
+
+def test_worker_without_a_manifest_runs_as_before(local_storage, tmp_path, stub_runner):
+    queue_uri = _stage_queue(local_storage, tmp_path, [[_item("cfg_0")]])
+    worker = Worker(_config(local_storage, tmp_path, stub_runner, queue_uri))
+    worker.run()
+    assert worker.cache_manifest is None
+    assert _records(tmp_path)["cfg_0"]["cached_task_xml"] is False

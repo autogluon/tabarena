@@ -16,6 +16,9 @@ exchange into a bucket and ships the environment along:
 * Before the head node's cache check and before an evaluation, :meth:`SkyPilotSetup.sync_results_to_local`
   mirrors that ``output/data`` prefix into the workspace, so relaunches skip finished items and
   ``eval`` reads the same paths it reads after a SLURM run.
+* ``setup`` also seeds a static dataset cache in the bucket (:mod:`tabflow_slurm.setup.sky_cache`)
+  from the tasks it materialized on the head node and verifies it; the worker pulls a dataset's
+  entries before each item, so the runner finds them cached and never contacts OpenML or the Hub.
 
 Everything goes through the cluster's ``sky`` CLI and its shared API server, which resolves the
 accelerator names of this cluster (``RTXPRO6000`` is a spot ``g4-standard-48``) and whose admin
@@ -39,6 +42,7 @@ from typing import TYPE_CHECKING, ClassVar
 import yaml
 
 from tabflow_slurm.setup.scheduler import SchedulerSetup
+from tabflow_slurm.setup.sky_cache import collect_cache_entries, local_cache_roots, seed_dataset_cache
 from tabflow_slurm.setup.sky_env import render_env_setup_script, stage_environment
 from tabflow_slurm.setup.sky_storage import GcsStorage
 
@@ -118,6 +122,15 @@ class SkyPilotSetup(SchedulerSetup):
     """SkyPilot ``infra`` of the workers. ``None`` (default) leaves the choice to the shared API
     server, whose admin policy expands a request across every region the VPC reaches and rejects an
     explicit one. Set it (e.g. ``"gcp/europe-west4"``) only against a server without that policy."""
+    dataset_cache_uri: str | None = None
+    """Static prefix holding the datasets (``CacheConfig.from_root`` layout, see
+    :mod:`tabflow_slurm.setup.sky_cache`); ``None`` means ``<bucket>/tabarena/cache``, shared across
+    users and runs. Workers only read it. Point it at a curated bucket this account cannot write to
+    together with ``seed_dataset_cache=False``."""
+    seed_dataset_cache: bool = True
+    """Upload the run's datasets from this node's caches into ``dataset_cache_uri`` at setup (only
+    what is missing) and verify. ``False`` only verifies; datasets missing remotely are downloaded by
+    the workers from OpenML or the Hub as a fallback."""
     workers: int = 8
     """Worker jobs per launch (``--num-jobs``, capped at the number of bundles) and, in pool mode,
     the pool size. The analogue of SLURM's ``%N`` concurrency cap."""
@@ -177,6 +190,12 @@ class SkyPilotSetup(SchedulerSetup):
 
     def layout(self, benchmark_name: str) -> SkyRunLayout:
         return SkyRunLayout(run_uri=f"{self.root_uri}/runs/{benchmark_name}")
+
+    @property
+    def resolved_dataset_cache_uri(self) -> str:
+        if self.dataset_cache_uri is not None:
+            return self.dataset_cache_uri.rstrip("/")
+        return f"{self.bucket.rstrip('/')}/tabarena/cache"
 
     def pool_for(self, resources: ResourcesSetup) -> str:
         if self.pool_name is not None:
@@ -293,6 +312,9 @@ class SkyPilotSetup(SchedulerSetup):
             defaults={**jobs_dict["defaults"], "item_timeout_seconds": self.item_timeout_seconds(resources_setup)},
             job_batch_dir=Path(jobs_dict["defaults"]["job_batch_dir"]),
         )
+        cache_manifest = self._seed_dataset_cache(Path(jobs_dict["defaults"]["job_batch_dir"]))
+        if cache_manifest is not None:
+            (queue_dir / "cache_manifest.json").write_text(json.dumps(cache_manifest))
         (queue_dir / "manifest.json").write_text(
             json.dumps(
                 {
@@ -345,6 +367,7 @@ class SkyPilotSetup(SchedulerSetup):
                     "queue_uri": queue_uri,
                     "run_uri": layout.run_uri,
                     "env_manifest": env.manifest_uri,
+                    "dataset_cache_uri": self.resolved_dataset_cache_uri,
                     "n_tasks": n_tasks,
                     "n_items": sum(len(job["items"]) for job in all_jobs),
                     "commands": commands,
@@ -355,6 +378,28 @@ class SkyPilotSetup(SchedulerSetup):
         if print_summary:
             print("##### Setup Jobs\nRun the following command(s) to start the jobs:\n" + "\n".join(commands) + "\n")
         return commands
+
+    def _seed_dataset_cache(self, job_batch_dir: Path) -> dict | None:
+        """Seed and verify the dataset cache for the batch's tasks; return the worker manifest.
+
+        Reads the batch's ``task_metadata.csv`` (the tasks ``setup`` just materialized into this
+        node's caches) and copies their cache entries into ``dataset_cache_uri`` (see
+        :func:`tabflow_slurm.setup.sky_cache.seed_dataset_cache`). Returns ``None`` when the batch
+        directory carries no task metadata.
+        """
+        csv_path = job_batch_dir / "task_metadata.csv"
+        if not csv_path.exists():
+            return None
+        from tabarena.benchmark.task.metadata import TaskMetadataCollection
+
+        collection = TaskMetadataCollection.from_source(csv_path)
+        openml_root, tabarena_root = local_cache_roots()
+        entries = collect_cache_entries(collection, openml_root=openml_root, tabarena_root=tabarena_root)
+        manifest, report = seed_dataset_cache(
+            entries, storage=self.storage, cache_uri=self.resolved_dataset_cache_uri, upload=self.seed_dataset_cache
+        )
+        print(report.summary())
+        return manifest
 
     def draining_launches(self, benchmark_name: str) -> list[tuple[str, int, int]]:
         """Launches of ``benchmark_name`` whose queue is not fully done, as ``(launch_id, done, total)`` bundles.

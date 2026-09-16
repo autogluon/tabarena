@@ -64,11 +64,39 @@ def _jobs_dict(batch_dir: Path, n_bundles: int = 3) -> dict:
 
 
 @pytest.fixture
-def batch_dir(tmp_path) -> Path:
+def batch_dir(tmp_path, monkeypatch) -> Path:
+    """A fake batch dir with real task metadata (tid 363612 -> dataset id 46904) and a matching local OpenML cache."""
+    import pandas as pd
+
+    from tabarena.benchmark.task.metadata import TaskMetadataCollection
+
     path = tmp_path / "job_batch"
     path.mkdir()
     (path / "experiments.yaml").write_text("[]\n")
     (path / "task_source.json").write_text('{"preset": "TabArena-v0.1"}')
+    df = pd.DataFrame(
+        {
+            "tid": [363612],
+            "dataset": ["anneal"],
+            "problem_type": ["binary"],
+            "n_folds": [1],
+            "n_repeats": [1],
+            "n_features": [5],
+            "n_classes": [2],
+            "NumberOfInstances": [100],
+            "n_samples_train_per_fold": [80.0],
+            "n_samples_test_per_fold": [20.0],
+        }
+    )
+    TaskMetadataCollection.from_legacy_df(df).to_dataframe().to_csv(path / "task_metadata.csv", index=False)
+    openml_root = tmp_path / "head_openml"
+    task_dir = openml_root / "org/openml/www/tasks/363612"
+    task_dir.mkdir(parents=True)
+    (task_dir / "task.xml").write_text("<oml:data_set_id>46904</oml:data_set_id>")
+    dataset_dir = openml_root / "org/openml/www/datasets/46904"
+    dataset_dir.mkdir(parents=True)
+    (dataset_dir / "dataset_46904.pq").write_bytes(b"pq")
+    monkeypatch.setattr(sky_mod, "local_cache_roots", lambda: (openml_root, tmp_path / "head_tabarena"))
     return path
 
 
@@ -248,6 +276,18 @@ class TestGetRunCommands:
         assert job_spec["envs"]["QUEUE_URI"] == queue_uri
         assert job_spec["envs"]["MODELS"] == "TabPFN-3"
         assert "setup" in job_spec
+        # The dataset cache was seeded from the head node's caches into the shared prefix and the queue
+        # carries the manifest the worker pulls from.
+        assert launch["dataset_cache_uri"] == "gs://b/tabarena/cache"
+        cache_manifest = json.loads(local_storage.read_text(f"{queue_uri}/cache_manifest.json"))
+        assert cache_manifest == {
+            "cache_uri": "gs://b/tabarena/cache",
+            "datasets": {"anneal": ["openml/org/openml/www/tasks/363612", "openml/org/openml/www/datasets/46904"]},
+        }
+        assert (
+            local_storage.read_text("gs://b/tabarena/cache/openml/org/openml/www/datasets/46904/dataset_46904.pq")
+            == "pq"
+        )
 
     def test_setup_warns_while_a_previous_launch_is_still_draining(
         self, local_storage, tmp_path, batch_dir, staged_env, capsys
@@ -280,7 +320,7 @@ class TestGetRunCommands:
         assert f"# WARNING: launch {launch_id} still has 2 of 3 bundle(s) not done" in second
         assert f"sky jobs cancel -n {launch_id} -y" in second
         assert f"WARNING: launch {launch_id} of 'bench' still has 2 of 3" in capsys.readouterr().out
-        assert setup.draining_launches("bench")[0][:1] == (launch_id,)
+        assert launch_id in {launch for launch, _, _ in setup.draining_launches("bench")}
 
         for idx in ("000001", "000002"):
             local_storage.write_text(f"{queue_uri}/done/{idx}", "ok\n")
