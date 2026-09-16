@@ -245,9 +245,19 @@ def test_concat_results_drop_duplicates_matches_pandas():
         assert got.equals(expected) and got.index.equals(expected.index)
 
 
-def test_dataset_fold_config_combinations_match_pairs():
+def test_result_index_matches_pairs():
+    """Every (dataset, fold, config) result maps to the repo holding it; anything else maps to None."""
     repo = load_repo_artificial()
-    repos = [repo.subset(configs=["NeuralNetFastAI_r1"]), repo.subset(datasets=["ada"])]
-    assert EvaluationRepositoryCollection._generate_dataset_fold_config_combinations(repos) == [
-        r.dataset_fold_config_pairs() for r in repos
-    ]
+    repos = [repo.subset(configs=["NeuralNetFastAI_r1"]), repo.subset(datasets=["ada"], configs=["NeuralNetFastAI_r2"])]
+    collection = EvaluationRepositoryCollection(repos=repos)
+    expected = {}
+    for idx, r in enumerate(repos):
+        for key in r.dataset_fold_config_pairs():
+            expected[key] = idx
+    assert len(collection._mapping) == len(expected)
+    for (dataset, fold, config), idx in expected.items():
+        assert collection.get_result_to_repo_idx(dataset=dataset, fold=fold, config=config) == idx
+    assert collection.get_result_to_repo_idx(dataset="abalone", fold=0, config="NeuralNetFastAI_r2") is None
+    assert collection.get_result_to_repo_idx(dataset="nope", fold=0, config="NeuralNetFastAI_r1") is None
+    assert collection.get_result_to_repo_idx(dataset="ada", fold=99, config="NeuralNetFastAI_r1") is None
+    assert sorted(collection._mapping.values()) == sorted(expected.values())
