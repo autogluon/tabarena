@@ -5,10 +5,11 @@ Repo-wide guidance: [`../../AGENTS.md`](../../AGENTS.md).
 
 ## What this is
 
-A package that generates and launches **SLURM** array jobs for TabArena benchmarks. The user
-composes a `TabArenaBenchmarkPlan`, calls `setup_jobs()`, and gets `sbatch` command(s); each array
-task fits one `(task, fold, repeat, config)` item at a time and caches the result. It is
-self-contained and only depends on `tabarena`.
+A package that generates and launches **SLURM** array jobs (or **SkyPilot** managed jobs) for
+TabArena benchmarks. The user composes a `TabArenaBenchmarkPlan`, calls `setup_jobs()`, and gets
+`sbatch` command(s) (or `sky jobs launch` commands with `SkyPilotSetup`); each array task or worker
+job fits one `(task, fold, repeat, config)` item at a time and caches the result. It is
+self-contained and only depends on `tabarena` (plus the optional `skypilot` extra for the `sky` CLI).
 
 > It **is** a package (`pyproject.toml`, `tabflow_slurm/__init__.py`) and a uv-workspace member,
 > installed editable from `packages/tabflow_slurm/`.
@@ -22,15 +23,19 @@ tabflow_slurm/                      ← this folder (docs, examples, history, py
 ├── experiments/                    ← runnable run_*.py scripts (setup + eval subcommands)
 └── tabflow_slurm/                  ← the package
     ├── __init__.py                 ← re-exports the public API
-    ├── run_tabarena_experiment.py  ← runner: fits ONE item on a node (bundled script)
+    ├── run_tabarena_experiment.py  ← runner: fits ONE item on a node (bundled script; --cache_root / --materialize_tasks for VMs)
     ├── submit_template.sh          ← sbatch array script (parses job JSON via jq, calls runner)
+    ├── sky_worker.py               ← SkyPilot worker: drains the GCS claim queue, runs the runner per item
     ├── slurm_utils.py              ← setup_slurm_job(): per-node Ray init (caches via JobBatch.cache_config)
     └── setup/                      ← the building blocks
         ├── plan.py                 ← TabArenaBenchmarkPlan (ENTRY POINT), ModelJob, SingleModel
         ├── benchmark.py            ← TabArenaBenchmarkSetup (INTERNAL per-run engine)
         ├── paths.py                ← PathSetup, get_run_script_path/get_submit_script_path
         ├── resources.py            ← ResourcesSetup + v0.1/BeyondArena presets
-        └── scheduler.py            ← SchedulerSetup → SlurmSetup → GCPSlurmSetup (batching + sbatch)
+        ├── scheduler.py            ← SchedulerSetup → SlurmSetup → GCPSlurmSetup (batching + sbatch)
+        ├── skypilot.py             ← SkyPilotSetup (queue staging, job/pool YAML, sky commands, results sync)
+        ├── sky_env.py              ← head-venv replication: freeze + working-tree archives + env.json manifest
+        └── sky_storage.py          ← Storage protocol + GcsStorage (gcloud storage CLI wrapper)
 ```
 
 ## The public-API boundary
@@ -49,7 +54,9 @@ tabflow_slurm/                      ← this folder (docs, examples, history, py
    `TaskSubset`) is merged onto the plan's `task_subset` (job wins per field). Jobs are **merged**
    when their `(resources, scheduler, task_subset, experiment-with-models-zeroed, ignore_cache)`
    signature matches (compared by value). One `TabArenaBenchmarkSetup` per group.
-3. Each setup's `get_jobs_to_run()`: ensure dirs → `experiment_bundle.build_experiments()`
+3. Each setup's `get_jobs_to_run()`: ensure dirs → `scheduler.sync_results_to_local()` (a no-op
+   for SLURM; `SkyPilotSetup` mirrors the bucket's results into the output dir so the cache check
+   below sees them) → `experiment_bundle.build_experiments()`
    (attaches each experiment's `ModelConstraints`) → `context.build_jobs(experiments,
    task_subset=...)` (scopes the context's collection by the `TaskSubset`, then enumerates
    experiments × splits; constraint-violating pairs are dropped during enumeration) → scope the
@@ -58,7 +65,9 @@ tabflow_slurm/                      ← this folder (docs, examples, history, py
    as a `JobBatch` artifact (experiments.yaml + task_metadata.csv + jobs.json) →
    `scheduler.bundle_items()`.
 4. `scheduler.get_run_commands()` writes the job JSON (splitting at `max_array_size`) and returns the
-   `sbatch` command(s). The plan prints one consolidated summary.
+   `sbatch` command(s). The plan prints one consolidated summary. `SkyPilotSetup` instead stages the
+   env manifest, the batch and one task JSON per bundle in the bucket and returns one
+   `sky jobs launch --num-jobs N` block per run group.
 
 Then: `sbatch … submit_template.sh <job.json>` → array task picks `jobs[SLURM_ARRAY_TASK_ID]`,
 creates its node-local scratch (below), optionally stages the run's weights and pre-touches the
@@ -91,6 +100,15 @@ outside it, keyed per node, user and venv, so later jobs on a warm node reuse th
   the `jq` reads in `submit_template.sh` too. Items are self-describing coordinates: the runner
   resolves `experiment` by name and `dataset` against the shipped `JobBatch` artifact
   (`defaults.job_batch_dir`).
+- The **SkyPilot worker contract**: `sky_worker.py` builds each item's argv through
+  `run_local._build_item_command` (so a new runner flag added there reaches the VMs too) and appends
+  `--cache_root` and `--materialize_tasks True`; it substitutes its own `python`, `run_script`,
+  `job_batch_dir` and `output_dir`. The task JSON is the job JSON's `defaults` plus
+  `item_timeout_seconds`, one file per bundle. The runner, `_build_item_command` and the worker move
+  together.
+- **Materializing on a VM needs the recorded suite.** `JobBatch` writes `task_source.json`
+  (`TaskMetadataCollection.preset`); `--materialize_tasks` rebinds it (`with_preset`) and calls
+  `materialize()`. Never hardcode a collection in the worker or the runner.
 - `benchmark_name` vs `parallel_safe_benchmark_name`: the former is shared (output + log dirs); the
   latter (one per group, `<benchmark_name>_<group>`) namespaces the per-run `JobBatch` dir / job JSON
   so parallel runs don't clobber each other.
@@ -149,7 +167,10 @@ outside it, keyed per node, user and venv, so later jobs on a warm node reuse th
 ## Editing tasks
 
 - Changing how jobs are launched/batched → `setup/scheduler.py` (add a `SchedulerSetup` subclass for
-  a non-SLURM scheduler; the plan/engine are scheduler-agnostic).
+  a non-SLURM scheduler; the plan/engine are scheduler-agnostic). The SkyPilot pieces live in
+  `setup/skypilot.py` (scheduler), `setup/sky_env.py` (venv replication), `setup/sky_storage.py`
+  (bucket access) and `sky_worker.py` (the VM side); tests replace the bucket with
+  `tests/tabflow_slurm/conftest.py::LocalDirStorage`.
 - Changing what runs on a node → `run_tabarena_experiment.py` (Python) and/or `submit_template.sh`
   (bundle iteration); these two move together.
 - New hardware preset → a `ResourcesSetup` subclass in `setup/resources.py`.
