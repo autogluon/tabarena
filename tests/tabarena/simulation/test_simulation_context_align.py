@@ -119,3 +119,35 @@ def test_rank_scorer_unique_and_duplicate_results_agree_with_pivot():
     for task in tasks:
         row = pivot2.loc[task].to_numpy(dtype=float)
         assert list(averaged.error_dict[task]) == sorted(row[~np.isnan(row)].tolist())
+
+
+def test_rank_column_is_lazy_and_matches_eager():
+    zsc = ZeroshotSimulatorContext(df_configs=_configs(), df_baselines=_baselines(), folds=None)
+    assert zsc._df_configs_ranked is None
+    ranked = zsc.df_configs_ranked
+    assert zsc._df_configs_ranked is ranked and zsc.df_configs_ranked is ranked
+    expected = zsc.df_configs.copy()
+    expected["rank"] = [
+        zsc.rank_scorer.rank(t, e) for t, e in zip(expected["task"], expected["metric_error"], strict=True)
+    ]
+    pd.testing.assert_frame_equal(ranked, expected)
+
+    # subset_datasets keeps the scorer: the remaining rows keep their ranks
+    zsc.subset_datasets(["dsA"])
+    assert zsc._df_configs_ranked is None
+    after = zsc.df_configs_ranked
+    pd.testing.assert_frame_equal(after, expected[expected["dataset"] == "dsA"])
+
+    # subset_configs rebuilds the scorer over the remaining configs, as _update_all always did
+    zsc2 = ZeroshotSimulatorContext(
+        df_configs=_configs(), df_baselines=_baselines(), folds=None, score_against_only_baselines=False
+    )
+    zsc2.subset_configs(["cfg_1", "cfg_2"])
+    rebuilt = zsc2.df_configs_ranked
+    fresh = ZeroshotSimulatorContext(
+        df_configs=_configs()[_configs()["framework"].isin(["cfg_1", "cfg_2"])],
+        df_baselines=_baselines(),
+        folds=None,
+        score_against_only_baselines=False,
+    ).df_configs_ranked
+    np.testing.assert_array_equal(rebuilt["rank"].to_numpy(), fresh["rank"].to_numpy())
