@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from autogluon.common.utils.resource_utils import ResourceManager
+from autogluon.core.models.abstract import SharedWeights
 from autogluon.tabular.models.abstract.abstract_torch_model import AbstractTorchModel
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     import pandas as pd
 
 
@@ -19,6 +22,16 @@ _DEFAULT_CHECKPOINT_FILE = "OrionMSP-classifier-v1.5-202603.ckpt"
 #: repo's default branch moves. Bump deliberately (with a note on what
 #: changed) when picking up newer checkpoints.
 _HF_REVISION = "8b712f6ff699750f7ac5825f31e89e6f6f161577"
+
+
+def _caches_training_data(params: Mapping[str, Any]) -> bool:
+    """Whether ``inference_config`` turns on the key-value cache, which writes the training context into the network."""
+    config = params.get("inference_config")
+    icl = config.get("ICL_CONFIG") if isinstance(config, dict) else getattr(config, "ICL_CONFIG", None)
+    if icl is None:
+        return False
+    flag = icl.get("enable_kv_cache") if isinstance(icl, dict) else getattr(icl, "enable_kv_cache", False)
+    return bool(flag)
 
 
 class OrionMSPModel(AbstractTorchModel):
@@ -49,6 +62,16 @@ class OrionMSPModel(AbstractTorchModel):
     default_num_gpus = 1
     default_resources_physical_cores_only = True
     minimum_num_gpus = 1
+    #: TabTune's estimator builds its network inside ``_load_model``, which ``fit`` calls; one build
+    #: per checkpoint and device per process. A configuration that caches the training context in
+    #: the network builds its own.
+    shared_weights: ClassVar[SharedWeights] = SharedWeights(
+        loader="tabtune.models.orionmsp_v15.sklearn.classifier:OrionMSPv15Classifier._load_model",
+        key=("checkpoint_version", "model_path"),
+        disabled_by=(_caches_training_data,),
+    )
+    #: Knobs that make the warm-up's dummy fit cheap without touching the network.
+    cheap_hyperparameters: ClassVar[dict] = {"n_estimators": 1}
 
     def _fit(
         self,

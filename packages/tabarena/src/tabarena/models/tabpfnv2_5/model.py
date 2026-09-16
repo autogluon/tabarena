@@ -3,18 +3,33 @@ from __future__ import annotations
 import logging
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from autogluon.common.utils.pandas_utils import get_approximate_df_mem_usage
+from autogluon.core.models.abstract import SharedWeights
 from autogluon.features.generators import LabelEncoderFeatureGenerator
 from autogluon.tabular.models.abstract.abstract_torch_model import AbstractTorchModel
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     import pandas as pd
 
 logger = logging.getLogger(__name__)
 
 _HAS_LOGGED_TABPFN_LICENSE: bool = False
+
+
+def _mutates_network(params: Mapping[str, Any]) -> bool:
+    """Whether tabpfn writes into or casts the network under these estimator parameters.
+
+    ``fit_mode="fit_with_cache"`` writes the train-set representation into the module, and a
+    ``torch.dtype`` ``inference_precision`` makes the per-device model cache cast the module in
+    place; such a fit builds its own network.
+    """
+    if params.get("fit_mode", "fit_preprocessors") != "fit_preprocessors":
+        return True
+    return not isinstance(params.get("inference_precision", "auto"), str)
 
 
 class TabPFNModel(AbstractTorchModel):
@@ -51,6 +66,21 @@ class TabPFNModel(AbstractTorchModel):
     default_num_gpus = 1
     default_resources_physical_cores_only = True
     minimum_num_gpus = 1
+    #: tabpfn builds its network inside ``_initialize_model_variables``, which ``fit`` calls; one
+    #: build per checkpoint and device per process. A fit whose configuration writes into the
+    #: network (a differentiable input, another fit mode, a forced dtype) builds its own.
+    shared_weights: ClassVar[SharedWeights] = SharedWeights(
+        loader=(
+            "tabpfn.classifier:TabPFNClassifier._initialize_model_variables",
+            "tabpfn.regressor:TabPFNRegressor._initialize_model_variables",
+        ),
+        key=("model_path",),
+        disabled_by=("differentiable_input", _mutates_network),
+    )
+    #: The TabPFN versions are registered separately; each owns its ``share_weights`` class setting.
+    class_settings_per_subclass = True
+    #: Knobs that make the warm-up's dummy fit cheap without touching the network.
+    cheap_hyperparameters: ClassVar[dict] = {"n_estimators": 1}
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)

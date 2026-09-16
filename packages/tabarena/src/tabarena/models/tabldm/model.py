@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, ClassVar
 
 from autogluon.common.utils.resource_utils import ResourceManager
+from autogluon.core.models.abstract import SharedWeights
 from autogluon.tabular.models.abstract.abstract_torch_model import AbstractTorchModel
 
 if TYPE_CHECKING:
@@ -34,6 +35,16 @@ class TabLDMModel(AbstractTorchModel):
     default_num_gpus = 1
     default_resources_physical_cores_only = True
     minimum_num_gpus = 1
+    #: TabLDM builds its network inside ``_load_model``, which ``fit`` calls; one build per checkpoint
+    #: and device per process. A key-value cache writes into the network, so that configuration
+    #: builds its own.
+    shared_weights: ClassVar[SharedWeights] = SharedWeights(
+        loader=("tabldm:TabLDMEnhancedClassifier._load_model", "tabldm:TabLDMEnhancedRegressor._load_model"),
+        key=("checkpoint_version", "model_path"),
+        disabled_by=("kv_cache",),
+    )
+    #: Knobs that make the warm-up's dummy fit cheap without touching the network.
+    cheap_hyperparameters: ClassVar[dict] = {"n_estimators": 1}
     # Sequential fold fitting avoids contention on the shared HF checkpoint cache; refitting one
     # model on all data (like the other TFM wrappers: TabICL, TabSwift, LimiX, ...) gives faster
     # inference at similar quality to the bagged ensemble for an in-context-learning model.

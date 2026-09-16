@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, ClassVar
 
 from autogluon.core.constants import BINARY, MULTICLASS, REGRESSION
+from autogluon.core.models.abstract import SharedWeights
 from autogluon.features.generators import LabelEncoderFeatureGenerator
 from autogluon.tabular.models.abstract.abstract_torch_model import AbstractTorchModel
 
@@ -123,7 +124,15 @@ class TabDPTModelBase(AbstractTorchModel):
         }
         for param, default in self._constructor_defaults.items():
             kwargs[param] = hps.get(param, default)
-        return model_cls(**kwargs)
+        if self.shared_weights is None or kwargs.get("compile"):
+            # No sharing declared (v1.1), or torch.compile writes into the module: the library builds its own.
+            return model_cls(**kwargs)
+        from tabarena.models.tabdpt._estimators import load_network, make_estimator
+
+        network = load_network(
+            kwargs["model_weight_path"], device, use_flash=kwargs["use_flash"], clip_sigma=kwargs["clip_sigma"]
+        )
+        return make_estimator(network, mode="cls" if model_cls.__name__ == "TabDPTClassifier" else "reg", **kwargs)
 
     @classmethod
     def _download_checkpoint(cls) -> str:
@@ -306,6 +315,16 @@ class TabDPTTurboModel(TabDPTModelBase):
 
     ag_key = "TA-TABDPT-TURBO"
     ag_name = "TA-TabDPT-Turbo"
+    #: tabdpt reads the checkpoint and builds the network inside the estimator constructor, so the
+    #: loading half is replicated in ``_estimators.load_network`` and the constructor in
+    #: ``_estimators.make_estimator`` (developer fixes, see that module); one build per checkpoint,
+    #: flash-attention setting, clipping value and device per process. ``compile=True`` writes into
+    #: the module and builds its own.
+    shared_weights: ClassVar[SharedWeights] = SharedWeights(
+        loader="tabarena.models.tabdpt._estimators:load_network", key=("model_weight_path", "use_flash", "clip_sigma")
+    )
+    #: Knobs that make the warm-up's dummy fit cheap without touching the network.
+    cheap_hyperparameters: ClassVar[dict] = {"n_ensembles": 1}
 
     _checkpoint_filename: ClassVar[str] = "tabdpt1_2.safetensors"
     _constructor_defaults: ClassVar[dict[str, object]] = {
