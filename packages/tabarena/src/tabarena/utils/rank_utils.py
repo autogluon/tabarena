@@ -3,6 +3,8 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+from tabarena.simulation.sim_utils import has_duplicate_keys
+
 
 def get_rank(
     error: float, error_lst: list[float], ties_win: bool = False, pct: bool = False, include_partial: bool = True
@@ -80,12 +82,31 @@ class RankScorer:
         :param pct: whether to display the returned rankings in percentile form.
         """
         assert all(col in df_results for col in [metric_error_col, task_col, framework_col])
-        all_datasets = set(df_results[task_col].unique())
-        for task in tasks:
-            assert task in all_datasets, f"{task_col} {task} not present in passed evaluations"
         self.ties_win = ties_win
         self.pct = pct
         self.include_partial = include_partial
+        task_values = df_results[task_col].to_numpy()
+        task_codes, task_uniques = pd.factorize(task_values)
+        all_datasets = set(task_uniques.tolist())
+        for task in tasks:
+            assert task in all_datasets, f"{task_col} {task} not present in passed evaluations"
+        framework_codes, framework_uniques = pd.factorize(df_results[framework_col].to_numpy())
+        result_keys = task_codes.astype(np.int64) * len(framework_uniques) + framework_codes
+        errors = df_results[metric_error_col].to_numpy(dtype=np.float64)
+        if not has_duplicate_keys(result_keys, n_range=len(task_uniques) * len(framework_uniques)):
+            # One result per (task, framework): the pivot below would just reshape, so sort the
+            # finite errors by task directly and slice each task's run.
+            valid = ~np.isnan(errors)
+            order = np.lexsort((errors[valid], task_codes[valid]))
+            task_sorted = task_codes[valid][order]
+            errors_sorted = errors[valid][order]
+            bounds = np.searchsorted(task_sorted, np.arange(len(task_uniques) + 1))
+            per_task = {
+                task_uniques[i]: errors_sorted[bounds[i] : bounds[i + 1]].tolist() for i in range(len(task_uniques))
+            }
+            self.error_dict = {task: per_task[task] for task in tasks}
+            return
+        # Repeated (task, framework) results: keep pivot_table's averaging of them.
         df_pivot = df_results.pivot_table(values=metric_error_col, index=task_col, columns=framework_col)
         # Sort a materialized copy: under pandas copy-on-write `.values` is a read-only
         # view (in-place sort raises), and on multi-block frames it is a throwaway copy

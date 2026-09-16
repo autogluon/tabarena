@@ -7,6 +7,7 @@ from collections import defaultdict
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Self
 
+import numpy as np
 import pandas as pd
 from autogluon.common.loaders import load_json, load_pd
 from autogluon.common.savers import save_json, save_pd
@@ -22,10 +23,8 @@ from tabarena.utils.rank_utils import RankScorer
 
 from .ground_truth import GroundTruth
 from .sim_utils import (
-    filter_datasets,
     get_dataset_to_metric_problem_type,
-    get_dataset_to_tid_dict,
-    get_task_to_dataset_dict,
+    has_duplicate_keys,
 )
 
 if TYPE_CHECKING:
@@ -206,21 +205,34 @@ class ZeroshotSimulatorContext:
             dataset_problem_types, on=["dataset"]
         )
 
-        unique_dataset_folds_set = df_configs[["dataset", "fold"]].drop_duplicates()
-        unique_dataset_folds_set_baselines = df_baselines[["dataset", "fold"]].drop_duplicates()
-        unique_dataset_folds_set_to_concat = [unique_dataset_folds_set, unique_dataset_folds_set_baselines]
-        unique_dataset_folds_set_to_concat = [u for u in unique_dataset_folds_set_to_concat if len(u) > 0]
-        unique_dataset_folds_set = pd.concat(unique_dataset_folds_set_to_concat, ignore_index=True).drop_duplicates()
+        # One hashing pass per frame: integer codes for the (dataset, fold) pairs of configs and
+        # baselines together, in first-occurrence order (what drop_duplicates would keep). Every
+        # per-task structure below derives from these codes instead of re-hashing the string
+        # columns of the full frame, which the pandas equivalents did about fifteen times.
+        n_configs = len(df_configs)
+        dataset_all = np.concatenate([df_configs["dataset"].to_numpy(), df_baselines["dataset"].to_numpy()])
+        fold_all = np.concatenate([df_configs["fold"].to_numpy(), df_baselines["fold"].to_numpy()]).astype(np.int64)
+        tid_all = np.concatenate([df_configs["tid"].to_numpy(), df_baselines["tid"].to_numpy()])
+        assert fold_all.min(initial=0) >= 0, "folds must be non-negative"
+        dataset_codes, dataset_uniques = pd.factorize(dataset_all)
+        fold_span = int(fold_all.max(initial=0)) + 1
+        pair_codes, pair_keys = pd.factorize(dataset_codes.astype(np.int64) * fold_span + fold_all)
 
-        sources_to_check = []
-        df_baselines = filter_datasets(df=df_baselines, datasets=unique_dataset_folds_set)
-        df_configs = filter_datasets(df=df_configs, datasets=unique_dataset_folds_set)
-        sources_to_check.append(("df_baselines", df_baselines))
-        sources_to_check.append(("df_configs", df_configs))
+        # every row's (dataset, fold) is in the union of both frames by construction, so the
+        # former merge against that union only reset the index
+        df_configs = df_configs.reset_index(drop=True)
+        df_baselines = df_baselines.reset_index(drop=True)
 
-        for source, df_source in sources_to_check:
-            config_task_counts = df_source[["framework", "dataset", "fold"]].value_counts()
-            if config_task_counts.max() > 1:
+        framework_codes, framework_uniques = pd.factorize(
+            np.concatenate([df_configs["framework"].to_numpy(), df_baselines["framework"].to_numpy()])
+        )
+        result_keys = framework_codes.astype(np.int64) * len(pair_keys) + pair_codes
+        for source, df_source, keys in (
+            ("df_baselines", df_baselines, result_keys[n_configs:]),
+            ("df_configs", df_configs, result_keys[:n_configs]),
+        ):
+            if has_duplicate_keys(keys, n_range=len(framework_uniques) * len(pair_keys)):
+                config_task_counts = df_source[["framework", "dataset", "fold"]].value_counts()
                 raise AssertionError(
                     f"Multiple rows in `{source}` exist for a config task pair! "
                     f"There should only ever be one row per config task pair. "
@@ -229,24 +241,30 @@ class ZeroshotSimulatorContext:
                     f"{config_task_counts}"
                 )
 
-        df_baselines = filter_datasets(df=df_baselines, datasets=unique_dataset_folds_set)
-
+        keep = np.ones(len(fold_all), dtype=bool)
         if folds is not None:
-            unique_dataset_folds_set = unique_dataset_folds_set[unique_dataset_folds_set["fold"].isin(folds)]
-            df_configs = filter_datasets(df=df_configs, datasets=unique_dataset_folds_set)
-            df_baselines = filter_datasets(df=df_baselines, datasets=unique_dataset_folds_set)
+            keep = np.isin(fold_all, np.asarray(folds))
+            df_configs = df_configs[keep[:n_configs]].reset_index(drop=True)
+            df_baselines = df_baselines[keep[n_configs:]].reset_index(drop=True)
+        pair_codes_c = pair_codes[:n_configs][keep[:n_configs]]
+        pair_codes_b = pair_codes[n_configs:][keep[n_configs:]]
 
-        df_configs["task"] = df_configs["tid"].astype(str) + "_" + df_configs["fold"].astype(str)
-        df_baselines["task"] = df_baselines["tid"].astype(str) + "_" + df_baselines["fold"].astype(str)
+        # per unique pair: dataset, fold, tid (constant per dataset, see _compute_dataset_tid) and task name
+        pair_first_row = np.empty(len(pair_keys), dtype=np.int64)
+        pair_first_row[pair_codes[::-1]] = np.arange(len(pair_codes))[::-1]  # reversed, so the first row wins
+        pair_dataset = dataset_uniques[pair_keys // fold_span]
+        pair_fold = pair_keys % fold_span
+        pair_tid = tid_all[pair_first_row]
+        pair_task = (pd.Series(pair_tid).astype(str) + "_" + pd.Series(pair_fold).astype(str)).to_numpy()
+        df_configs["task"] = pair_task[pair_codes_c]
+        df_baselines["task"] = pair_task[pair_codes_b]
 
-        unique_tasks = sorted(df_configs["task"].unique())
-        unique_datasets = sorted(df_configs["dataset"].unique())
-
-        unique_tasks += sorted(df_baselines["task"].unique())
-        unique_datasets += sorted(df_baselines["dataset"].unique())
-
-        unique_tasks = sorted(set(unique_tasks))
-        unique_datasets = sorted(set(unique_datasets))
+        present = np.zeros(len(pair_keys), dtype=bool)
+        present[pair_codes_c] = True
+        present[pair_codes_b] = True
+        pairs_present = np.flatnonzero(present)
+        unique_tasks = sorted(set(pair_task[pairs_present].tolist()))
+        unique_datasets = sorted(set(pair_dataset[pairs_present].tolist()))
 
         unique_folds = cls._compute_folds_from_data(df_configs=df_configs, df_baselines=df_baselines)
 
@@ -273,15 +291,20 @@ class ZeroshotSimulatorContext:
         else:
             df_configs_ranked["rank"] = None
 
-        task_to_dataset_dict = get_task_to_dataset_dict(df=df_configs)
-        dataset_to_tid_dict = get_dataset_to_tid_dict(df=df_configs)
-        task_to_dataset_dict_baselines = get_task_to_dataset_dict(df=df_baselines)
-        dataset_to_tid_dict_baselines = get_dataset_to_tid_dict(df=df_baselines)
-        task_to_dataset_dict.update(task_to_dataset_dict_baselines)
-        dataset_to_tid_dict.update(dataset_to_tid_dict_baselines)
+        task_to_dataset_dict = {pair_task[i]: pair_dataset[i] for i in pairs_present}
+        dataset_to_tid_dict = {}
+        for i in pairs_present:
+            dataset_to_tid_dict.setdefault(
+                pair_dataset[i], pair_tid[i].item() if hasattr(pair_tid[i], "item") else pair_tid[i]
+            )
         assert len(unique_datasets) == len(dataset_to_tid_dict.keys())
 
-        df_metrics = get_dataset_to_metric_problem_type(df_configs=df_configs, df_baselines=df_baselines)
+        df_metrics = cls._dataset_metric_problem_type(
+            df_configs=df_configs,
+            df_baselines=df_baselines,
+            dataset_codes=dataset_codes[keep],
+            dataset_uniques=dataset_uniques,
+        )
 
         cls._minimize_df_metadata(df_metadata=df_metadata, unique_datasets=unique_datasets)
 
@@ -297,24 +320,11 @@ class ZeroshotSimulatorContext:
 
         dataset_to_problem_type_dict = df_metrics["problem_type"].to_dict()
 
-        task_to_fold_dict_configs = (
-            df_configs[["task", "fold"]].drop_duplicates().set_index("task").squeeze(axis=1).to_dict()
-        )
-        task_to_fold_dict_baselines = (
-            df_baselines[["task", "fold"]].drop_duplicates().set_index("task").squeeze(axis=1).to_dict()
-        )
-        task_to_fold_dict = copy.copy(task_to_fold_dict_configs)
-        for k, v in task_to_fold_dict_baselines.items():
-            if k not in task_to_fold_dict:
-                task_to_fold_dict[k] = v
-
-        dataset_to_folds_configs = df_configs[["dataset", "fold"]].drop_duplicates()
-        dataset_to_folds_baselines = df_baselines[["dataset", "fold"]].drop_duplicates()
-
-        dataset_to_folds_df = pd.concat(
-            [dataset_to_folds_configs, dataset_to_folds_baselines], ignore_index=True
-        ).drop_duplicates()
-        dataset_to_folds_dict = dataset_to_folds_df.groupby("dataset")["fold"].apply(list).apply(sorted).to_dict()
+        task_to_fold_dict = {pair_task[i]: int(pair_fold[i]) for i in pairs_present}
+        dataset_to_folds_dict: dict[str, list[int]] = {}
+        for i in pairs_present:
+            dataset_to_folds_dict.setdefault(pair_dataset[i], []).append(int(pair_fold[i]))
+        dataset_to_folds_dict = {d: sorted(f) for d, f in dataset_to_folds_dict.items()}
 
         return (
             df_configs,
@@ -333,6 +343,38 @@ class ZeroshotSimulatorContext:
             configs_hyperparameters,
             rank_scorer,
         )
+
+    @staticmethod
+    def _dataset_metric_problem_type(
+        *,
+        df_configs: pd.DataFrame,
+        df_baselines: pd.DataFrame,
+        dataset_codes: np.ndarray,
+        dataset_uniques: np.ndarray,
+    ) -> pd.DataFrame:
+        """``dataset -> (metric, problem_type)`` frame, one row per dataset in first-occurrence
+        order across configs then baselines; raises through
+        :func:`~tabarena.simulation.sim_utils.get_dataset_to_metric_problem_type` when a dataset
+        carries more than one combination.
+        """
+        metric_all = np.concatenate([df_configs["metric"].to_numpy(), df_baselines["metric"].to_numpy()])
+        problem_type_all = np.concatenate(
+            [df_configs["problem_type"].to_numpy(), df_baselines["problem_type"].to_numpy()]
+        )
+        metric_codes, metric_uniques = pd.factorize(metric_all)
+        pt_codes, pt_uniques = pd.factorize(problem_type_all)
+        combo = (dataset_codes.astype(np.int64) * len(metric_uniques) + metric_codes) * len(pt_uniques) + pt_codes
+        combo_codes, combo_uniques = pd.factorize(combo)
+        combo_dataset = combo_uniques // (len(metric_uniques) * len(pt_uniques))
+        if has_duplicate_keys(combo_dataset, n_range=len(dataset_uniques)):
+            return get_dataset_to_metric_problem_type(df_configs=df_configs, df_baselines=df_baselines)
+        return pd.DataFrame(
+            {
+                "dataset": dataset_uniques[combo_dataset],
+                "metric": metric_uniques[(combo_uniques // len(pt_uniques)) % len(metric_uniques)],
+                "problem_type": pt_uniques[combo_uniques % len(pt_uniques)],
+            }
+        ).set_index("dataset")
 
     @staticmethod
     def _validate_df_metadata(df_metadata: pd.DataFrame):
