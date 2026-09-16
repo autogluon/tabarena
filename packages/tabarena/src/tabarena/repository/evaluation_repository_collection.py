@@ -14,7 +14,8 @@ logger = logging.getLogger(__name__)
 
 from tabarena.simulation.dense_utils import prune_zeroshot_gt
 from tabarena.simulation.ground_truth import GroundTruth
-from tabarena.simulation.simulation_context import ZeroshotSimulatorContext
+from tabarena.simulation.simulation_context import PredictOnlyZeroshotSimulatorContext, ZeroshotSimulatorContext
+from tabarena.utils.shipping import is_shipping
 
 from .abstract_repository import AbstractRepository
 from .ensemble_mixin import EnsembleMixin
@@ -142,6 +143,30 @@ class EvaluationRepositoryCollection(AbstractRepository, EnsembleMixin, GroundTr
         self._ground_truth: GroundTruth = merge_ground_truth([repo._ground_truth for repo in self.repos])
         self._mapping = self._compute_repo_mapping()
         super().__init__(zeroshot_context=zeroshot_context, config_fallback=config_fallback)
+
+    def __getstate__(self):
+        """Inside :func:`tabarena.utils.shipping.shipping_context`, ship the sub-repositories as
+        predict-only copies.
+
+        A worker only ever reaches a sub-repository through :meth:`_predict_multi`, which reads its
+        predictions and ``dataset_info``; the sub-repositories' result frames duplicate what the
+        collection's own context already carries. For a 12-method collection they are a quarter of
+        the pickle, most of the ``ray.put`` time and about 60 MB of private memory per worker.
+        Outside the context (disk pickles, deepcopy) the full state is pickled.
+        """
+        state = dict(self.__dict__)
+        if is_shipping():
+            state["repos"] = [self._predict_only_copy(repo) for repo in self.repos]
+        return state
+
+    @staticmethod
+    def _predict_only_copy(repo: EvaluationRepository | EvaluationRepositoryCollection):
+        if isinstance(repo, EvaluationRepositoryCollection):
+            # its own __getstate__ lightens its sub-repositories in turn; its merged context stays
+            return repo
+        light = copy.copy(repo)
+        light._zeroshot_context = PredictOnlyZeroshotSimulatorContext.from_context(repo._zeroshot_context)
+        return light
 
     def _compute_repo_mapping(self) -> _ResultIndex:
         return _ResultIndex.from_repos(repos=self.repos, overlap=self.overlap)

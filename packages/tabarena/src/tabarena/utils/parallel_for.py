@@ -4,6 +4,8 @@ from typing import TYPE_CHECKING, TypeVar
 
 from tqdm import tqdm
 
+from tabarena.utils.shipping import shipping_context
+
 if TYPE_CHECKING:
     from collections.abc import Callable
 
@@ -58,7 +60,8 @@ def parallel_for(
             context = _resolve_ray_context(context_ref[0])
             return f(**x, **context) if isinstance(x, dict) else f(*x, **context)
 
-        remote_context = ray.put(context)
+        with shipping_context():
+            remote_context = ray.put(context)
         remote_results = [remote_f.remote(x, [remote_context]) for x in inputs]
         return [ray.get(res) for res in tqdm(remote_results, desc=desc, disable=not progress_bar, mininterval=1)]
     return None

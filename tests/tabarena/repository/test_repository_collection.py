@@ -261,3 +261,91 @@ def test_result_index_matches_pairs():
     assert collection.get_result_to_repo_idx(dataset="nope", fold=0, config="NeuralNetFastAI_r1") is None
     assert collection.get_result_to_repo_idx(dataset="ada", fold=99, config="NeuralNetFastAI_r1") is None
     assert sorted(collection._mapping.values()) == sorted(expected.values())
+
+
+def _collection_for_shipping():
+    repo = load_repo_artificial()
+    repo_1 = repo.subset(configs=["NeuralNetFastAI_r2"])
+    repo_2 = repo.subset(configs=["NeuralNetFastAI_r1"])
+    return repo, EvaluationRepositoryCollection(repos=[repo_1, repo_2])
+
+
+def test_repository_collection_shipping_pickle_predict_only_subrepos():
+    """Pickled inside `shipping_context`, the sub-repositories arrive as predict-only copies:
+    predictions, dataset info and the collection's own methods are unchanged, the sub-repositories'
+    result frames are gone and say so when read, and the pickle is smaller.
+    """
+    import pickle
+
+    from tabarena.simulation.simulation_context import PredictOnlyZeroshotSimulatorContext
+    from tabarena.utils.shipping import is_shipping, shipping_context
+
+    repo, collection = _collection_for_shipping()
+    full_bytes = pickle.dumps(collection, protocol=5)
+    assert not is_shipping()
+    with shipping_context():
+        assert is_shipping()
+        light_bytes = pickle.dumps(collection, protocol=5)
+    assert not is_shipping()
+    assert len(light_bytes) < len(full_bytes)
+
+    shipped = pickle.loads(light_bytes)
+    assert type(shipped._zeroshot_context) is type(collection._zeroshot_context)  # the collection keeps its context
+    for sub, orig in zip(shipped.repos, collection.repos, strict=True):
+        assert isinstance(sub._zeroshot_context, PredictOnlyZeroshotSimulatorContext)
+        assert sub.dataset_info(dataset="abalone") == orig.dataset_info(dataset="abalone")
+        for name in ("df_configs", "df_baselines", "df_configs_ranked", "rank_scorer"):
+            with pytest.raises(RuntimeError, match="predict-only"):
+                getattr(sub._zeroshot_context, name)
+        with pytest.raises(RuntimeError, match="predict-only"):
+            sub.metrics()
+    # the shipped collection behaves like the original on everything a worker does
+    assert shipped.metrics().equals(collection.metrics())
+    configs = repo.configs()
+    for dataset in repo.datasets():
+        for fold in repo.folds:
+            for func in ("predict_test_multi", "predict_val_multi"):
+                a = getattr(repo, func)(dataset=dataset, fold=fold, configs=configs)
+                b = getattr(shipped, func)(dataset=dataset, fold=fold, configs=configs)
+                assert np.array_equal(a, b)
+    ens_a = collection.evaluate_ensemble(dataset="abalone", fold=0, configs=configs, ensemble_size=5)
+    ens_b = shipped.evaluate_ensemble(dataset="abalone", fold=0, configs=configs, ensemble_size=5)
+    assert ens_a[0].equals(ens_b[0])
+    assert ens_a[1].equals(ens_b[1])
+    # the original was not modified by being pickled
+    for orig in collection.repos:
+        assert not isinstance(orig._zeroshot_context, PredictOnlyZeroshotSimulatorContext)
+        orig.metrics()
+
+
+def test_repository_collection_pickle_round_trip_outside_shipping():
+    """A plain pickle keeps the sub-repositories complete."""
+    import pickle
+
+    _, collection = _collection_for_shipping()
+    restored = pickle.loads(pickle.dumps(collection, protocol=5))
+    for sub, orig in zip(restored.repos, collection.repos, strict=True):
+        assert type(sub._zeroshot_context) is type(orig._zeroshot_context)
+        assert sub.metrics().equals(orig.metrics())
+        assert sub._zeroshot_context.df_configs.equals(orig._zeroshot_context.df_configs)
+
+
+def test_repository_collection_shipping_nested_collection():
+    """A collection inside a collection keeps its merged context; its own sub-repositories are lightened."""
+    import pickle
+
+    from tabarena.simulation.simulation_context import PredictOnlyZeroshotSimulatorContext
+    from tabarena.utils.shipping import shipping_context
+
+    repo, inner = _collection_for_shipping()
+    outer = EvaluationRepositoryCollection(repos=[inner])
+    with shipping_context():
+        shipped = pickle.loads(pickle.dumps(outer, protocol=5))
+    inner_shipped = shipped.repos[0]
+    assert isinstance(inner_shipped, EvaluationRepositoryCollection)
+    assert not isinstance(inner_shipped._zeroshot_context, PredictOnlyZeroshotSimulatorContext)
+    assert all(isinstance(r._zeroshot_context, PredictOnlyZeroshotSimulatorContext) for r in inner_shipped.repos)
+    configs = repo.configs()
+    a = repo.predict_val_multi(dataset="ada", fold=1, configs=configs)
+    b = shipped.predict_val_multi(dataset="ada", fold=1, configs=configs)
+    assert np.array_equal(a, b)
