@@ -63,25 +63,37 @@ def test_from_dir_uses_context_metadata_list(tmp_path, monkeypatch):
     assert sorted(loaded.configs()) == sorted(repo.configs())
 
 
-def test_memmap_pickle_state_derives_model_indices(tmp_path):
+def test_memmap_pickle_ships_task_table_not_per_task_dicts(tmp_path):
     import pickle
+
+    import numpy as np
+
+    from tabarena.predictions.tabular_predictions import _TaskTable
 
     repo = load_repo_artificial()
     repo.to_dir(tmp_path)
     preds = EvaluationRepository.from_dir(tmp_path, verbose=False)._tabular_predictions
     dataset, fold = repo.tasks()[0]
-    task_metadata = preds.metadata_dict[dataset][fold]
-    assert task_metadata["models_all"] == repo.configs() and "model_indices" in task_metadata
-    state = preds.__getstate__()
-    assert "model_indices" not in state["metadata_dict"][dataset][fold]
-    # identical model lists are shared across tasks, so they pickle once
-    other_dataset, other_fold = repo.tasks()[-1]
-    assert preds.metadata_dict[other_dataset][other_fold]["models_all"] is task_metadata["models_all"]
-
     all_models = repo.configs()
+
+    # the legacy view is still available and complete
+    task_metadata = preds.metadata_dict[dataset][fold]
+    assert task_metadata["models_all"] == all_models
+    assert task_metadata["model_indices"] == {m: i for i, m in enumerate(all_models)}
+    assert task_metadata["models"] == all_models
+
+    # the pickled state holds the table (arrays + the distinct model lists), no per-task dict
+    state = preds.__getstate__()
+    assert "metadata_dict" not in state
+    assert isinstance(state["_table"], _TaskTable)
+    table_state = state["_table"].__getstate__()
+    assert "_index" not in table_state
+    assert len(table_state["model_lists"]) == 1  # one distinct model list shared by every task
+    assert table_state["available"].dtype == bool
+
     before = preds.predict_val(dataset, fold, all_models)
     restored = pickle.loads(pickle.dumps(preds))
-    assert restored.metadata_dict[dataset][fold]["model_indices"] == {m: i for i, m in enumerate(all_models)}
+    assert restored.metadata_dict == preds.metadata_dict
     assert (restored.predict_val(dataset, fold, all_models) == before).all()
 
     # restriction keeps the original row indices through a pickle round trip
@@ -89,3 +101,59 @@ def test_memmap_pickle_state_derives_model_indices(tmp_path):
     restricted = pickle.loads(pickle.dumps(preds))
     assert restricted.metadata_dict[dataset][fold]["models"] == [all_models[-1]]
     assert (restricted.predict_val(dataset, fold, [all_models[-1]]) == before[-1:]).all()
+    assert restricted.models == [all_models[-1]]
+    assert np.array_equal(restricted._table.available.sum(axis=1), np.ones(len(restricted._table), dtype=int))
+
+
+def test_memmap_restricts_match_in_memory(tmp_path):
+    """Dataset, fold and model restrictions on the memmap store give the same availability,
+    ordering and predictions as the in-memory store.
+    """
+    from tabarena.predictions.tabular_predictions import TabularPredictionsInMemory, TabularPredictionsMemmap
+
+    repo = load_repo_artificial()
+    pred_dict = repo._tabular_predictions.to_dict()
+    memmap = TabularPredictionsMemmap.from_dict(pred_dict, output_dir=str(tmp_path / "mm"))
+    memory = TabularPredictionsInMemory.from_dict(pred_dict)
+    models = repo.configs()
+    for store in (memmap, memory):
+        store.restrict_folds([2, 0])
+        store.restrict_models(models[::-1][:1])
+        store.restrict_datasets(["abalone"])
+    assert memmap.model_available_dict() == memory.model_available_dict()
+    assert memmap.datasets == memory.datasets
+    assert sorted(memmap.folds) == sorted(memory.folds)
+    assert sorted(memmap.dataset_fold_lst()) == sorted(memory.dataset_fold_lst())  # memmap rows follow rglob order
+    assert memmap.models == memory.models
+    for dataset, fold in memmap.dataset_fold_lst():
+        for split in ("predict_val", "predict_test"):
+            a = getattr(memmap, split)(dataset, fold, memmap.models)
+            b = getattr(memory, split)(dataset, fold, memory.models)
+            assert (a == b).all()
+    # a dataset restriction to nothing leaves an empty store rather than failing
+    memmap.restrict_datasets(["not_there"])
+    assert memmap.dataset_fold_lst() == []
+
+
+def test_memmap_unpickles_legacy_per_task_dict_state(tmp_path):
+    """Objects pickled with one metadata dict per task load into the task table."""
+    import pickle
+
+    from tabarena.predictions.tabular_predictions import TabularPredictionsMemmap
+
+    repo = load_repo_artificial()
+    repo.to_dir(tmp_path)
+    preds = EvaluationRepository.from_dir(tmp_path, verbose=False)._tabular_predictions
+    all_models = repo.configs()
+    legacy_dict = preds.metadata_dict
+    for fold_dict in legacy_dict.values():
+        for task in fold_dict.values():
+            task.pop("model_indices")
+            task["models"] = all_models[:1]  # a restriction recorded the old way
+    legacy = TabularPredictionsMemmap.__new__(TabularPredictionsMemmap)
+    legacy.__setstate__({"data_dir": preds.data_dir, "metadata_dict": legacy_dict})
+    dataset, fold = repo.tasks()[0]
+    assert legacy.metadata_dict[dataset][fold]["models"] == all_models[:1]
+    assert legacy.metadata_dict[dataset][fold]["models_all"] == all_models
+    assert (legacy.predict_val(dataset, fold, all_models[:1]) == preds.predict_val(dataset, fold, all_models[:1])).all()
+    assert pickle.loads(pickle.dumps(legacy)).models == all_models[:1]
