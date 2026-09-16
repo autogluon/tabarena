@@ -277,8 +277,19 @@ class EvaluationRepositoryCollection(AbstractRepository, EnsembleMixin, GroundTr
     def _generate_dataset_fold_config_combinations(
         repos: list[EvaluationRepository],
     ) -> list[list[tuple[str, int, str]]]:
-        """Returns the combinations (dataset, fold, config) for each repository."""
-        return [repo.dataset_fold_config_pairs() for repo in repos]
+        """Returns the combinations (dataset, fold, config) for each repository.
+
+        Built by zipping the three key columns rather than materializing the metrics frame's
+        MultiIndex as tuples (``MultiIndex.tolist`` cost about 1.2 s for the 790k results of a
+        12-method collection; zipping the columns takes a fraction of that for the same tuples).
+        """
+        combinations = []
+        for repo in repos:
+            df = repo.metrics(set_index=False)
+            combinations.append(
+                list(zip(df["dataset"].tolist(), df["fold"].tolist(), df["framework"].tolist(), strict=True))
+            )
+        return combinations
 
     @staticmethod
     def _combination_mapping_to_repo_index(
@@ -312,6 +323,32 @@ class EvaluationRepositoryCollection(AbstractRepository, EnsembleMixin, GroundTr
         return mapping
 
 
+def _concat_results_drop_duplicates(frames: list[pd.DataFrame]) -> pd.DataFrame:
+    """``pd.concat(frames, ignore_index=True).drop_duplicates(ignore_index=True)`` without hashing
+    every column of every row.
+
+    A result row is identified by ``(framework, dataset, fold)``; two rows can only be exact
+    duplicates if they share that key. The key is factorized (three integer passes instead of a
+    hash of 17 mixed-type columns over the 790k rows of a 12-method collection); when no key
+    repeats there is nothing to drop, otherwise ``drop_duplicates`` runs on the repeated-key rows
+    only and the frame is reassembled in the original order, so the result is identical.
+    """
+    df = pd.concat(frames, ignore_index=True)
+    if not {"framework", "dataset", "fold"}.issubset(df.columns):
+        return df.drop_duplicates(ignore_index=True)
+    framework_codes, framework_uniques = pd.factorize(df["framework"].to_numpy())
+    dataset_codes, dataset_uniques = pd.factorize(df["dataset"].to_numpy())
+    fold = df["fold"].to_numpy()
+    fold_codes, fold_uniques = pd.factorize(fold)
+    key = (framework_codes.astype(np.int64) * len(dataset_uniques) + dataset_codes) * len(fold_uniques) + fold_codes
+    repeated = pd.Series(key).duplicated(keep=False).to_numpy()
+    if not repeated.any():
+        return df
+    kept = df[~repeated]
+    deduped = df[repeated].drop_duplicates()
+    return pd.concat([kept, deduped]).sort_index(kind="stable").reset_index(drop=True)
+
+
 def merge_zeroshot(
     zeroshot_contexts: list[ZeroshotSimulatorContext], require_matching_flags: bool = False
 ) -> ZeroshotSimulatorContext:
@@ -320,16 +357,14 @@ def merge_zeroshot(
     df_baselines_lst = [z.df_baselines for z in zeroshot_contexts]
     df_baselines_lst = [df_baselines for df_baselines in df_baselines_lst if len(df_baselines) > 0]
     if df_baselines_lst:
-        df_baselines = pd.concat(df_baselines_lst, ignore_index=True)
-        df_baselines = df_baselines.drop_duplicates(ignore_index=True)
+        df_baselines = _concat_results_drop_duplicates(df_baselines_lst)
     else:
         df_baselines = None
 
     df_configs_lst = [z.df_configs for z in zeroshot_contexts]
     df_configs_lst = [df_configs for df_configs in df_configs_lst if len(df_configs) > 0]
     if df_configs_lst:
-        df_configs = pd.concat(df_configs_lst, ignore_index=True)
-        df_configs = df_configs.drop_duplicates(ignore_index=True)
+        df_configs = _concat_results_drop_duplicates(df_configs_lst)
     else:
         df_configs = None
 

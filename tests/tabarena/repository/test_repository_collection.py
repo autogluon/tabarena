@@ -226,3 +226,28 @@ def test_same_labels():
     b = np.array([0, 1, 1], dtype=np.int8)
     assert _same_labels(b, b.copy())
     assert not _same_labels(b, b.astype(np.int64))
+
+
+def test_concat_results_drop_duplicates_matches_pandas():
+    import pandas as pd
+
+    from tabarena.repository.evaluation_repository_collection import _concat_results_drop_duplicates
+
+    repo = load_repo_artificial()
+    a = repo.subset(configs=["NeuralNetFastAI_r1"])._zeroshot_context.df_configs
+    b = repo.subset(configs=["NeuralNetFastAI_r2"])._zeroshot_context.df_configs
+    exact_dup = a.iloc[:2]
+    conflict = a.iloc[2:3].copy()
+    conflict["metric_error"] += 1.0  # same (framework, dataset, fold), different value: both rows stay
+    for frames in ([a, b], [a, b, exact_dup], [a, exact_dup, b, conflict]):
+        expected = pd.concat(frames, ignore_index=True).drop_duplicates(ignore_index=True)
+        got = _concat_results_drop_duplicates(frames)
+        assert got.equals(expected) and got.index.equals(expected.index)
+
+
+def test_dataset_fold_config_combinations_match_pairs():
+    repo = load_repo_artificial()
+    repos = [repo.subset(configs=["NeuralNetFastAI_r1"]), repo.subset(datasets=["ada"])]
+    assert EvaluationRepositoryCollection._generate_dataset_fold_config_combinations(repos) == [
+        r.dataset_fold_config_pairs() for r in repos
+    ]
