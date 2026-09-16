@@ -59,6 +59,7 @@ dependencies = [
   "huggingface-hub",
   "numpy",
   "pandas",
+  "tabulate",
   "loguru",
 ]
 
