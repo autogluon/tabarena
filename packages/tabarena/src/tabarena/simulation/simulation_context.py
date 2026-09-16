@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import os
 import threading
 from collections import defaultdict
 from pathlib import Path
@@ -671,19 +672,20 @@ class ZeroshotSimulatorContext:
         """
         from tabarena.simulation.task_data import TASKS_FILENAME
 
+        # String splits rather than one Path per entry: a context lists one entry per task file
+        # (tens of thousands) and pathlib costs about 13 us each.
         entries: dict[Path, list[int] | None] = {}
-        seen: dict[Path, set[int]] = {}
+        seen: dict[str, set[int]] = {}
         for p in paths:
-            p = Path(p)
-            if p.name == TASKS_FILENAME:
-                entries.setdefault(p.parent, None)
+            p = str(p).rstrip(os.sep)
+            head, _, name = p.rpartition(os.sep)
+            if name == TASKS_FILENAME:
+                entries.setdefault(Path(head), None)
                 continue
-            dataset_dir, fold = p.parent.parent, int(p.parent.name)
-            folds = seen.setdefault(dataset_dir, set())
-            if fold not in folds:
-                folds.add(fold)
+            dataset_dir, _, fold = head.rpartition(os.sep)
+            seen.setdefault(dataset_dir, set()).add(int(fold))
         for dataset_dir, folds in seen.items():
-            entries[dataset_dir] = sorted(folds)
+            entries[Path(dataset_dir)] = sorted(folds)
         return entries
 
     def load_task_data(self, paths: list[str], n_threads: int | None = None) -> dict[tuple[str, int], TaskData]:

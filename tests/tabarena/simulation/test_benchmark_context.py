@@ -55,3 +55,28 @@ def test_default_load_fails_early_on_missing_task_file(tmp_path):
     (tmp_path / "model_predictions" / dataset / "tasks.dat").unlink()
     with pytest.raises(FileNotFoundError):
         EvaluationRepository.from_dir(tmp_path, verbose=False)
+
+
+@pytest.mark.parametrize("root", ["/abs/root", "rel/root", "/abs/root/", ".", "", "/"])
+def test_benchmark_paths_join_matches_pathlib(root):
+    from pathlib import Path
+
+    from tabarena.simulation.benchmark_context import BenchmarkPaths
+
+    paths = [
+        "model_predictions/ds/0/pred-val.dat",
+        "configs.parquet",
+        "/absolute/elsewhere.parquet",
+        "./dotted/file",
+        "a//double/slash",
+        "trailing/slash/",
+        "with/./dot/inside",
+        "up/../and/down",
+        "",
+    ]
+    bp = BenchmarkPaths(configs="configs.parquet", zs_pp=paths, relative_path=root)
+    expected = [str(Path(root) / p) for p in paths]
+    assert bp.zs_pp_full == expected
+    assert bp.configs_full == str(Path(root) / "configs.parquet")
+    bp.relative_path = None
+    assert bp.zs_pp_full is paths
