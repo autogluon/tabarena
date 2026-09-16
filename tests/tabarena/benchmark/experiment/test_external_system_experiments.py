@@ -277,7 +277,6 @@ class TestDemoSystemFit:
         X, rng = self._features()
         y = pd.Series(rng.integers(0, 2, size=len(X)))
         model = self._model("binary")
-        model._can_use_data_in_place = True  # as set by ``fit_custom`` when the task lazy-loads
-        model.fit(X, y)
+        model.fit(X, y, data_owned=True)  # as ``fit_custom`` passes for a frame it owns
         # No copy made: the system edited the caller's frame directly (saves RAM on large data).
         assert "t" in X.columns

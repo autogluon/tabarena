@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import copy
-import gc
+import os
 import shutil
 from dataclasses import replace
 from typing import TYPE_CHECKING, Any, ClassVar, Literal
@@ -10,15 +10,24 @@ import numpy as np
 import pandas as pd
 from autogluon.core.data.label_cleaner import LabelCleanerMulticlassToBinary
 from autogluon.core.models import AbstractModel
+from autogluon.core.utils import get_pred_from_proba
 from loguru import logger
 
 from tabarena.benchmark.exec_models.autogluon_utils import (
     get_num_group_instances,
     resolve_holdout_split,
+    resolve_model_cls,
     resolve_validation_splits,
 )
 from tabarena.benchmark.exec_models.base import AbstractExecModel
-from tabarena.benchmark.exec_models.utils import _apply_inv_perm
+from tabarena.benchmark.exec_models.persist_inference import (
+    InferencePersistence,
+    dispatch_prepare_for_inference,
+    free_inference_memory,
+    persist_for_inference,
+    release_after_inference,
+)
+from tabarena.benchmark.exec_models.utils import _apply_inv_perm, _make_perm
 from tabarena.benchmark.preprocessing.pipeline import build_feature_generator, resolve_preprocessing_pipeline
 from tabarena.benchmark.validation_protocol import (
     ValidationProtocol,
@@ -33,6 +42,10 @@ if TYPE_CHECKING:
     from autogluon.tabular import TabularPredictor
 
     from tabarena.models.warmup import WarmupReport
+
+#: Environment variable that, when set together with ``init_kwargs["default_base_path"]``, replaces the
+#: configured AutoGluon artifact root at fit time (a SLURM job points it at node-local scratch).
+MODEL_ARTIFACTS_BASE_PATH_ENV = "TABARENA_MODEL_ARTIFACTS_BASE_PATH"
 
 
 class AGWrapper(AbstractExecModel):
@@ -63,12 +76,16 @@ class AGWrapper(AbstractExecModel):
         passed here: a single-model wrapper takes them from ``validation_protocol``; a full
         predictor may name ``num_bag_folds`` / ``num_bag_sets`` explicitly (fit as given).
     persist:
-        If True (default), persist the fitted model in memory around inference (untimed, via
-        ``pre_predict``/``post_predict``), so the measured inference time is that of a served,
-        in-memory model rather than including its load from disk. Memory-guarded by AutoGluon's
-        ``max_memory``: when the model (incl. a bag's children) doesn't fit, nothing is
-        persisted and inference falls back to on-demand disk loads — which persisted models
-        were in memory is recorded in the fit metadata (``persisted_models``).
+        If True (default), persist the fitted model in memory before inference (untimed, in
+        ``pre_predict`` through ``persist_for_inference``), so the measured inference time is that of
+        a served, in-memory model rather than including its load from disk. Memory-guarded by
+        AutoGluon's ``max_memory`` (``persist_max_memory``): when the model (incl. a bag's children)
+        doesn't fit, nothing is persisted and inference falls back to on-demand disk loads. The
+        served models stay resident through metadata and bag-artifact collection and are released
+        in ``cleanup`` (so ``ExperimentRunner(cleanup=False)`` keeps them resident until the exec model
+        is garbage collected). The fit metadata records which models were in memory
+        (``persisted_models``) and which persisted objects ran their ``prepare_for_inference`` hook
+        (``prepared_for_inference``).
     validation_metadata:
         Task-derived ``ValidationMetadata`` (or a kwargs dict for one) describing the
         validation-split structure. Inherited from ``AbstractExecModel`` (the runner injects it
@@ -87,6 +104,15 @@ class AGWrapper(AbstractExecModel):
     AutoGluon decides whether the models fit by pickling each one to measure its size, which for
     a large model can cost more than the loading the check guards against. Subclasses whose
     memory use is bounded by construction can set this to ``None``.
+    """
+
+    release_shared_weights_on_cleanup: bool = False
+    """Whether ``cleanup`` also drops the process-wide shared-weights registry (``tabarena.models._weights``).
+
+    The registry is process-scoped. A SLURM job runs one item per process, so nothing needs releasing
+    there, and an in-process sweep releases it between items only when the model class changes (see
+    ``experiment_runner_api``), so consecutive items of one model keep hitting the primed entries. Set
+    True to free the weights (GPU memory included) after every item.
     """
 
     # Default AutoGluon can return a validation score
@@ -129,6 +155,7 @@ class AGWrapper(AbstractExecModel):
         self.persist = persist
         self._persisted_models: list[str] | None = None
         self._validation_resolution: ValidationResolution | None = None
+        self._prepared_models: list[str] | None = None
 
     # --- Warm-up (untimed) --------------------------------------------------------------
     @property
@@ -144,6 +171,11 @@ class AGWrapper(AbstractExecModel):
     def _warmup_cuda(self) -> bool | None:
         num_gpus = self.fit_kwargs.get("num_gpus")
         return None if num_gpus is None else num_gpus > 0
+
+    @property
+    def num_cpus_budget(self) -> int | None:
+        """The ``num_cpus`` in ``fit_kwargs`` (``None`` when the fit is left to auto-detect it)."""
+        return self.fit_kwargs.get("num_cpus")
 
     def _warmup(self) -> WarmupReport:
         from tabarena.benchmark.exec_models.autogluon_utils import configured_model_classes
@@ -269,6 +301,7 @@ class AGWrapper(AbstractExecModel):
         y: pd.Series,
         X_val: pd.DataFrame | None,
         y_val: pd.Series | None,
+        data_owned: bool = False,
     ) -> tuple[pd.DataFrame, dict, dict]:
         """Build the ``(train_data, init_kwargs, fit_kwargs)`` for ``TabularPredictor.fit``.
 
@@ -286,6 +319,12 @@ class AGWrapper(AbstractExecModel):
         4. Assemble ``train_data`` by appending the label column; attach tuning/validation
            data when provided.
 
+        When both ``init_kwargs["default_base_path"]`` and the environment variable
+        ``TABARENA_MODEL_ARTIFACTS_BASE_PATH`` are set, the artifact root of this fit is the
+        environment value (a SLURM job points it at node-local scratch). The override happens on the
+        deep copy, so the configured ``init_kwargs`` (and the ``init_kwargs_extra`` metadata) are
+        untouched.
+
         Returns:
         -------
         (train_data, init_kwargs, fit_kwargs)
@@ -293,6 +332,10 @@ class AGWrapper(AbstractExecModel):
         """
         init_kwargs = copy.deepcopy(self.init_kwargs)
         fit_kwargs = copy.deepcopy(self.fit_kwargs)
+
+        base_path_override = os.environ.get(MODEL_ARTIFACTS_BASE_PATH_ENV)
+        if base_path_override and "default_base_path" in init_kwargs:
+            init_kwargs["default_base_path"] = base_path_override
 
         # Name the internal label column from the validation metadata (a sentinel when unset). The
         # name is purely internal — predictions / artifacts use the task's own label + cleaner.
@@ -305,9 +348,9 @@ class AGWrapper(AbstractExecModel):
         self._apply_feature_generator(fit_kwargs)
 
         # TODO: think about if we can reset the index here without breaking simulation artifacts
-        train_data = self._attach_label(X, y, label=label)
+        train_data = self._attach_label(X, y, label=label, data_owned=data_owned)
         if X_val is not None:
-            fit_kwargs["tuning_data"] = self._attach_label(X_val, y_val, label=label)
+            fit_kwargs["tuning_data"] = self._attach_label(X_val, y_val, label=label, data_owned=data_owned)
 
         return train_data, init_kwargs, fit_kwargs
 
@@ -472,9 +515,9 @@ class AGWrapper(AbstractExecModel):
             f"Using task-specific holdout split as tuning_data: {len(train_idx)} train / "
             f"{len(val_idx)} validation rows.",
         )
-        # Return standalone copies (not ``.iloc`` views): ``_attach_label`` may set the label
-        # column on these in place (``_can_use_data_in_place``), which would otherwise raise a
-        # pandas ``SettingWithCopyWarning`` on a slice. The original index is preserved.
+        # Return standalone copies (not ``.iloc`` views): ``_attach_label`` sets the label column
+        # on an owned frame in place, which would raise a pandas ``SettingWithCopyWarning`` on a
+        # slice. The original index is preserved.
         return (
             X.iloc[train_idx].copy(),
             y.iloc[train_idx].copy(),
@@ -505,12 +548,13 @@ class AGWrapper(AbstractExecModel):
             group_time_on=self.validation_metadata.group_time_on,
         )
 
-    def _attach_label(self, X: pd.DataFrame, y: pd.Series, *, label: str) -> pd.DataFrame:
+    def _attach_label(self, X: pd.DataFrame, y: pd.Series, *, label: str, data_owned: bool) -> pd.DataFrame:
         """Return ``X`` with ``y`` appended as the ``label`` column.
 
-        Copies ``X`` first unless the data is owned by this object (``_can_use_data_in_place``).
+        An owned frame is edited in place (``fit_custom`` hands over frames it copied before the fit
+        timer, or that it loaded itself); a caller's frame is copied first.
         """
-        data = X if self._can_use_data_in_place else X.copy()
+        data = X if data_owned else X.copy()
         data[label] = y
         return data
 
@@ -530,6 +574,7 @@ class AGWrapper(AbstractExecModel):
             y=y,
             X_val=X_val,
             y_val=y_val,
+            data_owned=kwargs.get("data_owned", False),
         )
 
         self.predictor = TabularPredictor(
@@ -569,46 +614,21 @@ class AGWrapper(AbstractExecModel):
     def pre_predict(self):
         """Persist the fitted model(s) in memory and run their untimed inference preparation.
 
-        Runs outside the inference timer, so the measured inference time is that of a served,
-        in-memory model. Persisting is memory-guarded (AutoGluon's ``max_memory``): when the
-        models don't fit, nothing is persisted and inference falls back to on-demand disk loads;
-        either way the outcome is recorded on ``self._persisted_models`` (surfaced in the fit
-        metadata). Each persisted model object — including a bag's loaded children — that
-        declares ``prepare_for_inference()`` gets it called: untimed, model-only inference prep
-        (e.g. moving offloaded weights to the inference device). It must never touch test data.
-
-        Best-effort like warm-up: a failure here is logged and inference proceeds unpersisted
-        (``_persisted_models`` stays ``None``, keeping the fallback auditable).
+        Runs once, outside the inference timer, through
+        :func:`~tabarena.benchmark.exec_models.persist_inference.persist_for_inference`: the best
+        model and its ancestors are persisted (memory-guarded by ``persist_max_memory``; when the
+        models don't fit nothing is persisted and inference loads from disk on demand), a bag's
+        children that are still path strings are loaded, and every persisted object (the bag and its
+        loaded children) that declares ``prepare_for_inference`` runs it under the contract written on
+        ``AbstractExecModel.pre_predict``. A failing hook is isolated per object and leaves the persist
+        outcome recorded. The outcome lands on ``self._persisted_models`` and ``self._prepared_models``
+        for the fit metadata. The served models stay resident until ``cleanup``.
         """
         if not self.persist:
             return
-        try:
-            self._persisted_models = self.predictor.persist(models="best", max_memory=self.persist_max_memory)
-            for model in self._iter_persisted_model_objects():
-                prepare = getattr(model, "prepare_for_inference", None)
-                if prepare is not None:
-                    prepare()
-        except Exception as exc:
-            self._persisted_models = None
-            logger.warning(f"Persisting the model for untimed inference prep failed; predicting from disk. ({exc})")
-
-    def _iter_persisted_model_objects(self):
-        """Yield the persisted in-memory model objects, including a bag's loaded children."""
-        trainer = self.predictor._trainer
-        for name in self._persisted_models or []:
-            model = trainer.models.get(name)
-            if model is None:
-                continue
-            yield model
-            # A bagged ensemble's children are loaded objects after persist (strings otherwise).
-            for child in getattr(model, "models", None) or []:
-                if not isinstance(child, str):
-                    yield child
-
-    def post_predict(self):
-        """Release any persisted model after inference when ``persist`` is enabled."""
-        if self.persist:
-            self.predictor.unpersist()
+        outcome = persist_for_inference(self.predictor, max_memory=self.persist_max_memory)
+        self._persisted_models = outcome.persisted_models
+        self._prepared_models = outcome.prepared_models
 
     def get_oof(self) -> dict:
         """Return the predictor's simulation artifact, narrowed to the best model's val proba."""
@@ -629,16 +649,25 @@ class AGWrapper(AbstractExecModel):
         return metric_error_val
 
     def cleanup(self):
-        """Delete the predictor's on-disk artifacts and free CPU/GPU memory."""
-        shutil.rmtree(self.predictor.path, ignore_errors=True)
-        gc.collect()
-        try:
-            import torch
-        except ImportError:
-            pass
+        """Release the served models, delete the predictor's on-disk artifacts and free CPU/GPU memory.
+
+        The served models are released here rather than in ``post_predict`` because metadata and
+        bag-artifact collection reuse them. Guarded on the predictor existing, so it is safe to call
+        after a failed fit (``ExperimentRunner(cleanup_on_failure=True)``); ``empty_cache`` failures are
+        logged and never mask an exception being propagated. The shared-weights registry is dropped
+        only when ``release_shared_weights_on_cleanup`` is set.
+        """
+        predictor = getattr(self, "predictor", None)
+        if predictor is not None and self.persist:
+            release_after_inference(predictor)
         else:
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
+            free_inference_memory()
+        if predictor is not None:
+            shutil.rmtree(predictor.path, ignore_errors=True)
+        if self.release_shared_weights_on_cleanup:
+            from tabarena.models import _weights
+
+            _weights.release()
 
 
 def _hyperparameters_user_from_info(info: dict) -> dict:
@@ -756,6 +785,15 @@ class AGSingleWrapper(AGWrapper):
     persist_max_memory: float | None = None
 
     bagged_fit: ClassVar[bool | None] = False
+    per_child_test_source: str | None = None
+    """How the per-child test artifact was produced, when a bag artifact was collected.
+
+    ``"timed_children_pass"`` when the timed predict ran the children pass and kept each child's
+    output (see ``AGSingleBagWrapper.pre_predict``), ``"timed_prediction"`` when a single-child bag
+    reused the timed prediction, ``"child_forward_pass"`` when the children predicted again, ``None``
+    before ``bag_artifact`` ran (and always for a non-bagged wrapper). Recorded in the fit metadata so
+    reruns of nondeterministic GPU models can be interpreted without logs.
+    """
 
     def __init__(
         self,
@@ -841,6 +879,41 @@ class AGSingleWrapper(AGWrapper):
                 "validation belongs to a full predictor (AGExperiment) or a system."
             )
 
+    @classmethod
+    def uses_ray(cls, method_kwargs: dict, *, problem_type: str | None = None) -> bool:
+        """Whether this single-model fit can reach Ray (see ``AbstractExecModel.uses_ray``).
+
+        Three predictor-level ``fit_kwargs`` start Ray on their own and answer True right away:
+        ``fit_strategy`` other than ``"sequential"``, ``dynamic_stacking`` and ``auto_stack``
+        (``presets`` and ``num_stack_levels`` are rejected by ``_validate_fit_kwargs`` and need no
+        check). Without a bag (``num_bag_folds`` absent or at most 1) no fold-fitting strategy exists
+        and the answer is False; the task-specific validation protocol can only lower the fold count,
+        never turn a non-bagged fit into a bag. For a bag the answer is the fold fitting strategy
+        AutoGluon would pick (``tabarena.models.warmup.resolve_fold_fitting_strategy`` over the model's
+        default ``ag_args_ensemble`` merged under the user's), and when ``num_gpus`` is not known yet
+        both the CPU and the GPU variant are considered, so an unknown GPU count errs towards True.
+        ``AGSingleBagWrapper`` inherits this.
+        """
+        from tabarena.models.warmup import PARALLEL_FOLD_FITTING_STRATEGIES, resolve_fold_fitting_strategy
+
+        fit_kwargs = method_kwargs.get("fit_kwargs") or {}
+        if fit_kwargs.get("fit_strategy", "sequential") != "sequential":
+            return True
+        if fit_kwargs.get("dynamic_stacking") or fit_kwargs.get("auto_stack"):
+            return True
+        num_bag_folds = fit_kwargs.get("num_bag_folds")
+        if isinstance(num_bag_folds, bool) or not isinstance(num_bag_folds, int | float) or num_bag_folds <= 1:
+            return False
+        model_cls = resolve_model_cls(method_kwargs["model_cls"])
+        hyperparameters = method_kwargs.get("model_hyperparameters") or {}
+        num_gpus = fit_kwargs.get("num_gpus")
+        gpu_cases = [num_gpus] if num_gpus is not None else [0, 1]
+        return any(
+            resolve_fold_fitting_strategy(model_cls, hyperparameters, problem_type=problem_type, num_gpus=gpus)
+            in PARALLEL_FOLD_FITTING_STRATEGIES
+            for gpus in gpu_cases
+        )
+
     def post_fit(self, X: pd.DataFrame, y: pd.Series, X_test: pd.DataFrame):
         """Capture any model fit failures so the runner can record them on a crash."""
         self.failure_artifact = self.get_metadata_failure()
@@ -860,16 +933,7 @@ class AGSingleWrapper(AGWrapper):
     @property
     def model_cls(self) -> type[AbstractModel]:
         """The model class, resolving an AutoGluon registry key string when needed."""
-        if not isinstance(self._model_cls, str):
-            model_cls = self._model_cls
-        else:
-            # TODO: Get it from predictor instead? What if we allow passing custom model registry?
-            from autogluon.tabular.registry import (
-                ag_model_registry,  # If this raises an exception, you need to update to latest mainline AutoGluon
-            )
-
-            model_cls = ag_model_registry.key_to_cls(key=self._model_cls)
-        return model_cls
+        return resolve_model_cls(self._model_cls)
 
     def _load_model(self, assert_single_model: bool = True):
         """Load the fitted model object from the predictor's trainer.
@@ -904,18 +968,31 @@ class AGSingleWrapper(AGWrapper):
         """Metadata available only after fitting (info, disk/compute usage, fit metadata).
 
         ``model`` is the loaded best model and ``info`` its ``get_info()`` output; either is
-        collected here when not given.
+        collected here when not given. Since the served models stay resident until ``cleanup``,
+        ``_load_model`` returns the served object and ``get_info`` sizes the served children.
+
+        Besides the existing keys the block carries the untimed inference-side bookkeeping:
+        ``persist`` / ``persisted_models`` (which models were in memory during the timed predict;
+        ``None`` = disabled, not run or failed, ``[]`` = skipped by the memory guard),
+        ``prepared_for_inference`` (persisted objects whose ``prepare_for_inference`` hook ran),
+        ``shared_weights`` (the process-wide registry ``report()`` and each bagged child's
+        ``info["shared_weights"]`` when present; see ``tabarena.models._weights``) and
+        ``per_child_test_source`` (how the bag artifact's per-child test predictions were produced:
+        ``"timed_children_pass"``, ``"timed_prediction"`` or ``"child_forward_pass"``; ``None``
+        until ``bag_artifact`` ran; the OOF runner refreshes it after the artifact).
         """
         metadata = {}
-        # Persist outcome: which models were in memory during the timed inference
-        # (None = persist disabled or inference not run; [] = skipped by the memory guard).
         metadata["persist"] = self.persist
         metadata["persisted_models"] = self._persisted_models
+        # Names of the persisted objects whose untimed inference prep ran without error.
+        metadata["prepared_for_inference"] = self._prepared_models
         if model is None:
             model = self._load_model(assert_single_model=False)
         if info is None:
             info = model.get_info(include_feature_metadata=False)
         metadata["info"] = info
+        metadata["shared_weights"] = self._shared_weights_metadata(info)
+        metadata["per_child_test_source"] = self.per_child_test_source
         metadata["disk_usage"] = model.disk_usage()
         metadata["num_cpus"] = model.fit_num_cpus
         metadata["num_gpus"] = model.fit_num_gpus
@@ -925,6 +1002,24 @@ class AGSingleWrapper(AGWrapper):
         if hasattr(model, "_memory_usage_estimate"):
             metadata["memory_usage_estimate"] = model._memory_usage_estimate
         return metadata
+
+    @staticmethod
+    def _shared_weights_metadata(info: dict | None) -> dict:
+        """The ``shared_weights`` metadata block: the registry report plus each bagged child's own entry.
+
+        ``children`` maps a bagged child's name to its ``info["shared_weights"]`` (``None`` for a
+        child that shares nothing); for a non-bagged model the block is in ``info`` itself and
+        ``children`` is empty. The registry module is torch-free and imported by name at call time.
+        """
+        from tabarena.models import _weights
+
+        children_info = info.get("children_info") if isinstance(info, dict) else None
+        children = {}
+        if isinstance(children_info, dict):
+            children = {
+                name: child.get("shared_weights") for name, child in children_info.items() if isinstance(child, dict)
+            }
+        return {"registry": _weights.report(), "children": children}
 
     def get_metadata_failure(self) -> dict:
         """Record any per-model fit failures reported by the predictor."""
@@ -979,6 +1074,14 @@ class AGSingleBagWrapper(AGSingleWrapper):
     Identical fitting to ``AGSingleWrapper`` except that the fold and repeat counts come from the
     validation protocol, and it advertises and provides the per-bagged-child out-of-fold validation
     indices and test predictions needed for ensemble simulation.
+
+    The per-child test predictions come out of the timed predict. When the served bag supports it
+    (AutoGluon's ``predict_proba_children`` and ``predict_proba_from_children``), the timed predict
+    runs the children pass: every child predicts once, its array is kept, and the bag's own output is
+    derived from the arrays with the arithmetic ``predict_proba`` uses, so ``bag_artifact`` hands them
+    over instead of predicting again. Otherwise the timed predict takes the predictor's path; a
+    single-child bag's artifact is then its timed output, and every other bag predicts a second time
+    per child.
     """
 
     bagged_fit: ClassVar[bool | None] = True
@@ -987,55 +1090,207 @@ class AGSingleBagWrapper(AGSingleWrapper):
     can_get_per_child_oof = True
     can_get_per_child_val_idx = True
 
-    def bag_artifact(self, X_test: pd.DataFrame) -> dict:
-        """Collect per-child test predictions and validation indices for the bagged model."""
+    _timed_children_bag = None
+    """The served bag ``pre_predict`` cleared for the children pass; ``None`` when the timed predict takes the predictor's path."""
+    _timed_children: list[np.ndarray] | None = None
+    """The per-child arrays the timed predict's children pass kept (child output space, timed row order), until
+    ``bag_artifact`` takes them or ``cleanup`` drops them."""
+
+    def pre_predict(self):
+        """Persist the served bag (``AGWrapper.pre_predict``), then decide the timed predict's path.
+
+        When the served bag supports it, the timed predict runs the children pass
+        (``_predict_children_pass``): ``predict_proba_children`` once, ``predict_proba_from_children``
+        for the bag's own output, the learner's post-processing for the user-facing frame; the per-child
+        arrays it keeps become the bag artifact, so no child predicts a second time. The checks run
+        here, outside the timer. A bag that fails them (an AutoGluon without
+        ``predict_proba_from_children``, a learner without the post-processing hooks, a label cleaner
+        that changes the problem type) keeps the predictor's own ``predict_proba`` / ``predict``, and
+        the artifact predicts per child afterwards.
+        """
+        super().pre_predict()
+        self._timed_children = None
+        self._timed_children_bag = None
+        try:
+            model = self._load_model()
+            reason = self._children_pass_unavailable_reason(model)
+        except Exception as exc:
+            reason = f"the served bag could not be inspected: {exc!r}"
+        if reason is None:
+            self._timed_children_bag = model
+        else:
+            logger.info(
+                f"The timed predict takes the predictor's path; the bag artifact predicts per child ({reason})."
+            )
+
+    def cleanup(self):
+        """Drop the timed predict's per-child arrays, then release the served models (``AGWrapper.cleanup``)."""
+        self._timed_children = None
+        self._timed_children_bag = None
+        super().cleanup()
+
+    def _children_pass_unavailable_reason(self, model) -> str | None:
+        """Why the timed predict cannot run the children pass on ``model``, or ``None`` when it can."""
+        for method in ("predict_proba_children", "predict_proba_from_children"):
+            if not callable(getattr(model, method, None)):
+                return f"the served bag has no {method}, an AutoGluon older than the per-child pass"
+        if self.problem_type not in ("regression", "quantile") and not model.can_predict_proba():
+            return "the served bag cannot predict probabilities"
+        learner = self.predictor._learner
+        for method in ("transform_features", "_post_process_predict_proba", "_post_process_predict"):
+            if not callable(getattr(learner, method, None)):
+                return f"the learner has no {method}"
+        if learner.label_cleaner.problem_type_transform != self.problem_type:
+            return "the learner's label cleaner changes the problem type"
+        return None
+
+    @staticmethod
+    def _children_pass_covers(model, *, n_rows: int) -> bool:
+        """Whether the children pass reproduces ``predict_proba`` on ``n_rows`` rows: no bag-level chunking applies.
+
+        ``predict_proba_children`` does not chunk by the bag's own ``ag.max_batch_size`` (each child
+        chunks by its own), so a bag whose limit is below the row count keeps the predictor's path.
+        """
+        max_batch_size = model._get_max_batch_size()
+        return max_batch_size is None or max_batch_size >= n_rows
+
+    def _predict_proba(self, X: pd.DataFrame) -> pd.DataFrame:
+        """The timed ``predict_proba``: the children pass when ``pre_predict`` cleared it, else the predictor's own."""
+        bag = self._timed_children_bag
+        if bag is None or not self._children_pass_covers(bag, n_rows=len(X)):
+            return super()._predict_proba(X)
+        y_pred_proba, children = self._predict_children_pass(bag, X)
+        y_pred_proba = self.predictor._learner._post_process_predict_proba(
+            y_pred_proba=y_pred_proba, as_pandas=True, index=X.index, as_multiclass=True, inverse_transform=True
+        )
+        self._timed_children = children
+        return y_pred_proba
+
+    def _predict(self, X: pd.DataFrame) -> pd.Series:
+        """The timed ``predict`` (regression): the children pass when ``pre_predict`` cleared it, else the predictor's own."""
+        bag = self._timed_children_bag
+        if bag is None or not self._children_pass_covers(bag, n_rows=len(X)):
+            return super()._predict(X)
+        learner = self.predictor._learner
+        y_pred_proba, children = self._predict_children_pass(bag, X)
+        problem_type = learner.label_cleaner.problem_type_transform or learner.problem_type
+        y_pred = get_pred_from_proba(y_pred_proba=y_pred_proba, problem_type=problem_type)
+        y_pred = learner._post_process_predict(y_pred=y_pred, as_pandas=True, index=X.index, inverse_transform=True)
+        self._timed_children = children
+        return y_pred
+
+    def _predict_children_pass(self, bag, X: pd.DataFrame) -> tuple[np.ndarray, list[np.ndarray]]:
+        """``TabularPredictor.predict_proba``'s work for the served bag, keeping every child's array.
+
+        The learner's feature transform, then ``BaggedEnsembleModel.predict_proba_children`` (one pass
+        over the children, each array kept) and ``predict_proba_from_children`` (their mean and the
+        bag's calibration, the arithmetic ``predict_proba`` uses), so the bag's output is what the
+        predictor's path computes and the per-child arrays cost no second pass. Returns the bag's
+        output in the internal label space and the per-child arrays: each child's ``predict_proba`` on
+        the preprocessed rows, before the bag's calibration, in ``X``'s row order.
+        """
+        X_inner = self.predictor._learner.transform_features(X)
+        children = bag.predict_proba_children(X=X_inner)
+        return bag.predict_proba_from_children(children), children
+
+    def bag_artifact(self, X_test: pd.DataFrame, *, y_pred=None, y_pred_proba=None) -> dict:
+        """Collect per-child test predictions and validation indices for the bagged model.
+
+        The timed outputs (``y_pred`` / ``y_pred_proba`` in the caller's original row order) are
+        forwarded to ``get_per_child_test``, which takes the arrays the timed predict's children pass
+        kept, or reuses the outputs for a single-child bag, instead of predicting again;
+        ``per_child_test_source`` records which path produced the artifact.
+        """
         model = self._load_model()
         bag_info = {}
-        bag_info["pred_proba_test_per_child"] = self.get_per_child_test(X_test=X_test, model=model)
+        bag_info["pred_proba_test_per_child"] = self.get_per_child_test(
+            X_test=X_test, model=model, y_pred=y_pred, y_pred_proba=y_pred_proba
+        )
         bag_info["val_idx_per_child"] = self.get_per_child_val_idx(model=model)
         return bag_info
 
     def get_per_child_val_idx(self, model=None) -> list[np.ndarray]:
-        """Return each child's out-of-fold validation indices (into the internal train data)."""
+        """Return each child's out-of-fold validation indices (into the internal train data).
+
+        A refit bag (``_refit_oof``) carries the indices of the folds it discarded and
+        ``get_oof_fold_val_idx`` returns that stored list without reading ``X`` or ``y``, so the
+        internal training data is loaded only for the other branches (the splitters need it).
+        """
         if model is None:
             model = self._load_model()
-        X, y = self.predictor.load_data_internal()
 
         get_oof_fold_val_idx = getattr(model, "get_oof_fold_val_idx", None)
-        if get_oof_fold_val_idx is not None:
-            val_idx_per_child = get_oof_fold_val_idx(X=X, y=y)
+        if (
+            get_oof_fold_val_idx is not None
+            and getattr(model, "_refit_oof", False)
+            and getattr(model, "_oof_fold_val_idx", None) is not None
+        ):
+            # The refit branch of AutoGluon's get_oof_fold_val_idx returns the stored indices and never
+            # touches X or y, so the internal data stays on disk.
+            val_idx_per_child = get_oof_fold_val_idx(X=None, y=None)
         else:
-            # LEGACY: drop this branch once AutoGluon >= 1.6.2 is the floor, and call
-            # `model.get_oof_fold_val_idx` unconditionally.
-            #
-            # It reproduces that method for older AutoGluon, where a bagged model exposes only
-            # its splitters. Note what it *cannot* reproduce: a `refit_folds` model there reports
-            # a single child covering every row, because the folds that made its OOF were
-            # discarded along with their splitters, so the fold structure is simply unavailable.
-            all_kfolds = []
-            if model._child_oof:
-                all_kfolds = [(None, X.index.values)]
+            X, y = self.predictor.load_data_internal()
+            if get_oof_fold_val_idx is not None:
+                val_idx_per_child = get_oof_fold_val_idx(X=X, y=y)
             else:
-                for n_repeat, k in enumerate(model._k_per_n_repeat):
-                    kfolds = model._cv_splitters[n_repeat].split(X=X, y=y)
-                    all_kfolds += kfolds[n_repeat * k : (n_repeat + 1) * k]
-            val_idx_per_child = [val_idx for _train_idx, val_idx in all_kfolds]
+                # LEGACY: drop this branch once AutoGluon >= 1.6.2 is the floor, and call
+                # `model.get_oof_fold_val_idx` unconditionally.
+                #
+                # It reproduces that method for older AutoGluon, where a bagged model exposes only
+                # its splitters. Note what it *cannot* reproduce: a `refit_folds` model there reports
+                # a single child covering every row, because the folds that made its OOF were
+                # discarded along with their splitters, so the fold structure is simply unavailable.
+                all_kfolds = []
+                if model._child_oof:
+                    all_kfolds = [(None, X.index.values)]
+                else:
+                    for n_repeat, k in enumerate(model._k_per_n_repeat):
+                        kfolds = model._cv_splitters[n_repeat].split(X=X, y=y)
+                        all_kfolds += kfolds[n_repeat * k : (n_repeat + 1) * k]
+                val_idx_per_child = [val_idx for _train_idx, val_idx in all_kfolds]
 
         return [pd.to_numeric(val_idx, downcast="integer") for val_idx in val_idx_per_child]  # memory opt
 
-    # TODO: Can avoid predicting on test twice by doing it all in one go
-    def get_per_child_test(self, X_test: pd.DataFrame, model=None) -> list[np.ndarray]:
+    def get_per_child_test(
+        self,
+        X_test: pd.DataFrame,
+        model=None,
+        *,
+        y_pred=None,
+        y_pred_proba=None,
+    ) -> list[np.ndarray]:
         """Return each child's predictions on ``X_test`` (float32), in the original row order.
 
-        Applies the same deterministic test-row shuffle as inference (see
-        ``_shuffle_test_rows``) and inverts it on the per-child outputs.
+        Three paths, tried in this order; ``per_child_test_source`` records which one produced the
+        artifact. The arrays the timed predict's children pass kept are the artifact
+        (``_take_timed_children``). A single-child bag whose output equals its child's reuses the timed
+        prediction (``_per_child_test_from_timed_output``). Otherwise every child predicts on the served
+        bag: the same deterministic test-row shuffle as inference is applied (see ``_shuffle_test_rows``)
+        and inverted on the per-child outputs. The pass's arrays are taken, and dropped, before the
+        paths are tried, so they never outlive the artifact.
         """
+        if model is None:
+            model = self._load_model()
+
+        timed_children = self._take_timed_children(model=model, n_rows=len(X_test))
+        if timed_children is not None:
+            self.per_child_test_source = "timed_children_pass"
+            logger.info("Per-child test artifact taken from the timed predict's children pass.")
+            return timed_children
+        reused = self._per_child_test_from_timed_output(
+            model=model, n_rows=len(X_test), y_pred=y_pred, y_pred_proba=y_pred_proba
+        )
+        if reused is not None:
+            self.per_child_test_source = "timed_prediction"
+            logger.info("Per-child test artifact reused the timed prediction (single-child bag).")
+            return reused
+        self.per_child_test_source = "child_forward_pass"
+        logger.info("Per-child test artifact computed by a per-child forward pass.")
+
         X_test, inv_perm, original_index = self._shuffle_test_rows(X_test)
 
         X_test = self.transform_X(X=X_test)
 
-        if model is None:
-            model = self._load_model()
         X_test_inner = self.predictor.transform_features(data=X_test, model=model.name)
 
         if model.can_predict_proba():
@@ -1050,6 +1305,108 @@ class AGSingleBagWrapper(AGSingleWrapper):
             ]
 
         return [preds_child.astype(np.float32) for preds_child in per_child_test_preds]  # memory opt
+
+    def _per_child_test_from_timed_output(
+        self,
+        *,
+        model,
+        n_rows: int,
+        y_pred,
+        y_pred_proba,
+    ) -> list[np.ndarray] | None:
+        """The single child's test artifact derived from the timed prediction, or ``None`` to fall back.
+
+        Why the result equals ``predict_proba_children`` / ``predict_children`` on the child: a
+        one-child bag returns ``child_output / 1`` (AutoGluon's
+        ``BaggedEnsembleModel._predict_proba_internal``, float32 stays float32), the trainer applies
+        no further transform to an L1 model, and the learner's ``_post_process_predict_proba`` is
+        inverted exactly by its own ``_pre_process_predict_proba``: multiclass stays float32 end to
+        end (zero columns for unseen classes added, then dropped), binary passes through a float64
+        two-column buffer whose values are the float32 ones (the cast back is lossless), and regression
+        is the child's float32 values (``LabelCleanerDummy`` identities). The timed output is already in
+        the caller's original row order, so no shuffle inversion is needed.
+
+        Reuse happens only when every guard holds, otherwise the forward-pass path runs:
+        ``model.n_children == 1``; no post-hoc ``temperature_scalar`` or ``conformalize``; no
+        bag-level chunking (``_get_max_batch_size()`` is ``None`` or covers all rows); the learner has
+        ``_pre_process_predict_proba`` and its label cleaner's ``problem_type_transform`` equals this
+        wrapper's ``problem_type`` (rules out the multiclass-to-binary cleaner); the timed object is
+        present with ``n_rows`` rows (``y_pred_proba`` for classification, ``y_pred`` for regression).
+        Any exception during the conversion also falls back.
+
+        Returns:
+            ``[array]`` with one float32 array in the child's internal output space, or ``None``.
+        """
+        timed = y_pred if self.problem_type == "regression" else y_pred_proba
+        try:
+            if not self._bag_output_equals_child_output(model, n_rows=n_rows) or timed is None or len(timed) != n_rows:
+                return None
+            if self.problem_type == "regression":
+                arr = timed.to_numpy() if hasattr(timed, "to_numpy") else timed
+            else:
+                arr = self.predictor._learner._pre_process_predict_proba(
+                    timed, as_multiclass=True, inverse_transform=True
+                )
+            arr = np.asarray(arr)
+        except Exception as exc:
+            logger.warning(
+                "Reusing the timed prediction as the per-child test artifact failed; predicting with the child "
+                f"instead. ({exc!r})"
+            )
+            return None
+        return [arr.astype(np.float32)]
+
+    def _take_timed_children(self, *, model, n_rows: int) -> list[np.ndarray] | None:
+        """The per-child test artifact from the timed predict's children pass, or ``None`` to fall back.
+
+        Takes, and drops, the arrays ``_predict_children_pass`` kept: one per child in ``model.models``
+        order, each child's ``predict_proba`` on the preprocessed rows before the bag's calibration, the
+        very arrays ``predict_proba_children`` returns. The timed predict ran on the shuffled test rows,
+        so the inverse of the same deterministic permutation (``shuffle_seed``) is applied, as the
+        forward-pass path does to its own outputs; the arrays are then cast to float32.
+
+        Falls back when the pass did not run, when ``model`` is not the bag it ran on, or when the
+        number of arrays or their row count does not match the bag's children and ``n_rows`` (a predict
+        that ran on other rows).
+        """
+        children, self._timed_children = self._timed_children, None
+        if children is None:
+            return None
+        bag = self._timed_children_bag
+        if bag is None or getattr(model, "name", None) != getattr(bag, "name", None):
+            logger.warning("The timed predict's children pass ran on another bag; predicting per child instead.")
+            return None
+        n_children = getattr(model, "n_children", None)
+        if n_children is None:
+            n_children = len(getattr(model, "models", None) or [])
+        if len(children) != n_children or any(len(arr) != n_rows for arr in children):
+            logger.warning(
+                f"The timed predict's children pass kept {len(children)} arrays with {[len(arr) for arr in children]} "
+                f"rows for a bag of {n_children} children on {n_rows} rows; predicting per child instead."
+            )
+            return None
+        if self.shuffle_test:
+            _perm, inv_perm = _make_perm(n_rows, seed=self.shuffle_seed)
+            children = [_apply_inv_perm(arr, inv_perm) for arr in children]
+        return [np.asarray(arr).astype(np.float32, copy=False) for arr in children]  # memory opt
+
+    def _bag_output_equals_child_output(self, model, *, n_rows: int) -> bool:
+        """Whether the served bag's prediction on ``n_rows`` rows is exactly its single child's output.
+
+        The guards of ``_per_child_test_from_timed_output``: one child, no post-hoc transform, no
+        bag-level chunking, and a learner whose post-processing is invertible for this problem type.
+        """
+        if getattr(model, "n_children", None) != 1:
+            return False
+        if getattr(model, "temperature_scalar", None) is not None or getattr(model, "conformalize", None) is not None:
+            return False
+        max_batch_size = model._get_max_batch_size()
+        if max_batch_size is not None and max_batch_size < n_rows:
+            return False
+        learner = self.predictor._learner
+        if getattr(learner, "_pre_process_predict_proba", None) is None:
+            return False
+        return learner.label_cleaner.problem_type_transform == self.problem_type
 
 
 class AGModelWrapper(AbstractExecModel):
@@ -1097,6 +1454,7 @@ class AGModelWrapper(AbstractExecModel):
         super().__init__(**kwargs)
         assert issubclass(model_cls, AbstractModel)
         self.model_cls = model_cls
+        self._prepared_models: list[str] | None = None
         if hyperparameters is None:
             hyperparameters = {}
         # Passed straight to the model's `fit` (e.g. num_cpus / num_gpus / time_limit). The
@@ -1123,6 +1481,11 @@ class AGModelWrapper(AbstractExecModel):
     def _warmup_cuda(self) -> bool | None:
         num_gpus = self.fit_kwargs.get("num_gpus")
         return None if num_gpus is None else num_gpus > 0
+
+    @property
+    def num_cpus_budget(self) -> int | None:
+        """The ``num_cpus`` in ``fit_kwargs`` (``None`` when the fit is left to auto-detect it)."""
+        return self.fit_kwargs.get("num_cpus")
 
     def _warmup(self) -> WarmupReport:
         from tabarena.models.warmup import warmup_feature_generator_cls, warmup_model_cls
@@ -1172,21 +1535,24 @@ class AGModelWrapper(AbstractExecModel):
         )
         return self
 
+    @classmethod
+    def uses_ray(cls, method_kwargs: dict, *, problem_type: str | None = None) -> bool:
+        """False: a direct ``model_cls.fit`` on the full data has no bag, no trainer and no fold-fitting strategy."""
+        return False
+
     def pre_predict(self):
         """Run the fitted model's untimed inference preparation (``prepare_for_inference``).
 
-        The directly-fitted model already lives in memory, so unlike ``AGWrapper`` there is no
-        persist step — this only dispatches the optional model-level hook, under the same
-        convention (untimed, model-only prep such as device placement; never test data).
-        Best-effort: a failure is logged and inference proceeds unprepared.
+        The directly fitted model already lives in memory, so unlike ``AGWrapper`` there is no persist
+        step; this only dispatches the optional model-level hook under the contract written on
+        ``AbstractExecModel.pre_predict`` (a failure is logged and inference proceeds unprepared).
+        ``get_metadata`` exposes the outcome.
         """
-        prepare = getattr(self.model, "prepare_for_inference", None)
-        if prepare is None:
-            return
-        try:
-            prepare()
-        except Exception as exc:
-            logger.warning(f"prepare_for_inference failed; predicting without inference prep. ({exc})")
+        self._prepared_models = dispatch_prepare_for_inference([self.model])
+
+    def get_metadata(self) -> dict:
+        """The inference-prep outcome (``prepared_for_inference``); there is no persist step on this path."""
+        return InferencePersistence(prepared_models=self._prepared_models).as_metadata(persist=False)
 
     def _predict(self, X: pd.DataFrame) -> pd.Series:
         """Predict labels with the fitted model, preserving ``X``'s index."""

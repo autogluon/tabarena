@@ -44,10 +44,17 @@ class ExternalSystemModel(AbstractExecModel):
     anything else (runtime startup, kernel compilation); it must stay data-independent, should
     start from ``self._declared_warmup()`` and return the ``WarmupReport``. The synthetic dummy fit
     is off for systems (``warmup_dummy_fit = False``): fitting a whole pipeline is too heavy for a
-    warm-up. For inference-side preparation around the timed predict, override ``pre_predict`` /
-    ``post_predict`` (e.g. bringing your fitted system into serving state / releasing it): they may
-    touch the fitted system but never the test data. See ``AbstractExecModel`` for the contracts
-    and ``examples/benchmarking/run_quickstart_tabarena_system.py`` for a runnable example.
+    warm-up. For inference-side preparation around the timed predict, override ``pre_predict`` (bring
+    your fitted system into serving state; it may touch the fitted system but never the test data)
+    and release the served state in ``cleanup``, after the post-evaluate consumers (metadata) ran. A
+    system that predicts through an AutoGluon predictor should use
+    ``tabarena.benchmark.exec_models.persist_inference.persist_for_inference`` in ``pre_predict`` and
+    ``release_after_inference`` in ``cleanup`` (see ``systems/autogluon/system.py``), so its
+    ``persisted_models`` are recorded like a wrapper's. A system predicts from its served, in-memory
+    state; disk loads inside the timer are the system's own choice. ``uses_ray`` keeps the base
+    default (True): override it only when no code path of your system can start Ray. See
+    ``AbstractExecModel`` for the contracts and
+    ``examples/benchmarking/run_quickstart_tabarena_system.py`` for a runnable example.
     """
 
     # An external system gets the raw data and does its own preprocessing, label handling, and
@@ -72,14 +79,19 @@ class ExternalSystemModel(AbstractExecModel):
         self.memory_limit = fit_kwargs.get("memory_limit")
         self.time_limit = fit_kwargs.get("time_limit")
 
+    @property
+    def num_cpus_budget(self) -> int | None:
+        """The system's ``num_cpus`` (``None`` when unconstrained)."""
+        return self.num_cpus
+
     def _fit(self, X: pd.DataFrame, y: pd.Series, **kwargs):
         """Pass the full fit context to ``_fit_system`` (dropping the unused ``X_val`` / ``y_val``).
 
-        ``X`` is handed over as a frame the system may edit in place: the owned frame when the task
-        lazy-loads its data (no extra copy, no extra RAM), otherwise a defensive copy so the caller's
+        ``X`` is handed over as a frame the system may edit in place: the frame itself when the call
+        owns it (``data_owned``, as ``fit_custom`` passes), otherwise a defensive copy so the caller's
         training frame is never modified.
         """
-        X = X if self._can_use_data_in_place else X.copy()
+        X = X if kwargs.get("data_owned", False) else X.copy()
         random_state = self._split_seed if isinstance(self._split_seed, int) else None
         return self._fit_system(
             X,
