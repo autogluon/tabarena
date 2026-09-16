@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from tabarena.models._method_metadata import ModelDescriptor
 from tabarena.models._model_info import ModelInfo
-from tabarena.models.tabdpt.hpo import gen_tabdpt, gen_tabdpt_turbo
-from tabarena.models.tabdpt.model import TabDPTModel, TabDPTTurboModel
+from tabarena.models.tabdpt.hpo import gen_tabdpt, gen_tabdpt_turbo, gen_tabdpt_v13
+from tabarena.models.tabdpt.model import TabDPTModel, TabDPTTurboModel, TabDPTv13Model
 
 tabdpt_descriptor = ModelDescriptor(
     display_name="TabDPT",
@@ -19,6 +19,14 @@ tabdpt_turbo_descriptor = ModelDescriptor(
     is_bag=False,
     reference_url="https://openreview.net/pdf?id=Y00pwFyrHR",
     date_introduced="2026-06-05",  # tabdpt1_2.safetensors upload to Layer6/TabDPT
+)
+
+tabdpt_v13_descriptor = ModelDescriptor(
+    display_name="TabDPT-1.3",
+    compute="gpu",
+    is_bag=False,
+    reference_url="https://github.com/layer6ai-labs/TabDPT-inference/releases/tag/v1.3.0",
+    date_introduced="2026-09-08",  # tabdpt 1.3.0 on PyPI and tabdpt1_3.safetensors upload to Layer6/TabDPT
 )
 
 tabdpt_method_metadata = tabdpt_descriptor.method_metadata(
@@ -46,11 +54,22 @@ tabdpt_turbo_method_metadata = tabdpt_turbo_descriptor.method_metadata(
     cache_kwargs={"bucket": "tabarena", "prefix": "cache"},
 )
 
+# Not benchmarked yet: no suite and no hosted artifacts until a run exists (the upload step fills
+# them in and confirms the config name).
+tabdpt_v13_method_metadata = tabdpt_v13_descriptor.method_metadata(
+    method="TabDPT-1.3",
+    ag_key="TA-TABDPT-1.3",
+    model_key="TABDPT-1.3",
+    can_hpo=False,
+    date="2026-09-16",
+    verified=False,
+)
+
 
 # Pinned below 1.2: this entry runs the `tabdpt1_1` checkpoint, whose architecture config
 # (8 keys, no `enc_cell_dim`) the 1.2 loader cannot read — `TabDPTModel.load` reads v1.2-only keys
-# with no legacy branch. TabDPT-Turbo below is the current default and needs >=1.2.0, so the two
-# cannot be installed together, which is what `superseded` records.
+# with no legacy branch. Every later entry needs a newer `tabdpt`, so this one cannot be installed
+# together with them, which is what `superseded` records.
 tabdpt_info = ModelInfo(
     model_cls=TabDPTModel,
     search_space=gen_tabdpt,
@@ -61,10 +80,23 @@ tabdpt_info = ModelInfo(
 )
 
 
+# Pinned below 1.3: the 1.3 release renamed the network's label encoders, so the 1.3 loader cannot
+# read `tabdpt1_2.safetensors` (nor the 1.2 loader `tabdpt1_3.safetensors`). TabDPT-1.3 below is
+# the installable entry and needs >=1.3.0.
 tabdpt_turbo_info = ModelInfo(
     model_cls=TabDPTTurboModel,
     search_space=gen_tabdpt_turbo,
     method_metadata=tabdpt_turbo_method_metadata,
-    pip_extra=("tabdpt>=1.2.0",),
+    pip_extra=("tabdpt>=1.2.0,<1.3",),
     prefetch_weights=TabDPTTurboModel.prefetch_weights,
+    superseded=True,
+)
+
+
+tabdpt_v13_info = ModelInfo(
+    model_cls=TabDPTv13Model,
+    search_space=gen_tabdpt_v13,
+    method_metadata=tabdpt_v13_method_metadata,
+    pip_extra=("tabdpt>=1.3.0",),
+    prefetch_weights=TabDPTv13Model.prefetch_weights,
 )

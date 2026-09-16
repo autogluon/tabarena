@@ -30,7 +30,8 @@ class TabDPTModelBase(AbstractTorchModel):
 
     TabDPT auto-selects the matching checkpoint from the installed ``tabdpt`` package, so there is
     no per-version checkpoint path to set. Not registered directly (no ``info.py`` entry); use the
-    concrete :class:`TabDPTModel` (v1.1) / :class:`TabDPTTurboModel` (v1.2) subclasses.
+    concrete :class:`TabDPTModel` (v1.1) / :class:`TabDPTTurboModel` (v1.2) / :class:`TabDPTv13Model`
+    (v1.3) subclasses.
 
     Paper: "TabDPT: Scaling Tabular Foundation Models on Real Data" (NeurIPS 2025).
     Authors: Junwei Ma, Valentin Thomas, Rasa Hosseinzadeh, Alex Labach, Hamidreza Kamkari,
@@ -50,7 +51,8 @@ class TabDPTModelBase(AbstractTorchModel):
     _hf_repo_id: ClassVar[str] = "Layer6/TabDPT"
     #: Commit pinned so checkpoints fetched here never silently change if the
     #: repo's default branch moves. Bump deliberately (with a note on what
-    #: changed) when picking up newer checkpoints.
+    #: changed) when picking up newer checkpoints. A version whose checkpoint
+    #: was uploaded after this commit overrides the pin on its own class.
     _hf_revision: ClassVar[str] = "4462ffbd1d8dea25d4862d30beed4b70cd596ae5"
     #: This version's checkpoint filename in :attr:`_hf_repo_id`. The installed ``tabdpt`` package
     #: hardcodes a single version (``tabdpt<VER>.safetensors``), so we pin the correct weights per
@@ -309,8 +311,10 @@ class TabDPTTurboModel(TabDPTModelBase):
 
     Paper: "TabDPT-Turbo" — https://openreview.net/pdf?id=Y00pwFyrHR
 
-    Both wrappers share the ``tabdpt`` pip package (extra pinned to ``tabdpt>=1.2.0``), so a shared
-    install runs v1.2 for both; the v1.1 wrapper then uses v1.2 defaults.
+    Needs ``tabdpt>=1.2.0,<1.3``: the 1.3 release renamed the network's label encoders
+    (``y_encoders`` became ``cls_y_encoders`` and ``reg_y_encoders``), so neither package version
+    loads the other's checkpoint. :class:`TabDPTv13Model` is the installable entry and this one is
+    ``superseded`` in ``info.py``.
     """
 
     ag_key = "TA-TABDPT-TURBO"
@@ -323,6 +327,8 @@ class TabDPTTurboModel(TabDPTModelBase):
     shared_weights: ClassVar[SharedWeights] = SharedWeights(
         loader="tabarena.models.tabdpt._estimators:load_network", key=("model_weight_path", "use_flash", "clip_sigma")
     )
+    #: TabDPT-Turbo and TabDPT-1.3 are registered separately; each owns its ``share_weights`` class setting.
+    class_settings_per_subclass = True
     #: Knobs that make the warm-up's dummy fit cheap without touching the network.
     cheap_hyperparameters: ClassVar[dict] = {"n_ensembles": 1}
 
@@ -347,3 +353,28 @@ class TabDPTTurboModel(TabDPTModelBase):
         "classifier": ("n_ensembles", "context_size", "batch_size", "permute_classes", "temperature"),
         "regressor": ("n_ensembles", "context_size", "batch_size"),
     }
+
+
+class TabDPTv13Model(TabDPTTurboModel):
+    """TabDPT v1.3.
+
+    The v1.3 release keeps the v1.2 estimator surface (constructor arguments, predict knobs and
+    their defaults) and ships weights retrained after small architecture changes: separate label
+    encoders for classification and regression, plus a probabilistic regression output that the
+    wrapper leaves at the ``"mean"`` point prediction. Upstream reports better predictive
+    performance than v1.2 on CC18 and CTR23. This class extends :class:`TabDPTTurboModel` and pins
+    the v1.3 checkpoint; see :class:`TabDPTModelBase` for the shared implementation and paper /
+    codebase / license details.
+
+    Release notes: https://github.com/layer6ai-labs/TabDPT-inference/releases/tag/v1.3.0
+
+    Needs ``tabdpt>=1.3.0``; :class:`TabDPTTurboModel` explains why the 1.2 and 1.3 packages cannot
+    load each other's checkpoint.
+    """
+
+    ag_key = "TA-TABDPT-1.3"
+    ag_name = "TA-TabDPT-1.3"
+
+    #: The commit that uploaded ``tabdpt1_3.safetensors`` (2026-09-08); the base pin predates it.
+    _hf_revision: ClassVar[str] = "a5ca6e01c0fa09ec68c73e958e5199d1932abb3a"
+    _checkpoint_filename: ClassVar[str] = "tabdpt1_3.safetensors"

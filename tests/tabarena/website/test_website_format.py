@@ -30,6 +30,7 @@ from tabarena.website.website_format import (
         ("OrionMSP", Constants.foundational),
         ("RealTabPFN-2.5", Constants.foundational),
         ("TabDPT-Turbo", Constants.foundational),
+        ("TabDPT-1.3", Constants.foundational),
         ("iLTM", Constants.foundational),
         ("Nori-30M", Constants.foundational),
         ("Linear", Constants.baseline),

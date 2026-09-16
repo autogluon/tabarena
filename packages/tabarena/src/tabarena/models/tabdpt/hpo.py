@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from autogluon.common.space import Categorical
 
-from tabarena.models.tabdpt.model import TabDPTModel, TabDPTTurboModel
+from tabarena.models.tabdpt.model import TabDPTModel, TabDPTTurboModel, TabDPTv13Model
 from tabarena.utils.config_utils import ConfigGenerator
 
 search_space = {
@@ -49,6 +49,13 @@ gen_tabdpt = ConfigGenerator(
 # if an HPO run is wanted (the v1.2 defaults are set in TabDPTTurboModel._init_tabdpt_model).
 gen_tabdpt_turbo = ConfigGenerator(
     model_cls=TabDPTTurboModel,
+    manual_configs=[{}],
+    search_space={},
+)
+
+# TabDPT-1.3 keeps the v1.2 surface and likewise runs its single default config.
+gen_tabdpt_v13 = ConfigGenerator(
+    model_cls=TabDPTv13Model,
     manual_configs=[{}],
     search_space={},
 )

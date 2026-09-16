@@ -24,6 +24,7 @@ EXPECTED: dict[str, tuple[str, str]] = {
     "RandomForest": ("tabarena.models.random_forest.hpo", "gen_randomforest"),
     "RealMLP": ("tabarena.models.realmlp.hpo", "gen_realmlp"),
     "TabDPT": ("tabarena.models.tabdpt.hpo", "gen_tabdpt"),
+    "TabDPT-1.3": ("tabarena.models.tabdpt.hpo", "gen_tabdpt_v13"),
     "TabICL": ("tabarena.models.tabicl.hpo", "gen_tabicl"),
     "TabM": ("tabarena.models.tabm.hpo", "gen_tabm"),
     "XGBoost": ("tabarena.models.xgboost.hpo", "gen_xgboost"),

@@ -1,8 +1,8 @@
 """`superseded` model entries stay out of the installable pyproject extras.
 
 A superseded entry pins a version the entry that replaced it excludes (TabDPT_GPU needs
-`tabdpt<1.2`, TabDPT-Turbo needs `>=1.2.0`), so unioning the two into one extra would make it
-unresolvable and break `pip install tabarena[...]`.
+`tabdpt<1.2`, TabDPT-Turbo `>=1.2.0,<1.3`, TabDPT-1.3 `>=1.3.0`), so unioning them into one extra
+would make it unresolvable and break `pip install tabarena[...]`.
 """
 
 from __future__ import annotations
@@ -74,4 +74,4 @@ def test_folder_with_only_superseded_entries_drops_out(registry):
 
 def test_real_registry_keeps_tabdpt_installable():
     """The shipped registry must not union TabDPT's mutually exclusive pins."""
-    assert _expected_extras()["tabdpt"] == ["tabdpt>=1.2.0"]
+    assert _expected_extras()["tabdpt"] == ["tabdpt>=1.3.0"]
