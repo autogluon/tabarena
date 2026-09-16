@@ -28,6 +28,7 @@ from sklearn.datasets import load_breast_cancer, load_diabetes, load_iris
 from sklearn.metrics import accuracy_score, root_mean_squared_error
 from sklearn.model_selection import train_test_split
 
+from tabarena.benchmark.validation_protocol import TABARENA_V0PT1_VALIDATION_PROTOCOL
 from tabarena.models.utils import get_configs_generator_from_name
 
 if TYPE_CHECKING:
@@ -126,7 +127,7 @@ def run_tuned(X_train, X_test, y_train, y_test, *, task_type, model_cls, n_confi
     ).fit(
         train_data,
         hyperparameters={model_cls: hpo_configs},
-        num_bag_folds=8,
+        num_bag_folds=TABARENA_V0PT1_VALIDATION_PROTOCOL.num_bag_folds,  # TabArena's official bagging
         fit_weighted_ensemble=True,
         time_limit=360,  # increase for real use
     )

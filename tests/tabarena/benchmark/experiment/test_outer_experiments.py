@@ -149,14 +149,18 @@ class TestOuterGroupMetadata:
     def test_bagged_receives_metadata_but_does_not_act(self):
         from autogluon.tabular.models import LGBModel
 
-        from tabarena.benchmark.experiment import AGModelBagExperiment
+        from tabarena.benchmark.experiment import AGModelBagExperiment, ValidationProtocol
 
-        exp = AGModelBagExperiment(name="lgb", model_cls=LGBModel, model_hyperparameters={}, num_bag_folds=2)
+        protocol = ValidationProtocol.custom(num_bag_folds=2)
+        exp = AGModelBagExperiment(
+            name="lgb", model_cls=LGBModel, model_hyperparameters={}, validation_protocol=protocol
+        )
         method_kwargs = exp.init_method_kwargs(task=_FakeGroupedTask(group_on="grp"))
-        # Bagged (dynamic protocol off): metadata is present as data, but the policy gate that makes
-        # the wrapper *act* on it (use_task_specific_validation) is not set, and no group_cols key.
+        # Bagged: the metadata is present as data, and the protocol (here without task-specific
+        # validation) decides whether the wrapper acts on it; there is no separate group_cols key.
         assert method_kwargs["validation_metadata"].group_on == "grp"
-        assert "use_task_specific_validation" not in method_kwargs
+        assert method_kwargs["validation_protocol"] == protocol
+        assert method_kwargs["validation_protocol"].task_specific_validation is False
         assert "group_cols" not in method_kwargs
 
 
@@ -225,8 +229,8 @@ class TestTextCacheScope:
     """The text-embedding cache scope is independent of the validation protocol.
 
     A standalone ``Experiment`` defaults to ``text_cache_mode="off"``; when set to ``require`` it
-    must load (and require) the cache for a text task even on the outer path, where
-    ``dynamic_tabarena_validation_protocol=False`` (regression guard for the outer-path discrepancy).
+    must load (and require) the cache for a text task even on the outer path, which has no validation
+    protocol (regression guard for the outer-path discrepancy).
     """
 
     def _outer_experiment(self, **kwargs) -> AGModelOuterExperiment:
@@ -237,7 +241,7 @@ class TestTextCacheScope:
             preprocessing_pipeline="tabarena_default",
             **kwargs,
         )
-        assert exp.dynamic_tabarena_validation_protocol is False  # the outer path's default
+        assert exp.validation_protocol is None  # outer fits have no inner validation
         return exp
 
     def test_standalone_default_mode_is_off(self):
@@ -288,10 +292,16 @@ class TestBuildPathFlagParity:
         outer = self._build(outer_experiments=True)
         # The bundle enforces `require` regardless of build path.
         assert bagged.text_cache_mode == holdout.text_cache_mode == outer.text_cache_mode == "require"
-        # The dynamic validation protocol stays bagged/holdout-only (outer = no validation split).
-        assert bagged.dynamic_tabarena_validation_protocol is True
-        assert holdout.dynamic_tabarena_validation_protocol is True
-        assert outer.dynamic_tabarena_validation_protocol is False
+        # The bundle bakes no validation protocol (the arena context stamps its own onto the bagged and
+        # holdout experiments at build_jobs); the outer flavour never gets one (no validation split).
+        assert bagged.validation_protocol is None
+        assert holdout.validation_protocol is None
+        assert outer.validation_protocol is None
+        assert (bagged.VALIDATION_FLAVOUR, holdout.VALIDATION_FLAVOUR, outer.VALIDATION_FLAVOUR) == (
+            "bagged",
+            "holdout",
+            "outer",
+        )
 
     def test_v0pt1_bundle_disables_text_cache(self):
         from tabarena.benchmark.experiment.bundle import TabArenaV0pt1ExperimentBundle

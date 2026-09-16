@@ -8,9 +8,9 @@ body:
       value: |
         A submission adds one entrant to the TabArena leaderboard. There are two kinds.
 
-        A **model** is one method that TabArena tunes under its shared protocol: shared preprocessing, a validation split provided by TabArena, a search space of up to 200 configurations, bagging, and default / tuned / tuned + ensembled variants. A **system** owns its whole pipeline (preprocessing, validation, tuning, ensembling) inside one budget: AutoML frameworks such as AutoGluon, TabFM+, LLM agents, hosted APIs. If you would have to invent a search space for it, it is a model. If that makes no sense because it searches for itself, it is a system.
+        A **model** is one method that TabArena tunes under its shared protocol: shared preprocessing, a validation split provided by TabArena, a search space of up to 200 configurations, bagging under the arena's official validation protocol, and default / tuned / tuned + ensembled variants. A **system** owns its whole pipeline (preprocessing, validation, tuning, ensembling) inside one budget: AutoML frameworks such as AutoGluon, TabFM+, LLM agents, hosted APIs. If you would have to invent a search space for it, it is a model. If that makes no sense because it searches for itself, it is a system.
 
-        TabArena is not a benchmarking service. Evaluate the method yourself on TabArena-Lite with the official pipeline, then open a pull request with the template. A maintainer verifies the submission and re-runs it on the benchmark hardware for the final entry; we are happy to help with both.
+        TabArena is not a benchmarking service. Evaluate the method yourself on TabArena-Lite with the official pipeline (the arena context asserts the official validation protocol; every result records what it ran under), then open a pull request with the template. A maintainer verifies the submission and re-runs it on the benchmark hardware for the final entry; we are happy to help with both.
 
         Start here:
         - [Contributing a Model or System](https://github.com/autogluon/tabarena#contributing-a-model-or-system) in the README

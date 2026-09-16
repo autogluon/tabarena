@@ -23,7 +23,8 @@ BeyondArena.
 
 Both benchmarks rank two kinds of entrant, and every quick start comes in a `_model` and a
 `_system` flavor. A **model** is one method that TabArena tunes under its shared protocol (shared
-preprocessing, a validation split provided by TabArena, a search space for HPO, bagging), reported
+preprocessing, a validation split provided by TabArena, a search space for HPO, bagging under the
+arena's official validation protocol, which the context asserts), reported
 as default / tuned / tuned + ensembled. A **system** owns its whole pipeline (preprocessing,
 validation, tuning, ensembling) inside the budget TabArena hands it: AutoML frameworks such as
 AutoGluon, TabFM+, LLM agents, hosted APIs. If you would have to invent a search space for your
@@ -79,6 +80,7 @@ model and for a system).
   - `run_async_tabarena_api.py` - Drive TabArena's low-level async / fan-out job API by hand for a *model* (build → fan out → gather → register → score) with a swappable future-based backend.
   - `run_async_tabarena_api_system.py` - The same async / fan-out API, but benchmarking a full ML *system* (a `TabularPredictor` fit per task).
   - `run_configure_caches.py` - Declare *where* TabArena caches datasets, model weights, and results — once, via `CacheConfig` — and let the context propagate it to every worker.
+  - `run_custom_validation_protocol.py` - Run bagged models under an inner validation protocol other than the official one (`official_validation_protocol=False`), chosen per context, per bundle or per experiment, and read the protocol each result records.
 
 ### 🗃️ Analysing Metadata and Meta-Learning
 

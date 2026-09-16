@@ -163,8 +163,8 @@ class TestExternalSystemExperimentInjection:
         method_kwargs = exp.init_method_kwargs(task=_FakeGroupedTask(group_on="grp"))
         assert method_kwargs["validation_metadata"].group_on == "grp"
         assert method_kwargs["note"] == "x"
-        # No-validation regime: the AutoGluon "act on it" policy gate is never set.
-        assert "use_task_specific_validation" not in method_kwargs
+        # Systems own their validation: no protocol is handed to them.
+        assert "validation_protocol" not in method_kwargs
 
     def test_yaml_round_trip_resolves_system_cls(self):
         # The base ``ExternalSystemModel`` is used here because YAML serializes ``system_cls`` as an

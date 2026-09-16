@@ -68,7 +68,9 @@ tabarena.systems.<system>.info:<varname>
 
 - **`info.py` exists** (the normal case — the model was added via the `add-model` skill): it already
   carries the raw-inferable fields (`ag_key`, `config_default`, `can_hpo`, `is_bag`, `compute`,
-  `method_type`). Claude only fills the *manual* upload fields in Step 3.
+  `method_type`). `validation_protocol` is inferable too but was not authored before the run: a new
+  run records it, and `--process` fails until `info.py` declares the inferred key. Claude fills it
+  together with the *manual* upload fields in Step 3.
 - **No `info.py`** (a raw external submission): the method isn't integrated yet. Run `inspect`
   (Step 2) to get the copy-paste `MethodMetadata.<type>(...)` snippet, then author
   `models/<model>/info.py` from it (use the **`add-model`** skill if the model also needs a wrapper,
@@ -86,8 +88,8 @@ tabarena.systems.<system>.info:<varname>
 ```
 
 This prints the fields inferred from the raw data (`method_type`, `ag_key`, `compute`,
-`config_default`, `can_hpo`, `is_bag`, task/problem-type/metric coverage), a suggested
-`MethodMetadata` snippet, and — when an `info.py` metadata is passed — an **inferred-vs-provided
+`config_default`, `can_hpo`, `is_bag`, `validation_protocol` with a fold histogram,
+task/problem-type/metric coverage), a suggested `MethodMetadata` snippet, and — when an `info.py` metadata is passed — an **inferred-vs-provided
 diff**. Use it to confirm `info.py` matches the raw data before processing. Two gotchas it catches:
 
 - **`config_default` is compared post-rename**: configs are renamed to the method's prefix during
@@ -104,6 +106,12 @@ diff**. Use it to confirm `info.py` matches the raw data before processing. Two 
   expected and needs no edit; a `NO` on `config_default`, `ag_key`, `compute`, `can_hpo`, `is_bag` or
   `method_type` does.
 - **`method != suite`**: `process` fails if they're equal (suite defaults to method when unset).
+- **`validation_protocol` must be declared**: a run made after the protocol record existed infers a
+  key (`8x1` for TabArena, `system` for a system, the long BeyondArena key); `--process` fails while
+  `info.py` leaves it `None` or declares another value. Legacy raw artifacts infer `None` and pass.
+  Add `--expect-validation-protocol tabarena` (or `beyondarena`) to also assert that the run used the
+  arena's official protocol; a `holdout:`/`outer`/custom key there means the run cannot be uploaded as
+  an official result. KNN's `8x1 requested; 1 child via use_child_oof` histogram line is expected.
 
 **Multi-method run dirs**: if the run's `data/` holds several methods' config dirs side by side,
 `run_process_method.py` can't split them — write a small gitignored driver in `tmp_scripts/` that
@@ -125,8 +133,9 @@ maintainer normally hand-edits them — Claude does it now. Read the file first,
 | `date` | `"YYYY-MM-DD"` | The run date. Validated as a real calendar date. |
 | `verified` | `False` (until signed off), then `True` | Manual trust flag. Keep `False` until the results are verified; flip to `True` once they are (typically the final step). |
 | `method_class` / `tags` | systems only | `MethodMetadata.system(...)` sets `method_class`; `tags` (`with-llm`, `closed-source-api`) decide which entrant pools the system competes in. Neither is inferable from raw data. |
+| `validation_protocol` | the key the inspect step infers, e.g. `"8x1"` | The inner validation protocol the results record. `--process` requires it for a new run; `run_upload_results.py` refuses an upload whose processed artifact records a key `info.py` does not declare. `MethodMetadata.system(...)` defaults it to `"system"`. |
 
-Leave the raw-inferable fields (`ag_key`, `config_default`, `can_hpo`, `is_bag`, `compute`,
+Leave the other raw-inferable fields (`ag_key`, `config_default`, `can_hpo`, `is_bag`, `compute`,
 `method_type`) **as they are** — they came from `add-model`. Only change one if Step 2's diff shows a
 genuine mismatch (and then to the inferred value; for a single-config method, deleting a mismatched
 `config_default` is equally valid).
@@ -164,7 +173,8 @@ Using `chimeraboost` as the example:
 
 # 3. Process: build + cache metadata.yaml + processed/ + results/ locally
 <venv>/bin/python scripts/run_process_method.py <run_data_dir> \
-    --method-metadata tabarena.models.chimeraboost.info:chimeraboost_method_metadata --process
+    --method-metadata tabarena.models.chimeraboost.info:chimeraboost_method_metadata --process \
+    --expect-validation-protocol tabarena  # the run must record TabArena's official protocol
 
 # 4. Upload dry-run: verifies every part exists locally and prints what/where (no creds needed)
 <venv>/bin/python scripts/run_upload_results.py \

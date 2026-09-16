@@ -8,6 +8,7 @@ from autogluon.common.loaders import load_pkl
 from autogluon.common.savers import save_pkl
 
 from tabarena.benchmark.result.abstract_result import AbstractResult
+from tabarena.benchmark.validation_protocol import validation_protocol_key
 
 
 class BaselineResult(AbstractResult):
@@ -241,6 +242,24 @@ class BaselineResult(AbstractResult):
                 if col in method_metadata:
                     assert col not in data
                     data.update({col: method_metadata[col]})
+
+        # The validation protocol the result was fit under, as `vp_*` columns (disjoint from the
+        # MethodMetadata field names). Absent for results written before the record existed.
+        record = self.result.get("validation_protocol")
+        if isinstance(record, dict) and record:
+            protocol = record.get("protocol") if isinstance(record.get("protocol"), dict) else {}
+            data.update(
+                {
+                    "vp_key": validation_protocol_key(record),
+                    "vp_flavour": record.get("flavour"),
+                    "vp_enforced": protocol.get("enforced"),
+                    "vp_regime": record.get("regime"),
+                    "vp_num_bag_folds": record.get("num_bag_folds_resolved"),
+                    "vp_num_bag_sets": record.get("num_bag_sets_resolved"),
+                    "vp_num_bag_folds_fitted": record.get("num_bag_folds_fitted"),
+                    "vp_num_bag_sets_fitted": record.get("num_bag_sets_fitted"),
+                }
+            )
 
         return pd.DataFrame([data])
 

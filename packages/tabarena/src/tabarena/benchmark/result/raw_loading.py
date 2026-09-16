@@ -21,6 +21,7 @@ import pandas as pd
 from tabarena.benchmark.result.ag_bag_result import AGBagResult
 from tabarena.benchmark.result.baseline_result import BaselineResult
 from tabarena.benchmark.result.config_result import ConfigResult
+from tabarena.benchmark.validation_protocol import validation_protocol_key
 from tabarena.utils.parallel_for import parallel_for
 from tabarena.utils.pickle_utils import fetch_all_pickles, read_pickle_bytes
 
@@ -178,6 +179,18 @@ def get_info_from_result(result: BaselineResult) -> dict:
             is_bag = True
 
     cur_result["is_bag"] = is_bag
+    # The validation protocol the result was fit under (see ``Experiment.validation_record``); results
+    # written before the record existed carry None throughout.
+    record = result.result.get("validation_protocol")
+    record = record if isinstance(record, dict) else {}
+    protocol = record.get("protocol") if isinstance(record.get("protocol"), dict) else {}
+    cur_result["validation_protocol_key"] = validation_protocol_key(record)
+    cur_result["validation_flavour"] = record.get("flavour")
+    cur_result["vp_enforced"] = protocol.get("enforced")
+    cur_result["vp_num_bag_folds"] = record.get("num_bag_folds_resolved")
+    cur_result["vp_num_bag_sets"] = record.get("num_bag_sets_resolved")
+    cur_result["vp_num_child_models"] = record.get("num_child_models")
+    cur_result["vp_child_oof"] = record.get("child_oof")
     cur_result["ag_key"] = ag_key
     cur_result["model_type"] = model_type
     cur_result["method_type"] = method_type

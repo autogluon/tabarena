@@ -10,8 +10,9 @@ from typing import TYPE_CHECKING, Literal
 
 import ray
 
-from tabarena.benchmark.experiment import JobBatch, job_cache_exists_batch
+from tabarena.benchmark.experiment import JobBatch, ValidationExpectation, job_cache_status_batch
 from tabarena.benchmark.task.metadata import TaskSubset
+from tabarena.benchmark.validation_protocol import ValidationProtocolError
 from tabarena.utils.ray_utils import ray_map_list, to_batch_list
 
 if TYPE_CHECKING:
@@ -21,6 +22,12 @@ if TYPE_CHECKING:
     from tabflow_slurm.setup.paths import PathSetup
     from tabflow_slurm.setup.resources import ResourcesSetup
     from tabflow_slurm.setup.scheduler import SchedulerSetup
+
+
+def _protocol_key(experiment) -> str | None:
+    """The validation-protocol key an experiment runs under (``None`` for objects without a record)."""
+    record = getattr(experiment, "validation_record", None)
+    return record()["key"] if callable(record) else None
 
 
 @dataclass
@@ -43,7 +50,8 @@ class TabArenaBenchmarkSetup:
     experiment_bundle: TabArenaExperimentBundle
     """Defines which models / experiments to run in the benchmark and builds them
     (models, per-model config counts, preprocessing pipelines, fold fitting,
-    per-model constraints, and the dynamic validation protocol)."""
+    per-model constraints). The validation protocol comes from the context, which stamps
+    it onto the experiments in `build_jobs` (a bundle-level protocol is a recorded opt-out)."""
 
     path_setup: PathSetup
     """Contains all paths related to the benchmark. Requires a `workspace`
@@ -101,10 +109,12 @@ class TabArenaBenchmarkSetup:
             4. Scope the context's collection to the tasks these jobs touch and materialize
                it (download only those tasks; a no-op for local sources). This is the single
                source of truth the cache check, `JobBatch`, and bundling resolve against.
-            5. Drop cache hits in parallel via Ray (the core `job_cache_exists_batch`),
-               unless `ignore_cache`.
+            5. Drop cache hits in parallel via Ray (the core `job_cache_status_batch`),
+               unless `ignore_cache`. A cached result fit under another validation protocol
+               than the job's stops the setup (see `_drop_cache_hits_via_ray`).
             6. Persist the surviving jobs as a self-contained `JobBatch` artifact
-               (experiments + task metadata + job coordinates) for the compute nodes.
+               (experiments + task metadata + job coordinates + the context's validation
+               expectation) for the compute nodes.
             7. Bundle the survivors into array tasks via `scheduler_setup.bundle_items`.
 
         Returns `(jobs, max_configs_per_job)`: `jobs` is a list of
@@ -150,13 +160,24 @@ class TabArenaBenchmarkSetup:
     def _drop_cache_hits_via_ray(self, jobs: list[Job], collection: TaskMetadataCollection) -> list[Job]:
         """Fan out the cache check across Ray workers; return the not-yet-cached subset.
 
-        Each job is projected to a plain ``(method_name, task_id_str, fold, repeat)``
-        tuple — no live experiments are pickled to workers — and checked through the
-        core, writer-aligned ``job_cache_exists_batch``.
+        Each job is projected to a plain ``(method_name, task_id_str, fold, repeat, protocol_key)``
+        tuple — no live experiments are pickled to workers — and checked through the core,
+        writer-aligned ``job_cache_status_batch``. A hit (same validation protocol) or a legacy
+        result (written before protocols were recorded) drops the job. A cached result fit under
+        another protocol raises: reusing it would pass off one protocol's result as another's, and
+        refitting would overwrite it, so the caller has to choose a new `benchmark_name` or
+        `ignore_cache=True` explicitly.
         """
         task_id_by_dataset = {ttm.tabarena_task_name: ttm.task_id_str for ttm in collection}
         items = [
-            (job.experiment.name, task_id_by_dataset[job.task.dataset], job.task.fold, job.task.repeat) for job in jobs
+            (
+                job.experiment.name,
+                task_id_by_dataset[job.task.dataset],
+                job.task.fold,
+                job.task.repeat,
+                _protocol_key(job.experiment),
+            )
+            for job in jobs
         ]
 
         num_ray_cpus = len(os.sched_getaffinity(0)) if self.num_ray_cpus == "auto" else self.num_ray_cpus
@@ -168,7 +189,7 @@ class TabArenaBenchmarkSetup:
 
         batched = ray_map_list(
             list_to_map=list(to_batch_list(items, 10_000)),
-            func=job_cache_exists_batch,
+            func=job_cache_status_batch,
             func_element_key_string="items",
             num_workers=num_ray_cpus,
             num_cpus_per_worker=1,
@@ -176,8 +197,33 @@ class TabArenaBenchmarkSetup:
             track_progress=True,
             tqdm_kwargs={"desc": "Checking Cache"},
         )
-        cached_flags = [b for batch in batched for b in batch]
-        return [job for cached, job in zip(cached_flags, jobs, strict=True) if not cached]
+        statuses = [status for batch in batched for status in batch]
+        mismatches = [job for status, job in zip(statuses, jobs, strict=True) if status == "mismatch"]
+        if mismatches:
+            listed = "\n  - ".join(
+                f"{job.experiment.name} on {job.task.dataset} (fold={job.task.fold}, repeat={job.task.repeat}), "
+                f"this run: {_protocol_key(job.experiment)!r}"
+                for job in mismatches[:20]
+            )
+            more = f"\n  ... and {len(mismatches) - 20} more" if len(mismatches) > 20 else ""
+            raise ValidationProtocolError(
+                f"{len(mismatches)} cached result(s) under {self.path_setup.get_output_path(self.benchmark_name)!r} were "
+                f"fit under another validation protocol than this run asks for:\n  - {listed}{more}\n"
+                "Fix: use a new benchmark_name to keep both, or set ignore_cache=True to refit and overwrite them."
+            )
+        return [job for status, job in zip(statuses, jobs, strict=True) if status == "missing"]
+
+    def _validation_expectation(self) -> ValidationExpectation | None:
+        """The context's validation expectation to ship with the batch (``None`` for a context without a protocol)."""
+        protocol = getattr(self.context, "validation_protocol", None)
+        if protocol is None:
+            return None
+        return ValidationExpectation(
+            protocol=protocol,
+            enforced=bool(getattr(self.context, "enforces_validation_protocol", False)),
+            arena=self.context.benchmark_name,
+            official_flavours=tuple(sorted(getattr(type(self.context), "OFFICIAL_VALIDATION_FLAVOURS", ()))),
+        )
 
     def _save_job_batch(self, jobs: list[Job], collection: TaskMetadataCollection) -> None:
         """Persist the surviving jobs as the run's `JobBatch` artifact (or clean it up).
@@ -190,6 +236,7 @@ class TabArenaBenchmarkSetup:
                 jobs=jobs,
                 task_metadata=collection,
                 cache_config=self.context.cache_config,
+                validation_expectation=self._validation_expectation(),
             ).save(self._job_batch_dir)
         else:
             shutil.rmtree(self._job_batch_dir, ignore_errors=True)

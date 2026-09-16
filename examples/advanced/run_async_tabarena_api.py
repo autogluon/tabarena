@@ -113,7 +113,8 @@ def evaluate_tabarena(
     context = TabArenaContext()
 
     # The candidate model under eval — TabPFN-3 at its released defaults plus any hyperparameter
-    # overrides. outer_experiments=True fits it directly on the training data (no bagging).
+    # overrides. outer_experiments=True fits it directly on the training data (no bagging), so it runs
+    # outside the arena's official validation protocol and its results are recorded as such.
     generator = ConfigGenerator(
         search_space={},
         model_cls=TabPFN3Model,

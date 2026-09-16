@@ -35,7 +35,7 @@ if __name__ == "__main__":
     )
     experiments = TabArenaV0pt1ExperimentBundle(
         models=[(tabiclv2, 0)],
-        outer_experiments=True,
+        outer_experiments=True,  # no inner validation: runs outside the official protocol, recorded as such
     ).build_experiments()
 
     # 2: the context is the hub. build_and_run_jobs scopes to the small datasets' first split

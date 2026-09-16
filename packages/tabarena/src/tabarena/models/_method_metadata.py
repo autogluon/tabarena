@@ -15,12 +15,15 @@ import pandas as pd
 import yaml
 
 from tabarena.benchmark.result.raw_loading import get_info_from_result, load_raw, results_to_holdout
+from tabarena.benchmark.validation_protocol import ValidationProtocol
 from tabarena.loaders import get_tabarena_cache_root
 from tabarena.repository.evaluation_repository import EvaluationRepository
 from tabarena.repository.generate_repo import generate_repo_from_results_lst
 from tabarena.utils.pickle_utils import fetch_all_pickles
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
+
     from tabarena.benchmark.result import BaselineResult
     from tabarena.benchmark.task.metadata.collection import TaskMetadataCollection
     from tabarena.models._artifacts.downloader import MethodDownloader
@@ -101,6 +104,19 @@ class MethodTag(StrEnum):
 
 
 # FIXME: Implement `best` and `best-N`
+def infer_validation_protocol(keys: Iterable[str | None]) -> str | None:
+    """One ``validation_protocol`` value for a set of per-result protocol keys.
+
+    ``None`` when no result carries a record (results that predate it), the key itself when every
+    recorded result agrees, and ``"mixed"`` when they disagree. Shared by :meth:`MethodMetadata.from_raw`
+    (over the per-result info rows), the processing pipeline and ``MethodResults.concat``.
+    """
+    unique = {key for key in keys if isinstance(key, str)}
+    if not unique:
+        return None
+    return unique.pop() if len(unique) == 1 else "mixed"
+
+
 @dataclass(eq=False)
 class MethodMetadata:
     """Identity, artifact layout, and storage/transport config for one benchmarked method.
@@ -187,6 +203,16 @@ class MethodMetadata:
     #: predictions are the average of the per-fold test predictions. Config-only by convention
     #: (enforced in :meth:`__post_init__`) — baselines/portfolios are recorded as ``False``.
     is_bag: bool = False
+    #: The inner validation protocol the method's results were fit under, as the key of a
+    #: :class:`~tabarena.benchmark.validation_protocol.ValidationProtocol`: ``"8x1"`` is TabArena-v0.1,
+    #: ``"8x1+tiny5x5<=500+task-specific+adapt-classes"`` BeyondArena; ``"system"`` for a system that owns its
+    #: validation; ``"<flavour>:<key>"`` for a holdout, outer or full-predictor fit (never mistakable for the
+    #: bagged protocol); ``"mixed"`` when the raw results disagree; ``None`` when unknown (results that
+    #: predate the record). :meth:`from_raw` infers it from every result's ``validation_protocol`` record,
+    #: and a ``ValidationProtocol`` instance passed here is normalized to its key in :meth:`__post_init__`.
+    #: Processing refuses a new method whose declaration disagrees with its raw results; the arena
+    #: contexts warn when a registered method ran a custom protocol.
+    validation_protocol: str | None = None
     #: Whether an artifact of each tier exists for this method. Default ``True``: configs and
     #: baselines have raw + processed + results. Set ``False`` only when the tier never exists for
     #: the method at all — e.g. a portfolio, which only ever has results (no raw/processed). It is
@@ -243,7 +269,7 @@ class MethodMetadata:
     display_name: str | None = None
     #: Whether this method's results are verified / signed-off. Default ``True``; set ``False`` for
     #: methods that are not yet verified (e.g. newly-added or not-yet-released models). A manual
-    #: trust flag, not (yet) read anywhere in code.
+    #: trust flag; the interactive leaderboard table shows a check mark for verified methods.
     verified: bool = True
 
     def __post_init__(self):
@@ -253,6 +279,8 @@ class MethodMetadata:
             self.model_key = self.ag_key
         if self.can_hpo is None:
             self.can_hpo = self.method_type == "config"
+        if isinstance(self.validation_protocol, ValidationProtocol):
+            self.validation_protocol = self.validation_protocol.key()
         self.artifact_dir = Path(self.artifact_dir) if self.artifact_dir is not None else None
         self.cache_root = Path(self.cache_root) if self.cache_root is not None else None
         if self.artifact_dir is not None and self.cache_root is not None:
@@ -444,8 +472,10 @@ class MethodMetadata:
         for every non-config result, see ``benchmark.result.raw_loading.get_info_from_result``),
         so this fixes ``method_type`` and sets ``method_class="system"``. Pass ``tags`` from
         :class:`MethodTag` for anything a reader should weigh before comparing, e.g.
-        ``tags=("with-llm", "closed-source-api")``.
+        ``tags=("with-llm", "closed-source-api")``. A system owns its validation, so
+        ``validation_protocol`` defaults to ``"system"``.
         """
+        kwargs.setdefault("validation_protocol", "system")
         return cls(
             method=method,
             method_type="baseline",
@@ -554,6 +584,7 @@ class MethodMetadata:
             compute=compute,
             artifact_dir=artifact_dir,
             display_name=display_name,
+            validation_protocol=infer_validation_protocol(result_df.get("validation_protocol_key", [])),
         )
 
     @classmethod
@@ -673,6 +704,7 @@ class MethodMetadata:
             is_bag=is_bag,
             artifact_dir=artifact_dir,
             display_name=display_name,
+            validation_protocol=infer_validation_protocol(result_df.get("validation_protocol_key", [])),
         )
 
     @classmethod

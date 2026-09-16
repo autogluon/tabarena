@@ -26,8 +26,18 @@ import argparse
 import importlib
 from pathlib import Path
 
+from tabarena.benchmark.validation_protocol import (
+    BEYONDARENA_VALIDATION_PROTOCOL,
+    TABARENA_V0PT1_VALIDATION_PROTOCOL,
+)
 from tabarena.models._method_metadata import MethodMetadata
 from tabarena.tools.process_local_raw_data import RawMethod, process_method
+
+#: The arena protocols `--expect-validation-protocol` can assert on the raw results.
+_EXPECTED_PROTOCOLS = {
+    "tabarena": TABARENA_V0PT1_VALIDATION_PROTOCOL,
+    "beyondarena": BEYONDARENA_VALIDATION_PROTOCOL,
+}
 
 
 def _load_method_metadata(ref: str) -> MethodMetadata:
@@ -95,6 +105,14 @@ def main() -> None:
         default="ray",
         help="'ray' (parallel) or 'native' (sequential) for per-task processing and simulation.",
     )
+    parser.add_argument(
+        "--expect-validation-protocol",
+        choices=sorted(_EXPECTED_PROTOCOLS),
+        default=None,
+        help="Fail verification unless the raw results record the arena's official validation protocol "
+        "(TabArena: 8 folds x 1 set; BeyondArena: 8x1 with the 5x5 tiny regime and task-specific splits). "
+        "Use it before processing a submission; systems own their validation and are exempt.",
+    )
     args = parser.parse_args()
 
     if args.process and not args.method_metadata:
@@ -111,6 +129,7 @@ def main() -> None:
         cache_raw=args.cache_raw,
         cache_hpo_trajectories=args.cache_hpo_trajectories,
         backend=args.backend,
+        expected_validation_protocol=_EXPECTED_PROTOCOLS.get(args.expect_validation_protocol),
     )
 
 

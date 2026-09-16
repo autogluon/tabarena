@@ -5,7 +5,6 @@ from enum import StrEnum
 from typing import Annotated, Literal
 
 import pandas as pd
-from loguru import logger
 
 SplitIndex = Annotated[str, "format: r{int}f{int}"]
 
@@ -327,7 +326,7 @@ class TabArenaTaskMetadata:
 
 @dataclass(frozen=True)
 class ValidationMetadata:
-    """Task-derived metadata (and policy) for building the validation split.
+    """Task-derived split structure for building the validation split.
 
     Projected from a task's split metadata (see ``TabArenaTaskMetadata.to_validation_metadata``
     / ``ValidationMetadata.from_task_metadata``) and consumed by the AutoGluon wrappers via
@@ -335,9 +334,8 @@ class ValidationMetadata:
 
     The split-column fields mirror the task metadata; ``target_name`` is carried so the
     wrapper can name its internal label column (the splitting logic itself does not use it).
-    The ``*_num_folds`` / ``*_num_repeats`` / ``max_samples_for_tiny_data`` fields encode the
-    fold-count policy resolved in ``resolve_number_of_splits``. Whether this metadata is
-    applied at all is a separate decision the wrapper makes (``use_task_specific_validation``).
+    How many folds and repeats are fit, and whether this structure is acted upon at all, is
+    decided by the experiment's :class:`~tabarena.benchmark.validation_protocol.ValidationProtocol`.
     """
 
     target_name: str | None = None
@@ -357,27 +355,12 @@ class ValidationMetadata:
     split_time_horizon_unit: SplitTimeHorizonUnitTypes | None = None
     """Unit for ``split_time_horizon`` (e.g. days, months, years)."""
 
-    # Fold-count policy. Above ``max_samples_for_tiny_data`` (group) instances we expect the
-    # benchmark defaults; at or below it we switch to the denser tiny-data regime (more
-    # folds/repeats) for a more reliable validation score. See ``resolve_number_of_splits``.
-    default_num_folds: int = 8
-    """Expected number of folds for non-tiny datasets."""
-    default_num_repeats: int = 1
-    """Expected number of repeats for non-tiny datasets (``None`` is also allowed)."""
-    tiny_data_num_folds: int = 5
-    """Number of folds to use for tiny datasets."""
-    tiny_data_num_repeats: int = 5
-    """Number of repeats to use for tiny datasets."""
-    max_samples_for_tiny_data: int = 500
-    """At or below this many (group) instances, the tiny-data regime applies."""
-
     @classmethod
     def from_task_metadata(cls, metadata) -> ValidationMetadata:
         """Project a task-metadata-like object onto a ``ValidationMetadata``.
 
         ``metadata`` is any object exposing the split-metadata attributes (a
-        ``TabArenaTaskMetadata`` or a TabArena OpenML task); the fold-count policy fields
-        keep their defaults.
+        ``TabArenaTaskMetadata`` or a TabArena OpenML task).
         """
         return cls(
             target_name=metadata.target_name,
@@ -423,40 +406,6 @@ class ValidationMetadata:
         to ``X`` before fitting) resolves it the same way.
         """
         return self.target_name or "__label__"
-
-    def resolve_number_of_splits(
-        self,
-        *,
-        num_folds: int,
-        num_repeats: int | None,
-        num_group_instances: int,
-    ) -> tuple[int, int | None]:
-        """Resolve the (folds, repeats) to use given the data size.
-
-        At or below ``max_samples_for_tiny_data`` (group) instances, switch to the tiny-data
-        regime (``tiny_data_num_folds`` / ``tiny_data_num_repeats``); otherwise assert and
-        return the configured defaults (``default_num_folds`` / ``default_num_repeats``).
-
-        Parameters
-        ----------
-        num_folds: int
-            The number of folds entered for validation.
-        num_repeats: int
-            The number of repeats entered for validation.
-        num_group_instances: int
-            The number of group instances in the data.
-        """
-        if num_group_instances <= self.max_samples_for_tiny_data:
-            logger.info(
-                f"\nTiny data ({num_group_instances} <= {self.max_samples_for_tiny_data}): using "
-                f"num_bag_folds={self.tiny_data_num_folds}, num_bag_sets={self.tiny_data_num_repeats}.",
-            )
-            return self.tiny_data_num_folds, self.tiny_data_num_repeats
-
-        # Larger data: expect (and keep) the configured benchmark defaults.
-        assert num_folds == self.default_num_folds
-        assert num_repeats in (self.default_num_repeats, None)
-        return num_folds, num_repeats
 
 
 @dataclass

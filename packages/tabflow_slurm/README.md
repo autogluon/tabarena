@@ -66,7 +66,9 @@ plan.setup_jobs()   # prints the sbatch command(s) to launch
 
 > **BeyondArena:** swap in `from tabarena.contexts.beyondarena.context import BeyondArenaContext`,
 > pass `context=BeyondArenaContext()`, and scope with e.g. `task_subset=TaskSubset(dataset_names=[...])`
-> (omit `task_subset` to run the full suite).
+> (omit `task_subset` to run the full suite). The context also supplies and asserts the arena's inner
+> validation protocol; pair it with `BeyondArenaExperimentBundle` (the TabArena bundle carries no protocol
+> of its own either, but the datasets and preprocessing differ).
 
 `TaskSubset` (from `tabarena`) is the typed, single source of truth for the scope filters — the same
 fields `TaskMetadataCollection.subset_tasks` / `context.build_jobs` accept (`subset`, `dataset_names`,
@@ -191,9 +193,11 @@ attaches each experiment's `ModelConstraints`) → `context.build_jobs(experimen
 task_subset=...)` (scopes the context's collection by the `TaskSubset`, then enumerates experiments
 × splits; constraint-violating pairs are dropped during enumeration) → scope the context's
 collection to the jobs' tasks and `materialize()` them (download only those) → Ray cache check
-(tabarena core's writer-aligned `job_cache_exists_batch`, fanned out over plain
-`(method, task_id_str, fold, repeat)` tuples) → persist the surviving sweep as a self-contained
-`JobBatch` artifact (experiments.yaml + task_metadata.csv + jobs.json) → bundle.
+(tabarena core's writer-aligned `job_cache_status_batch`, fanned out over plain
+`(method, task_id_str, fold, repeat, protocol_key)` tuples; a cached result fit under another
+validation protocol stops the setup) → persist the surviving sweep as a self-contained
+`JobBatch` artifact (experiments.yaml + task_metadata.csv + jobs.json + the context's
+validation_protocol.json, which the compute node re-checks before fitting) → bundle.
 
 ### Runtime (what runs on the node)
 - **`run_tabarena_experiment.py`** — the runner a single array task invokes per item. Loads the

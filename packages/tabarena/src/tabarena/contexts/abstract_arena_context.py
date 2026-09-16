@@ -4,7 +4,10 @@ An "arena context" bundles a benchmark's task metadata and method metadata and e
 operations that depend only on them: building a scoped ``ExperimentBatchRunner``, loading the
 methods' artifacts (results, repos, hyperparameters), running HPO / portfolio simulation,
 computing a leaderboard via ``compare``, subsetting results, plotting, and rendering a website
-leaderboard. None of that is specific to TabArena — it works for any benchmark whose
+leaderboard. A context also owns the arena's official inner validation protocol
+(:attr:`AbstractArenaContext.OFFICIAL_VALIDATION_PROTOCOL`): ``build_jobs`` / ``run_jobs`` stamp it
+onto the experiments and refuse a bagged experiment that carries another one, unless the context was
+built with ``official_validation_protocol=False``. None of that is specific to TabArena — it works for any benchmark whose
 tasks/methods are described by a :class:`TaskMetadataCollection` /
 :class:`MethodMetadataCollection`, and the class is directly instantiable with an explicit
 ``methods`` list and ``task_metadata`` collection (e.g. for a self-contained custom benchmark).
@@ -28,19 +31,27 @@ import copy
 import functools
 import os
 import tempfile
+import warnings
+from collections import Counter
 from collections.abc import Iterator
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, Self
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, Self
 
 import numpy as np
 import pandas as pd
 
 from tabarena.benchmark.task.metadata.collection import TaskMetadataCollection, TaskSubset
 from tabarena.benchmark.task.subset_predicate import SubsetPredicate
+from tabarena.benchmark.validation_protocol import (
+    ValidationProtocol,
+    ValidationProtocolError,
+    experiment_violations,
+    format_violations,
+)
 from tabarena.evaluation.leaderboard_reporter import LeaderboardReporter
 from tabarena.models._in_memory_method_metadata import InMemoryMethodMetadata
-from tabarena.models._method_metadata import MethodMetadata
+from tabarena.models._method_metadata import MethodMetadata, infer_validation_protocol
 from tabarena.models._method_metadata_collection import MethodMetadataCollection
 from tabarena.models._method_simulator import MethodSimulator
 from tabarena.nips2025_utils.per_dataset_tables import get_per_dataset_tables
@@ -59,6 +70,28 @@ if TYPE_CHECKING:
 # expname" (fall back to `cache_config.results`, else error) from an explicit `expname=None`
 # (always a throwaway temp dir). Keeps the original "expname is required; None means throwaway" API.
 _EXPNAME_UNSET: Any = object()
+
+#: The task-metadata fields that define a dataset's split structure (what task-specific validation acts
+#: on); compared against the arena's official collection under an enforced protocol.
+_SPLIT_STRUCTURE_FIELDS = (
+    "stratify_on",
+    "group_on",
+    "time_on",
+    "group_time_on",
+    "group_labels",
+    "split_time_horizon",
+    "split_time_horizon_unit",
+)
+
+
+def _structure_value(value: Any) -> Any:
+    """Comparable form of a split-structure field: enum members by value, NaN as None, lists as tuples."""
+    value = getattr(value, "value", value)
+    if isinstance(value, float) and np.isnan(value):
+        return None
+    if isinstance(value, list):
+        return tuple(value)
+    return value
 
 
 def _default_max_workers() -> int:
@@ -83,6 +116,22 @@ class AbstractArenaContext:
     #: Frontier"``). Subclasses override (``TabArenaContext`` -> ``"TabArena"``,
     #: ``BeyondArenaContext`` -> ``"BeyondArena"``).
     benchmark_name: str = "Arena"
+
+    #: The inner validation protocol the arena's official results were produced under (bagging folds x
+    #: sets, tiny-data regime, task-specific splits, class-adaptive folds), or ``None`` when the arena
+    #: declares none (a bare context asserts only a protocol passed to its constructor). Subclasses set
+    #: their constant (``TabArenaContext``: :data:`~tabarena.benchmark.validation_protocol.TABARENA_V0PT1_VALIDATION_PROTOCOL`,
+    #: ``BeyondArenaContext``: :data:`~tabarena.benchmark.validation_protocol.BEYONDARENA_VALIDATION_PROTOCOL`).
+    OFFICIAL_VALIDATION_PROTOCOL: ClassVar[ValidationProtocol | None] = None
+
+    #: The experiment flavours whose results count as official: bagged models (which run the protocol) and
+    #: systems (which own their validation). Outer, holdout and full-predictor fits run outside the
+    #: protocol by construction; they need no flag and are recorded as such.
+    OFFICIAL_VALIDATION_FLAVOURS: ClassVar[frozenset[str]] = frozenset({"bagged", "system"})
+
+    #: The experiment bundle paired with this arena, named in the error when experiments built for
+    #: another arena (carrying its protocol) are run here.
+    OFFICIAL_BUNDLE_HINT: ClassVar[str | None] = None
 
     #: Subset-filter predicates available to `compare` / `build_jobs`, keyed by
     #: name. Each :class:`SubsetPredicate` declares the grid columns it needs (validated before
@@ -121,6 +170,8 @@ class AbstractArenaContext:
         calibration_method: str | None = None,
         only_valid_tasks: bool = False,
         cache_config: CacheConfig | None = None,
+        validation_protocol: ValidationProtocol | dict | None = None,
+        official_validation_protocol: bool = True,
     ):
         # Configure the caches first: `cache_config.apply()` points this (driver) process at
         # the declared OpenML / HuggingFace / TabArena locations, so resolving + materializing
@@ -136,6 +187,15 @@ class AbstractArenaContext:
         self.cache_config = cache_config
         if cache_config is not None:
             cache_config.apply(openml=not cache_config.scope_openml)
+
+        # The inner validation protocol this context runs experiments under, and whether it asserts it.
+        # `official_validation_protocol=True` (the default) means: the arena's declared protocol (or the
+        # one given to a bare context) is stamped onto every bagged experiment and a bagged experiment
+        # carrying another protocol is refused. `False` lets `validation_protocol` (or per-bundle /
+        # per-experiment protocols) run, recorded and marked as custom.
+        self.validation_protocol, self.enforces_validation_protocol = self._resolve_validation_protocol(
+            validation_protocol, official=official_validation_protocol
+        )
 
         # A TaskMetadataCollection is the single source of truth; the legacy `task_metadata`
         # DataFrame view is derived from it on demand (see the `task_metadata` cached_property).
@@ -283,12 +343,20 @@ class AbstractArenaContext:
         here instead, front-loading the network I/O; the download is disk-cached, so a later
         :meth:`run_jobs` still re-materializes but hits the cache.
 
+        Before any job exists, the context applies its validation protocol (see
+        :meth:`_prepare_experiments`): the official protocol is stamped onto the bagged, holdout and
+        full-predictor experiments that carry none, a bagged experiment carrying another protocol is
+        refused unless ``official_validation_protocol=False``, and the scoped collection is checked to
+        still carry the arena's official split structure (:meth:`_check_task_collection_structure`).
+
         The result is ready for :meth:`run_jobs` (or :meth:`run_job` for a single unit).
         """
         from tabarena.benchmark.experiment import build_jobs as build_jobs_grid
 
         predicates = subset_kwargs.pop("predicates", self.subset_predicates)
         collection = self.task_metadata_collection.subset_tasks(task_subset, predicates=predicates, **subset_kwargs)
+        self._prepare_experiments(experiments, announce=True)
+        self._check_task_collection_structure(collection)
         if pre_materialize:
             # Materializing downloads into the OpenML/HF caches; make sure this process is
             # pointed at the configured locations first (covers a context built/used on a worker).
@@ -337,11 +405,17 @@ class AbstractArenaContext:
         Extra ``**runner_kwargs`` (e.g. ``debug_mode``, ``cache_mode``) reach
         :class:`ExperimentBatchRunner`. Returns the raw per-split result dicts (also registered
         when ``register`` is True).
+
+        The jobs' experiments go through the same validation-protocol preparation as in
+        :meth:`build_jobs` (stamping, refusal of a foreign bagged protocol, split-structure check of
+        the jobs' tasks), so hand-built or loaded jobs are covered too.
         """
         from tabarena.benchmark.experiment import ExperimentBatchRunner
 
         if not jobs:
             return []
+        # Jobs from `build_jobs` share their experiment objects; prepare each object once.
+        self._prepare_experiments(list({id(job.experiment): job.experiment for job in jobs}.values()), announce=False)
         if expname is _EXPNAME_UNSET:
             # Omitted entirely: fall back to the cache_config default, else preserve the original
             # "expname is required" contract with a clear error (rather than a missing-arg TypeError).
@@ -360,7 +434,9 @@ class AbstractArenaContext:
         with self._cache_scope():
             # Scope-then-materialize: only the tasks the jobs actually touch are downloaded, and
             # the collection itself is the single source of truth for what the runner resolves.
-            collection = self.task_metadata_collection.subset_to_jobs(jobs).materialize()
+            collection = self.task_metadata_collection.subset_to_jobs(jobs)
+            self._check_task_collection_structure(collection)
+            collection = collection.materialize()
             # `expname=None` -> a throwaway cache: the returned result dicts are in memory, so the
             # cache dir is only needed while the runner runs and is discarded right after.
             tmp_expname = tempfile.TemporaryDirectory() if expname is None else None
@@ -422,6 +498,153 @@ class AbstractArenaContext:
             new_result_prefix=new_result_prefix,
             **runner_kwargs,
         )
+
+    # ------------------------------------------------------------------ validation protocol
+    def _resolve_validation_protocol(
+        self,
+        validation_protocol: ValidationProtocol | dict | None,
+        *,
+        official: bool,
+    ) -> tuple[ValidationProtocol | None, bool]:
+        """The protocol this context runs under and whether it enforces it.
+
+        The arena's :attr:`OFFICIAL_VALIDATION_PROTOCOL` is the default. A different
+        ``validation_protocol`` is refused while ``official`` is set; with ``official=False`` it replaces the
+        declared one. A bare context (no declared protocol) enforces exactly the protocol it is given, so a
+        downstream arena can opt in without subclassing. The returned protocol is labelled with this arena
+        and the enforcement state; the second element is ``False`` when there is nothing to enforce.
+        """
+        declared = type(self).OFFICIAL_VALIDATION_PROTOCOL
+        given = ValidationProtocol.from_config(validation_protocol)
+        if official and declared is not None and given is not None and given != declared:
+            raise ValueError(
+                f"{type(self).__name__} enforces its official validation protocol {declared.describe()} "
+                f"[{declared.key()}]; got {given.describe()} [{given.key()}]. To run experiments under another "
+                "protocol pass official_validation_protocol=False (results are recorded and marked as a custom "
+                "protocol) or drop validation_protocol= to use the official one.",
+            )
+        protocol = given if given is not None else declared
+        enforced = official and protocol is not None
+        if protocol is not None:
+            protocol = protocol.with_origin(arena=self.benchmark_name, enforced=enforced)
+        return protocol, enforced
+
+    def _prepare_experiments(self, experiments: list[Experiment], *, announce: bool) -> None:
+        """Apply this context's validation protocol to ``experiments`` (in place) before any job runs.
+
+        Per :attr:`~tabarena.benchmark.experiment.experiment_constructor.Experiment.VALIDATION_FLAVOUR`:
+
+        * ``bagged``: under enforcement a foreign protocol or a split-structure override
+          (``method_kwargs["validation_metadata"]``) raises :class:`ValidationProtocolError` listing every
+          offender, the pairing hint and the opt-out; otherwise the experiment keeps its own protocol. An
+          unstamped experiment receives the context's. The stamp is labelled ``enforced=True`` only under
+          enforcement.
+        * ``holdout`` and ``predictor``: never refused (not official flavours), but they need the protocol
+          for task-aware sizing and splits, so an unstamped one receives the context's with ``enforced=False``.
+        * ``outer`` and ``system``: untouched (no inner validation to run the protocol on).
+
+        Objects without a flavour and setter (test stand-ins) are skipped. A context without a protocol
+        does nothing. With ``announce`` one notice line summarizes what was stamped.
+        """
+        protocol = self.validation_protocol
+        if protocol is None:
+            return
+        arena = self.benchmark_name
+        enforced = self.enforces_validation_protocol
+        prepared = [
+            e for e in experiments if hasattr(e, "VALIDATION_FLAVOUR") and hasattr(e, "set_validation_protocol")
+        ]
+        if enforced:
+            violations: list[str] = []
+            for experiment in prepared:
+                violations += experiment_violations(
+                    experiment, protocol=protocol, arena=arena, bundle_hint=type(self).OFFICIAL_BUNDLE_HINT
+                )
+            if violations:
+                raise ValidationProtocolError(format_violations(violations, arena=arena))
+        counts: Counter[str] = Counter()
+        for experiment in prepared:
+            flavour = experiment.VALIDATION_FLAVOUR
+            if flavour == "bagged":
+                own = experiment.validation_protocol
+                stamp = protocol if enforced or own is None else own
+                experiment.set_validation_protocol(stamp.with_origin(arena=arena, enforced=enforced))
+            elif flavour in ("holdout", "predictor"):
+                own = experiment.validation_protocol
+                stamp = protocol if own is None else own
+                experiment.set_validation_protocol(stamp.with_origin(arena=arena, enforced=False))
+            counts[flavour or "custom"] += 1
+        if announce and counts:
+            print(self._validation_protocol_notice(counts))
+
+    def _validation_protocol_notice(self, counts: Counter[str]) -> str:
+        """One line saying what the protocol did to a set of experiments (see :meth:`_prepare_experiments`)."""
+        protocol = self.validation_protocol
+        label = f"{protocol.name or 'custom'} [{protocol.key()}]"
+        mode = "enforced on" if self.enforces_validation_protocol else "applied (not enforced) to"
+        segments = [f"Validation protocol: {label} {mode} {counts.get('bagged', 0)} bagged experiment(s)"]
+        if counts.get("system"):
+            segments.append(f"{counts['system']} system experiment(s) own their validation")
+        for flavour, label_flavour in (("holdout", "holdout"), ("predictor", "full-predictor"), ("outer", "outer")):
+            if counts.get(flavour):
+                segments.append(
+                    f"{counts[flavour]} {label_flavour} experiment(s) run outside the official protocol "
+                    "(recorded as such)"
+                )
+        if counts.get("custom"):
+            segments.append(f"{counts['custom']} experiment(s) without a validation flavour (recorded as custom)")
+        return "; ".join(segments)
+
+    def _official_task_metadata_collection(self) -> TaskMetadataCollection | None:
+        """The arena's official task collection, the reference for :meth:`_check_task_collection_structure`.
+
+        ``None`` for the base context (nothing to compare against); an arena subclass returns its committed
+        suite, loaded offline.
+        """
+        return None
+
+    def _check_task_collection_structure(self, collection: TaskMetadataCollection) -> None:
+        """Refuse a task collection whose official datasets lost their official split structure.
+
+        The protocol fixes whether the inner splits follow the task's structure; the structure itself
+        (``group_on``, ``time_on``, ``stratify_on``, ...) comes from the collection. Under an enforced
+        protocol every dataset of ``collection`` that the arena's official collection also has must carry
+        the same split-structure fields and only official ``(fold, repeat)`` splits, else a run could read
+        as official while validating differently. Datasets unknown to the arena (custom tasks) pass; their
+        structure is recorded per result. A no-op without enforcement or without an official collection.
+        """
+        if not self.enforces_validation_protocol:
+            return
+        official = self._official_task_metadata_collection()
+        if official is None:
+            return
+        official_by_name = {task.tabarena_task_name: task for task in official}
+        official_splits = set(official.dataset_fold_repeats())
+        problems: list[str] = []
+        for task in collection:
+            reference = official_by_name.get(task.tabarena_task_name)
+            if reference is None:
+                continue
+            for field in _SPLIT_STRUCTURE_FIELDS:
+                run_value = _structure_value(getattr(task, field, None))
+                official_value = _structure_value(getattr(reference, field, None))
+                if run_value != official_value:
+                    problems.append(f"{task.tabarena_task_name}: {field}={run_value!r}, official {official_value!r}")
+            for split in task.splits_metadata.values():
+                if (task.tabarena_task_name, split.fold, split.repeat) not in official_splits:
+                    problems.append(
+                        f"{task.tabarena_task_name}: split (fold={split.fold}, repeat={split.repeat}) is not an "
+                        "official split"
+                    )
+        if problems:
+            listed = "\n  - ".join(problems[:20])
+            more = f"\n  ... and {len(problems) - 20} more" if len(problems) > 20 else ""
+            raise ValidationProtocolError(
+                f"[{self.benchmark_name} official validation protocol] the task collection deviates from the "
+                f"official split structure in {len(problems)} place(s):\n  - {listed}{more}\n"
+                "Fix: run on the arena's preset task collection, or pass official_validation_protocol=False to "
+                "the context to run with this collection (results are recorded and marked as a custom protocol)."
+            )
 
     # ------------------------------------------------------------------ arena-specific hooks
     def _resolve_task_metadata_preset(self, name: str) -> TaskMetadataCollection:
@@ -781,9 +1004,50 @@ class AbstractArenaContext:
             [*self.method_metadata_collection.method_metadata_lst, *new_methods],
         )
         self._new_method_names.update(m.method for m in new_methods)
+        self._warn_on_custom_validation_protocol(new_methods)
         if scope_to_valid_tasks:
             self.only_valid_tasks = True
             self._scope_to_valid_tasks()
+
+    def validation_protocol_status(
+        self, method: MethodMetadata
+    ) -> Literal["official", "custom", "system", "recorded", "unrecorded"]:
+        """How a method's recorded validation protocol relates to this arena's official one.
+
+        ``official`` (the arena's protocol key), ``custom`` (another recorded protocol, including the
+        holdout / outer / full-predictor flavours and ``mixed``), ``system`` (systems own their
+        validation), ``recorded`` (a protocol is recorded but this context has none to compare it
+        with) or ``unrecorded`` (results that predate the record). The reference is the arena's
+        declared protocol; a bare context has one only while it enforces the protocol it was given.
+        """
+        value = method.validation_protocol
+        if value is None:
+            return "unrecorded"
+        if value == "system" or (method.method_class == "system" and method.method_type != "portfolio"):
+            return "system"
+        reference = self._reference_validation_protocol()
+        if reference is None:
+            return "recorded"
+        return "official" if value == reference.key() else "custom"
+
+    def _reference_validation_protocol(self) -> ValidationProtocol | None:
+        """The protocol registered methods are judged against: the declared one, else an enforced given one."""
+        declared = type(self).OFFICIAL_VALIDATION_PROTOCOL
+        if declared is not None:
+            return declared
+        return self.validation_protocol if self.enforces_validation_protocol else None
+
+    def _warn_on_custom_validation_protocol(self, methods: list[MethodMetadata]) -> None:
+        """Warn once when registered methods ran outside this arena's official validation protocol."""
+        custom = [m.method for m in methods if self.validation_protocol_status(m) == "custom"]
+        if not custom:
+            return
+        reference = self._reference_validation_protocol()
+        warnings.warn(
+            f"{self.benchmark_name}: {len(custom)} registered method(s) ran outside the official validation protocol "
+            f"[{reference.key()}] and count as custom: {custom}. Compare them with that in mind.",
+            stacklevel=3,
+        )
 
     def _scope_to_valid_tasks(self) -> None:
         """Pre-filter :attr:`task_metadata_collection` to the registered new methods' tasks.
@@ -1777,6 +2041,10 @@ class AbstractArenaContext:
             method=new_config_type,
             suite=ta_suite,
             config_type=new_config_type,
+            # The pooled family ran under its constituents' protocol (`mixed` when they disagree).
+            validation_protocol=infer_validation_protocol(
+                self.method_metadata(m).validation_protocol if isinstance(m, str) else None for m in methods
+            ),
         )
 
     def run_hpo(

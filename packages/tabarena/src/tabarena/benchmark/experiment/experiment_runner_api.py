@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Literal
 
 from tabarena.benchmark.experiment.experiment_utils import ExperimentBatchRunner
 from tabarena.benchmark.task.spec import task_spec_from_task_id_str
+from tabarena.benchmark.validation_protocol import CACHE_AUX_NAME
 from tabarena.utils.cache import AbstractCacheFunction, CacheFunctionPickle
 
 if TYPE_CHECKING:
@@ -75,6 +76,70 @@ def job_cache_exists_batch(
             repeat=repeat,
         )
         for method_name, task_id_str, fold, repeat in items
+    ]
+
+
+CacheStatus = Literal["missing", "hit", "legacy", "mismatch"]
+"""What the results cache holds for one job, relative to the validation protocol the job runs under:
+``missing`` (no cached result), ``hit`` (a result fit under the same protocol key), ``legacy`` (a result
+written before side records existed, trusted as is) or ``mismatch`` (a result fit under another protocol,
+which must not be reused or overwritten by accident)."""
+
+
+def job_cache_status(
+    *,
+    output_dir: str,
+    method_name: str,
+    task_id_str: str,
+    fold: int,
+    repeat: int,
+    expected_key: str | None,
+    cache_cls: type[AbstractCacheFunction] = CacheFunctionPickle,
+    cache_cls_kwargs: dict | None = None,
+) -> CacheStatus:
+    """The :data:`CacheStatus` of one (method, task, fold, repeat) unit for a run under ``expected_key``.
+
+    ``expected_key`` is the job experiment's ``validation_record()["key"]``. Like :func:`job_cache_exists`
+    this reads through the run engine's own cacher, plus the ``validation_protocol`` side record the engine
+    writes next to a fresh result (see ``Experiment.run``).
+    """
+    cacher = _build_results_cacher(
+        cache_cls=cache_cls,
+        cache_cls_kwargs=cache_cls_kwargs,
+        base_cache_path=output_dir,
+        method_name=method_name,
+        cache_task_key=task_cache_key_from_task_id_str(task_id_str),
+        fold=fold,
+        repeat=repeat,
+    )
+    if not cacher.exists:
+        return "missing"
+    aux = cacher.load_aux(CACHE_AUX_NAME)
+    if aux is None:
+        return "legacy"
+    return "hit" if aux.get("key") == expected_key else "mismatch"
+
+
+def job_cache_status_batch(
+    *,
+    items: list[tuple[str, str, int, int, str | None]],
+    output_dir: str,
+) -> list[CacheStatus]:
+    """Batched :func:`job_cache_status` over ``(method_name, task_id_str, fold, repeat, expected_key)`` tuples.
+
+    Module-level and tuple-based like :func:`job_cache_exists_batch`, so dispatch filters can fan it out
+    across workers without pickling live experiments.
+    """
+    return [
+        job_cache_status(
+            output_dir=output_dir,
+            method_name=method_name,
+            task_id_str=task_id_str,
+            fold=fold,
+            repeat=repeat,
+            expected_key=expected_key,
+        )
+        for method_name, task_id_str, fold, repeat, expected_key in items
     ]
 
 

@@ -64,7 +64,7 @@ if __name__ == "__main__":
     # its output is printed during fit (2 = the usual key prints, 3+ = more detail; default 2).
     experiments = BeyondArenaExperimentBundle(
         models=[(DummyPredictorModel.config_generator(), 0)],
-        outer_experiments=True,
+        outer_experiments=True,  # no inner validation: runs outside the official protocol, recorded as such
         # verbosity=3,  # set to log default preprocessing
     ).build_experiments()
 

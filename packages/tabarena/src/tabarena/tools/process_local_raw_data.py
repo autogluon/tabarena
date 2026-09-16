@@ -38,12 +38,17 @@ import json
 import os
 import re
 import time
+from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import pandas as pd
+
 from tabarena.benchmark.result.raw_loading import fetch_raw_result_paths, scan_raw_info
+from tabarena.benchmark.validation_protocol import ValidationProtocol
 from tabarena.end_to_end import EndToEnd
+from tabarena.models._method_metadata import infer_validation_protocol
 
 if TYPE_CHECKING:
     from tabarena.end_to_end import EndToEndResults
@@ -130,6 +135,12 @@ def _infer_from_raw(method: RawMethod, *, engine: str = "ray", file_paths: list[
     frameworks = _unique("framework")
     num_gpus_vals = _unique("num_gpus")
     is_bag_any = bool(info_df["is_bag"].any())
+    # The validation protocol every result records (None throughout for results that predate the
+    # record): the distinct keys, the one value they reduce to, and how many children each fit had.
+    validation_protocol_keys = _unique("validation_protocol_key") if "validation_protocol_key" in info_df else []
+    inferred_validation_protocol = infer_validation_protocol(validation_protocol_keys)
+    validation_flavours = _unique("validation_flavour") if "validation_flavour" in info_df else []
+    fold_histogram = _fold_histogram(info_df)
 
     inferred_compute = "gpu" if (num_gpus_vals and max(num_gpus_vals) > 0) else "cpu"
     inferred_can_hpo = len(frameworks) > 1
@@ -163,6 +174,10 @@ def _infer_from_raw(method: RawMethod, *, engine: str = "ray", file_paths: list[
         "frameworks": frameworks,
         "num_gpus_vals": num_gpus_vals,
         "is_bag_any": is_bag_any,
+        "validation_protocol_keys": validation_protocol_keys,
+        "inferred_validation_protocol": inferred_validation_protocol,
+        "validation_flavours": validation_flavours,
+        "fold_histogram": fold_histogram,
         "inferred_compute": inferred_compute,
         "inferred_can_hpo": inferred_can_hpo,
         "inferred_config_default": inferred_config_default,
@@ -174,6 +189,32 @@ def _infer_from_raw(method: RawMethod, *, engine: str = "ray", file_paths: list[
         "n_folds": n_folds,
         "config_task_counts": config_task_counts,
     }
+
+
+def _fold_histogram(info_df: pd.DataFrame) -> list[tuple[str, int]]:
+    """Count the recorded ``(folds x sets)`` each result fitted, labelling single leave-one-out children.
+
+    A fit whose bag was replaced by one child with its own out-of-fold estimate (``use_child_oof``, the
+    KNN case) is listed as its own line (``8x1 requested; 1 child via use_child_oof``) rather than as a
+    fold deviation. Empty when no result carries a record.
+    """
+    needed = {"vp_num_bag_folds", "vp_num_bag_sets"}
+    if not needed.issubset(info_df.columns):
+        return []
+    counts: Counter[str] = Counter()
+    for folds, sets, child_oof in zip(
+        info_df["vp_num_bag_folds"],
+        info_df["vp_num_bag_sets"],
+        info_df["vp_child_oof"] if "vp_child_oof" in info_df else [None] * len(info_df),
+        strict=True,
+    ):
+        if pd.isna(folds) or pd.isna(sets):
+            continue
+        label = f"{int(folds)}x{int(sets)}"
+        if child_oof is True or (isinstance(child_oof, (bool, int)) and child_oof and not pd.isna(child_oof)):
+            label += " requested; 1 child via use_child_oof"
+        counts[label] += 1
+    return sorted(counts.items())
 
 
 def _expected_config_default(method: RawMethod, inferred: dict) -> str | None:
@@ -219,6 +260,9 @@ def _comparison_rows(method: RawMethod, inferred: dict) -> list[tuple[str, objec
         ("method", inferred["inferred_method"], m.method, "warn"),
         ("method_type", inferred["inferred_method_type"], m.method_type, "error"),
         ("compute", inferred["inferred_compute"], m.compute, "error"),
+        # Legacy raw artifacts without a record infer None and skip the check; a recorded protocol must
+        # be declared (a missing declaration is a mismatch, not an omission).
+        ("validation_protocol", inferred.get("inferred_validation_protocol"), m.validation_protocol, "error"),
     ]
     if m.method_type == "config":
         ag_key = inferred["inferred_ag_key"]
@@ -332,6 +376,14 @@ def _print_method_metadata_snippet(method: RawMethod, inferred: dict) -> None:
         # Ambiguous type (no single method_type in raw): state it so the snippet stays valid.
         active_fields.append(("method_type", inferred_method_type, ""))
     active_fields.append(("compute", inferred["inferred_compute"], ""))
+    if inferred.get("inferred_validation_protocol") is not None:
+        active_fields.append(
+            (
+                "validation_protocol",
+                inferred["inferred_validation_protocol"],
+                "  # the inner validation protocol the raw results record; must be declared",
+            )
+        )
 
     if inferred_method_type == "config":
         # Config-only fields (rejected by the baseline/portfolio constructors).
@@ -446,6 +498,13 @@ def log_raw_data_info(method: RawMethod, *, engine: str = "ray", inferred: dict 
         f"[raw-info]   n_frameworks  = {len(inferred['frameworks'])} -> can_hpo={inferred['inferred_can_hpo']}, "
         f"config_default={inferred['inferred_config_default']!r}"
     )
+    keys = inferred.get("validation_protocol_keys", [])
+    print(
+        f"[raw-info]   validation    = {keys} -> validation_protocol={inferred.get('inferred_validation_protocol')!r}"
+        + ("" if keys else "  (no record: results predate the validation-protocol record)")
+    )
+    for label, n in inferred.get("fold_histogram", []):
+        print(f"[raw-info]     {label} -> {n} result(s)")
     print(f"[raw-info]   n_datasets    = {inferred['n_datasets']}")
     print(f"[raw-info]   n_tasks (dxf) = {inferred['n_tasks']}")
     print(f"[raw-info]   n_folds       = {inferred['n_folds']}")
@@ -471,6 +530,7 @@ def verify_method_metadata(
     check_alignment: bool = True,
     check_method_ne_suite: bool = True,
     ignore_mismatch: bool = False,
+    expected_validation_protocol: ValidationProtocol | str | None = None,
 ) -> None:
     """Verify ``method.method_metadata`` before processing, raising on any failed check.
 
@@ -498,6 +558,11 @@ def verify_method_metadata(
     ignore_mismatch
         When ``True``, failed checks are downgraded to a warning instead of raising (the
         always-required explicit-metadata check still raises). ``method`` mismatches warn either way.
+    expected_validation_protocol
+        The arena's official protocol (a ``ValidationProtocol`` or its key) the raw results are expected
+        to have been fit under, e.g. before uploading a submission. A recorded protocol that differs
+        fails verification (systems own their validation and are exempt); raw artifacts without a
+        record are not checked.
     """
     label = method.resolved_name or str(method.path_raw.name)
     m = method.method_metadata
@@ -519,6 +584,21 @@ def verify_method_metadata(
                 continue
             msg = f"{field}: inferred={inferred_val!r} (raw) != provided={provided_val!r}"
             (warnings if severity == "warn" else problems).append(msg)
+
+    if expected_validation_protocol is not None:
+        if inferred is None:
+            inferred = _infer_from_raw(method, engine=engine)
+        expected_key = (
+            expected_validation_protocol.key()
+            if isinstance(expected_validation_protocol, ValidationProtocol)
+            else expected_validation_protocol
+        )
+        recorded = inferred.get("inferred_validation_protocol")
+        if recorded is not None and recorded != expected_key and not (m.is_system or recorded == "system"):
+            problems.append(
+                f"validation_protocol: the raw results were fit under {recorded!r}, but the arena expects "
+                f"{expected_key!r}; this run cannot be submitted as an official result"
+            )
 
     if check_method_ne_suite and m.method == m.suite:
         problems.append(
@@ -605,6 +685,7 @@ def process_method(
     cache_raw: bool = True,
     cache_hpo_trajectories: bool = True,
     backend: str = "ray",
+    expected_validation_protocol: ValidationProtocol | str | None = None,
 ) -> None:
     """Inspect and/or process a single ``RawMethod`` (no upload).
 
@@ -624,6 +705,9 @@ def process_method(
         warning instead of erroring (the missing-metadata error always raises).
     cache_raw, cache_hpo_trajectories, backend
         Forwarded to :func:`process_raw` (only used when ``process=True``).
+    expected_validation_protocol
+        Forwarded to :func:`verify_method_metadata`: the arena protocol the raw results must have been
+        fit under to count as an official submission.
     """
     engine = "ray" if backend == "ray" else "sequential"
     label = method.resolved_name or str(method.path_raw.name)
@@ -649,6 +733,7 @@ def process_method(
             engine=engine,
             inferred=inferred,
             ignore_mismatch=ignore_metadata_mismatch,
+            expected_validation_protocol=expected_validation_protocol,
         )
         print(f"[process] Building + caching processed repo and results for '{label}'...")
         process_raw(

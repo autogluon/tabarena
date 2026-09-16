@@ -8,6 +8,27 @@ if TYPE_CHECKING:
     from tabarena.models._method_metadata import MethodMetadata
 
 
+def declare_validation_protocol(
+    methods: list[MethodMetadata],
+    *,
+    model_protocol: str,
+    system_protocol: str = "system",
+) -> list[MethodMetadata]:
+    """Fill ``validation_protocol`` on every method of ``methods`` that leaves it unset (in place).
+
+    An arena's roster declares the protocol its hosted results were produced under once, here, instead
+    of on every entry: models (configs, model baselines and portfolios, which are built from the
+    models' configs) get ``model_protocol``, systems ``system_protocol``. A method that declares its
+    own value keeps it. Returns ``methods`` for chaining.
+    """
+    for method in methods:
+        if method.validation_protocol is not None:
+            continue
+        is_system = method.method_class == "system" and method.method_type != "portfolio"
+        method.validation_protocol = system_protocol if is_system else model_protocol
+    return methods
+
+
 class MethodMetadataCollection:
     def __init__(self, method_metadata_lst: list[MethodMetadata]):
         self.method_metadata_lst = method_metadata_lst

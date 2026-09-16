@@ -3,7 +3,8 @@ from __future__ import annotations
 import copy
 import gc
 import shutil
-from typing import TYPE_CHECKING
+from dataclasses import replace
+from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
 import numpy as np
 import pandas as pd
@@ -11,10 +12,20 @@ from autogluon.core.data.label_cleaner import LabelCleanerMulticlassToBinary
 from autogluon.core.models import AbstractModel
 from loguru import logger
 
-from tabarena.benchmark.exec_models.autogluon_utils import resolve_holdout_split, resolve_validation_splits
+from tabarena.benchmark.exec_models.autogluon_utils import (
+    get_num_group_instances,
+    resolve_holdout_split,
+    resolve_validation_splits,
+)
 from tabarena.benchmark.exec_models.base import AbstractExecModel
 from tabarena.benchmark.exec_models.utils import _apply_inv_perm
 from tabarena.benchmark.preprocessing.pipeline import build_feature_generator, resolve_preprocessing_pipeline
+from tabarena.benchmark.validation_protocol import (
+    ValidationProtocol,
+    ValidationProtocolError,
+    ValidationResolution,
+    structure_of,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
@@ -31,20 +42,24 @@ class AGWrapper(AbstractExecModel):
     to the frame internally under the name resolved in ``_build_predictor_args``
     (the validation metadata's ``target_name``, else ``"__label__"``).
 
-    When ``use_task_specific_validation`` is set, the task-specific validation split is built
-    during ``_fit`` against ``self.validation_metadata``. The bagged path (``num_bag_folds > 1``)
-    uses ``resolve_validation_splits`` to produce ``k`` group/time-aware folds (re-injected as
-    ``ag_args_ensemble['custom_splits']``); the non-bagged holdout path uses
-    ``resolve_holdout_split`` to produce a single group/time-aware train/validation split, fed to
-    ``TabularPredictor`` as ``tuning_data`` (a single model does not consume ``custom_splits``).
+    The inner validation follows ``self.validation_protocol`` (a
+    :class:`~tabarena.benchmark.validation_protocol.ValidationProtocol`, injected by the experiment
+    runner from the experiment) and is resolved during ``_fit`` against ``self.validation_metadata``.
+    A bagged fit (``AGSingleBagWrapper``) takes its fold and repeat counts from the protocol; with
+    ``task_specific_validation`` it uses ``resolve_validation_splits`` to produce ``k`` group/time-aware
+    folds (re-injected as ``ag_args_ensemble['custom_splits']``). A holdout fit (``AGSingleWrapper``)
+    uses ``resolve_holdout_split`` to produce a single group/time-aware train/validation split, fed to
+    ``TabularPredictor`` as ``tuning_data`` (a single model does not consume ``custom_splits``). A full
+    predictor (``AGWrapper`` itself) lets AutoGluon decide unless ``fit_kwargs`` name the counts.
 
     Parameters
     ----------
     init_kwargs:
         Extra keyword arguments for the ``TabularPredictor(...)`` constructor.
     fit_kwargs:
-        Extra keyword arguments for ``TabularPredictor.fit(...)``. ``num_bag_folds`` /
-        ``num_bag_sets`` here drive the (optionally task-specific) validation protocol.
+        Extra keyword arguments for ``TabularPredictor.fit(...)``. The bagging counts are not
+        passed here: a single-model wrapper takes them from ``validation_protocol``; a full
+        predictor may name ``num_bag_folds`` / ``num_bag_sets`` explicitly (fit as given).
     persist:
         If True (default), persist the fitted model in memory around inference (untimed, via
         ``pre_predict``/``post_predict``), so the measured inference time is that of a served,
@@ -57,10 +72,11 @@ class AGWrapper(AbstractExecModel):
         validation-split structure. Inherited from ``AbstractExecModel`` (the runner injects it
         from the task); the label column appended to the training frame is named via
         ``validation_metadata.get_target_name()`` (its ``target_name``, else ``"__label__"``).
-    use_task_specific_validation:
-        If True, *act* on ``validation_metadata`` during fitting — build task-aware validation
-        splits and group-aware features; otherwise use standard splitting and ignore the
-        metadata's split columns (the metadata is still present, just not acted upon).
+    validation_protocol:
+        The :class:`~tabarena.benchmark.validation_protocol.ValidationProtocol` (or its dict form)
+        this fit follows: fold and repeat counts, the tiny-data regime, whether the inner splits are
+        task-specific and whether AutoGluon may adapt the fold count to the class count. ``None``
+        for a full predictor that leaves the validation to AutoGluon.
     """
 
     persist_max_memory: float | None = 0.4
@@ -83,14 +99,23 @@ class AGWrapper(AbstractExecModel):
     predictor: TabularPredictor
     """The fitted AutoGluon ``TabularPredictor`` (set by ``_fit``)."""
 
+    bagged_fit: ClassVar[bool | None] = None
+    """Whether this wrapper fits a bag (``True``), a single holdout model (``False``) or a full
+    predictor whose ``fit_kwargs`` and presets decide (``None``)."""
+
     def __init__(
         self,
         init_kwargs: dict | None = None,
         fit_kwargs: dict | None = None,
         persist: bool = True,
-        use_task_specific_validation: bool = False,
+        validation_protocol: ValidationProtocol | dict | None = None,
         **kwargs,
     ):
+        if "use_task_specific_validation" in kwargs:
+            raise TypeError(
+                "`use_task_specific_validation` is not a wrapper argument; task-specific validation is the "
+                "`task_specific_validation` field of the experiment's ValidationProtocol.",
+            )
         super().__init__(**kwargs)
         if init_kwargs is None:
             init_kwargs = {}
@@ -98,9 +123,10 @@ class AGWrapper(AbstractExecModel):
             fit_kwargs = {}
         self.init_kwargs = init_kwargs
         self.fit_kwargs = fit_kwargs
-        self.use_task_specific_validation = use_task_specific_validation
+        self.validation_protocol = ValidationProtocol.from_config(validation_protocol)
         self.persist = persist
         self._persisted_models: list[str] | None = None
+        self._validation_resolution: ValidationResolution | None = None
 
     # --- Warm-up (untimed) --------------------------------------------------------------
     @property
@@ -159,10 +185,9 @@ class AGWrapper(AbstractExecModel):
         Works on deep copies of the configured ``init_kwargs`` / ``fit_kwargs`` so the
         wrapper can be re-fit. The steps:
 
-        1. Pop ``num_bag_folds`` / ``num_bag_sets`` and run them through the task-specific
-           validation protocol (``resolve_validation_splits``), which may adjust the fold /
-           repeat counts and/or produce explicit ``custom_splits`` (re-injected into
-           ``ag_args_ensemble``).
+        1. Resolve the bagging counts from the validation protocol (``_apply_validation_splits``),
+           which for a task-specific protocol may clamp the fold / repeat counts and produce
+           explicit ``custom_splits`` (re-injected into ``ag_args_ensemble``).
         2. On the non-bagged (holdout) path, carve a single task-aware validation split off the
            training data (``_apply_task_specific_holdout``) and hand it to ``TabularPredictor`` as
            explicit ``tuning_data`` — a single model does not consume the bagged ``custom_splits``.
@@ -197,38 +222,118 @@ class AGWrapper(AbstractExecModel):
         return train_data, init_kwargs, fit_kwargs
 
     def _apply_validation_splits(self, fit_kwargs: dict, *, X: pd.DataFrame, y: pd.Series) -> int | None:
-        """Resolve the fold/repeat counts (+ any custom splits) into ``fit_kwargs`` in place.
+        """Resolve the bagging counts (+ any custom splits) from the protocol into ``fit_kwargs`` in place.
 
-        Pops the requested ``num_bag_folds`` / ``num_bag_sets``; when task-specific validation
-        is enabled they run through ``resolve_validation_splits`` (which may adjust them and/or
-        produce explicit ``custom_splits``), then are written back.
+        A bagged wrapper (``bagged_fit=True``) takes ``num_bag_folds`` / ``num_bag_sets`` from
+        ``self.validation_protocol``: resolved for the training split's (group) instance count when
+        the protocol has a tiny-data regime, and with ``task_specific_validation`` run through
+        ``resolve_validation_splits`` (data-dependent clamps plus explicit ``custom_splits``). A
+        holdout wrapper (``bagged_fit=False``) resolves nothing here. A full predictor
+        (``bagged_fit=None``) passes its own ``fit_kwargs`` counts through, adding task-specific
+        custom splits for them when the protocol asks for it. What was resolved is kept on
+        ``self._validation_resolution`` for the result record.
 
-        Returns the effective ``num_folds`` — ``None`` (or ``<= 1``) signals the non-bagged
-        holdout path, which ``_build_predictor_args`` then handles via a single task-aware split.
+        Returns the effective ``num_folds``: ``None`` (or ``<= 1``) signals the non-bagged holdout
+        path, which ``_build_predictor_args`` then handles via a single task-aware split.
         """
         num_folds = fit_kwargs.pop("num_bag_folds", None)
         num_repeats = fit_kwargs.pop("num_bag_sets", None)
 
-        custom_splits = None
-        if self.use_task_specific_validation:
-            custom_splits, num_folds, num_repeats = resolve_validation_splits(
-                self.validation_metadata,
-                X=X.reset_index(drop=True),
-                y=y.reset_index(drop=True),
-                num_folds=num_folds,
-                num_repeats=num_repeats,
-            )
+        if self.bagged_fit is True:
+            if num_folds is not None or num_repeats is not None:
+                given = (("num_bag_folds", num_folds), ("num_bag_sets", num_repeats))
+                replacement = ", ".join(f"{key}={value!r}" for key, value in given if value is not None)
+                raise ValueError(
+                    "A bagged wrapper takes its counts from `validation_protocol`: pass "
+                    f"validation_protocol=ValidationProtocol({replacement}) instead of `num_bag_folds` / "
+                    "`num_bag_sets` in `fit_kwargs`."
+                )
+            if self.validation_protocol is None:
+                raise ValidationProtocolError(
+                    "A bagged fit needs a validation protocol: run the experiment through an arena context "
+                    "(which supplies its official protocol) or pass validation_protocol=ValidationProtocol(...).",
+                )
+            return self._resolve_bagged_fit(fit_kwargs, protocol=self.validation_protocol, X=X, y=y)
 
-        if num_folds is not None:
-            logger.info(f"Using num_folds: {num_folds}")
-            fit_kwargs["num_bag_folds"] = num_folds
-        if num_repeats is not None:
-            logger.info(f"Using num_repeats: {num_repeats}")
-            fit_kwargs["num_bag_sets"] = num_repeats
+        if self.bagged_fit is False:
+            if num_folds is not None or num_repeats is not None:
+                raise ValueError(
+                    "A holdout wrapper fits no bag; drop `num_bag_folds` / `num_bag_sets` from `fit_kwargs`."
+                )
+            return None
+
+        # Full predictor: explicit counts are fit as given; without them AutoGluon decides.
+        if num_folds is None or num_folds <= 1:
+            if num_folds is not None:
+                fit_kwargs["num_bag_folds"] = num_folds
+            if num_repeats is not None:
+                fit_kwargs["num_bag_sets"] = num_repeats
+            return num_folds
+        explicit = replace(
+            self.validation_protocol if self.validation_protocol is not None else ValidationProtocol(),
+            num_bag_folds=num_folds,
+            num_bag_sets=num_repeats if num_repeats is not None else 1,
+            tiny_num_bag_folds=None,
+            tiny_num_bag_sets=None,
+            tiny_max_group_instances=None,
+        )
+        return self._resolve_bagged_fit(fit_kwargs, protocol=explicit, X=X, y=y, regime="explicit")
+
+    def _resolve_bagged_fit(
+        self,
+        fit_kwargs: dict,
+        *,
+        protocol: ValidationProtocol,
+        X: pd.DataFrame,
+        y: pd.Series,
+        regime: Literal["explicit"] | None = None,
+    ) -> int:
+        """Write ``protocol``'s resolved bagging into ``fit_kwargs`` and record the resolution.
+
+        The tiny-data regime is decided on the training split's (group) instance count. With
+        ``task_specific_validation`` the counts and custom splits come from ``resolve_validation_splits``
+        (whose data-dependent clamps are recorded), otherwise straight from the protocol. AutoGluon's
+        class-count adaptation is switched on only when the protocol asks for it (AutoGluon's default
+        is off). Returns the resolved ``num_folds``.
+        """
+        X = X.reset_index(drop=True)
+        y = y.reset_index(drop=True)
+        clamps: list[str] = []
+        custom_splits = None
+        if protocol.task_specific_validation:
+            num_group_instances = get_num_group_instances(self.validation_metadata, X=X)
+            custom_splits, num_folds, num_repeats = resolve_validation_splits(
+                self.validation_metadata, protocol, X=X, y=y, clamps=clamps
+            )
+        else:
+            num_group_instances = (
+                get_num_group_instances(self.validation_metadata, X=X) if protocol.has_tiny_regime else None
+            )
+            num_folds, num_repeats = protocol.resolve_num_splits(num_group_instances)
+        nominal_folds, nominal_repeats = protocol.resolve_num_splits(num_group_instances)
+
+        logger.info(f"Using num_folds: {num_folds}")
+        fit_kwargs["num_bag_folds"] = num_folds
+        logger.info(f"Using num_repeats: {num_repeats}")
+        fit_kwargs["num_bag_sets"] = num_repeats
         if custom_splits is not None:
             logger.info("Using custom_splits for validation protocol.")
             fit_kwargs.setdefault("ag_args_ensemble", {})["custom_splits"] = custom_splits
+        if protocol.adapt_num_folds_to_n_classes:
+            fit_kwargs["adapt_num_bag_folds_to_n_classes"] = True
 
+        self._validation_resolution = ValidationResolution(
+            num_group_instances=num_group_instances,
+            regime=regime if regime is not None else protocol.regime(num_group_instances),
+            num_bag_folds_nominal=nominal_folds,
+            num_bag_sets_nominal=nominal_repeats,
+            num_bag_folds_resolved=num_folds,
+            num_bag_sets_resolved=num_repeats,
+            clamps=tuple(clamps),
+            custom_splits=custom_splits is not None,
+            num_custom_splits=len(custom_splits) if custom_splits is not None else None,
+            structure=structure_of(self.validation_metadata),
+        )
         return num_folds
 
     def _apply_task_specific_holdout(
@@ -245,20 +350,29 @@ class AGWrapper(AbstractExecModel):
         ensemble), so the resolved holdout rows are returned as explicit ``X_val`` / ``y_val`` and
         fed to ``TabularPredictor`` as ``tuning_data`` instead.
 
-        Only acts on the holdout path — task-specific validation enabled and no bagging
+        Only acts on the holdout path: a task-specific validation protocol and no bagging
         (``num_folds`` is ``None`` / ``<= 1``). Otherwise, or when the task carries no
         grouped/temporal structure (``resolve_holdout_split`` returns ``None``), returns the data
         unchanged with ``X_val=None`` so AutoGluon's built-in holdout is used.
 
         Returns ``(X_train, y_train, X_val, y_val)``; rows keep their original index.
         """
-        if not self.use_task_specific_validation or (num_folds is not None and num_folds > 1):
+        protocol = self.validation_protocol
+        if protocol is None or not protocol.task_specific_validation or (num_folds is not None and num_folds > 1):
             return X, y, None, None
 
-        split = resolve_holdout_split(
-            self.validation_metadata,
-            X=X.reset_index(drop=True),
-            y=y.reset_index(drop=True),
+        X_reset = X.reset_index(drop=True)
+        num_group_instances = get_num_group_instances(self.validation_metadata, X=X_reset)
+        nominal_folds, nominal_repeats = protocol.resolve_num_splits(num_group_instances)
+        split = resolve_holdout_split(self.validation_metadata, protocol, X=X_reset, y=y.reset_index(drop=True))
+        self._validation_resolution = ValidationResolution(
+            num_group_instances=num_group_instances,
+            regime=protocol.regime(num_group_instances),
+            num_bag_folds_nominal=nominal_folds,
+            num_bag_sets_nominal=nominal_repeats,
+            task_specific_holdout=split is not None,
+            holdout_rows=None if split is None else len(split[1]),
+            structure=structure_of(self.validation_metadata),
         )
         if split is None:
             return X, y, None, None
@@ -339,6 +453,20 @@ class AGWrapper(AbstractExecModel):
         )
 
         return self
+
+    def get_validation_record(self) -> dict:
+        """What this fit resolved from the protocol, plus the counts AutoGluon's trainer fitted.
+
+        The resolved part comes from ``_apply_validation_splits`` / ``_apply_task_specific_holdout``
+        (empty for a full predictor that left the validation to AutoGluon); the fitted part reads the
+        trainer's ``k_fold`` / ``n_repeats``.
+        """
+        record = self._validation_resolution.to_record() if self._validation_resolution is not None else {}
+        trainer = getattr(getattr(self, "predictor", None), "_trainer", None)
+        if trainer is not None:
+            record["num_bag_folds_fitted"] = getattr(trainer, "k_fold", None)
+            record["num_bag_sets_fitted"] = getattr(trainer, "n_repeats", None)
+        return record
 
     def _predict(self, X: pd.DataFrame) -> pd.Series:
         """Predict labels with the fitted predictor (already-preprocessed ``X``)."""
@@ -439,6 +567,76 @@ def _hyperparameters_user_from_info(info: dict) -> dict:
     return info["hyperparameters_user"]
 
 
+_CUSTOM_SPLITS_KEY = "custom_splits"
+
+#: The bag-level AutoGluon params worth recording next to the protocol: they shape how many
+#: children a bag really has and how they are fit (model-class defaults included).
+_BAG_PARAM_KEYS = ("use_child_oof", "refit_folds", "num_folds", "max_sets", "fold_fitting_strategy", "stratify", "bin")
+
+#: ``TabularPredictor.fit`` arguments that change the validation behind the wrapper's protocol.
+_VALIDATION_BYPASS_FIT_KEYS = (
+    "validation_structure",
+    "validation_size_curves",
+    "validation_mode",
+    "use_bag_holdout",
+    "holdout_frac",
+    "tuning_data",
+    "dynamic_stacking",
+    "auto_stack",
+    "refit_full",
+    "set_best_to_refit_full",
+    "ds_args",
+)
+
+#: ``TabularPredictor(...)`` arguments that change the validation behind the wrapper's protocol
+#: (``groups`` pins the folds to the group count and one repeat inside the learner).
+_VALIDATION_BYPASS_INIT_KEYS = ("groups", "learner_kwargs")
+
+
+def _without_custom_splits(params: Any) -> tuple[Any, int]:
+    """Copy of a hyperparameter dict without ``custom_splits`` (top level or under ``ag_args_ensemble``).
+
+    Returns the object itself with a count of 0 when there is nothing to strip.
+    """
+    if not isinstance(params, dict):
+        return params, 0
+    stripped = 0
+    if _CUSTOM_SPLITS_KEY in params:
+        params = {k: v for k, v in params.items() if k != _CUSTOM_SPLITS_KEY}
+        stripped += 1
+    nested = params.get("ag_args_ensemble")
+    if isinstance(nested, dict) and _CUSTOM_SPLITS_KEY in nested:
+        params = {**params, "ag_args_ensemble": {k: v for k, v in nested.items() if k != _CUSTOM_SPLITS_KEY}}
+        stripped += 1
+    return params, stripped
+
+
+def _strip_custom_splits_from_info(info: dict) -> tuple[dict, int]:
+    """Copy of a model's ``get_info()`` dict without the custom-split index arrays.
+
+    Task-specific folds are passed as predictor-level ``ag_args_ensemble["custom_splits"]``, which
+    AutoGluon merges into every model's user params, so the index arrays (one per fold, the size of
+    the training split) would otherwise be pickled into every result and into the processed
+    hyperparameter tables. Returns ``(info, 0)`` with the very same object when nothing had to be
+    stripped, so callers can rely on identity in that case.
+    """
+    total = 0
+    new_info = dict(info)
+    for key in ("hyperparameters_user", "hyperparameters"):
+        if key in new_info:
+            new_info[key], stripped = _without_custom_splits(new_info[key])
+            total += stripped
+    bagged_info = new_info.get("bagged_info")
+    if isinstance(bagged_info, dict):
+        new_bagged_info = dict(bagged_info)
+        for key in ("child_hyperparameters_user", "child_hyperparameters"):
+            if key in new_bagged_info:
+                new_bagged_info[key], stripped = _without_custom_splits(new_bagged_info[key])
+                total += stripped
+        new_info["bagged_info"] = new_bagged_info
+    return (new_info, total) if total else (info, 0)
+
+
 class AGSingleWrapper(AGWrapper):
     """Fit a single AutoGluon model (no weighted ensemble) inside a ``TabularPredictor``.
 
@@ -467,6 +665,8 @@ class AGSingleWrapper(AGWrapper):
 
     persist_max_memory: float | None = None
 
+    bagged_fit: ClassVar[bool | None] = False
+
     def __init__(
         self,
         model_cls: str | type[AbstractModel],
@@ -484,6 +684,7 @@ class AGSingleWrapper(AGWrapper):
         if init_kwargs is None:
             init_kwargs = {}
         self._validate_fit_kwargs(fit_kwargs)
+        self._validate_init_kwargs(init_kwargs)
 
         # Record the user-provided "extra" kwargs (used for metadata), then derive the
         # effective fit kwargs by forcing the single-model contract on top of them.
@@ -499,6 +700,10 @@ class AGSingleWrapper(AGWrapper):
 
         self._model_cls = model_cls
         self.model_hyperparameters = model_hyperparameters
+        # The best model's `get_info()` as collected by `get_metadata` (custom splits stripped), reused
+        # by `get_validation_record` so the bag is inspected once.
+        self._collected_info: dict | None = None
+        self._collected_child_oof: bool | None = None
 
         super().__init__(
             init_kwargs=init_kwargs,
@@ -508,12 +713,15 @@ class AGSingleWrapper(AGWrapper):
 
     @staticmethod
     def _validate_fit_kwargs(fit_kwargs: dict) -> None:
-        """Reject ``fit_kwargs`` incompatible with fitting a single model.
+        """Reject ``fit_kwargs`` incompatible with fitting a single model under the validation protocol.
 
         Options interpreted at the predictor/ensemble level (``presets``,
         ``num_stack_levels``, ``fit_weighted_ensemble``, ...) or with a dedicated wrapper
         argument (``calibrate``) must not be passed here; model-level options such as
-        ``ag_args_fit`` / ``ag_args_ensemble`` belong in ``model_hyperparameters``.
+        ``ag_args_fit`` / ``ag_args_ensemble`` belong in ``model_hyperparameters``. Predictor-level
+        validation knobs (``validation_structure``, ``use_bag_holdout``, ``holdout_frac``,
+        ``tuning_data``, ...) would change the validation behind the protocol's back; an
+        AutoGluon-driven validation belongs to a full predictor (``AGExperiment``) or a system.
         """
         disallowed = {
             "hyperparameters": "Must not specify `hyperparameters` in AGSingleWrapper.",
@@ -526,8 +734,22 @@ class AGSingleWrapper(AGWrapper):
             "ag_args_fit": "ag_args_fit must be specified in `model_hyperparameters`, not in `fit_kwargs`.",
             "ag_args_ensemble": "ag_args_ensemble must be specified in `model_hyperparameters`, not in `fit_kwargs`.",
         }
+        for key in _VALIDATION_BYPASS_FIT_KEYS:
+            disallowed[key] = (
+                f"`{key}` changes the validation behind the validation protocol; an AutoGluon-driven "
+                "validation belongs to a full predictor (AGExperiment) or a system."
+            )
         for key, message in disallowed.items():
             assert key not in fit_kwargs, message
+
+    @staticmethod
+    def _validate_init_kwargs(init_kwargs: dict) -> None:
+        """Reject ``TabularPredictor(...)`` arguments that would re-derive the validation splits."""
+        for key in _VALIDATION_BYPASS_INIT_KEYS:
+            assert key not in init_kwargs, (
+                f"`{key}` changes the validation behind the validation protocol; an AutoGluon-driven "
+                "validation belongs to a full predictor (AGExperiment) or a system."
+            )
 
     def post_fit(self, X: pd.DataFrame, y: pd.Series, X_test: pd.DataFrame):
         """Capture any model fit failures so the runner can record them on a crash."""
@@ -623,21 +845,53 @@ class AGSingleWrapper(AGWrapper):
     def get_metadata(self) -> dict:
         """Combined construction-time and post-fit metadata for this model.
 
-        The best model is loaded and its ``get_info()`` collected once, then shared by both parts.
+        The best model is loaded and its ``get_info()`` collected once, then shared by both parts
+        and kept for ``get_validation_record``. Custom-split index arrays are stripped from the
+        collected info first (see ``_strip_custom_splits_from_info``).
         """
         model = self._load_model(assert_single_model=False)
-        info = model.get_info(include_feature_metadata=False)
+        info, _ = _strip_custom_splits_from_info(model.get_info(include_feature_metadata=False))
+        self._collected_info = info
+        self._collected_child_oof = getattr(model, "_child_oof", None)
         metadata = self.get_metadata_init(info=info)
         metadata.update(self.get_metadata_fit(model=model, info=info))
         return metadata
+
+    def get_validation_record(self) -> dict:
+        """The resolved / fitted counts plus what the bag itself reports.
+
+        Extends ``AGWrapper.get_validation_record`` with the bag's own bookkeeping from the info
+        collected by ``get_metadata``: the child count, the folds per repeat, whether the children
+        were replaced by a single child with its own out-of-fold estimate (``child_oof``, the
+        ``use_child_oof`` case) and the bag-level params that shape the children
+        (``use_child_oof``, ``refit_folds``, ``fold_fitting_strategy``, ...).
+        """
+        record = super().get_validation_record()
+        info = self._collected_info
+        if info is None:
+            return record
+        bagged_info = info.get("bagged_info")
+        if isinstance(bagged_info, dict):
+            record["num_child_models"] = bagged_info.get("num_child_models")
+            record["n_repeats_bag"] = bagged_info.get("_n_repeats")
+            record["k_per_n_repeat"] = bagged_info.get("_k_per_n_repeat")
+            record["bagged_mode"] = bagged_info.get("bagged_mode")
+        record["child_oof"] = self._collected_child_oof
+        params = info.get("hyperparameters")
+        if isinstance(params, dict):
+            record["bag_params"] = {key: params[key] for key in _BAG_PARAM_KEYS if key in params}
+        return record
 
 
 class AGSingleBagWrapper(AGSingleWrapper):
     """A bagged ``AGSingleWrapper`` that also exposes its per-child (per-fold) artifacts.
 
-    Identical fitting to ``AGSingleWrapper``, but advertises and provides the per-bagged-child
-    out-of-fold validation indices and test predictions needed for ensemble simulation.
+    Identical fitting to ``AGSingleWrapper`` except that the fold and repeat counts come from the
+    validation protocol, and it advertises and provides the per-bagged-child out-of-fold validation
+    indices and test predictions needed for ensemble simulation.
     """
+
+    bagged_fit: ClassVar[bool | None] = True
 
     # Bagging exposes per-child OOF predictions and their validation indices.
     can_get_per_child_oof = True

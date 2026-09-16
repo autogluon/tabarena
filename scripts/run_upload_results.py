@@ -127,6 +127,29 @@ def verify_upload_metadata(method_metadata: MethodMetadata) -> None:
         )
 
 
+def verify_declared_validation_protocol(method_metadata: MethodMetadata) -> None:
+    """Refuse to upload when the processed artifact records a validation protocol the code does not declare.
+
+    Processing writes the protocol the raw results were fit under into the cached ``metadata.yaml``
+    (``validation_protocol``). The committed ``MethodMetadata`` (the method's ``info.py``) is what the
+    arena contexts read, so it must carry the same value; otherwise the hosted method would read as
+    unknown or as another protocol. Raises ``ValueError`` naming the line to add. A cached artifact
+    without the field (processed before it existed) passes.
+    """
+    path = method_metadata.path_metadata
+    if not path.exists():
+        return
+    recorded = MethodMetadata.from_yaml(path=path).validation_protocol
+    declared = method_metadata.validation_protocol
+    if recorded is None or recorded == declared:
+        return
+    raise ValueError(
+        f"Cannot upload '{method_metadata.method}' (suite={method_metadata.suite!r}): the processed artifact "
+        f"records validation_protocol={recorded!r} but the MethodMetadata declares {declared!r}. Add "
+        f"`validation_protocol={recorded!r},` to its info.py entry (or fix a wrong declaration) and rerun."
+    )
+
+
 def _check_file(path: Path, problems: list[str], label: str) -> None:
     """Record a problem if ``path`` is not an existing, non-empty file."""
     if not path.is_file():
@@ -221,7 +244,9 @@ def upload_method(
     """Verify then upload one method's cached artifacts to its configured r2 backend.
 
     All verification runs first (before the client is created): :func:`verify_upload_metadata`
-    confirms the ``cache_type`` / ``cache_kwargs`` describe a supported remote store, then
+    confirms the ``cache_type`` / ``cache_kwargs`` describe a supported remote store,
+    :func:`verify_declared_validation_protocol` that the in-code metadata declares the protocol the
+    processed artifact records, then
     :func:`plan_and_verify_upload` confirms every planned artifact is present and non-empty. So a
     misconfigured or incomplete method is reported without needing credentials and without starting
     a partial upload.
@@ -230,6 +255,7 @@ def upload_method(
     performs no upload and does not construct the client — so it needs no credentials.
     """
     verify_upload_metadata(method_metadata)
+    verify_declared_validation_protocol(method_metadata)
     parts = plan_and_verify_upload(method_metadata, upload_raw=upload_raw)
 
     if dry_run:

@@ -6,7 +6,9 @@ The unit is a core ``Job``: an experiment (referenced *by name*) on one
 (``--job_batch_dir``): the experiment is loaded from its ``experiments.yaml`` and the
 dataset resolves against its ``task_metadata.csv`` — so this runner executes through
 exactly the same :meth:`ExperimentBatchRunner.run_jobs` path (same task resolution,
-results naming, and cache layout) as a local benchmark run.
+results naming, and cache layout) as a local benchmark run. Before fitting, the experiment
+is re-checked against the batch's ``validation_protocol.json`` (the arena context's
+validation expectation), so an edited batch cannot run a foreign protocol as official.
 """
 
 from __future__ import annotations
@@ -31,9 +33,9 @@ def run_experiment(
 ) -> list[dict]:
     """Run a single ``(experiment, dataset, fold, repeat)`` work unit from a job batch.
 
-    Compute resources, fold-fitting strategy, preprocessing, and the dynamic
-    validation protocol are baked into each serialized experiment at build time,
-    so they are not passed here.
+    Compute resources, fold-fitting strategy, preprocessing, and the validation
+    protocol are baked into each serialized experiment at build time, so they are
+    not passed here.
 
     Parameters
     ----------
@@ -83,6 +85,7 @@ def run_experiment(
             f"(experiment, dataset, fold, repeat) = {wanted} is not a job of the batch at "
             f"{job_batch_dir!r}. The job JSON may be stale relative to a regenerated batch.",
         )
+    _check_validation_expectation(batch, job, job_batch_dir=job_batch_dir)
 
     runner = ExperimentBatchRunner(
         expname=output_dir,
@@ -95,6 +98,30 @@ def run_experiment(
     for results in results_lst:
         print("Metric error:", results.get("metric_error"))
     return results_lst
+
+
+def _check_validation_expectation(batch, job, *, job_batch_dir: str) -> None:
+    """Re-check the job's experiment against the batch's validation expectation on the compute node.
+
+    The head node already asserted the arena's protocol when it built the batch; this catches a batch
+    edited afterwards. An enforced expectation is applied through ``check_experiments``; an experiment
+    stamped as enforced in a batch that carries no enforced expectation (a deleted or edited
+    ``validation_protocol.json``) is refused too.
+    """
+    from tabarena.benchmark.validation_protocol import ValidationProtocolError, check_experiments
+
+    expectation = getattr(batch, "validation_expectation", None)
+    experiment = job.experiment
+    if expectation is not None and expectation.enforced:
+        check_experiments([experiment], expectation=expectation)
+        return
+    stamp = getattr(experiment, "validation_protocol", None)
+    if getattr(stamp, "enforced", None) is True:
+        raise ValidationProtocolError(
+            f"Experiment {experiment.name!r} in the batch at {job_batch_dir!r} is stamped with an enforced "
+            "validation protocol, but the batch carries no enforced expectation (validation_protocol.json is "
+            "missing or was edited). Regenerate the batch through the arena context.",
+        )
 
 
 def _str2bool(v):

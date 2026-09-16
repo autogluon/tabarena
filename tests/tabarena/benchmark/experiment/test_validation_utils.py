@@ -5,6 +5,7 @@ import importlib.util
 import numpy as np
 import pandas as pd
 import pytest
+from autogluon.core.models import AbstractModel
 
 from tabarena.benchmark.exec_models import autogluon_utils
 from tabarena.benchmark.exec_models.autogluon_utils import (
@@ -16,6 +17,12 @@ from tabarena.benchmark.exec_models.autogluon_utils import (
     time_on_to_groups_data,
 )
 from tabarena.benchmark.task.metadata import GroupLabelTypes, ValidationMetadata
+from tabarena.benchmark.validation_protocol import (
+    BEYONDARENA_VALIDATION_PROTOCOL,
+    TABARENA_V0PT1_VALIDATION_PROTOCOL,
+    ValidationProtocol,
+    ValidationProtocolError,
+)
 
 _DATA_FOUNDRY_AVAILABLE = importlib.util.find_spec("data_foundry") is not None
 
@@ -150,7 +157,7 @@ def test_time_on_to_groups_data_datetime():
 
 
 # ---------------------------------------------------------------------------
-# resolve_validation_splits
+# resolve_validation_splits: the protocol decides the counts, the data may clamp them
 # ---------------------------------------------------------------------------
 
 
@@ -158,49 +165,55 @@ def _make_X(n: int) -> pd.DataFrame:
     return pd.DataFrame({"feature": np.arange(n, dtype=float)})
 
 
-def test_resolve_validation_splits_num_folds_none_returns_early():
-    protocol = ValidationMetadata()
-    X = _make_X(10)
-    y = pd.Series(np.zeros(10))
-    custom_splits, folds, _repeats = resolve_validation_splits(protocol, X=X, y=y, num_folds=None, num_repeats=1)
-    assert custom_splits is None
-    assert folds is None
-
-
-def test_resolve_validation_splits_num_folds_one_returns_early():
-    protocol = ValidationMetadata()
-    X = _make_X(10)
-    y = pd.Series(np.zeros(10))
-    custom_splits, folds, _repeats = resolve_validation_splits(protocol, X=X, y=y, num_folds=1, num_repeats=1)
-    assert custom_splits is None
-    assert folds == 1
-
-
-def test_resolve_validation_splits_tiny_data_updates_folds_and_repeats():
-    """Datasets with <= 500 instances use tiny_data_num_folds/repeats."""
-    protocol = ValidationMetadata()
-    X = _make_X(100)  # 100 < 500 → tiny
+def test_resolve_validation_splits_tiny_regime_uses_the_tiny_counts():
+    """At or below the protocol's tiny threshold the tiny counts apply (BeyondArena: 5x5 at <= 500)."""
+    metadata = ValidationMetadata()
+    X = _make_X(100)
     y = pd.Series(np.zeros(100))
-    custom_splits, folds, repeats = resolve_validation_splits(protocol, X=X, y=y, num_folds=8, num_repeats=1)
+    custom_splits, folds, repeats = resolve_validation_splits(metadata, BEYONDARENA_VALIDATION_PROTOCOL, X=X, y=y)
     assert custom_splits is None
-    assert folds == ValidationMetadata.tiny_data_num_folds
-    assert repeats == ValidationMetadata.tiny_data_num_repeats
+    assert (folds, repeats) == (5, 5)
 
 
-def test_resolve_validation_splits_normal_data_unchanged():
-    """Datasets with > 500 instances and no grouping/time → folds/repeats unchanged."""
-    protocol = ValidationMetadata()
-    X = _make_X(600)  # > 500
+def test_resolve_validation_splits_without_tiny_regime_keeps_the_counts_on_tiny_data():
+    """A protocol without a tiny regime fits its counts as given, however small the data."""
+    metadata = ValidationMetadata()
+    X = _make_X(100)
+    y = pd.Series(np.zeros(100))
+    custom_splits, folds, repeats = resolve_validation_splits(
+        metadata, ValidationProtocol.custom(num_bag_folds=2, num_bag_sets=2), X=X, y=y
+    )
+    assert custom_splits is None
+    assert (folds, repeats) == (2, 2)
+
+
+def test_resolve_validation_splits_normal_data_uses_the_default_counts_unclamped():
+    """Above the tiny threshold with no grouping/time, the default counts pass through and nothing clamps."""
+    metadata = ValidationMetadata()
+    X = _make_X(600)
     y = pd.Series(np.zeros(600))
-    custom_splits, folds, repeats = resolve_validation_splits(protocol, X=X, y=y, num_folds=8, num_repeats=1)
+    clamps: list[str] = []
+    custom_splits, folds, repeats = resolve_validation_splits(
+        metadata, BEYONDARENA_VALIDATION_PROTOCOL, X=X, y=y, clamps=clamps
+    )
     assert custom_splits is None
-    assert folds == 8
-    assert repeats == 1
+    assert (folds, repeats) == (8, 1)
+    assert clamps == []
+
+
+@pytest.mark.parametrize(("n", "expected"), [(500, (5, 5)), (501, (8, 1))], ids=["500_is_tiny", "501_is_normal"])
+def test_resolve_validation_splits_tiny_threshold_is_inclusive(n, expected):
+    """The tiny regime applies at exactly the threshold (500 training instances) and not above it."""
+    metadata = ValidationMetadata()
+    X = _make_X(n)
+    y = pd.Series(np.zeros(n))
+    _custom_splits, folds, repeats = resolve_validation_splits(metadata, BEYONDARENA_VALIDATION_PROTOCOL, X=X, y=y)
+    assert (folds, repeats) == expected
 
 
 def test_resolve_validation_splits_time_on_and_group_on_raises_not_implemented():
     """Simultaneous time_on and group_on is explicitly not implemented."""
-    protocol = ValidationMetadata(
+    metadata = ValidationMetadata(
         time_on="time",
         group_on="group",
     )
@@ -208,36 +221,7 @@ def test_resolve_validation_splits_time_on_and_group_on_raises_not_implemented()
     X = pd.DataFrame({"feature": range(n), "time": range(n), "group": ["g"] * n})
     y = pd.Series(np.zeros(n))
     with pytest.raises(NotImplementedError):
-        resolve_validation_splits(protocol, X=X, y=y, num_folds=8, num_repeats=1)
-
-
-# ---------------------------------------------------------------------------
-# _resolve_number_of_splits
-# ---------------------------------------------------------------------------
-
-
-def test_resolve_number_of_splits_tiny_data():
-    folds, repeats = ValidationMetadata().resolve_number_of_splits(num_folds=8, num_repeats=1, num_group_instances=50)
-    assert folds == ValidationMetadata.tiny_data_num_folds
-    assert repeats == ValidationMetadata.tiny_data_num_repeats
-
-
-def test_resolve_number_of_splits_normal_data_unchanged():
-    folds, repeats = ValidationMetadata().resolve_number_of_splits(num_folds=8, num_repeats=1, num_group_instances=1000)
-    assert folds == 8
-    assert repeats == 1
-
-
-def test_resolve_number_of_splits_normal_data_wrong_folds_asserts():
-    """The normal path asserts num_folds == 8."""
-    with pytest.raises(AssertionError):
-        ValidationMetadata().resolve_number_of_splits(num_folds=5, num_repeats=1, num_group_instances=1000)
-
-
-def test_resolve_number_of_splits_normal_data_wrong_repeats_asserts():
-    """The normal path asserts num_repeats is 1 or None."""
-    with pytest.raises(AssertionError):
-        ValidationMetadata().resolve_number_of_splits(num_folds=8, num_repeats=3, num_group_instances=1000)
+        resolve_validation_splits(metadata, TABARENA_V0PT1_VALIDATION_PROTOCOL, X=X, y=y)
 
 
 # ---------------------------------------------------------------------------
@@ -246,35 +230,29 @@ def test_resolve_number_of_splits_normal_data_wrong_repeats_asserts():
 
 
 def test_get_num_group_instances_no_group():
-    protocol = ValidationMetadata(group_on=None)
+    metadata = ValidationMetadata(group_on=None)
     X = _make_X(7)
-    assert get_num_group_instances(protocol, X) == 7
+    assert get_num_group_instances(metadata, X) == 7
 
 
 @pytest.mark.skipif(not _DATA_FOUNDRY_AVAILABLE, reason="data_foundry not installed")
-def test_resolve_validation_splits_group_on_with_num_repeats_none():
-    """When group_on is set and num_repeats is None, num_repeats should default to 1.
-
-    Regression test: previously num_repeats=None was passed through to
-    _resolve_group_splits which expects an integer, causing a crash.
-    """
-    n = 600  # > 500 so tiny-data path does not override num_repeats
+def test_resolve_validation_splits_group_on_builds_splits_with_the_protocol_counts():
+    """Grouped data with enough groups keeps the protocol's counts and returns explicit splits."""
+    n = 600  # > 500 so the default regime applies
     groups = [f"g{i % 10}" for i in range(n)]
     X = pd.DataFrame({"feature": np.arange(n, dtype=float), "grp": groups})
     y = pd.Series(np.zeros(n))
-    protocol = ValidationMetadata(
+    metadata = ValidationMetadata(
         group_on="grp",
         group_labels=GroupLabelTypes.PER_SAMPLE,
     )
-    custom_splits, _folds, repeats = resolve_validation_splits(
-        protocol,
-        X=X,
-        y=y,
-        num_folds=8,
-        num_repeats=None,
+    clamps: list[str] = []
+    custom_splits, folds, repeats = resolve_validation_splits(
+        metadata, BEYONDARENA_VALIDATION_PROTOCOL, X=X, y=y, clamps=clamps
     )
     assert custom_splits is not None
-    assert repeats == 1
+    assert (folds, repeats) == (8, 1)
+    assert clamps == []
 
 
 # ===========================================================================
@@ -536,91 +514,29 @@ def test_large_integer_time_values_work():
 # ===========================================================================
 
 # ---------------------------------------------------------------------------
-# Class constants
+# resolve_validation_splits: the tiny regime is the protocol's, decided on the training instances
 # ---------------------------------------------------------------------------
 
 
-def test_mixin_class_constants():
-    """The constants govern the tiny-data regime — pin their values explicitly."""
-    assert ValidationMetadata.tiny_data_num_folds == 5
-    assert ValidationMetadata.tiny_data_num_repeats == 5
-    assert ValidationMetadata.max_samples_for_tiny_data == 500
+def test_resolve_validation_splits_without_tiny_regime_ignores_the_data_size():
+    """TabArena-v0.1 has no tiny regime: 8x1 on 100 rows as on 600."""
+    metadata = ValidationMetadata()
+    for n in (100, 600):
+        X = _make_X(n)
+        y = pd.Series(np.zeros(n))
+        _custom_splits, folds, repeats = resolve_validation_splits(
+            metadata, TABARENA_V0PT1_VALIDATION_PROTOCOL, X=X, y=y
+        )
+        assert (folds, repeats) == (8, 1)
 
 
-# ---------------------------------------------------------------------------
-# _resolve_number_of_splits — boundary cases
-# ---------------------------------------------------------------------------
-
-
-def test_resolve_number_of_splits_at_exact_boundary_500_is_tiny():
-    """500 instances == max_samples_for_tiny_data → tiny-data path."""
-    folds, repeats = ValidationMetadata().resolve_number_of_splits(num_folds=8, num_repeats=1, num_group_instances=500)
-    assert folds == ValidationMetadata.tiny_data_num_folds
-    assert repeats == ValidationMetadata.tiny_data_num_repeats
-
-
-def test_resolve_number_of_splits_at_501_is_normal():
-    """501 instances > max_samples_for_tiny_data → normal path."""
-    folds, repeats = ValidationMetadata().resolve_number_of_splits(num_folds=8, num_repeats=1, num_group_instances=501)
-    assert folds == 8
-    assert repeats == 1
-
-
-def test_resolve_number_of_splits_num_repeats_none_allowed_on_normal_path():
-    """Normal path assertion is: num_repeats == 1 OR num_repeats is None."""
-    folds, repeats = ValidationMetadata().resolve_number_of_splits(
-        num_folds=8, num_repeats=None, num_group_instances=1000
-    )
-    assert folds == 8
-    assert repeats is None  # unchanged — no new value was assigned
-
-
-# ---------------------------------------------------------------------------
-# resolve_validation_splits — additional paths
-# ---------------------------------------------------------------------------
-
-
-def test_resolve_validation_splits_num_folds_zero_returns_early():
-    """num_folds=0 satisfies the `<= 1` early-exit condition."""
-    protocol = ValidationMetadata()
-    X = _make_X(10)
-    y = pd.Series(np.zeros(10))
-    custom_splits, folds, _repeats = resolve_validation_splits(protocol, X=X, y=y, num_folds=0, num_repeats=1)
-    assert custom_splits is None
-    assert folds == 0
-
-
-def test_resolve_validation_splits_num_repeats_none_normal_data():
-    """num_repeats=None is accepted for the normal-data (>500 rows) path."""
-    protocol = ValidationMetadata()
-    X = _make_X(600)
-    y = pd.Series(np.zeros(600))
-    custom_splits, folds, repeats = resolve_validation_splits(protocol, X=X, y=y, num_folds=8, num_repeats=None)
-    assert custom_splits is None
-    assert folds == 8
-    assert repeats is None
-
-
-def test_resolve_validation_splits_exactly_500_instances_is_tiny():
-    """500 rows == boundary → tiny-data folds/repeats must be applied."""
-    protocol = ValidationMetadata()
-    X = _make_X(500)
-    y = pd.Series(np.zeros(500))
-    custom_splits, folds, repeats = resolve_validation_splits(protocol, X=X, y=y, num_folds=8, num_repeats=1)
-    assert custom_splits is None
-    assert folds == ValidationMetadata.tiny_data_num_folds
-    assert repeats == ValidationMetadata.tiny_data_num_repeats
-
-
-def test_resolve_validation_splits_501_instances_is_normal():
-    """501 rows > boundary → folds/repeats must remain unchanged."""
-    protocol = ValidationMetadata()
-    X = _make_X(501)
-    y = pd.Series(np.zeros(501))
-    custom_splits, folds, repeats = resolve_validation_splits(protocol, X=X, y=y, num_folds=8, num_repeats=1)
-    assert custom_splits is None
-    assert folds == 8
-    assert repeats == 1
+def test_tiny_regime_counts_groups_not_rows_for_per_group_labels():
+    """With per-group labels the tiny regime is decided on the number of groups, not rows."""
+    n = 600  # rows above the threshold, but only 20 groups
+    metadata = ValidationMetadata(group_on="grp", group_labels=GroupLabelTypes.PER_GROUP)
+    X = pd.DataFrame({"feature": np.arange(n, dtype=float), "grp": [f"g{i % 20}" for i in range(n)]})
+    assert get_num_group_instances(metadata, X) == 20
+    assert BEYONDARENA_VALIDATION_PROTOCOL.resolve_num_splits(20) == (5, 5)
 
 
 # ---------------------------------------------------------------------------
@@ -707,22 +623,22 @@ def test_time_on_to_groups_data_fewer_unique_than_folds_caps_n():
 
 def test_get_num_group_instances_per_group_label_counts_groups():
     """PER_GROUP: result is the number of distinct group identifiers."""
-    protocol = ValidationMetadata(
+    metadata = ValidationMetadata(
         group_on="g",
         group_labels=GroupLabelTypes.PER_GROUP,
     )
     X = pd.DataFrame({"a": [1, 2, 3, 4], "g": ["x", "x", "y", "y"]})
-    assert get_num_group_instances(protocol, X) == 2
+    assert get_num_group_instances(metadata, X) == 2
 
 
 def test_get_num_group_instances_per_sample_label_returns_len():
     """PER_SAMPLE: result is len(X), ignoring group column entirely."""
-    protocol = ValidationMetadata(
+    metadata = ValidationMetadata(
         group_on="g",
         group_labels=GroupLabelTypes.PER_SAMPLE,
     )
     X = pd.DataFrame({"a": [1, 2, 3, 4], "g": ["x", "x", "y", "y"]})
-    assert get_num_group_instances(protocol, X) == 4  # len(X), not 2 groups
+    assert get_num_group_instances(metadata, X) == 4  # len(X), not 2 groups
 
 
 # ===========================================================================
@@ -778,7 +694,7 @@ def _patch_group_splits(
 def test_resolve_validation_splits_group_on_returns_custom_splits(monkeypatch):
     """group_on set → custom_splits is a non-empty list of (train, test) pairs."""
     n = 600
-    protocol = ValidationMetadata(
+    metadata = ValidationMetadata(
         group_on="group",
         group_labels=GroupLabelTypes.PER_GROUP,
     )
@@ -791,7 +707,7 @@ def test_resolve_validation_splits_group_on_returns_custom_splits(monkeypatch):
     y = pd.Series(np.zeros(n))
     _patch_group_splits(monkeypatch, n)
 
-    custom_splits, _folds, _repeats = resolve_validation_splits(protocol, X=X, y=y, num_folds=8, num_repeats=1)
+    custom_splits, _folds, _repeats = resolve_validation_splits(metadata, TABARENA_V0PT1_VALIDATION_PROTOCOL, X=X, y=y)
     assert custom_splits is not None
     assert len(custom_splits) > 0
     train_idx, test_idx = custom_splits[0]
@@ -802,7 +718,7 @@ def test_resolve_validation_splits_group_on_returns_custom_splits(monkeypatch):
 def test_resolve_validation_splits_group_on_indices_do_not_overlap(monkeypatch):
     """Train and test index arrays returned for group_on must be disjoint."""
     n = 600
-    protocol = ValidationMetadata(
+    metadata = ValidationMetadata(
         group_on="group",
         group_labels=GroupLabelTypes.PER_GROUP,
     )
@@ -815,15 +731,15 @@ def test_resolve_validation_splits_group_on_indices_do_not_overlap(monkeypatch):
     y = pd.Series(np.zeros(n))
     _patch_group_splits(monkeypatch, n)
 
-    custom_splits, _folds, _repeats = resolve_validation_splits(protocol, X=X, y=y, num_folds=8, num_repeats=1)
+    custom_splits, _folds, _repeats = resolve_validation_splits(metadata, TABARENA_V0PT1_VALIDATION_PROTOCOL, X=X, y=y)
     for train_idx, test_idx in custom_splits:
         assert len(set(train_idx).intersection(set(test_idx))) == 0
 
 
 def test_resolve_validation_splits_group_on_tiny_data_uses_tiny_folds(monkeypatch):
-    """group_on with PER_SAMPLE label and tiny data uses tiny_data_num_folds."""
+    """group_on with PER_SAMPLE label and tiny data uses the protocol's tiny counts (BeyondArena: 5x5)."""
     n = 100  # < 500 → tiny
-    protocol = ValidationMetadata(
+    metadata = ValidationMetadata(
         group_on="group",
         group_labels=GroupLabelTypes.PER_SAMPLE,
     )
@@ -837,15 +753,15 @@ def test_resolve_validation_splits_group_on_tiny_data_uses_tiny_folds(monkeypatc
     captured: dict = {}
     _patch_group_splits(monkeypatch, n, captured)
 
-    resolve_validation_splits(protocol, X=X, y=y, num_folds=8, num_repeats=1)
-    assert captured["num_folds"] == ValidationMetadata.tiny_data_num_folds
-    assert captured["num_repeats"] == ValidationMetadata.tiny_data_num_repeats
+    resolve_validation_splits(metadata, BEYONDARENA_VALIDATION_PROTOCOL, X=X, y=y)
+    assert captured["num_folds"] == 5
+    assert captured["num_repeats"] == 5
 
 
 def test_resolve_validation_splits_group_on_passes_correct_groups_data(monkeypatch):
     """The groups_data passed to _resolve_group_splits must match group_on column."""
     n = 600
-    protocol = ValidationMetadata(
+    metadata = ValidationMetadata(
         group_on="grp",
         group_labels=GroupLabelTypes.PER_GROUP,
     )
@@ -855,7 +771,7 @@ def test_resolve_validation_splits_group_on_passes_correct_groups_data(monkeypat
     captured: dict = {}
     _patch_group_splits(monkeypatch, n, captured)
 
-    resolve_validation_splits(protocol, X=X, y=y, num_folds=8, num_repeats=1)
+    resolve_validation_splits(metadata, TABARENA_V0PT1_VALIDATION_PROTOCOL, X=X, y=y)
     assert list(captured["groups_data"]) == group_values
 
 
@@ -865,22 +781,26 @@ def test_resolve_validation_splits_group_on_passes_correct_groups_data(monkeypat
 
 
 def test_resolve_validation_splits_time_on_forces_num_repeats_to_one(monkeypatch):
-    """time_on set → num_repeats is always forced to 1, regardless of input."""
+    """time_on set: num_repeats is forced to 1 whatever the protocol asks, and the clamp is recorded."""
     n = 600
-    protocol = ValidationMetadata(time_on="time")
+    metadata = ValidationMetadata(time_on="time")
     X = pd.DataFrame({"feature": np.arange(n, dtype=float), "time": np.arange(n)})
     y = pd.Series(np.zeros(n))
     _patch_group_splits(monkeypatch, n)
 
-    _custom_splits, _folds, repeats = resolve_validation_splits(protocol, X=X, y=y, num_folds=8, num_repeats=1)
-    assert repeats == 1
+    clamps: list[str] = []
+    _custom_splits, folds, repeats = resolve_validation_splits(
+        metadata, ValidationProtocol.custom(num_bag_folds=8, num_bag_sets=3), X=X, y=y, clamps=clamps
+    )
+    assert (folds, repeats) == (8, 1)
+    assert clamps == ["time_on_single_repeat"]
 
 
 def test_resolve_validation_splits_time_on_folds_capped_at_unique_values(monkeypatch):
-    """time_on with fewer unique values than num_folds → folds capped at n_unique."""
+    """time_on with fewer unique values than folds: folds capped at n_unique, and the clamp is recorded."""
     n = 600
-    protocol = ValidationMetadata(time_on="time")
-    # Only 4 unique time values; num_folds=8 must be capped to 4.
+    metadata = ValidationMetadata(time_on="time")
+    # Only 4 unique time values; the protocol's 8 folds must be capped to 4.
     X = pd.DataFrame(
         {
             "feature": np.arange(n, dtype=float),
@@ -890,19 +810,57 @@ def test_resolve_validation_splits_time_on_folds_capped_at_unique_values(monkeyp
     y = pd.Series(np.zeros(n))
     _patch_group_splits(monkeypatch, n)
 
-    _custom_splits, folds, _repeats = resolve_validation_splits(protocol, X=X, y=y, num_folds=8, num_repeats=1)
+    clamps: list[str] = []
+    _custom_splits, folds, _repeats = resolve_validation_splits(
+        metadata, TABARENA_V0PT1_VALIDATION_PROTOCOL, X=X, y=y, clamps=clamps
+    )
     assert folds == 4
+    assert clamps == ["folds_capped_by_time_intervals"]
+
+
+def test_resolve_validation_splits_folds_capped_by_n_groups_is_recorded(monkeypatch):
+    """Fewer groups than folds: folds become the group count, one repeat, and the clamp is recorded."""
+    n = 600
+    metadata = ValidationMetadata(group_on="grp", group_labels=GroupLabelTypes.PER_GROUP)
+    X = pd.DataFrame({"feature": np.arange(n, dtype=float), "grp": [f"g{i % 5}" for i in range(n)]})
+    y = pd.Series(np.zeros(n))
+    _patch_group_splits(monkeypatch, n)
+
+    clamps: list[str] = []
+    _custom_splits, folds, repeats = resolve_validation_splits(
+        metadata, ValidationProtocol.custom(num_bag_folds=8, num_bag_sets=2), X=X, y=y, clamps=clamps
+    )
+    assert (folds, repeats) == (5, 1)
+    assert clamps == ["folds_capped_by_n_groups"]
+
+
+def test_resolve_validation_splits_folds_capped_by_minority_class_is_recorded(monkeypatch):
+    """A stratification class smaller than the fold count caps the folds, one repeat, clamp recorded."""
+    n = 600
+    metadata = ValidationMetadata(group_on="grp", group_labels=GroupLabelTypes.PER_SAMPLE, stratify_on="strat")
+    strat = [1 if i < 3 else 0 for i in range(n)]  # three positives
+    X = pd.DataFrame({"feature": np.arange(n, dtype=float), "grp": [f"g{i % 20}" for i in range(n)], "strat": strat})
+    y = pd.Series(strat)
+    # Only the clamp logic is under test here; the splitter itself is replaced.
+    monkeypatch.setattr(autogluon_utils, "_resolve_group_splits", lambda **kw: _dummy_splits(n))
+
+    clamps: list[str] = []
+    _custom_splits, folds, repeats = resolve_validation_splits(
+        metadata, TABARENA_V0PT1_VALIDATION_PROTOCOL, X=X, y=y, clamps=clamps
+    )
+    assert (folds, repeats) == (3, 1)
+    assert clamps == ["folds_capped_by_minority_class"]
 
 
 def test_resolve_validation_splits_time_on_returns_custom_splits(monkeypatch):
     """time_on set → custom_splits is a non-empty list."""
     n = 600
-    protocol = ValidationMetadata(time_on="time")
+    metadata = ValidationMetadata(time_on="time")
     X = pd.DataFrame({"feature": np.arange(n, dtype=float), "time": np.arange(n)})
     y = pd.Series(np.zeros(n))
     _patch_group_splits(monkeypatch, n)
 
-    custom_splits, _folds, _repeats = resolve_validation_splits(protocol, X=X, y=y, num_folds=8, num_repeats=1)
+    custom_splits, _folds, _repeats = resolve_validation_splits(metadata, TABARENA_V0PT1_VALIDATION_PROTOCOL, X=X, y=y)
     assert custom_splits is not None
     assert len(custom_splits) > 0
 
@@ -910,26 +868,26 @@ def test_resolve_validation_splits_time_on_returns_custom_splits(monkeypatch):
 def test_resolve_validation_splits_time_on_group_labels_set_to_per_sample(monkeypatch):
     """time_on sets group_labels=PER_SAMPLE when calling _resolve_group_splits."""
     n = 600
-    protocol = ValidationMetadata(time_on="time")
+    metadata = ValidationMetadata(time_on="time")
     X = pd.DataFrame({"feature": np.arange(n, dtype=float), "time": np.arange(n)})
     y = pd.Series(np.zeros(n))
     captured: dict = {}
     _patch_group_splits(monkeypatch, n, captured)
 
-    resolve_validation_splits(protocol, X=X, y=y, num_folds=8, num_repeats=1)
+    resolve_validation_splits(metadata, TABARENA_V0PT1_VALIDATION_PROTOCOL, X=X, y=y)
     assert captured["group_labels"] == GroupLabelTypes.PER_SAMPLE
 
 
 def test_resolve_validation_splits_time_on_passes_interval_labels_as_groups(monkeypatch):
     """groups_data passed to _resolve_group_splits must be the interval labels, not raw time."""
     n = 600
-    protocol = ValidationMetadata(time_on="time")
+    metadata = ValidationMetadata(time_on="time")
     X = pd.DataFrame({"feature": np.arange(n, dtype=float), "time": np.arange(n)})
     y = pd.Series(np.zeros(n))
     captured: dict = {}
     _patch_group_splits(monkeypatch, n, captured)
 
-    resolve_validation_splits(protocol, X=X, y=y, num_folds=8, num_repeats=1)
+    resolve_validation_splits(metadata, TABARENA_V0PT1_VALIDATION_PROTOCOL, X=X, y=y)
     groups = captured["groups_data"]
     # Interval labels must be non-negative integers, not the original time values
     assert groups.min() == 0
@@ -946,39 +904,39 @@ def test_resolve_validation_splits_time_on_passes_interval_labels_as_groups(monk
 
 def test_resolve_holdout_split_none_when_no_structure():
     """Plain IID (no group_on / time_on) → None, so AutoGluon's default holdout is used."""
-    protocol = ValidationMetadata()
+    metadata = ValidationMetadata()
     X = _make_X(600)
     y = pd.Series(np.zeros(600))
-    assert resolve_holdout_split(protocol, X=X, y=y) is None
+    assert resolve_holdout_split(metadata, BEYONDARENA_VALIDATION_PROTOCOL, X=X, y=y) is None
 
 
 def test_resolve_holdout_split_none_when_only_stratify():
     """stratify_on alone (no group/time) is left to AutoGluon's label-stratified holdout → None."""
-    protocol = ValidationMetadata(stratify_on="strat")
+    metadata = ValidationMetadata(stratify_on="strat")
     n = 600
     X = pd.DataFrame({"feature": np.arange(n, dtype=float), "strat": [i % 2 for i in range(n)]})
     y = pd.Series([i % 2 for i in range(n)])
-    assert resolve_holdout_split(protocol, X=X, y=y) is None
+    assert resolve_holdout_split(metadata, BEYONDARENA_VALIDATION_PROTOCOL, X=X, y=y) is None
 
 
 def test_resolve_holdout_split_time_and_group_raises():
     """Simultaneous time_on and group_on is explicitly not implemented (mirrors the bagged path)."""
-    protocol = ValidationMetadata(time_on="time", group_on="group")
+    metadata = ValidationMetadata(time_on="time", group_on="group")
     n = 10
     X = pd.DataFrame({"feature": range(n), "time": range(n), "group": ["g"] * n})
     y = pd.Series(np.zeros(n))
     with pytest.raises(NotImplementedError):
-        resolve_holdout_split(protocol, X=X, y=y)
+        resolve_holdout_split(metadata, BEYONDARENA_VALIDATION_PROTOCOL, X=X, y=y)
 
 
 def test_resolve_holdout_split_temporal_is_forward_holdout():
     """time_on → the validation rows are the latest contiguous time block (forward holdout)."""
-    n = 600  # > 500 so the non-tiny fold policy (8 folds) applies
-    protocol = ValidationMetadata(time_on="time")
+    n = 600  # > 500 so the protocol's default regime (8 folds) applies
+    metadata = ValidationMetadata(time_on="time")
     X = pd.DataFrame({"feature": np.arange(n, dtype=float), "time": np.arange(n)})
     y = pd.Series(np.zeros(n))
 
-    split = resolve_holdout_split(protocol, X=X, y=y)
+    split = resolve_holdout_split(metadata, BEYONDARENA_VALIDATION_PROTOCOL, X=X, y=y)
     assert split is not None
     train_idx, val_idx = split
 
@@ -998,16 +956,43 @@ def test_resolve_holdout_split_temporal_is_forward_holdout():
 def test_resolve_holdout_split_temporal_holds_out_latest_block_unsorted():
     """The forward-holdout property holds even when rows are not pre-sorted by time."""
     n = 600
-    protocol = ValidationMetadata(time_on="time")
+    metadata = ValidationMetadata(time_on="time")
     rng = np.random.default_rng(0)
     order = rng.permutation(n)
     X = pd.DataFrame({"feature": np.arange(n, dtype=float), "time": order})
     y = pd.Series(np.zeros(n))
 
-    train_idx, val_idx = resolve_holdout_split(protocol, X=X, y=y)
+    train_idx, val_idx = resolve_holdout_split(metadata, BEYONDARENA_VALIDATION_PROTOCOL, X=X, y=y)
     train_times = X["time"].to_numpy()[train_idx]
     val_times = X["time"].to_numpy()[val_idx]
     assert train_times.max() < val_times.min()
+
+
+def test_resolve_holdout_split_is_sized_by_the_protocol():
+    """The held-out block is about one fold of the protocol: 1/8 by default, 1/4 for a 4-fold protocol."""
+    n = 600
+    metadata = ValidationMetadata(time_on="time")
+    X = pd.DataFrame({"feature": np.arange(n, dtype=float), "time": np.arange(n)})
+    y = pd.Series(np.zeros(n))
+
+    _train, val_default = resolve_holdout_split(metadata, TABARENA_V0PT1_VALIDATION_PROTOCOL, X=X, y=y)
+    _train, val_four = resolve_holdout_split(metadata, ValidationProtocol.custom(num_bag_folds=4), X=X, y=y)
+    assert abs(len(val_default) - n // 8) <= 3
+    assert abs(len(val_four) - n // 4) <= 3
+
+
+def test_resolve_holdout_split_tiny_regime_holds_out_a_fifth():
+    """On tiny data a protocol with the 5x5 regime holds out about a fifth; one without keeps an eighth."""
+    n = 100
+    metadata = ValidationMetadata(time_on="time")
+    X = pd.DataFrame({"feature": np.arange(n, dtype=float), "time": np.arange(n)})
+    y = pd.Series(np.zeros(n))
+
+    _train, val_tiny = resolve_holdout_split(metadata, BEYONDARENA_VALIDATION_PROTOCOL, X=X, y=y)
+    _train, val_default = resolve_holdout_split(metadata, TABARENA_V0PT1_VALIDATION_PROTOCOL, X=X, y=y)
+    assert abs(len(val_tiny) - n // 5) <= 3
+    assert abs(len(val_default) - n // 8) <= 3
+    assert len(val_tiny) > len(val_default)
 
 
 @pytest.mark.skipif(not _DATA_FOUNDRY_AVAILABLE, reason="data_foundry not installed")
@@ -1015,11 +1000,11 @@ def test_resolve_holdout_split_grouped_per_sample_is_group_disjoint():
     """group_on (PER_SAMPLE) → no group spans train and validation; all rows are covered."""
     n = 600
     group_values = [f"g{i % 20}" for i in range(n)]
-    protocol = ValidationMetadata(group_on="grp", group_labels=GroupLabelTypes.PER_SAMPLE)
+    metadata = ValidationMetadata(group_on="grp", group_labels=GroupLabelTypes.PER_SAMPLE)
     X = pd.DataFrame({"feature": np.arange(n, dtype=float), "grp": group_values})
     y = pd.Series(np.zeros(n))
 
-    train_idx, val_idx = resolve_holdout_split(protocol, X=X, y=y)
+    train_idx, val_idx = resolve_holdout_split(metadata, BEYONDARENA_VALIDATION_PROTOCOL, X=X, y=y)
     assert set(train_idx).isdisjoint(set(val_idx))
     assert sorted([*train_idx.tolist(), *val_idx.tolist()]) == list(range(n))
 
@@ -1035,11 +1020,11 @@ def test_resolve_holdout_split_grouped_per_group_is_group_disjoint():
     """group_on (PER_GROUP) → group-disjoint single split via the index-based grouped splitter."""
     n = 600
     group_values = [f"g{i % 20}" for i in range(n)]
-    protocol = ValidationMetadata(group_on="grp", group_labels=GroupLabelTypes.PER_GROUP)
+    metadata = ValidationMetadata(group_on="grp", group_labels=GroupLabelTypes.PER_GROUP)
     X = pd.DataFrame({"feature": np.arange(n, dtype=float), "grp": group_values})
     y = pd.Series(np.zeros(n))
 
-    train_idx, val_idx = resolve_holdout_split(protocol, X=X, y=y)
+    train_idx, val_idx = resolve_holdout_split(metadata, BEYONDARENA_VALIDATION_PROTOCOL, X=X, y=y)
     groups = np.asarray(group_values)
     assert set(groups[train_idx]).isdisjoint(set(groups[val_idx]))
 
@@ -1055,7 +1040,7 @@ def test_resolve_holdout_split_grouped_stratified_keeps_all_train_classes():
     group_values = [f"g{i % 30}" for i in range(n)]
     # Assign a class per group so PER_SAMPLE stratification has a clean per-group label.
     strat = [int(g[1:]) % 2 for g in group_values]
-    protocol = ValidationMetadata(
+    metadata = ValidationMetadata(
         group_on="grp",
         group_labels=GroupLabelTypes.PER_SAMPLE,
         stratify_on="strat",
@@ -1063,7 +1048,7 @@ def test_resolve_holdout_split_grouped_stratified_keeps_all_train_classes():
     X = pd.DataFrame({"feature": np.arange(n, dtype=float), "grp": group_values, "strat": strat})
     y = pd.Series(strat)
 
-    train_idx, val_idx = resolve_holdout_split(protocol, X=X, y=y)
+    train_idx, val_idx = resolve_holdout_split(metadata, BEYONDARENA_VALIDATION_PROTOCOL, X=X, y=y)
     groups = np.asarray(group_values)
     assert set(groups[train_idx]).isdisjoint(set(groups[val_idx]))
     strat_arr = np.asarray(strat)
@@ -1078,13 +1063,15 @@ def test_resolve_holdout_split_grouped_stratified_keeps_all_train_classes():
 def _make_holdout_wrapper(
     validation_metadata: dict | None,
     *,
-    use_task_specific_validation: bool = True,
+    validation_protocol: ValidationProtocol | None = BEYONDARENA_VALIDATION_PROTOCOL,
     fit_kwargs: dict | None = None,
 ):
-    """Build a bare ``AGWrapper`` (no fit) for exercising the validation-split logic.
+    """Build a bare ``AGWrapper`` (full predictor, no fit) for exercising the validation-split logic.
 
-    ``fit_kwargs`` lets a test choose the validation mode the way a full ``TabularPredictor`` run
-    would: include ``num_bag_folds`` (>= 2) for the bagged path, or omit it for the holdout path.
+    The default protocol is task-specific (BeyondArena); ``TABARENA_V0PT1_VALIDATION_PROTOCOL`` is the
+    non-task-specific case. ``fit_kwargs`` lets a test choose the validation mode the way a full
+    ``TabularPredictor`` run would: include ``num_bag_folds`` (>= 2) for the bagged path, or omit it
+    for the holdout path.
     """
     from tabarena.benchmark.exec_models.autogluon import AGWrapper
 
@@ -1092,7 +1079,7 @@ def _make_holdout_wrapper(
         problem_type="regression",
         eval_metric=None,
         validation_metadata=validation_metadata,
-        use_task_specific_validation=use_task_specific_validation,
+        validation_protocol=validation_protocol,
         fit_kwargs=fit_kwargs,
     )
 
@@ -1122,10 +1109,10 @@ def test_apply_task_specific_holdout_skips_when_bagged():
 
 
 def test_apply_task_specific_holdout_skips_when_task_specific_disabled():
-    """Without task-specific validation, the default AutoGluon holdout is used (X_val=None)."""
+    """Under a protocol without task-specific validation, the default AutoGluon holdout is used (X_val=None)."""
     wrapper = _make_holdout_wrapper(
         {"group_on": "grp", "group_labels": GroupLabelTypes.PER_SAMPLE},
-        use_task_specific_validation=False,
+        validation_protocol=TABARENA_V0PT1_VALIDATION_PROTOCOL,
     )
     X = pd.DataFrame({"feature": np.arange(10, dtype=float), "grp": [f"g{i}" for i in range(10)]})
     y = pd.Series(np.zeros(10))
@@ -1245,3 +1232,122 @@ def test_build_predictor_args_temporal_holdout_is_forward_and_has_no_custom_spli
     tuning_data = fit_kwargs["tuning_data"]
     # Forward holdout: every validation timestamp is later than every training one.
     assert train_data["time"].max() < tuning_data["time"].min()
+
+
+# ===========================================================================
+# AGWrapper (full predictor): explicit counts pass through, otherwise AutoGluon decides
+# ===========================================================================
+
+
+def test_predictor_wrapper_without_counts_leaves_the_bagging_to_autogluon():
+    wrapper = _make_holdout_wrapper(None)
+    fit_kwargs: dict = {}
+    assert wrapper._apply_validation_splits(fit_kwargs, X=_make_X(600), y=pd.Series(np.zeros(600))) is None
+    assert fit_kwargs == {}
+    assert wrapper.get_validation_record() == {}
+
+
+def test_predictor_wrapper_explicit_counts_are_fit_as_given():
+    wrapper = _make_holdout_wrapper(None, validation_protocol=TABARENA_V0PT1_VALIDATION_PROTOCOL)
+    fit_kwargs = {"num_bag_folds": 3, "num_bag_sets": 2}
+    assert wrapper._apply_validation_splits(fit_kwargs, X=_make_X(600), y=pd.Series(np.zeros(600))) == 3
+    assert fit_kwargs == {"num_bag_folds": 3, "num_bag_sets": 2}
+    record = wrapper.get_validation_record()
+    assert record["regime"] == "explicit"
+    assert (record["num_bag_folds_resolved"], record["num_bag_sets_resolved"]) == (3, 2)
+
+
+# ===========================================================================
+# AGSingleBagWrapper: the protocol decides the bag
+# ===========================================================================
+
+
+class _BagDummyModel(AbstractModel):
+    ag_key = "VALIDATIONUTILSDUMMY"
+    ag_name = "ValidationUtilsDummy"
+
+
+def _make_bag_wrapper(validation_metadata: dict | None, *, validation_protocol: ValidationProtocol | None):
+    from tabarena.benchmark.exec_models.autogluon import AGSingleBagWrapper
+
+    return AGSingleBagWrapper(
+        model_cls=_BagDummyModel,
+        model_hyperparameters={},
+        problem_type="regression",
+        eval_metric=None,
+        validation_metadata=validation_metadata,
+        validation_protocol=validation_protocol,
+    )
+
+
+def test_bag_wrapper_tabarena_protocol_fits_eight_by_one_without_task_awareness():
+    """TabArena-v0.1: 8x1 from the protocol, no custom splits, no class adaptation, whatever the task carries."""
+    wrapper = _make_bag_wrapper(
+        {"group_on": "grp", "group_labels": GroupLabelTypes.PER_SAMPLE},
+        validation_protocol=TABARENA_V0PT1_VALIDATION_PROTOCOL,
+    )
+    n = 100
+    X = pd.DataFrame({"feature": np.arange(n, dtype=float), "grp": [f"g{i % 20}" for i in range(n)]})
+    y = pd.Series(np.arange(n, dtype=float))
+    fit_kwargs: dict = {}
+
+    assert wrapper._apply_validation_splits(fit_kwargs, X=X, y=y) == 8
+    assert fit_kwargs == {"num_bag_folds": 8, "num_bag_sets": 1}
+    record = wrapper.get_validation_record()
+    assert record["regime"] == "default"
+    assert record["custom_splits"] is False
+    assert record["clamps"] == []
+    assert record["structure"]["group_on"] == "grp"
+
+
+def test_bag_wrapper_tiny_regime_is_decided_on_the_training_data():
+    """BeyondArena on 100 IID rows: 5x5, no custom splits (nothing to honour), class adaptation on."""
+    wrapper = _make_bag_wrapper(None, validation_protocol=BEYONDARENA_VALIDATION_PROTOCOL)
+    n = 100
+    fit_kwargs: dict = {}
+
+    assert wrapper._apply_validation_splits(fit_kwargs, X=_make_X(n), y=pd.Series(np.zeros(n))) == 5
+    assert (fit_kwargs["num_bag_folds"], fit_kwargs["num_bag_sets"]) == (5, 5)
+    assert fit_kwargs["adapt_num_bag_folds_to_n_classes"] is True
+    assert "ag_args_ensemble" not in fit_kwargs
+    record = wrapper.get_validation_record()
+    assert record["regime"] == "tiny"
+    assert record["num_group_instances"] == n
+    assert (record["num_bag_folds_nominal"], record["num_bag_sets_nominal"]) == (5, 5)
+
+
+@pytest.mark.skipif(not _DATA_FOUNDRY_AVAILABLE, reason="data_foundry not installed")
+def test_bag_wrapper_task_specific_protocol_builds_grouped_custom_splits():
+    """BeyondArena on grouped data: the protocol's 8x1 as explicit group-disjoint custom splits."""
+    wrapper = _make_bag_wrapper(
+        {"group_on": "grp", "group_labels": GroupLabelTypes.PER_SAMPLE},
+        validation_protocol=BEYONDARENA_VALIDATION_PROTOCOL,
+    )
+    n = 600
+    group_values = [f"g{i % 20}" for i in range(n)]
+    X = pd.DataFrame({"feature": np.arange(n, dtype=float), "grp": group_values})
+    y = pd.Series(np.arange(n, dtype=float))
+    fit_kwargs: dict = {}
+
+    assert wrapper._apply_validation_splits(fit_kwargs, X=X, y=y) == 8
+    assert (fit_kwargs["num_bag_folds"], fit_kwargs["num_bag_sets"]) == (8, 1)
+    splits = fit_kwargs["ag_args_ensemble"]["custom_splits"]
+    assert len(splits) == 8
+    groups = np.asarray(group_values)
+    for train_idx, val_idx in splits:
+        assert set(groups[train_idx]).isdisjoint(set(groups[val_idx]))
+    record = wrapper.get_validation_record()
+    assert record["custom_splits"] is True
+    assert record["num_custom_splits"] == 8
+
+
+def test_bag_wrapper_without_protocol_raises_with_the_fix():
+    wrapper = _make_bag_wrapper(None, validation_protocol=None)
+    with pytest.raises(ValidationProtocolError, match="validation_protocol="):
+        wrapper._apply_validation_splits({}, X=_make_X(10), y=pd.Series(np.zeros(10)))
+
+
+def test_bag_wrapper_rejects_counts_in_fit_kwargs_and_names_the_replacement():
+    wrapper = _make_bag_wrapper(None, validation_protocol=TABARENA_V0PT1_VALIDATION_PROTOCOL)
+    with pytest.raises(ValueError, match=r"validation_protocol=ValidationProtocol\(num_bag_folds=2\)"):
+        wrapper._apply_validation_splits({"num_bag_folds": 2}, X=_make_X(10), y=pd.Series(np.zeros(10)))

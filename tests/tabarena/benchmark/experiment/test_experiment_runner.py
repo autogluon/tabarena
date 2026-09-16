@@ -77,6 +77,18 @@ def test_base_post_evaluate_sets_simulation_artifacts_none_and_metadata():
     assert out["problem_type"] == "regression"
     assert out["metric"] == "rmse"
     assert out["task_metadata"] == {"tid": 42, "name": "d0", "fold": 0, "repeat": 0, "sample": 0, "split_idx": 0}
+    # A model without ``get_validation_record`` contributes an empty fitted part.
+    assert out["validation_protocol"] == {}
+
+
+def test_base_post_evaluate_records_what_the_model_reports_about_its_validation():
+    class _RecordingModel(_FakeModel):
+        def get_validation_record(self) -> dict:
+            return {"regime": "default", "num_bag_folds_fitted": 8}
+
+    runner = _make_runner(ExperimentRunner, problem_type="regression", model=_RecordingModel(), y_test=pd.Series([1.0]))
+    out = runner.post_evaluate({})
+    assert out["validation_protocol"] == {"regime": "default", "num_bag_folds_fitted": 8}
 
 
 # --- OOF: artifact NOT built -> None ----------------------------------------------------

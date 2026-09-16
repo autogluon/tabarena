@@ -109,6 +109,19 @@ class TestModelJobNormalization:
         job = ModelJob(models=[("X", 5), "Y"])
         assert job._model_entries() == [("X", 5), ("Y", 0)]
 
+    def test_prebuilt_experiments_are_copied(self):
+        from autogluon.tabular.models import LGBModel
+
+        from tabarena.benchmark.experiment import AGModelBagExperiment
+
+        experiment = AGModelBagExperiment(name="lgb", model_cls=LGBModel, model_hyperparameters={})
+        job_a, job_b = ModelJob(models=experiment), ModelJob(models=[experiment])
+        # Each job owns its copy: the context stamps its protocol onto the experiments it runs, and two
+        # groups must never see each other's stamp.
+        assert job_a.models[0] is not experiment
+        assert job_a.models[0] is not job_b.models[0]
+        assert job_a.models[0].to_yaml_dict() == experiment.to_yaml_dict()
+
     def test_tasks_default_is_empty_task_subset(self):
         assert ModelJob(models="X").tasks == TaskSubset()
 

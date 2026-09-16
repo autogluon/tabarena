@@ -7,6 +7,7 @@ import pandas as pd
 
 from tabarena.benchmark.result.baseline_result import BaselineResult
 from tabarena.benchmark.result.config_result import ConfigResult
+from tabarena.benchmark.validation_protocol import validation_protocol_key
 
 
 class AGBagResult(ConfigResult):
@@ -191,6 +192,23 @@ class AGBagResult(ConfigResult):
 
                 holdout_name = framework + "_HOLDOUT"
                 result_baseline_new["framework"] = holdout_name
+                # The derivative is one child's holdout fit: rewrite the validation record so it never
+                # reads as the bagged protocol of its parent.
+                record = result_baseline_new.get("validation_protocol")
+                if isinstance(record, dict) and record:
+                    record = {
+                        **record,
+                        "flavour": "bag-child-holdout",
+                        "derived_from": framework,
+                        "child_index": i,
+                        "num_bag_folds_resolved": 1,
+                        "num_bag_sets_resolved": 1,
+                        "num_bag_folds_fitted": 1,
+                        "num_bag_sets_fitted": 1,
+                        "num_child_models": 1,
+                    }
+                    record["key"] = validation_protocol_key(record)
+                    result_baseline_new["validation_protocol"] = record
                 # result_baseline_new["metric_error"] = metric_error
                 result_baseline_new["time_train_s"] /= num_children
                 result_baseline_new["time_infer_s"] /= num_children
