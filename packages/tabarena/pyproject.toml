@@ -59,7 +59,6 @@ dependencies = [
   "huggingface-hub",
   "numpy",
   "pandas",
-  "tabulate",  # pandas DataFrame.to_markdown() for leaderboard output
   "loguru",
 ]
 
@@ -130,6 +129,11 @@ limix = [
   "einops",
   "kditransform",
 ]
+# LimiX-2 inference is not published on PyPI; pinned to a commit so the imported
+# LimiXPredictor matches the weights the wrapper downloads. Keep in sync with
+# `pip_extra` in models/limix_2/info.py. Empty extra on PyPI (see the note at
+# the top of this table).
+limix_2 = ["LimiX @ git+https://github.com/limix-ldm-ai/LimiX.git@89ee0093ac35c791974dc3e8041e4a297fa03c6a"]
 tabpfnwide = ["tabpfnwide>=0.3.0"]
 iltm = ["iltm>=0.1.1"]
 chimeraboost = ["chimeraboost>=0.30.0"]
@@ -186,6 +190,7 @@ extended = [
   "tabarena[perpetualboosting]",
   "tabarena[orionmsp]",
   "tabarena[limix]",
+  "tabarena[limix_2]",
   "tabarena[tabpfnwide]",
   "tabarena[iltm]",
   "tabarena[chimeraboost]",
