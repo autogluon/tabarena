@@ -101,9 +101,9 @@ class RankScorer:
             task_sorted = task_codes[valid][order]
             errors_sorted = errors[valid][order]
             bounds = np.searchsorted(task_sorted, np.arange(len(task_uniques) + 1))
-            per_task = {
-                task_uniques[i]: errors_sorted[bounds[i] : bounds[i + 1]].tolist() for i in range(len(task_uniques))
-            }
+            # sorted error arrays per task (views into one array; `get_rank` iterates them and
+            # `rank_many` concatenates them, neither needs Python lists)
+            per_task = {task_uniques[i]: errors_sorted[bounds[i] : bounds[i + 1]] for i in range(len(task_uniques))}
             self.error_dict = {task: per_task[task] for task in tasks}
             return
         # Repeated (task, framework) results: keep pivot_table's averaging of them.
@@ -118,7 +118,7 @@ class RankScorer:
         self.error_dict = {}
         for task in tasks:
             row = sorted_errors[row_by_task[task]]
-            self.error_dict[task] = row[~np.isnan(row)].tolist()
+            self.error_dict[task] = row[~np.isnan(row)]
 
     def rank_many(self, tasks, errors) -> np.ndarray:
         """Vectorized :meth:`rank` over aligned ``tasks`` and ``errors`` arrays.

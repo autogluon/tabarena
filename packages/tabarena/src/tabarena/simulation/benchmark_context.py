@@ -44,6 +44,10 @@ class BenchmarkPaths:
             self.zs_gt = [self.zs_gt]
         if self.configs_hyperparameters is not None and isinstance(self.configs_hyperparameters, str):
             self.configs_hyperparameters = [self.configs_hyperparameters]
+        # Resolved file lists, keyed by the source list and the relative path they were resolved
+        # against (not a dataclass field: `to_dict` must not serialize it). A load reads
+        # `zs_pp_full` / `zs_gt_full` several times and each is thousands of entries.
+        self._full_lists: dict[tuple[int, str | None], tuple[list[str], list[str]]] = {}
 
     @property
     def configs_full(self):
@@ -85,8 +89,14 @@ class BenchmarkPaths:
             return paths
         if paths is None:
             return None
+        key = (id(paths), self.relative_path)
+        cached = self._full_lists.get(key)
+        if cached is not None and cached[0] is paths:
+            return list(cached[1])
         root = str(Path(self.relative_path))
-        return [self._join(root, path) for path in paths]
+        full = [self._join(root, path) for path in paths]
+        self._full_lists[key] = (paths, full)
+        return list(full)
 
     @staticmethod
     def _join(root: str, path: str) -> str:
