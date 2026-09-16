@@ -83,3 +83,32 @@ def test_shared_label_files_across_repos(tmp_path):
     assert (
         plain_1._ground_truth._label_val_dict[dataset][fold] is not plain_2._ground_truth._label_val_dict[dataset][fold]
     )
+
+
+def test_load_groundtruth_threads_match_sequential(tmp_path):
+    import threading
+
+    from tabarena.simulation import simulation_context as sc
+    from tabarena.simulation.benchmark_context import BenchmarkContext
+
+    repo = load_repo_artificial()
+    repo.to_dir(tmp_path)
+    context = BenchmarkContext.from_json(str(tmp_path / "context.json"))
+    context.benchmark_paths.relative_path = str(tmp_path)
+    paths_gt = context.benchmark_paths.zs_gt_full
+    zsc = repo._zeroshot_context
+
+    sequential = zsc.load_groundtruth(paths_gt, n_threads=1)
+    threaded = zsc.load_groundtruth(paths_gt, n_threads=8)
+    assert sequential.dataset_fold_lst() == threaded.dataset_fold_lst()
+    for dataset, fold in sequential.dataset_fold_lst():
+        assert np.array_equal(sequential.labels_val(dataset, fold), threaded.labels_val(dataset, fold))
+        assert np.array_equal(sequential.labels_test(dataset, fold), threaded.labels_test(dataset, fold))
+        assert np.array_equal(threaded.labels_val(dataset, fold), repo.labels_val(dataset=dataset, fold=fold))
+
+    assert sc._default_label_load_threads() == sc.LABEL_LOAD_THREADS
+    seen = []
+    worker = threading.Thread(target=lambda: seen.append(sc._default_label_load_threads()))
+    worker.start()
+    worker.join()
+    assert seen == [1]
