@@ -175,3 +175,21 @@ def test_custom_metadata_passthrough_skips_reference_and_materialization(patched
 
     assert [m.dataset_name for m in result] == ["my_custom"]  # reference table was NOT loaded
     assert patched_data_foundry == []  # nothing to materialize without a data_foundry_uri
+
+
+def test_from_preset_records_the_suite(patched_data_foundry):
+    result = TaskMetadataCollection.from_preset("BeyondArena")
+    assert result.preset == "BeyondArena"
+    assert result.subset_tasks(problem_types=["binary"]).preset == "BeyondArena"
+
+
+def test_with_preset_makes_a_rebuilt_collection_materializable(patched_data_foundry):
+    """A collection rebuilt from serialized tasks cannot materialize; rebinding the preset fixes that."""
+    rebuilt = TaskMetadataCollection.from_source(TaskMetadataCollection.from_preset("BeyondArena").to_dataframe())
+    assert rebuilt.preset is None
+    rebuilt.materialize()  # in-memory source: a silent no-op
+    assert patched_data_foundry == []
+
+    bound = rebuilt.with_preset("BeyondArena")
+    bound.subset_tasks(problem_types=["binary"]).materialize()
+    assert patched_data_foundry == ["ds_bin/uuid-ds_bin"]

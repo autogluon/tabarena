@@ -207,6 +207,7 @@ _TASK_METADATA_FILE = "task_metadata.csv"
 _JOBS_FILE = "jobs.json"
 _CACHE_CONFIG_FILE = "cache_config.json"
 _VALIDATION_PROTOCOL_FILE = "validation_protocol.json"
+_TASK_SOURCE_FILE = "task_source.json"
 
 
 @dataclass
@@ -233,6 +234,11 @@ class JobBatch:
       :class:`~tabarena.benchmark.validation_protocol.ValidationExpectation` of the arena context that
       built the batch (its protocol, whether it is enforced, the arena), so the compute node re-checks
       every experiment against it before fitting.
+    * ``task_source.json`` — the optional registered suite (``{"preset": "BeyondArena"}``) the
+      collection was loaded from, written when :attr:`TaskMetadataCollection.preset` is set. A
+      compute node without the datasets rebinds that suite's source on load (see
+      :meth:`TaskMetadataCollection.with_preset`) so ``task_metadata.materialize()`` downloads and
+      converts exactly the batch's tasks there.
 
     Loading a saved directory needs nothing else — ``JobBatch.load(path)`` reconstructs
     the ``list[Job]`` plus the collection (and the ``cache_config`` if present), ready for
@@ -320,6 +326,11 @@ class JobBatch:
                 json.dump(self.validation_expectation.to_dict(), f, indent=2)
         else:
             (path / _VALIDATION_PROTOCOL_FILE).unlink(missing_ok=True)
+        if self.task_metadata.preset is not None:
+            with (path / _TASK_SOURCE_FILE).open("w") as f:
+                json.dump({"preset": self.task_metadata.preset}, f)
+        else:
+            (path / _TASK_SOURCE_FILE).unlink(missing_ok=True)
         return path
 
     @classmethod
@@ -332,6 +343,10 @@ class JobBatch:
         experiments = YamlExperimentSerializer.from_yaml(path=str(path / _EXPERIMENTS_FILE))
         experiment_by_name = {experiment.name: experiment for experiment in experiments}
         task_metadata = TaskMetadataCollection.from_source(path / _TASK_METADATA_FILE)
+        task_source_path = path / _TASK_SOURCE_FILE
+        if task_source_path.exists():
+            with task_source_path.open() as f:
+                task_metadata = task_metadata.with_preset(json.load(f)["preset"])
 
         cache_config = None
         cache_config_path = path / _CACHE_CONFIG_FILE

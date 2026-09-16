@@ -1,6 +1,6 @@
 # tabflow_slurm
 
-Run TabArena benchmarks on a **SLURM** cluster.
+Run TabArena benchmarks on a **SLURM** cluster, or on **SkyPilot** managed jobs.
 
 `tabflow_slurm` turns "I want to fit these models on these tasks with this hardware" into
 ready-to-run `sbatch` commands. You compose a **plan** from a few typed building blocks, call
@@ -15,7 +15,12 @@ ready-to-run `sbatch` commands. You compose a **plan** from a few typed building
 Each array task then runs one bundled item at a time via a small runner script, caching results
 into the workspace where the evaluation code can pick them up.
 
-It is self-contained and only depends on `tabarena`.
+Swap the scheduler for `SkyPilotSetup` and the same plan runs as SkyPilot managed jobs on GCP VMs
+that share nothing with the head node: the venv is rebuilt from a frozen manifest, the bundles are
+handed out through a claim queue in a bucket, and the results are mirrored back into the workspace
+before the cache check and the evaluation (see "SkyPilot" below).
+
+It is self-contained and only depends on `tabarena` (plus the `sky` CLI for SkyPilot runs).
 
 ---
 
@@ -32,6 +37,19 @@ uv pip install -e ./packages/tabflow_slurm                              # this p
 You also need the cluster to have `jq` available on the compute nodes (the submit script parses the
 job JSON with it) and a Python venv reachable from the nodes (passed as `python_path`).
 
+For SkyPilot runs the cluster's `sky` CLI (the PriorLabs fork, installed as a `uv` tool) must be on
+`PATH` and connected to the shared API server, which resolves `RTXPRO6000` and picks the regions
+(login nodes preset the endpoint; elsewhere export it):
+
+```bash
+export SKYPILOT_API_SERVER_ENDPOINT=http://skypilot-api:46580   # only where the login shell does not preset it
+sky api info && sky check gcp                                   # server HEALTHY, GCP enabled
+```
+
+`SkyPilotSetup` uses that `sky` from `PATH` (`sky_binary` overrides it). Without the cluster CLI the
+`tabflow_slurm[skypilot]` extra installs upstream `skypilot[gcp]` next to the run venv's python; that
+one runs its own local API server, so set `infra` yourself then. The `gcloud` CLI must be on `PATH`.
+
 ---
 
 ## Quickstart
@@ -44,24 +62,28 @@ from tabarena.benchmark.experiment import TabArenaV0pt1ExperimentBundle
 from tabarena.benchmark.task.metadata import TaskSubset
 from tabarena.contexts.tabarena.context import TabArenaContext
 from tabflow_slurm import (
-    GCPSlurmSetup, ModelJob, PathSetup, TabArenaBenchmarkPlan, TabArenaV0pt1ResourcesSetup,
+    GCPSlurmSetup,
+    ModelJob,
+    PathSetup,
+    TabArenaBenchmarkPlan,
+    TabArenaV0pt1ResourcesSetup,
 )
 
 plan = TabArenaBenchmarkPlan(
     benchmark_name="my_benchmark_2026",
     model_jobs=[
         ModelJob(models=("TabPFN-3", 0), name="gpu", resources={"num_gpus": 1}),  # GPU model
-        ModelJob(models=("Linear", 1), name="cpu"),                                # CPU model, 1 random config
+        ModelJob(models=("Linear", 1), name="cpu"),  # CPU model, 1 random config
     ],
-    context=TabArenaContext(),                          # owns the tasks + subset predicates (from tabarena)
-    task_subset=TaskSubset(subset="lite"),              # typed scope for context.build_jobs (first split only)
+    context=TabArenaContext(),  # owns the tasks + subset predicates (from tabarena)
+    task_subset=TaskSubset(subset="lite"),  # typed scope for context.build_jobs (first split only)
     experiment_bundle=TabArenaV0pt1ExperimentBundle(),  # how to build the models (from tabarena)
     path_setup=PathSetup(workspace="/shared/workspace", python_path="/shared/venv/bin/python"),
     resources_setup=TabArenaV0pt1ResourcesSetup(),
     scheduler_setup=GCPSlurmSetup(),
 )
 
-plan.setup_jobs()   # prints the sbatch command(s) to launch
+plan.setup_jobs()  # prints the sbatch command(s) to launch
 ```
 
 > **BeyondArena:** swap in `from tabarena.contexts.beyondarena.context import BeyondArenaContext`,
@@ -78,6 +100,9 @@ fields `TaskMetadataCollection.subset_tasks` / `context.build_jobs` accept (`sub
 Run the script's `setup` subcommand on the **head node** (it materializes tasks + checks the cache
 locally), then run the printed `sbatch` command(s) to launch the jobs. When they finish, evaluate
 with the same script's `eval` subcommand (see [`experiments/`](experiments)).
+
+The example scripts take `--scheduler slurm|skypilot|skypilot-pool`; `setup` and `eval` both read it,
+so a SkyPilot run is launched and evaluated with the same two commands.
 
 ---
 
@@ -113,6 +138,26 @@ with the same script's `eval` subcommand (see [`experiments/`](experiments)).
                                    │  ExperimentBatchRunner.run_jobs() → cache result
                                    ▼
                        <workspace>/output/<benchmark_name>/…   ──►  run_*.py eval → leaderboard
+```
+
+With `SkyPilotSetup` the lower half becomes:
+
+```
+                       prints:  sky check gcp
+                                sky jobs launch -y -d -n <launch_id> --num-jobs N <job.yaml>
+                                (pool mode: sky jobs pool apply / pool status first, pool down after)
+                                          │  you run this
+                                          ▼
+                       N managed jobs, each a spot VM (or a pool worker):
+                       setup: build the venv from the staged env.json manifest
+                       run:   python -P -m tabflow_slurm.sky_worker
+                                   │  claims a bundle (exclusive create in <bucket>/.../queue/<launch_id>/claims/)
+                                   ▼
+                       run_tabarena_experiment.py --cache_root ... --materialize_tasks True  (per item)
+                                   │  downloads the dataset through the batch's recorded suite, fits, and
+                                   │  copies data/<method>/<task>/<r_f>/ into <bucket>/.../output/data/
+                                   ▼
+                       run_*.py eval  ──►  sync_results_to_local (bucket → workspace)  ──►  leaderboard
 ```
 
 ---
@@ -186,6 +231,68 @@ Presets: **`TabArenaV0pt1ResourcesSetup`** (8 CPU / 32 GB / 1h) and **`BeyondAre
   `time_limit_per_config × configs_per_job + overhead`.
 - **`GCPSlurmSetup`** — the BeyondArena GCP defaults (partition names, `exclusive_node=True`).
 
+Two hooks on the base class let a scheduler without a shared filesystem plug in: `sync_results_to_local`
+(called by the engine before the cache check and by the scripts before an eval; a no-op for SLURM) and
+`prefetches_weights_on_head` (False when the nodes fetch model weights themselves, which skips the
+head-node prefetch). `describe_target` names where a run lands for the plan's banner.
+
+### `SkyPilotSetup` — `setup/skypilot.py`
+Runs the bundles as SkyPilot managed jobs draining a **GCS claim queue**. Construct it like a
+`SlurmSetup`; `PathSetup` keeps naming the head node's workspace and venv. `setup_jobs()` then:
+- **replicates the run venv** (`setup/sky_env.py`): `uv pip freeze` of `python_path`, a content-addressed
+  archive of every local checkout it installs (this repo, the AutoGluon fork, local sdists), and an
+  `env.json` manifest under `<bucket>/<prefix>/env/<hash>/`; the worker's `setup:` rebuilds an
+  identical venv from it (working tree, not `HEAD`, so uncommitted fixes ship too);
+- copies the `JobBatch` and **one task JSON per bundle** to `<bucket>/<prefix>/runs/<benchmark>/queue/<launch_id>/`;
+- renders `job.yaml` (and `pool_<name>.yaml` with `use_pool=True`) under `setup_out/<benchmark>/sky/`
+  and prints **one `sky jobs launch -y -d --num-jobs N`** per run group (never one launch per bundle).
+
+Knobs: `bucket` / `prefix` (defaults to the org's EU sky-cache bucket and `<user>/tabarena`),
+`api_server_endpoint` (printed as an export; unset means the shell must provide it), `dataset_cache_uri` /
+`seed_dataset_cache` / `seed_model_weights` (the static cache above), `infra` (unset by
+default: the shared server's admin policy expands the regions and rejects an explicit one), `workers`
+(concurrent worker jobs, the `%N` analogue, and the pool size), `use_pool` / `pool_name`,
+`gpu_accelerator` (`RTXPRO6000:1`, a `g4-standard-48` with 96 GB VRAM, 48 vCPU, 180 GB RAM; pair with
+`fake_memory_for_estimates=96`),
+`cpu_cpus` / `cpu_memory` / `cpu_instance_type`, `use_spot`, `disk_size`, `item_time_limit_overhead`
+(seconds per **item**, the worker kills an item over budget and its bundle mates still run), `secrets`
+(names forwarded from the shell, e.g. `HF_TOKEN`), `requirements_extra_lines`, `sky_binary`.
+
+The worker (`sky_worker.py`) resumes the bundles its job already owns after a preemption (SkyPilot keeps
+`SKYPILOT_TASK_ID` across recoveries), then claims unowned bundles until nothing is left, writing
+`done/<bundle>.<item>` and `failed/...` markers the progress watcher counts. Each item runs the bundled
+runner with `--cache_root` (every cache under one local directory) and `--materialize_tasks True` (the
+dataset is resolved through the suite the batch recorded in `task_source.json`, OpenML for TabArena and
+data-foundry for BeyondArena), so no shared filesystem is needed. Results are copied per item into
+`runs/<benchmark>/output/data/`; `sync_results_to_local` mirrors that prefix into
+`<workspace>/output/<benchmark>/data` (nothing deleted, so SLURM and SkyPilot results merge).
+
+**Dataset and weight cache** (`setup/sky_cache.py`). Workers fetch neither datasets nor model weights
+from OpenML or the Hub. `setup` copies the tasks it materialized on the head node (OpenML task and
+dataset directories, portable `tabarena_tasks/<slug>.pkl` files and their text-embedding caches for
+BeyondArena) into a static prefix laid out like `CacheConfig.from_root`, by default
+`<bucket>/tabarena/cache`, shared across users and runs because datasets are immutable. Only missing
+files are uploaded, every local file is then verified present remotely, and the launch's queue gets a
+`cache_manifest.json` mapping each dataset to its entries. The worker pulls a dataset's entries into
+`CACHE_ROOT` right before its first item, so the runner's `--materialize_tasks` finds them cached (an
+OpenML task loads from `task.xml`, the splits and the dataset's parquet without a network call). A
+legacy `tabarena_tasks` pickle that names this machine's `local/datasets/` is upgraded first: the
+dataset is re-materialized from its container into a scratch OpenML root and the portable pickle
+replaces the legacy file atomically (a SLURM job reading the shared cache meanwhile sees one complete
+file or the other).
+
+Weights follow the same path. For each of the run's models without a remote `weights/<model>.json`,
+`setup` runs the model's prefetch on the head node into a scratch cache root with `HF_HOME`,
+`XDG_CACHE_HOME` (tabpfn's cache) and `TORCH_HOME` redirected, uploads what landed there (Hugging Face
+repositories as their `snapshots` and `refs`, so blobs are not stored twice; tabpfn checkpoints file by
+file) and writes the manifest, so the next setup skips the prefetch. The head node's own token is used
+for gated repositories. Workers pull every model's entries at start and, when all of them are seeded,
+run with `HF_HUB_OFFLINE=1`, so no token reaches the VMs; a model without seeded weights is prefetched
+by the worker from the Hub as before. Workers only read the prefix. `dataset_cache_uri` points it
+elsewhere (a US bucket for a US pool, or a curated read-only bucket with `seed_dataset_cache=False` and
+`seed_model_weights=False`, in which case `setup` only verifies and the workers download whatever is
+missing).
+
 ### `TabArenaBenchmarkSetup` — `setup/benchmark.py` *(internal)*
 The per-run engine for one homogeneous run. Not part of the public API — the plan builds and drives
 it. `get_jobs_to_run()` is the core pipeline: ensure dirs → build the experiments (the bundle
@@ -222,6 +329,14 @@ validation_protocol.json, which the compute node re-checks before fitting) → b
   the `JobBatch`'s `cache_config`.)
 - **`node_prep.py`** — the once-per-node-boot page-cache pre-touch of the job's libraries, invoked by
   the template.
+- **`sky_worker.py`** — the SkyPilot counterpart of `submit_template.sh`: one process per worker job
+  that drains the claim queue and runs the runner per item (argument list from
+  `run_local._build_item_command`, plus `--cache_root` and `--materialize_tasks`), under a per-item
+  budget, uploading results and logs to the bucket.
+- The runner's two opt-in flags for nodes without the shared filesystem: `--cache_root <dir>` (every
+  cache under one local directory instead of the batch's head-node `cache_config`) and
+  `--materialize_tasks True` (download this job's dataset through the suite recorded in the batch's
+  `task_source.json` before fitting). Both are off for SLURM and local runs.
 
 ---
 
@@ -259,6 +374,11 @@ instead of downloading inside the timed fit; `staging` (from `NodeStagingSetup`;
 opt-in, the library pre-touch is on) lists the weight files copied onto node-local scratch and the
 pre-touch budget. Older job JSONs without these keys still run.
 
+`SkyPilotSetup` writes the same content as one file per bundle, `queue/<launch_id>/tasks/<i>.json`
+holding `{"defaults": {..., "item_timeout_seconds": T}, "items": [...]}`. The worker ignores the four
+head-node paths in `defaults` (`python`, `run_script`, `job_batch_dir`, `output_dir`) and substitutes
+its own; everything else is passed through unchanged.
+
 ---
 
 ## Examples & history
@@ -276,9 +396,25 @@ pre-touch budget. Older job JSONs without these keys still run.
 - **Run setup on the head node.** It materializes tasks (downloading data-foundry datasets into the
   OpenML cache), checks the cache, and prefetches foundation weights — all locally — before any
   `sbatch`.
-- **The OpenML cache must be shared.** Tasks materialized during setup must be visible to the
+- **The OpenML cache must be shared (SLURM).** Tasks materialized during setup must be visible to the
   workers. Point `CacheConfig.openml` at shared storage (via `TabArenaContext(cache_config=...)`);
   the config is embedded in the `JobBatch` and applied identically on the head node and every worker.
+  SkyPilot workers have no shared cache: they run with `--cache_root` and `--materialize_tasks`, which
+  needs the batch's `task_source.json` (written by every setup since the preset is recorded; an older
+  batch cannot materialize data-foundry tasks on a VM).
+- **SkyPilot: mind the endpoint, the card and the pool.** The `sky` commands need the shared API
+  server (`SKYPILOT_API_SERVER_ENDPOINT`, preset on login nodes); the printed block fails fast without
+  it. The default card is the same RTX PRO 6000 as the SLURM partition, so `fake_memory_for_estimates`
+  stays 96. Gated weights need their token in `secrets`. In pool mode run
+  `sky jobs pool down -y <pool>` when the benchmark is finished. `sky jobs cancel -n <launch_id> -y`
+  stops a launch; its orphaned claims are re-enumerated by the next `setup` into a fresh queue.
+- **Do not re-run `setup` for a `benchmark_name` while its launch is still draining.** The running
+  launch is not harmed (a new launch gets its own id and queue), but the head node's cache check only
+  sees results that were synced, so items still in flight are enumerated again and fitted twice.
+  `setup` checks the bucket and prints a warning (also into the command block) naming any launch of
+  the benchmark with bundles not yet done; wait for `sky_progress.sh` to report `DONE` or
+  `WORKERS GONE`, or cancel the old launch first. Editing the checkout, the venv or the workspace
+  while a launch runs is safe: the workers use the staged environment and batch from the bucket.
 - **Grouping is by *effective* settings.** Two `ModelJob`s with the same resources/scheduler/tasks/
   experiment merge into one run (one `JobBatch`, one array). Different `num_gpus` (or any override)
   splits them — that's how GPU vs CPU models become separate `sbatch` commands.

@@ -6,6 +6,11 @@ ONE file, TWO subcommands, sharing the new run's ``BENCHMARK_NAME`` / ``PathSetu
     python experiments/run_beyondarena.py setup   # launch the new contender run
     python experiments/run_beyondarena.py eval      # leaderboard: contender vs. the uploaded suite
 
+``--scheduler skypilot-pool`` (or ``skypilot``) runs the same plan on SkyPilot instead of SLURM. Each
+worker VM materializes its datasets itself (the batch records the BeyondArena suite), and a pool
+worker keeps them across jobs, which is why the pool is the better fit here. ``eval`` then syncs the
+bucket's results into the workspace first. See ``run_tabpfn3.py`` for the prerequisites.
+
 `setup` launches a fresh run of a single contender (``CONTENDER_MODEL``). The tasks come from the
 Data Foundry ``BeyondArena`` collection, which ``BeyondArenaContext`` owns: it loads reference
 metadata (no downloads); the benchmark setup later materializes (downloads + converts) only the
@@ -37,6 +42,8 @@ from tabflow_slurm import (
     GCPSlurmSetup,
     ModelJob,
     PathSetup,
+    SchedulerSetup,
+    SkyPilotSetup,
     TabArenaBenchmarkPlan,
 )
 
@@ -70,13 +77,23 @@ SUBSETS = [
 # re-runs `compare` purely to re-emit the same figures — the leaderboard itself is identical.
 FIGURE_FILE_TYPES = ("pdf", "png")
 
+SCHEDULERS = ("slurm", "skypilot", "skypilot-pool")
+
 
 def _path_setup() -> PathSetup:
     return PathSetup(workspace=WORKSPACE, python_path=PYTHON_PATH)
 
 
-def setup() -> None:
-    """Generate the job JSON and emit the ``sbatch`` command(s) for the contender run."""
+def _scheduler_setup(kind: str) -> tuple[SchedulerSetup, int]:
+    """The scheduler for ``kind`` and the VRAM in GB of its GPU (for ``fake_memory_for_estimates``)."""
+    if kind == "slurm":
+        return GCPSlurmSetup(bundle_size=1), 80  # the 80 GB VRAM GPU nodes
+    return SkyPilotSetup(bundle_size=1, secrets=("HF_TOKEN",), use_pool=kind == "skypilot-pool"), 96  # RTX PRO 6000
+
+
+def setup(scheduler: str = "slurm") -> None:
+    """Generate the job files and emit the launch command(s) for the contender run."""
+    scheduler_setup, vram_gb = _scheduler_setup(scheduler)
     plan = TabArenaBenchmarkPlan(
         benchmark_name=BENCHMARK_NAME,
         model_jobs=[
@@ -85,7 +102,7 @@ def setup() -> None:
                 name="gpu",
                 resources={
                     "num_gpus": 1,
-                    "fake_memory_for_estimates": 80,  # we have an 80 GB VRAM GPU
+                    "fake_memory_for_estimates": vram_gb,  # the VRAM of the GPU the scheduler lands on
                     "time_limit": 3600 * 12,  # higher time limit for a TFM job, as for TabICL
                 },
             ),
@@ -96,12 +113,12 @@ def setup() -> None:
         experiment_bundle=BeyondArenaExperimentBundle(),
         path_setup=_path_setup(),
         resources_setup=BeyondArenaResourcesSetup(),
-        scheduler_setup=GCPSlurmSetup(bundle_size=1),
+        scheduler_setup=scheduler_setup,
     )
     plan.setup_jobs()
 
 
-def evaluate() -> None:
+def evaluate(scheduler: str = "slurm") -> None:
     """Leaderboard per subset: the new contender run vs. the uploaded BeyondArena baselines.
 
     The baselines are not wired up by hand — they are the methods ``BeyondArenaContext`` already
@@ -117,6 +134,11 @@ def evaluate() -> None:
     )
     from tabarena.evaluation.beyond_metadata import load_beyond_task_metadata_collection
 
+    # SkyPilot workers write into the bucket; bring their results into the workspace (no-op for SLURM).
+    _scheduler_setup(scheduler)[0].sync_results_to_local(
+        path_setup=_path_setup(), benchmark_name=BENCHMARK_NAME, force=True
+    )
+
     # BeyondArena task metadata (committed CSV) — post-processing the raw run needs it to map the
     # data-foundry task ids to datasets / metrics.
     task_metadata = load_beyond_task_metadata_collection("BeyondArena")
@@ -127,7 +149,7 @@ def evaluate() -> None:
         [
             MethodArtifact(
                 ag_name=resolve_ag_name(CONTENDER_MODEL),
-                path_raw=_path_setup().get_output_path(BENCHMARK_NAME) / "data",
+                path_raw=Path(_path_setup().get_output_path(BENCHMARK_NAME)) / "data",
                 suite=BENCHMARK_NAME,
                 result_suffix=RESULT_SUFFIX,
             ),
@@ -166,4 +188,6 @@ DEFAULT_MODE = "setup"  # bare invocation (no mode arg) runs this
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run the setup or eval half of this benchmark.")
     parser.add_argument("mode", nargs="?", default=DEFAULT_MODE, choices=list(MODES))
-    MODES[parser.parse_args().mode]()
+    parser.add_argument("--scheduler", choices=SCHEDULERS, default="slurm", help="Where the jobs run.")
+    args = parser.parse_args()
+    MODES[args.mode](args.scheduler)

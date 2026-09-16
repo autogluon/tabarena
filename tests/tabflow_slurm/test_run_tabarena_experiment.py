@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 
 import pytest
 
@@ -103,8 +104,8 @@ class TestParseIntOrNone:
 # ---------------------------------------------------------------------------
 
 
-def _save_minimal_batch(path, *, validation_expectation=None, experiment_protocol=None) -> None:
-    """Write a one-experiment, one-dataset JobBatch to `path`."""
+def _save_minimal_batch(path, *, validation_expectation=None, experiment_protocol=None, preset=None) -> None:
+    """Write a one-experiment, one-dataset JobBatch to `path` (bound to the suite `preset` when given)."""
     import pandas as pd
     from autogluon.tabular.models import LGBModel
 
@@ -136,6 +137,8 @@ def _save_minimal_batch(path, *, validation_expectation=None, experiment_protoco
             },
         ),
     )
+    if preset is not None:
+        collection = collection.with_preset(preset)
     JobBatch(
         jobs=[Job.create(experiment, "ds_a", fold=0)],
         task_metadata=collection,
@@ -383,3 +386,151 @@ class TestResolveSetupRay:
             task=types.SimpleNamespace(dataset="ds_a"),
         )
         assert resolve_setup_ray(True, types.SimpleNamespace(task_metadata=None), job) is True
+
+
+class TestRunExperimentWorkerFlags:
+    """`cache_root` and `materialize_tasks` make the runner self-sufficient on a node without the shared filesystem."""
+
+    @staticmethod
+    def _fake_runner(monkeypatch):
+        """Stub the fit; record the collection the runner was handed."""
+        import tabarena.benchmark.experiment as exp_mod
+
+        seen: dict = {}
+
+        class _FakeRunner:
+            def __init__(self, **kwargs):
+                seen["task_metadata"] = kwargs["task_metadata"]
+
+            def run_jobs(self, jobs):
+                return [{"metric_error": 0.1}]
+
+        monkeypatch.setattr(exp_mod, "ExperimentBatchRunner", _FakeRunner)
+        return seen
+
+    @staticmethod
+    def _run(batch_dir, tmp_path, **kwargs):
+        return run_experiment(
+            job_batch_dir=str(batch_dir),
+            experiment_name="exp_a",
+            dataset="ds_a",
+            fold=0,
+            repeat=0,
+            output_dir=str(tmp_path / "out"),
+            ignore_cache=False,
+            **kwargs,
+        )
+
+    def test_cache_root_overrides_the_batch_cache_config(self, monkeypatch, tmp_path):
+        import types
+
+        import openml
+
+        import tabarena.benchmark.experiment as exp_mod
+        from tabarena.caching import CacheConfig
+        from tabarena.loaders import get_tabarena_cache_root, set_tabarena_cache_root
+
+        job = types.SimpleNamespace(
+            experiment=types.SimpleNamespace(name="exp_a"),
+            task=types.SimpleNamespace(as_triple=lambda: ("ds_a", 0, 0)),
+        )
+        fake_batch = types.SimpleNamespace(
+            jobs=[job], task_metadata=object(), cache_config=CacheConfig(tabarena=tmp_path / "head_node_tab")
+        )
+        monkeypatch.setattr(exp_mod, "JobBatch", types.SimpleNamespace(load=lambda _dir: fake_batch))
+        self._fake_runner(monkeypatch)
+        # setenv (not delenv) so monkeypatch records the original state and restores it afterwards.
+        for name in ("HF_HOME", "DATA_FOUNDRY_CACHE", "HF_HUB_CACHE", "HUGGINGFACE_HUB_CACHE"):
+            monkeypatch.setenv(name, "placeholder")
+        saved_openml_root = openml.config._root_cache_directory
+        try:
+            self._run("x", tmp_path, cache_root=str(tmp_path / "root"))
+            # Every cache lives under the local root; the batch's head-node path was ignored.
+            assert get_tabarena_cache_root() == tmp_path / "root" / "tabarena"
+            assert os.environ["HF_HOME"] == str(tmp_path / "root" / "huggingface")
+            assert os.environ["DATA_FOUNDRY_CACHE"] == str(tmp_path / "root" / "data_foundry")
+            assert str(openml.config._root_cache_directory) == str(tmp_path / "root" / "openml")
+        finally:
+            set_tabarena_cache_root(None)
+            openml.config.set_root_cache_directory(str(saved_openml_root))
+
+    def test_without_the_flags_the_batch_collection_is_used_as_is(self, monkeypatch, tmp_path):
+        seen = self._fake_runner(monkeypatch)
+        batch_dir = tmp_path / "batch"
+        _save_minimal_batch(batch_dir, preset="TabArena-v0.1")
+        self._run(batch_dir, tmp_path)
+        assert seen["task_metadata"].preset == "TabArena-v0.1"
+        assert seen["task_metadata"].dataset_fold_repeats() == [("ds_a", 0, 0)]
+
+    def test_materialize_tasks_downloads_through_the_recorded_suite(self, monkeypatch, tmp_path):
+        from tabarena.benchmark.task.metadata import TaskMetadataCollection
+
+        seen = self._fake_runner(monkeypatch)
+        materialized: list = []
+        monkeypatch.setattr(TaskMetadataCollection, "materialize", lambda self: materialized.append(self) or self)
+        batch_dir = tmp_path / "batch"
+        _save_minimal_batch(batch_dir, preset="TabArena-v0.1")
+        self._run(batch_dir, tmp_path, materialize_tasks=True)
+        # Exactly the job's split was materialized, through the suite's (OpenML) source, and the runner
+        # resolves against that job-scoped collection.
+        assert len(materialized) == 1
+        assert materialized[0].dataset_fold_repeats() == [("ds_a", 0, 0)]
+        assert materialized[0].preset == "TabArena-v0.1"
+        assert seen["task_metadata"] is materialized[0]
+
+    @staticmethod
+    def _fake_batch_with_task(monkeypatch, *, task_id_str, data_foundry_uri, preset=None):
+        """A batch whose job-scoped collection holds one task with the given id / uri and no real source."""
+        import types
+
+        import tabarena.benchmark.experiment as exp_mod
+
+        job = types.SimpleNamespace(
+            experiment=types.SimpleNamespace(name="exp_a"),
+            task=types.SimpleNamespace(as_triple=lambda: ("ds_a", 0, 0)),
+        )
+        task = types.SimpleNamespace(
+            task_id_str=task_id_str, data_foundry_uri=data_foundry_uri, tabarena_task_name="ds_a"
+        )
+
+        class _Scoped:
+            def __init__(self):
+                self.preset = preset
+                self.materialized = 0
+
+            def __iter__(self):
+                return iter([task])
+
+            def materialize(self):
+                self.materialized += 1
+                return self
+
+        scoped = _Scoped()
+        batch = types.SimpleNamespace(
+            jobs=[job],
+            task_metadata=types.SimpleNamespace(subset_to_jobs=lambda jobs: scoped),
+            cache_config=None,
+        )
+        monkeypatch.setattr(exp_mod, "JobBatch", types.SimpleNamespace(load=lambda _dir: batch))
+        return scoped
+
+    def test_materialize_tasks_refuses_a_data_foundry_task_without_a_recorded_suite(self, monkeypatch, tmp_path):
+        self._fake_runner(monkeypatch)
+        self._fake_batch_with_task(monkeypatch, task_id_str="UserTask|1|ds_a/uuid", data_foundry_uri="ds_a/uuid")
+        with pytest.raises(ValueError, match="task_source.json"):
+            self._run("x", tmp_path, materialize_tasks=True)
+
+    def test_materialize_tasks_without_a_suite_lets_openml_tasks_load_lazily(self, monkeypatch, tmp_path):
+        seen = self._fake_runner(monkeypatch)
+        scoped = self._fake_batch_with_task(monkeypatch, task_id_str="359955", data_foundry_uri=None)
+        self._run("x", tmp_path, materialize_tasks=True)
+        assert scoped.materialized == 0
+        assert seen["task_metadata"] is scoped
+
+    def test_materialize_tasks_rejects_a_task_id_that_embeds_a_cache_path(self, monkeypatch, tmp_path):
+        self._fake_runner(monkeypatch)
+        self._fake_batch_with_task(
+            monkeypatch, task_id_str="UserTask|1|ds_a|/home/head/.cache/openml/tabarena_tasks", data_foundry_uri=None
+        )
+        with pytest.raises(ValueError, match="embeds a cache path"):
+            self._run("x", tmp_path, materialize_tasks=True)

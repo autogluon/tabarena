@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, ClassVar, Literal
 
 from tabarena.utils.ray_utils import to_batch_list
 
@@ -87,6 +87,12 @@ class SchedulerSetup:
     `get_extra_default_args`.
     """
 
+    prefetches_weights_on_head: ClassVar[bool] = True
+    """Whether weights prefetched on the head node (`TabArenaBenchmarkPlan.prefetch_model_weights`)
+    reach this scheduler's compute nodes. True when the nodes share the head node's HuggingFace
+    cache (SLURM on a shared filesystem, a local run); a scheduler whose nodes fetch weights
+    themselves sets it to False so the plan skips the useless head-node download."""
+
     bundle_size: int = 5
     """Number of `(experiment, dataset, fold, repeat)` items batched into a
     single array task. Items may span different `(dataset, fold, repeat)`
@@ -160,6 +166,26 @@ class SchedulerSetup:
         ``None``); ``model_classes`` drive the pre-touch package list. Default: no staging.
         """
         return {}
+
+    def sync_results_to_local(self, *, path_setup: PathSetup, benchmark_name: str, force: bool = False) -> None:
+        """Bring results the compute nodes wrote elsewhere into `path_setup.get_output_path(benchmark_name)`.
+
+        The engine calls this before its cache check (so a relaunch skips what the nodes already
+        finished) and launch scripts call it before an evaluation. Schedulers whose nodes write
+        straight into the shared output dir (SLURM, local) inherit this no-op; a scheduler whose
+        nodes write to remote storage downloads the new results here. `force` asks for a fresh
+        download even if this process synced already.
+        """
+        return
+
+    def describe_target(self, resources: ResourcesSetup) -> str:
+        """One line naming where a run with `resources` lands, for the plan's per-run banner.
+
+        Default: the scheduler's `gpu_partition` / `cpu_partition` attribute (whichever the
+        resources select), falling back to the scheduler's class name when it has none.
+        """
+        attr = "gpu_partition" if resources.num_gpus > 0 else "cpu_partition"
+        return getattr(self, attr, None) or type(self).__name__
 
     def bundle_items(self, jobs: list[Job], task_metadata: TaskMetadataCollection) -> tuple[list[dict], int]:
         """Group approved jobs into array-task bundles.

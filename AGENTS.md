@@ -162,7 +162,7 @@ Every result records what it ran under (`results["validation_protocol"]`: flavou
 
 ### Data caching
 
-TabArena uses five independent caches. Configure them all at once with `tabarena.caching.CacheConfig` — the single, documented surface (`TabArenaContext(cache_config=CacheConfig.from_root(...))`; the context applies it on construction and re-applies it inside `run_jobs`, so distributed workers inherit it). The SLURM path uses the **same** object: the setup embeds `context.cache_config` in the `JobBatch`, and each worker applies it (no `--openml_cache_dir` wiring). See the `CacheConfig` docstring for the authoritative per-cache reference.
+TabArena uses five independent caches. Configure them all at once with `tabarena.caching.CacheConfig` — the single, documented surface (`TabArenaContext(cache_config=CacheConfig.from_root(...))`; the context applies it on construction and re-applies it inside `run_jobs`, so distributed workers inherit it). The SLURM path uses the **same** object: the setup embeds `context.cache_config` in the `JobBatch`, and each worker applies it (no `--openml_cache_dir` wiring). A node without the shared filesystem (a SkyPilot VM) runs the runner with `--cache_root <dir>` instead, which puts every cache under one local directory, and with `--materialize_tasks True`, which downloads the job's dataset through the suite the `JobBatch` recorded in `task_source.json` (`TaskMetadataCollection.preset` / `with_preset`). See the `CacheConfig` docstring for the authoritative per-cache reference.
 
 | Cache | `CacheConfig` field | Holds | Set via | Default |
 |---|---|---|---|---|

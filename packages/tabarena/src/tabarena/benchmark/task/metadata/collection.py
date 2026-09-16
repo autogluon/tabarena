@@ -39,6 +39,10 @@ def _tabarena_subset_predicates() -> dict[str, SubsetPredicate]:
     return TabArenaContext.SUBSET_PREDICATES
 
 
+# The registered benchmark suites `from_preset` / `with_preset` accept.
+PRESETS: tuple[str, ...] = ("TabArena-v0.1", "BeyondArena")
+
+
 def _preset_subset_predicates_provider(
     suite_name: str,
 ) -> Callable[[], dict[str, SubsetPredicate]] | None:
@@ -54,6 +58,12 @@ def _preset_subset_predicates_provider(
     if suite_name == "TabArena-v0.1":
         return _tabarena_subset_predicates
     return None
+
+
+def _check_preset(preset: str) -> None:
+    """Raise ``ValueError`` for a suite name that is not in :data:`PRESETS`."""
+    if preset not in PRESETS:
+        raise ValueError(f"Unknown preset {preset!r}. Available presets: {list(PRESETS)}.")
 
 
 class TaskMetadataCollection:
@@ -93,9 +103,14 @@ class TaskMetadataCollection:
         *,
         source: TaskMetadataSource | None = None,
         default_predicates_provider: Callable[[], dict[str, SubsetPredicate]] | None = None,
+        preset: str | None = None,
     ):
         self._tasks = list(tasks)
         self._source = source
+        # The registered suite this collection was loaded from (`from_preset`), or None. Recorded
+        # so an artifact built from the collection (e.g. a `JobBatch`) can rebind the suite's source
+        # on another machine with `with_preset` and materialize the tasks there.
+        self._preset = preset
         # Lazy provider of this collection's default subset predicates (set by `from_preset`
         # per suite family). A zero-arg thunk, called only when `subset_tasks(subset=...)`
         # runs without an explicit `predicates=`, so the (heavier) context import stays lazy.
@@ -143,11 +158,10 @@ class TaskMetadataCollection:
         ``TabArenaContext.SUBSET_PREDICATES``). The predicates are loaded lazily — only when
         the subset filter actually runs.
         """
-        suites = ("TabArena-v0.1", "BeyondArena")
-        if preset not in suites:
-            raise ValueError(f"Unknown preset {preset!r}. Available presets: {list(suites)}.")
+        _check_preset(preset)
         collection = cls.from_source(preset, verbose=verbose)
         collection._default_predicates_provider = _preset_subset_predicates_provider(preset)
+        collection._preset = preset
         return collection
 
     @classmethod
@@ -169,6 +183,26 @@ class TaskMetadataCollection:
         tasks = [user_tasks] if isinstance(user_tasks, UserTask) else list(user_tasks)
         return cls.from_source([task.load().metadata for task in tasks], verbose=verbose)
 
+    def with_preset(self, preset: str) -> TaskMetadataCollection:
+        """These tasks bound to the registered suite ``preset``, so :meth:`materialize` works again.
+
+        A collection rebuilt from its serialized tasks (a ``task_metadata.csv`` in a ``JobBatch``,
+        a DataFrame) carries an in-memory source whose ``materialize()`` is a no-op. Rebinding the
+        suite's source (OpenML for ``"TabArena-v0.1"``, data-foundry for ``"BeyondArena"``) lets a
+        machine that has never seen the data download and convert exactly these tasks. The tasks
+        are kept as they are; only the source, the default subset predicates and :attr:`preset`
+        change. Unknown names raise like :meth:`from_preset`.
+        """
+        from tabarena.benchmark.task.metadata.sources import resolve_source
+
+        _check_preset(preset)
+        return TaskMetadataCollection(
+            self._tasks,
+            source=resolve_source(preset),
+            default_predicates_provider=_preset_subset_predicates_provider(preset),
+            preset=preset,
+        )
+
     # ------------------------------------------------------------------ list-like
     @property
     def tasks(self) -> list[TabArenaTaskMetadata]:
@@ -178,6 +212,15 @@ class TaskMetadataCollection:
     def source(self) -> TaskMetadataSource | None:
         """The source this collection was loaded from (``None`` for directly-built ones)."""
         return self._source
+
+    @property
+    def preset(self) -> str | None:
+        """The registered suite this collection came from (``None`` unless built via a preset).
+
+        Preserved through every subset; see :meth:`with_preset` to bind it onto a collection that
+        was rebuilt from serialized tasks.
+        """
+        return self._preset
 
     def __len__(self) -> int:
         return len(self._tasks)
@@ -374,6 +417,7 @@ class TaskMetadataCollection:
             tasks,
             source=self._source,
             default_predicates_provider=self._default_predicates_provider,
+            preset=self._preset,
         )
 
     def _filter_split_indices(self, split_indices: list[str] | Literal["lite"]) -> TaskMetadataCollection:
@@ -845,6 +889,7 @@ class _PresetTaskMetadataCollection(TaskMetadataCollection):
             loaded._tasks,
             source=loaded._source,
             default_predicates_provider=loaded._default_predicates_provider,
+            preset=loaded._preset,
         )
 
 

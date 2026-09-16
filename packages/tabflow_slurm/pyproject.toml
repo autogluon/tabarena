@@ -10,6 +10,11 @@ dependencies = [
     "tabarena",
 ]
 
+[project.optional-dependencies]
+# A `sky` CLI for `SkyPilotSetup` on a machine without the cluster's own client (which is preferred:
+# `SkyPilotSetup` picks up `sky` from PATH first). Upstream SkyPilot; use it with its local API server.
+skypilot = ["skypilot[gcp]==0.13.0"]
+
 [tool.uv.sources]
 tabarena = { workspace = true }
 

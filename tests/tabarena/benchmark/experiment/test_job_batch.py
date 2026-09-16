@@ -4,6 +4,8 @@ filter_jobs_by_constraints, job_cache_exists, and the JobBatch directory artifac
 
 from __future__ import annotations
 
+import json
+
 import pandas as pd
 import pytest
 
@@ -308,6 +310,41 @@ class TestJobBatch:
         JobBatch(jobs=base.jobs, task_metadata=base.task_metadata).save(path)
         assert not (path / "validation_protocol.json").exists()
         assert JobBatch.load(path).validation_expectation is None
+
+    def test_task_source_round_trip(self, tmp_path, monkeypatch):
+        import tabarena.benchmark.task.data_foundry as df_pkg
+        from tabarena.benchmark.task.metadata.sources import DataFoundryTaskMetadataSource
+
+        class _DummyCollection:
+            name = "BeyondArena"
+
+        # The BeyondArena source builds its collection lazily; keep the optional data-foundry import out.
+        monkeypatch.setattr(df_pkg, "get_beyond_arena_collection", _DummyCollection)
+        base = self._batch()
+        collection = base.task_metadata.with_preset("BeyondArena")
+        path = JobBatch(jobs=base.jobs, task_metadata=collection).save(tmp_path / "batch")
+        with (path / "task_source.json").open() as f:
+            assert json.load(f) == {"preset": "BeyondArena"}
+
+        loaded = JobBatch.load(path)
+        assert loaded.task_metadata.preset == "BeyondArena"
+        assert isinstance(loaded.task_metadata.source, DataFoundryTaskMetadataSource)
+        # The tasks themselves are the shipped ones, only their provenance was rebound.
+        assert loaded.task_metadata.dataset_fold_repeats() == base.task_metadata.dataset_fold_repeats()
+
+    def test_no_task_source_loads_without_preset_and_removes_a_stale_file(self, tmp_path, monkeypatch):
+        import tabarena.benchmark.task.data_foundry as df_pkg
+
+        monkeypatch.setattr(df_pkg, "get_beyond_arena_collection", type("_DummyCollection", (), {"name": "X"}))
+        base = self._batch()
+        path = JobBatch(jobs=base.jobs, task_metadata=base.task_metadata.with_preset("BeyondArena")).save(
+            tmp_path / "batch"
+        )
+        assert (path / "task_source.json").exists()
+        # Re-saving the same directory from a preset-less collection must not leave the old record behind.
+        JobBatch(jobs=base.jobs, task_metadata=base.task_metadata).save(path)
+        assert not (path / "task_source.json").exists()
+        assert JobBatch.load(path).task_metadata.preset is None
 
     def test_load_with_unknown_experiment_reference_raises(self, tmp_path):
         batch = self._batch()

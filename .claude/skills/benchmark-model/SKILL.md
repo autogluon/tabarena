@@ -47,6 +47,7 @@ call, and state the defaults you took in the plan.
 | `fake_memory_for_estimates` | `96` | required for every GPU model: the partition's VRAM in GB (Step 1a). Ask when it cannot be determined from context. |
 | `PYTHON_PATH` | `~/.venvs/tabarena_<...>/bin/python` | the venv whose `tabarena` imports **this** checkout (Step 2). Never assume a name. |
 | `WORKSPACE` | the shared cluster workspace | the template value unless the maintainer names another |
+| `--scheduler` | `slurm`, `skypilot`, `skypilot-pool` | `slurm` (the GCP SLURM cluster). `skypilot` runs the same plan as SkyPilot managed jobs on their own spot VMs, `skypilot-pool` on a SkyPilot job pool (venv built once per worker; better for many short bundles and for BeyondArena). Only when the maintainer asks for SkyPilot; it needs the cluster's `sky` CLI with `SKYPILOT_API_SERVER_ENDPOINT` set (login nodes preset it), `sky check gcp`, and `HF_TOKEN` in the shell for gated weights. The GPU is the same RTX PRO 6000 (VRAM 96) as the SLURM partition unless the maintainer picks another card. |
 
 Then ask the mode question with `AskUserQuestion`, in the same call as the VRAM question when that
 one is needed:
@@ -200,6 +201,16 @@ the `BENCHMARK_LOG.md` entry (Step 8).
 End-to-end mode: run each `sbatch` command exactly as printed and record the id from
 `Submitted batch job <id>`. Tell the maintainer the ids, the array sizes and the partition.
 
+SkyPilot (`--scheduler skypilot` / `skypilot-pool`): `setup` also freezes the run venv, archives the
+checkouts it installs and copies the batch plus one task file per bundle into the bucket, then prints
+a command block instead of `sbatch`: an endpoint guard, `sky check gcp` (once per machine), then either one
+`sky jobs launch -y -d -n <launch_id> --num-jobs N <job.yaml>` (per-job mode) or
+`sky jobs pool apply -y -p <pool> --workers N <pool.yaml>`, `sky jobs pool status --all <pool>` (wait
+for READY) and `sky jobs launch -y -d --pool <pool> ...` (pool mode). Run them as printed and record
+the job ids from `sky jobs queue`. The block ends with the eval reminder and, in pool mode, with
+`sky jobs pool down -y <pool>`, which must run when the benchmark is finished (a pool bills while idle).
+The block's first line names the launch id, the bucket queue and the bundle count.
+
 ## Step 6: Monitor the run (end-to-end mode)
 
 Watch each array with the progress script through the `Monitor` tool, one monitor per array,
@@ -210,6 +221,18 @@ Watch each array with the progress script through the `Monitor` tool, one monito
   --results-dir <WORKSPACE>/output/<benchmark_name>/data --expected-results <existing + N> \
   --log-dir <WORKSPACE>/slurm_out/<benchmark_name>/<job_id> --interval 900
 ```
+
+For a SkyPilot launch use `references/sky_progress.sh <queue_uri> <n_bundles> [--launch <launch_id>]
+[--interval 900]` instead (both values are on the first line of the printed command block). It counts
+the `done/` and `failed/` markers in the bucket queue, lists `sky jobs queue` for the launch, and exits
+when every bundle is done or no worker job is left. Failed items are listed with their coordinates;
+their logs are at `<run_uri>/logs/<launch_id>/<bundle>_<item>.log` (`gcloud storage cat`). A `setup`
+relaunch re-enumerates only the missing items into a fresh queue, exactly like SLURM, but only after
+the previous launch has drained (`sky_progress.sh` prints `DONE` or `WORKERS GONE`) or was cancelled:
+the cache check sees only synced results, so items still in flight would be enumerated again and
+fitted twice. `setup` warns about such a launch (in its log and in the printed command block); do not
+launch over it. Editing the checkout or the venv while a launch runs is safe, the workers use the
+environment and batch staged in the bucket.
 
 Every interval it prints one line: the percentage of array tasks left, the done / failed / running
 / queued / requeued counts, and the `results.pkl` count against the expected total. Each newly
@@ -263,6 +286,10 @@ formats takes a while):
 $PY tmp_scripts/run_<model>.py eval > tmp_scripts/logs/<benchmark_name>_eval.log 2>&1
 ```
 
+Pass the same `--scheduler` as the launch: for SkyPilot the eval first mirrors the bucket's
+`output/data` into `<WORKSPACE>/output/<benchmark_name>/data` (nothing local is deleted, so SLURM and
+SkyPilot results of one `benchmark_name` merge), then proceeds as usual.
+
 Outputs land in `tmp_scripts/eval_output/<benchmark_name>/`: `leaderboards/<subset>.csv` and, per
 subset under `subsets/<subset>/`, `tabarena_leaderboard.csv`, the `tuning-impact-elo*` bar plots,
 `winrate_matrix.*` plus `winrate_explorer.html`, the four `pareto_front_*` figures (Elo and
@@ -285,7 +312,8 @@ Report to the maintainer, in this order:
 
 Append the run to `packages/tabflow_slurm/BENCHMARK_LOG.md` (newest first, template at the top of
 that file): model and config count, the git SHA the jobs ran on, the validation protocol key the
-context enforced (`8x1` for TabArena), the purpose, the notes (partition,
+context enforced (`8x1` for TabArena), the purpose, the notes (partition or SkyPilot infra,
+accelerator, workers and pool name, the env manifest hash and repo shas from `launch.json`,
 bundle size, VRAM setting, wall time, failures and their fixes, extra deps, the venv), and the
 verbatim `setup()` plan as run. The log is committed even though the script is not. In hand-off mode
 offer the entry; in end-to-end mode write it.
@@ -327,6 +355,19 @@ Next in the lifecycle is the `upload-method` skill, pointed at `<WORKSPACE>/outp
   the variable exported in the submitting shell (`--export=ALL` carries it), then read
   `warmup_report.ray` and the fit timings with `audit_warmup --results`; make them defaults only when
   the workers were reused or the probe saved time.
+- SkyPilot runs go through the cluster's `sky` CLI and the shared API server (endpoint
+  `http://skypilot-api:46580`, preset on login nodes), which resolves `RTXPRO6000:1` to a spot
+  `g4-standard-48` and picks the regions itself, so the YAML pins no `infra`. The default card is the
+  same RTX PRO 6000 as the SLURM partition (`fake_memory_for_estimates` 96 on both; the template's
+  `_scheduler_setup` returns the pair). A preempted worker job is recovered by SkyPilot and resumes
+  the bundles it owns; a cancelled launch leaves orphan claims that the next `setup` re-enumerates.
+  Workers never fetch datasets or weights from OpenML or the Hub: `setup` seeds the tasks it materialized
+  (upgrading legacy BeyondArena pickles in place) and the models' weights (prefetched once on the head
+  node with its own token) into the shared prefix `<bucket>/tabarena/cache` (`dataset_cache_uri`),
+  verifies it and prints two summaries; the worker pulls the weights at start and a dataset's entries
+  before its first item, and loads with `HF_HUB_OFFLINE=1` when every model is seeded. A `not cached on
+  this node`, `MISSING remotely` or `not seeded` line means the workers download those themselves (gated
+  weights then need `HF_TOKEN` in `secrets`).
 - Spot partitions preempt; requeued tasks show up as `requeued` in the progress line and are not
   failures. Throughput on `gpurtxpro6000flex` is bounded by node provisioning (about 30 concurrent
   tasks was typical), so a full GPU run of a foundation model takes around half a day.
