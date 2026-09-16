@@ -688,6 +688,7 @@ class ZeroshotSimulatorContext:
         datasets: list[str],
         prediction_format: str = "memmap",
         metadata_by_dir: dict[str, dict] | None = None,
+        metadata_files: list[str | Path] | None = None,
     ) -> TabularModelPredictions:
         """:param prediction_format: Determines the format of the loaded tabular_predictions. Default = "memmap".
         "memmap": Fast and low memory usage.
@@ -695,6 +696,8 @@ class ZeroshotSimulatorContext:
         "mem": Slow and high memory usage, simplest format to debug.
         :param metadata_by_dir: Optional cache of parsed per-task ``metadata.json`` keyed by
         task directory, as filled by :meth:`load_groundtruth`.
+        :param metadata_files: The per-task ``metadata.json`` paths to load; ``None`` walks
+        ``path_pred_proba`` for them (see ``TabularPredictionsMemmap``).
         """
         assert prediction_format in ["memmap", "memopt", "mem"]
 
@@ -706,7 +709,7 @@ class ZeroshotSimulatorContext:
 
         path_pred_proba = Path(path_pred_proba)
         zeroshot_pred_proba: TabularModelPredictions = class_map[prediction_format].from_data_dir(
-            data_dir=path_pred_proba, datasets=datasets, metadata_by_dir=metadata_by_dir
+            data_dir=path_pred_proba, datasets=datasets, metadata_by_dir=metadata_by_dir, metadata_files=metadata_files
         )
         all_datasets = self.get_datasets()
         valid_datasets = [d for d in zeroshot_pred_proba.datasets if d in all_datasets]

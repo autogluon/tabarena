@@ -268,6 +268,7 @@ class BenchmarkPaths:
         zeroshot_pred_proba, zeroshot_gt, zsc = load_zeroshot_input(
             path_pred_proba=self.path_pred_proba_full,
             paths_gt=self.zs_gt_full,
+            paths_pp=self.zs_pp_full,
             zsc=zsc,
             datasets=self.datasets,
             prediction_format=prediction_format,
@@ -689,11 +690,19 @@ def load_zeroshot_input(
     zsc: ZeroshotSimulatorContext,
     prediction_format: str = "memmap",
     verbose: bool = True,
+    paths_pp: list[str] | None = None,
 ) -> tuple[TabularModelPredictions, GroundTruth, ZeroshotSimulatorContext]:
+    """``paths_pp`` are the context's prediction files (``BenchmarkPaths.zs_pp_full``); the
+    ``metadata.json`` entries among them tell the prediction loader which task directories
+    exist, so it does not have to walk ``path_pred_proba``. Without them it walks as before.
+    """
     if verbose:
         print(
             f"Loading ZS inputs:\n\tpred_proba:  {path_pred_proba}\n",
         )
+    metadata_files = [p for p in paths_pp if Path(p).name == "metadata.json"] if paths_pp else None
+    if not metadata_files:
+        metadata_files = None
     # Shared per-task metadata.json cache: load_groundtruth parses each task dir's metadata
     # once and load_pred reuses it instead of re-reading the same files.
     metadata_by_dir: dict[str, dict] = {}
@@ -703,6 +712,7 @@ def load_zeroshot_input(
         datasets=datasets,
         prediction_format=prediction_format,
         metadata_by_dir=metadata_by_dir,
+        metadata_files=metadata_files,
     )
 
     # keep only dataset whose folds are all present

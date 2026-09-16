@@ -53,6 +53,7 @@ class TabularModelPredictions:
         data_dir: str | Path,
         datasets: list[str] | None = None,
         metadata_by_dir: dict[str, dict] | None = None,
+        metadata_files: list[str | Path] | None = None,
     ):
         raise NotImplementedError()
 
@@ -241,9 +242,10 @@ class TabularPredictionsInMemory(TabularModelPredictions):
         data_dir: str | Path,
         datasets: list[str] | None = None,
         metadata_by_dir: dict[str, dict] | None = None,
+        metadata_files: list[str | Path] | None = None,
     ):
         memmap = TabularPredictionsMemmap.from_data_dir(
-            data_dir=data_dir, datasets=datasets, metadata_by_dir=metadata_by_dir
+            data_dir=data_dir, datasets=datasets, metadata_by_dir=metadata_by_dir, metadata_files=metadata_files
         )
         return cls.from_dict(pred_dict=memmap.to_dict(), datasets=datasets)
 
@@ -315,15 +317,23 @@ class TabularPredictionsMemmap(TabularModelPredictions):
         data_dir: str | Path,
         datasets: list[str] | None = None,
         metadata_by_dir: dict[str, dict] | None = None,
+        metadata_files: list[str | Path] | None = None,
     ):
         """:param data_dir: data where the predictions has been saved
         :param datasets: if specified, the predictions only contains those datasets
         :param metadata_by_dir: optional cache of parsed per-task ``metadata.json`` keyed by
             task directory (e.g. filled by ``ZeroshotSimulatorContext.load_groundtruth``);
             cached directories skip the file read
+        :param metadata_files: the per-task ``metadata.json`` paths to load. When given, only
+            these tasks are loaded and ``data_dir`` is not walked; a processed artifact's
+            ``context.json`` lists them, and walking thousands of task directories on a network
+            filesystem costs seconds per artifact. ``None`` walks ``data_dir`` for
+            ``*metadata.json`` as before.
         """
         self.data_dir = Path(data_dir)
-        self.metadata_dict = self._load_metadatas(data_dir, metadata_by_dir=metadata_by_dir)
+        self.metadata_dict = self._load_metadatas(
+            data_dir, metadata_by_dir=metadata_by_dir, metadata_files=metadata_files
+        )
         super().__init__(datasets=datasets)
 
     @classmethod
@@ -332,8 +342,9 @@ class TabularPredictionsMemmap(TabularModelPredictions):
         data_dir: str | Path,
         datasets: list[str] | None = None,
         metadata_by_dir: dict[str, dict] | None = None,
+        metadata_files: list[str | Path] | None = None,
     ):
-        return cls(data_dir=data_dir, datasets=datasets, metadata_by_dir=metadata_by_dir)
+        return cls(data_dir=data_dir, datasets=datasets, metadata_by_dir=metadata_by_dir, metadata_files=metadata_files)
 
     @classmethod
     def from_dict(
@@ -365,12 +376,17 @@ class TabularPredictionsMemmap(TabularModelPredictions):
         }
 
     @staticmethod
-    def _load_metadatas(data_dir, metadata_by_dir: dict[str, dict] | None = None):
+    def _load_metadatas(
+        data_dir,
+        metadata_by_dir: dict[str, dict] | None = None,
+        metadata_files: list[str | Path] | None = None,
+    ):
         if metadata_by_dir is None:
             metadata_by_dir = {}
         res = defaultdict(dict)
-        metadata_files = list(Path(data_dir).rglob("*metadata.json"))
-        for metadata_file in metadata_files:
+        if metadata_files is None:
+            metadata_files = list(Path(data_dir).rglob("*metadata.json"))
+        for metadata_file in map(Path, metadata_files):
             cached = metadata_by_dir.get(str(metadata_file.parent))
             if cached is not None:
                 # copy: `pop` and the model_indices assignment below must not mutate the cache
