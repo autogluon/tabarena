@@ -32,6 +32,7 @@ from tabarena.website.website_format import (
         ("TabDPT-Turbo", Constants.foundational),
         ("TabPFN-3.5", Constants.foundational),
         ("TabPFN-3.5-Fast", Constants.foundational),
+        ("TabDPT-1.3", Constants.foundational),
         ("iLTM", Constants.foundational),
         ("Nori-30M", Constants.foundational),
         ("Linear", Constants.baseline),
