@@ -41,18 +41,17 @@ class TabPFN35Model(AbstractTorchModel):
     """
 
     ag_key = "TA-TABPFN-3.5"
-    warmup_modules: ClassVar[tuple[str, ...]] = ("tabpfn", "tabpfn.model_loading")
     ag_name = "TA-TabPFN-3.5"
     ag_priority = 105
     seed_name = "random_state"
+    warmup_modules: ClassVar[tuple[str, ...]] = ("tabpfn", "tabpfn.model_loading")
+    gpu_strongly_recommended = True  # in-context inference is an order of magnitude slower on CPU
 
     model_version: ClassVar[str] = "v3.5"
     """The tabpfn ``ModelVersion`` value this class runs; it selects the checkpoint's download source."""
     default_checkpoint: str = "tabpfn-v3.5-20260909.safetensors"
     """The multitask checkpoint used for every problem type unless ``checkpoint_per_problem_type``
     names another one. A bare filename, resolved in the tabpfn cache dir."""
-
-    _supported_problem_types = ["binary", "multiclass", "regression"]
 
     checkpoint_param_name: str = "checkpoint_per_problem_type"
     """Name of the optional config hyperparameter that overrides the checkpoint per problem type.
@@ -66,17 +65,21 @@ class TabPFN35Model(AbstractTorchModel):
     from the hyperparameters in :meth:`_fit` (it is not a tabpfn estimator argument).
     """
 
-    _categorical_indices: list[int] | None
-    """The indices of the categorical features, detected during preprocessing."""
     fixed_random_state: int = 0
-    """Using a fixed random seed, as in TabPFN-2.6 and TabPFN-3."""
+    """Using a fixed random seed, as in TabPFN-2.6 and TabPFN-3: tabpfn's random state decides its
+    preprocessing, so a refit with another seed would make the validation score misleading."""
+
+    _supported_problem_types = ["binary", "multiclass", "regression"]
     _default_auxiliary_params_extra = {
         "max_classes": 160,
         # Batch inference once we exceed 150_000 samples (batching starts at 150_001).
         "max_batch_size": 150_000,
     }
-    default_num_gpus = 1
+    #: One fold at a time (parallel folds race on the checkpoint download), and a refit on the full
+    #: data instead of the bag: same quality for an in-context model, one network at inference.
+    _default_ag_args_ensemble_extra = {"fold_fitting_strategy": "sequential_local", "refit_folds": True}
     default_resources_physical_cores_only = True
+    default_num_gpus = 1
     minimum_num_gpus = 1
     #: tabpfn builds its network inside ``_initialize_model_variables``, which ``fit`` calls; one
     #: build per checkpoint and device per process. A fit whose configuration writes into the
@@ -95,50 +98,36 @@ class TabPFN35Model(AbstractTorchModel):
     #: Knobs that make the warm-up's dummy fit cheap without touching the network.
     cheap_hyperparameters: ClassVar[dict] = {"n_estimators": 1}
 
+    _categorical_indices: list[int] | None = None
+    """The indices of the categorical features, detected during training preprocessing."""
+
     def _preprocess(self, X: pd.DataFrame, *, is_train=False, **kwargs) -> pd.DataFrame:
         """Minimal model-specific preprocessing to detect the indices of categorical features."""
         X = super()._preprocess(X, **kwargs)
 
         if is_train:
             categorical_cols = X.select_dtypes(include=["category"]).columns.tolist()
-            if categorical_cols:
-                self._categorical_indices = [X.columns.get_loc(col) for col in categorical_cols]
-            else:
-                self._categorical_indices = None
+            self._categorical_indices = [X.columns.get_loc(col) for col in categorical_cols] or None
 
         return X
 
     def _get_model_class(self):
         from tabpfn import TabPFNClassifier, TabPFNRegressor
 
-        is_classification = self.problem_type in ["binary", "multiclass"]
+        return TabPFNClassifier if self.problem_type in ["binary", "multiclass"] else TabPFNRegressor
 
-        return TabPFNClassifier if is_classification else TabPFNRegressor
-
-    def _resolve_checkpoint_for_problem_type(self, checkpoint_per_problem_type: dict[str, str] | None) -> str:
-        """Select this task's checkpoint name from an optional per-problem-type override.
-
-        Resolution order: the exact ``problem_type`` key (``"binary"`` / ``"multiclass"`` /
-        ``"regression"``), then the ``"classification"`` umbrella key (for binary/multiclass only),
-        then the ``default_checkpoint`` class attribute.
-        """
-        is_classification = self.problem_type in ["binary", "multiclass"]
-        overrides = checkpoint_per_problem_type or {}
-        model = overrides.get(self.problem_type)
-        if model is None and is_classification:
-            model = overrides.get("classification")
-        if model is None:
-            model = self.default_checkpoint
-        return model
-
-    def _get_model_checkpoint(self, checkpoint_per_problem_type: dict[str, str] | None = None) -> str:
-        """Resolve the checkpoint to a full path: pick the name (see
-        :meth:`_resolve_checkpoint_for_problem_type`) then prepend the tabpfn cache dir (a no-op
-        for an absolute path).
+    def _resolve_model_path(self, checkpoint_per_problem_type: dict[str, str] | None) -> str:
+        """The checkpoint path for this task: the ``problem_type`` key of the override, then its
+        ``"classification"`` umbrella key (binary/multiclass only), then ``default_checkpoint``,
+        with the tabpfn cache dir prepended (a no-op for an absolute path).
         """
         from tabpfn.model_loading import prepend_cache_path
 
-        return prepend_cache_path(self._resolve_checkpoint_for_problem_type(checkpoint_per_problem_type))
+        overrides = checkpoint_per_problem_type or {}
+        checkpoint = overrides.get(self.problem_type)
+        if checkpoint is None and self.problem_type in ["binary", "multiclass"]:
+            checkpoint = overrides.get("classification")
+        return prepend_cache_path(checkpoint or self.default_checkpoint)
 
     def _fit(
         self,
@@ -150,69 +139,28 @@ class TabPFN35Model(AbstractTorchModel):
     ):
         X = self.preprocess(X, y=y, is_train=True)
 
-        # Set hyperparameters
+        device: str | list[str] = self._resolve_fit_device(num_gpus=num_gpus)
+        if num_gpus > 1:
+            device = [f"cuda:{i}" for i in range(num_gpus)]
+
         hps = dict(self._get_model_params())
         checkpoint_per_problem_type = hps.pop(self.checkpoint_param_name, None)
-        default_hps = dict(
-            model_path=self._get_model_checkpoint(checkpoint_per_problem_type),
-            device=self._resolve_tabpfn_device(num_gpus=num_gpus),
-            n_preprocessing_jobs=num_cpus,
-            categorical_features_indices=self._categorical_indices,
-        )
-        default_hps[self.seed_name] = self.fixed_random_state
-        hps = {**default_hps, **hps}  # hps later to override any conflicting keys default keys.
+        default_hps = {
+            "model_path": self._resolve_model_path(checkpoint_per_problem_type),
+            "device": device,
+            "n_preprocessing_jobs": num_cpus,
+            "categorical_features_indices": self._categorical_indices,
+            self.seed_name: self.fixed_random_state,
+        }
+        hps = {**default_hps, **hps}  # the config wins over the defaults
 
-        # Initialize and fit the model
-        model_class = self._get_model_class()
-        self.model = model_class(**hps)
-        self.model = self.model.fit(
-            X=X,
-            y=y,
-        )
+        self.model = self._get_model_class()(**hps).fit(X=X, y=y)
 
-    # --- Model Behavior Management ---
     def _set_default_params(self):
-        default_params = {
-            "ignore_pretraining_limits": True,  # to ignore warnings and size limits
-        }
-        for param, val in default_params.items():
-            self._set_default_param_value(param, val)
-
-    @classmethod
-    def _get_default_ag_args_ensemble(cls, **kwargs) -> dict:
-        """Ensure one fold is fit at a time and refits is enabled by default."""
-        default_ag_args_ensemble = super()._get_default_ag_args_ensemble(**kwargs)
-        extra_ag_args_ensemble = {
-            "fold_fitting_strategy": "sequential_local",
-            "refit_folds": default_ag_args_ensemble.pop("refit_folds", True),
-        }
-        default_ag_args_ensemble.update(extra_ag_args_ensemble)
-        return default_ag_args_ensemble
+        self._set_default_param_value("ignore_pretraining_limits", True)  # no warnings or size limits
 
     def _more_tags(self) -> dict:
-        return {"can_refit_full": True}
-
-    # --- Resource and GPU Management ---
-    @staticmethod
-    def _resolve_tabpfn_device(num_gpus: int) -> str | list[str]:
-        """Return device type based on number of GPUs, ensuring that if
-        GPUs are requested, they are available.
-        """
-        if num_gpus <= 0:
-            return "cpu"
-
-        import torch
-
-        if not torch.cuda.is_available():
-            raise AssertionError(
-                "Fit specified to use GPU, but CUDA is not available on this machine. "
-                "Please switch to CPU usage instead.",
-            )
-
-        if num_gpus == 1:
-            return "cuda"
-
-        return [f"cuda:{i}" for i in range(num_gpus)]
+        return {"can_refit_full": True}  # no validation data is consumed by the fit
 
     def get_device(self) -> str:
         base = self.model
