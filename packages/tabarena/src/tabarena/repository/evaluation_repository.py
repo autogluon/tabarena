@@ -404,7 +404,6 @@ def write_processed_context(
         configs_hyperparameters = [configs_hyperparameters]
 
     # FIXME: Make this a repo constructor method?
-    # FIXME: s3_download_map doesn't work with is_relative yet
     context: BenchmarkContext = construct_context(
         name=None,
         datasets=datasets,
