@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import copy
 import json
+import threading
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Self
 
@@ -31,6 +33,17 @@ from .sim_utils import (
 def _default_dict():
     # this free function is added as `defaultdict(lambda: defaultdict(dict))` cant be pickled
     return defaultdict(dict)
+
+
+#: Threads used by :meth:`ZeroshotSimulatorContext.load_groundtruth` for the per-task file reads
+#: when it runs on the main thread. Calls from a worker thread (a method-loading pool) use one
+#: thread: eleven methods loading side by side already saturate the filesystem and the GIL, and
+#: nesting more threads there measured slower.
+LABEL_LOAD_THREADS = 8
+
+
+def _default_label_load_threads() -> int:
+    return LABEL_LOAD_THREADS if threading.current_thread() is threading.main_thread() else 1
 
 
 class ZeroshotSimulatorContext:
@@ -650,36 +663,70 @@ class ZeroshotSimulatorContext:
             configs = [c for c in configs if configs_type[c] in config_types]
         return configs
 
-    def load_groundtruth(self, paths_gt: list[str], metadata_by_dir: dict[str, dict] | None = None) -> GroundTruth:
-        """``metadata_by_dir`` is an optional read-through cache mapping a task directory to
-        its parsed ``metadata.json``. Each directory holds one metadata file shared by its
-        label and prediction files, so caching avoids re-reading it per label file — and
-        passing the same dict on to :meth:`load_pred` avoids another read per directory.
+    def load_groundtruth(
+        self,
+        paths_gt: list[str],
+        metadata_by_dir: dict[str, dict] | None = None,
+        n_threads: int | None = None,
+    ) -> GroundTruth:
+        """Load the per-task label files.
+
+        ``metadata_by_dir`` is an optional read-through cache mapping a task directory to its
+        parsed ``metadata.json``. Each directory holds one metadata file shared by its label and
+        prediction files, so caching avoids re-reading it per label file, and passing the same
+        dict on to :meth:`load_pred` avoids another read per directory.
+
+        The metadata reads and then the label reads run on ``n_threads`` threads. The default is
+        :data:`LABEL_LOAD_THREADS` on the main thread and 1 inside a worker thread (see the
+        constant). Both phases are dominated by per-file round trips on network filesystems,
+        which release the GIL, so they overlap well; the CSV parse itself mostly does not, which
+        caps the gain for the parse-heavy path. Results are assembled in the order of
+        ``paths_gt`` regardless of thread scheduling.
         """
         from tabarena.simulation.label_cache import get_active_label_cache
 
         if metadata_by_dir is None:
             metadata_by_dir = {}
+        if n_threads is None:
+            n_threads = _default_label_load_threads()
         label_cache = get_active_label_cache()
         gt_val = defaultdict(_default_dict)
         gt_test = defaultdict(_default_dict)
         unique_datasets = set(self.unique_datasets)
-        for p in paths_gt:
-            parent = Path(p).parent
-            metadata = metadata_by_dir.get(str(parent))
-            if metadata is None:
-                with open(parent / "metadata.json") as f:
-                    metadata = json.load(f)
-                metadata_by_dir[str(parent)] = metadata
+
+        paths = [Path(p) for p in paths_gt]
+        parents = list(dict.fromkeys(str(p.parent) for p in paths))
+        parents_to_read = [d for d in parents if d not in metadata_by_dir]
+
+        def read_metadata(parent: str) -> tuple[str, dict]:
+            with open(Path(parent) / "metadata.json") as f:
+                return parent, json.load(f)
+
+        def read_labels(job: tuple[Path, str, int, str]) -> pd.DataFrame:
+            path, dataset, fold, split = job
+            if label_cache is not None:
+                return label_cache.read(path, dataset=dataset, fold=fold, split=split)
+            return pd.read_csv(path, index_col=0)
+
+        def run(fn, items):
+            if n_threads <= 1 or len(items) <= 1:
+                return [fn(item) for item in items]
+            with ThreadPoolExecutor(max_workers=min(n_threads, len(items))) as executor:
+                return list(executor.map(fn, items))
+
+        for parent, metadata in run(read_metadata, parents_to_read):
+            metadata_by_dir[parent] = metadata
+
+        jobs: list[tuple[Path, str, int, str]] = []
+        for path in paths:
+            metadata = metadata_by_dir[str(path.parent)]
             dataset = metadata["dataset"]
-            if dataset in unique_datasets:
-                fold = metadata["fold"]
-                split = "test" if Path(p).stem.startswith("label-test") else "val"
-                if label_cache is not None:
-                    labels = label_cache.read(p, dataset=dataset, fold=fold, split=split)
-                else:
-                    labels = pd.read_csv(p, index_col=0)
-                (gt_test if split == "test" else gt_val)[dataset][fold] = labels
+            if dataset not in unique_datasets:
+                continue
+            split = "test" if path.stem.startswith("label-test") else "val"
+            jobs.append((path, dataset, metadata["fold"], split))
+        for (_, dataset, fold, split), labels in zip(jobs, run(read_labels, jobs), strict=True):
+            (gt_test if split == "test" else gt_val)[dataset][fold] = labels
         return GroundTruth(label_val_dict=gt_val, label_test_dict=gt_test)
 
     def load_pred(
