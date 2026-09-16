@@ -48,6 +48,12 @@ def _default_label_load_threads() -> int:
 
 
 class ZeroshotSimulatorContext:
+    # Result columns not carried into the context by default: the compute resources a result was
+    # produced with. They are in the method's results files for reporting, but nothing that works
+    # on a repository reads them, and as int64 columns they were a quarter of the result frame's
+    # bytes in memory, in every ray worker, and in pickles.
+    DROPPED_RESULT_COLUMNS: tuple[str, ...] = ("num_cpus", "num_gpus", "disk_usage")
+
     def __init__(
         self,
         df_configs: pd.DataFrame = None,
@@ -57,6 +63,7 @@ class ZeroshotSimulatorContext:
         folds: list[int] | None = None,
         pct: bool = False,
         score_against_only_baselines: bool = True,
+        drop_columns: tuple[str, ...] | None = None,
     ):
         """Encapsulates results evaluated on multiple base models/datasets/folds.
         :param df_configs: results of configs by multiple datasets/folds
@@ -65,6 +72,8 @@ class ZeroshotSimulatorContext:
         :param pct: whether to use percentage rather than rank numbers
         :param score_against_only_baselines: if `True`, the scores are ranks (or percentage if `pct` is True) over the baselines only
         baselines. If False, the scores are computed against both baselines and the configs.
+        :param drop_columns: result columns to leave out of `df_configs` and `df_baselines` when present.
+        None means :attr:`DROPPED_RESULT_COLUMNS`; pass an empty tuple to keep every column.
         """
         if df_configs is None:
             df_configs = self._create_empty_df_configs()
@@ -72,6 +81,11 @@ class ZeroshotSimulatorContext:
             df_baselines = self._create_empty_df_baselines()
         if configs_hyperparameters is None:
             configs_hyperparameters = {}
+        if drop_columns is None:
+            drop_columns = self.DROPPED_RESULT_COLUMNS
+        self.drop_columns = tuple(drop_columns)
+        df_configs = self._drop_columns(df_configs)
+        df_baselines = self._drop_columns(df_baselines)
 
         self.folds = folds
         self.score_against_only_baselines = score_against_only_baselines
@@ -205,6 +219,10 @@ class ZeroshotSimulatorContext:
             # arrive as zero-copy views into ray's object store and should stay that way
             for c in columns:
                 df[c] = df[c].astype(object)
+
+    def _drop_columns(self, df: pd.DataFrame) -> pd.DataFrame:
+        present = [c for c in self.drop_columns if c in df.columns]
+        return df.drop(columns=present) if present else df
 
     def _compute_dataset_to_tasks(self) -> dict:
         """Returns the mapping of dataset parent to dataset fold names.
