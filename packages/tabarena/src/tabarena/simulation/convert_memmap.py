@@ -9,6 +9,7 @@ from pathlib import Path
 import numpy as np
 
 from tabarena.predictions.tabular_predictions import path_memmap
+from tabarena.simulation.label_files import LABELS_FILENAME, write_labels_dat
 from tabarena.utils.parallel_for import parallel_for
 
 
@@ -84,14 +85,11 @@ def convert_memmap_label_from_pickle(folder_pickle: Path, output_dir: Path, dtyp
         target_folder = path_memmap(output_dir, dataset, fold)
         target_folder.mkdir(exist_ok=True, parents=True)
         # print(dataset, fold)
-        if all((target_folder / f).exists() for f in ["label-val.csv.zip", "label-test.csv.zip"]):
+        if (target_folder / LABELS_FILENAME).exists():
             print(f"skipping generation of {dataset} {fold} as files already exists")
             return
         labels = load_pickle(filename)[dataset][fold]
-        labels_val = labels["y_val"]
-        labels_test = labels["y_test"]
-        labels_val.to_csv(target_folder / "label-val.csv.zip", index=True)
-        labels_test.to_csv(target_folder / "label-test.csv.zip", index=True)
+        write_labels_dat(target_folder, labels_val=labels["y_val"], labels_test=labels["y_test"])
 
     parallel_for(
         convert_file,

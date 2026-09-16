@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import numpy as np
-import pandas as pd
 import pytest
 
 from tabarena.repository import EvaluationRepositoryCollection
@@ -175,7 +174,7 @@ def test_repository_collection_single():
 
 
 def test_repository_collection_shares_ground_truth():
-    """Repos with interchangeable labels share one Series object per task after merging."""
+    """Repos with interchangeable labels share one array per task after merging."""
     import pickle
 
     repo = load_repo_artificial()
@@ -205,8 +204,8 @@ def test_repository_collection_shares_ground_truth():
 
     # differing labels are not shared, and the last repo wins as before
     repo_5 = repo.subset(configs=["NeuralNetFastAI_r1"])
-    series = repo_5._ground_truth._label_val_dict["abalone"][0]
-    repo_5._ground_truth._label_val_dict["abalone"][0] = series.copy() + 1
+    labels = repo_5._ground_truth._label_val_dict["abalone"][0]
+    repo_5._ground_truth._label_val_dict["abalone"][0] = labels.copy() + 1
     repo_collection = EvaluationRepositoryCollection(repos=[repo_1, repo_5])
     merged = repo_collection._ground_truth._label_val_dict["abalone"][0]
     assert merged is repo_5._ground_truth._label_val_dict["abalone"][0]
@@ -219,12 +218,11 @@ def test_repository_collection_shares_ground_truth():
 def test_same_labels():
     from tabarena.repository.evaluation_repository_collection import _same_labels
 
-    s = pd.Series([1.0, np.nan, 3.0], index=[5, 6, 7])
-    assert _same_labels(s, s.copy())
-    assert not _same_labels(s, s.copy() + 1)
-    assert not _same_labels(s, s.astype("float32"))
-    assert not _same_labels(s, pd.Series([1.0, np.nan, 3.0], index=[0, 1, 2]))
-    df = s.to_frame("y")
-    assert _same_labels(df, df.copy())
-    assert not _same_labels(df, s)
-    assert not _same_labels(df, df.rename(columns={"y": "z"}))
+    a = np.array([1.0, np.nan, 3.0])
+    assert _same_labels(a, a.copy())
+    assert not _same_labels(a, a.copy() + 1)
+    assert not _same_labels(a, a.astype("float32"))
+    assert not _same_labels(a, a[:2])
+    b = np.array([0, 1, 1], dtype=np.int8)
+    assert _same_labels(b, b.copy())
+    assert not _same_labels(b, b.astype(np.int64))

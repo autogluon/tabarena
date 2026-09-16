@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
+import pytest
 
 from tabarena.repository import EvaluationRepository
 from tabarena.simulation.context_artificial import load_repo_artificial
@@ -9,43 +12,82 @@ from tabarena.simulation.label_cache import (
     LabelFileCache,
     get_active_label_cache,
     shared_label_files,
-    zip_entry_signature,
 )
+from tabarena.simulation.label_files import LABELS_FILENAME, narrow_int_dtype, read_task_labels, write_labels_dat
 
 
-def _write(path, df):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    df.to_csv(path, index=True)
+def _write_legacy(task_dir: Path, val, test):
+    task_dir.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame({"y": val}, index=[10 + i for i in range(len(val))]).to_csv(task_dir / "label-val.csv.zip", index=True)
+    pd.DataFrame({"y": test}, index=[50 + i for i in range(len(test))]).to_csv(
+        task_dir / "label-test.csv.zip", index=True
+    )
 
 
-def test_label_file_cache_reuses_identical_files(tmp_path):
-    labels = pd.DataFrame({"y": [1, 0, 1, 1]}, index=[3, 5, 8, 9])
-    other = pd.DataFrame({"y": [1, 0, 0, 1]}, index=[3, 5, 8, 9])
-    _write(tmp_path / "a" / "label-val.csv.zip", labels)
-    _write(tmp_path / "b" / "label-val.csv.zip", labels)
-    _write(tmp_path / "c" / "label-val.csv.zip", other)
-    _write(tmp_path / "d" / "label-val.csv", labels)
-    assert zip_entry_signature(tmp_path / "a" / "label-val.csv.zip") is not None
-    assert zip_entry_signature(tmp_path / "d" / "label-val.csv") is None
+def test_labels_dat_round_trip(tmp_path):
+    val = np.array([0, 1, 1, 2], dtype=np.int64)
+    test = np.array([1.5, np.nan, -2.0])
+    write_labels_dat(tmp_path, val, test)
+    got_val, got_test = read_task_labels(tmp_path)
+    assert got_val.dtype == np.int8  # narrowed on disk
+    assert np.array_equal(got_val, val)
+    assert got_test.dtype == np.float64
+    assert np.array_equal(got_test, test, equal_nan=True)
+    assert narrow_int_dtype(np.array([0, 300])) == np.int16
+    assert narrow_int_dtype(np.array([-5, 5])) == np.int8
+    assert narrow_int_dtype(np.array([2**40])) == np.int64
+    with pytest.raises(TypeError):
+        write_labels_dat(tmp_path / "bad", np.array(["a", "b"]), test)
+
+
+def test_read_task_labels_legacy_fallback_generates_dat(tmp_path):
+    val, test = [1, 0, 1, 1], [0, 0, 1]
+    _write_legacy(tmp_path / "a", val, test)
+    assert not (tmp_path / "a" / LABELS_FILENAME).exists()
+    got_val, got_test = read_task_labels(tmp_path / "a")
+    assert np.array_equal(got_val, val) and np.array_equal(got_test, test)
+    assert (tmp_path / "a" / LABELS_FILENAME).exists(), "legacy read should write labels.dat"
+    # the generated file is what is read from now on, and matches the legacy content
+    (tmp_path / "a" / "label-val.csv.zip").unlink()
+    got_val2, got_test2 = read_task_labels(tmp_path / "a")
+    assert np.array_equal(got_val2, val) and np.array_equal(got_test2, test)
+    # without generation nothing is written
+    _write_legacy(tmp_path / "b", val, test)
+    read_task_labels(tmp_path / "b", generate=False)
+    assert not (tmp_path / "b" / LABELS_FILENAME).exists()
+    # neither layout present
+    with pytest.raises(FileNotFoundError):
+        read_task_labels(tmp_path / "c")
+
+
+def test_label_file_cache_reuses_identical_tasks(tmp_path):
+    val, test = np.array([1, 0, 1, 1]), np.array([0, 0, 1])
+    write_labels_dat(tmp_path / "a", val, test)
+    write_labels_dat(tmp_path / "b", val, test)
+    write_labels_dat(tmp_path / "c", val + 1, test)
+    _write_legacy(tmp_path / "d", list(val), list(test))
 
     cache = LabelFileCache()
-    first = cache.read(tmp_path / "a" / "label-val.csv.zip", dataset="ds", fold=0, split="val")
-    second = cache.read(tmp_path / "b" / "label-val.csv.zip", dataset="ds", fold=0, split="val")
+    first = cache.read_task(tmp_path / "a", dataset="ds", fold=0)
+    second = cache.read_task(tmp_path / "b", dataset="ds", fold=0)
     assert second is first
-    assert first.equals(labels)
-    # same key, different content: parsed fresh, and the first entry stays
-    third = cache.read(tmp_path / "c" / "label-val.csv.zip", dataset="ds", fold=0, split="val")
+    assert np.array_equal(first[0], val) and np.array_equal(first[1], test)
+    # same key, different content: read fresh, and the first entry stays
+    third = cache.read_task(tmp_path / "c", dataset="ds", fold=0)
     assert third is not first
-    assert third.equals(other)
-    assert cache.read(tmp_path / "a" / "label-val.csv.zip", dataset="ds", fold=0, split="val") is first
-    # other key or split: no reuse
-    assert cache.read(tmp_path / "a" / "label-val.csv.zip", dataset="ds", fold=1, split="val") is not first
-    assert cache.read(tmp_path / "a" / "label-val.csv.zip", dataset="ds", fold=0, split="test") is not first
-    # non-zip files bypass the cache
-    plain = cache.read(tmp_path / "d" / "label-val.csv", dataset="ds", fold=0, split="val")
-    assert plain is not first
-    assert plain.equals(labels)
-    assert cache.hits == 2
+    assert np.array_equal(third[0], val + 1)
+    assert cache.read_task(tmp_path / "a", dataset="ds", fold=0) is first
+    # other key: no reuse
+    assert cache.read_task(tmp_path / "a", dataset="ds", fold=1) is not first
+    # legacy dir: read through the fallback (and converted), its own key
+    legacy = cache.read_task(tmp_path / "d", dataset="ds", fold=2)
+    assert np.array_equal(legacy[0], val)
+    assert (tmp_path / "d" / LABELS_FILENAME).exists()
+    # a second legacy dir with the same labels hits the cache and is converted from it
+    _write_legacy(tmp_path / "e", list(val), list(test))
+    assert cache.read_task(tmp_path / "e", dataset="ds", fold=2) is legacy
+    assert (tmp_path / "e" / LABELS_FILENAME).exists()
+    assert cache.hits == 3
 
 
 def test_shared_label_files_across_repos(tmp_path):
@@ -61,8 +103,8 @@ def test_shared_label_files_across_repos(tmp_path):
         loaded_1 = EvaluationRepository.from_dir(tmp_path / "m1", verbose=False)
         loaded_2 = EvaluationRepository.from_dir(tmp_path / "m2", verbose=False)
     assert get_active_label_cache() is None
-    assert cache.misses == 2 * len(repo.tasks())
-    assert cache.hits == 2 * len(repo.tasks())
+    assert cache.misses == len(repo.tasks())
+    assert cache.hits == len(repo.tasks())
     for dataset, fold in repo.tasks():
         assert (
             loaded_1._ground_truth._label_val_dict[dataset][fold]
@@ -112,3 +154,14 @@ def test_load_groundtruth_threads_match_sequential(tmp_path):
     worker.start()
     worker.join()
     assert seen == [1]
+
+
+def test_ground_truth_accepts_legacy_frame_entries():
+    """A GroundTruth unpickled from before the array storage holds DataFrames; reads still work."""
+    from tabarena.simulation.ground_truth import GroundTruth
+
+    gt = GroundTruth(label_val_dict={"d": {0: np.array([1, 0])}}, label_test_dict={"d": {0: np.array([0])}})
+    gt._label_val_dict["d"][0] = pd.DataFrame({"y": [1, 0]}, index=[7, 9])  # what old pickles contain
+    assert gt.labels_val("d", 0).dtype == np.int64
+    assert np.array_equal(gt.labels_val("d", 0), [1, 0])
+    assert gt.labels_test("d", 0).dtype == np.int64

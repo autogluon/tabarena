@@ -14,6 +14,7 @@ from botocore.errorfactory import ClientError
 from tabarena.loaders import Paths, load_configs, load_results
 from tabarena.repository.evaluation_repository import EvaluationRepository
 from tabarena.simulation.dense_utils import intersect_folds_and_datasets, prune_zeroshot_gt
+from tabarena.simulation.label_files import LABELS_FILENAME
 from tabarena.simulation.simulation_context import ZeroshotSimulatorContext
 
 if TYPE_CHECKING:
@@ -453,7 +454,7 @@ def construct_context(
     files_pred = ["metadata.json", "pred-test.dat", "pred-val.dat"]
     _files_pp = [f"{dataset}/{fold}/{f}" for dataset, fold in dataset_fold_lst_pp for f in files_pred]
 
-    files_label = ["label-test.csv.zip", "label-val.csv.zip"]
+    files_label = [LABELS_FILENAME]
     _files_gt = [f"{dataset}/{fold}/{f}" for dataset, fold in dataset_fold_lst_gt for f in files_label]
 
     if is_relative:
