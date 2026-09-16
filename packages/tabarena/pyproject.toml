@@ -59,6 +59,7 @@ dependencies = [
   "huggingface-hub",
   "numpy",
   "pandas",
+  "tabulate",  # pandas DataFrame.to_markdown() for leaderboard output
   "loguru",
 ]
 
