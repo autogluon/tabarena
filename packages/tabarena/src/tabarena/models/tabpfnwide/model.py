@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar
 
 from autogluon.common.utils.resource_utils import ResourceManager
 from autogluon.features.generators import LabelEncoderFeatureGenerator
@@ -26,6 +26,7 @@ class TabPFNWideModel(AbstractTorchModel):
     """
 
     ag_key = "TA-TABPFN-WIDE"
+    warmup_modules: ClassVar[tuple[str, ...]] = ("tabpfnwide.classifier",)
     ag_name = "TA-TabPFN-Wide"
     ag_priority = 65
     seed_name = "random_state"

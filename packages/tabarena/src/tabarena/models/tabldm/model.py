@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar
 
 from autogluon.common.utils.resource_utils import ResourceManager
 from autogluon.tabular.models.abstract.abstract_torch_model import AbstractTorchModel
@@ -26,6 +26,7 @@ class TabLDMModel(AbstractTorchModel):
     """
 
     ag_key = "TA-XIAOMI-TABLDM"
+    warmup_modules: ClassVar[tuple[str, ...]] = ("tabldm",)
     ag_name = "TA-Xiaomi-TabLDM"
     ag_priority = 65
     seed_name = "random_state"

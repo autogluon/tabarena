@@ -13,7 +13,7 @@ import threading
 import time
 from contextlib import contextmanager
 from itertools import combinations
-from typing import Any
+from typing import Any, ClassVar
 
 import numpy as np
 from autogluon.core.models import AbstractModel
@@ -205,6 +205,7 @@ class CTBoostModel(AbstractModel):
     """AutoGluon wrapper for CTBoost's classifier and regressor estimators."""
 
     ag_key = "CTB"
+    warmup_modules: ClassVar[tuple[str, ...]] = ("ctboost",)
     ag_name = "CTBoost"
     ag_priority = 65
     seed_name = "random_seed"

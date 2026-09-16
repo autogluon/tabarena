@@ -4,7 +4,7 @@ import random
 import shutil
 from pathlib import Path
 from types import SimpleNamespace
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
 import numpy as np
 from autogluon.common.utils.pandas_utils import get_approximate_df_mem_usage
@@ -306,6 +306,7 @@ class ModernNCAImplementation:
 
 class ModernNCAModel(AbstractModel):
     ag_key = "MNCA"
+    warmup_modules: ClassVar[tuple[str, ...]] = ("torch", "tabarena.models.modernnca._internal.modernnca_method")
     ag_name = "ModernNCA"
     _supported_problem_types = ["binary", "multiclass", "regression"]
 
@@ -424,13 +425,6 @@ class ModernNCAModel(AbstractModel):
         )
         for param, val in default_params.items():
             self._set_default_param_value(param, val)
-
-    @classmethod
-    def warmup(cls, *, num_gpus: float | None = None, **kwargs) -> None:
-        """Torch-backed despite subclassing ``AbstractModel``: warm torch + CUDA context."""
-        from tabarena.models.warmup import warmup_torch
-
-        warmup_torch(cuda=None if num_gpus is None else num_gpus > 0)
 
     def _get_default_stopping_metric(self):
         return self.eval_metric

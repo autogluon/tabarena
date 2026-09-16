@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 import tempfile
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar
 
 from autogluon.common.utils.pandas_utils import get_approximate_df_mem_usage
 from autogluon.tabular import __version__
@@ -28,6 +28,7 @@ class TabICLModelBase(AbstractTorchModel):
     """
 
     ag_key = "NOTSET"
+    warmup_modules: ClassVar[tuple[str, ...]] = ("tabicl",)
     ag_name = "NOTSET"
     ag_priority = 65
     seed_name = "random_state"
