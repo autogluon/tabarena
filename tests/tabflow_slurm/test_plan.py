@@ -354,3 +354,31 @@ class TestOfflineWeights:
         forced = _plan([ModelJob(models=("A", 0))], offline_weights=True)
         assert forced._resolve_offline_weights(self._report("failed"), setups)[0] is True
         assert "WARNING" in capsys.readouterr().out
+
+
+# ---------------------------------------------------------------------------
+# Scheduler-aware behavior of the plan (banner + head-node prefetch gate)
+# ---------------------------------------------------------------------------
+
+
+class TestSchedulerAwarePlan:
+    def test_banner_uses_the_scheduler_description(self):
+        from tabflow_slurm.setup.plan import _format_partition
+
+        assert _format_partition(_slurm(), _resources(num_gpus=1)) == "gpu_part"
+        assert _format_partition(_slurm(), _resources(num_gpus=0)) == "cpu_part"
+
+    @pytest.mark.parametrize("nodes_fetch_themselves", [False, True])
+    def test_prefetch_only_when_the_scheduler_nodes_share_the_head_cache(self, monkeypatch, nodes_fetch_themselves):
+        class _RemoteNodes(SlurmSetup):
+            prefetches_weights_on_head = False
+
+        scheduler = (
+            _RemoteNodes(gpu_partition="g", cpu_partition="c", extra_gres=None) if nodes_fetch_themselves else _slurm()
+        )
+        plan = _plan([ModelJob(models=("Linear", 0))], scheduler_setup=scheduler)
+        calls: list[int] = []
+        monkeypatch.setattr(plan, "_prefetch_model_weights", lambda: calls.append(1))
+        monkeypatch.setattr(plan, "build_setups", lambda num_ray_cpus="auto": [])
+        assert plan.setup_jobs() == []
+        assert len(calls) == (0 if nodes_fetch_themselves else 1)

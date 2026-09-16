@@ -141,6 +141,31 @@ class TestSlurmSetup:
 
 
 # ---------------------------------------------------------------------------
+# SchedulerSetup hooks for schedulers without a shared filesystem
+# ---------------------------------------------------------------------------
+
+
+class TestSchedulerHooks:
+    def test_sync_results_to_local_is_a_noop_by_default(self, tmp_path):
+        ps = PathSetup(workspace=tmp_path, python_path="/py")
+        assert _slurm().sync_results_to_local(path_setup=ps, benchmark_name="bench") is None
+        assert not (tmp_path / "output").exists()  # nothing created, nothing downloaded
+
+    def test_head_node_prefetch_reaches_slurm_and_local_nodes(self):
+        from tabflow_slurm.setup.scheduler import LocalSequentialSetup
+
+        assert _slurm().prefetches_weights_on_head is True
+        assert LocalSequentialSetup().prefetches_weights_on_head is True
+
+    def test_describe_target_names_the_partition_or_the_scheduler(self):
+        from tabflow_slurm.setup.scheduler import LocalSequentialSetup
+
+        assert _slurm().describe_target(_resources(time_limit=3600, num_gpus=0)) == "cpu_part"
+        assert _slurm().describe_target(_resources(time_limit=3600, num_gpus=1)) == "gpu_part"
+        assert LocalSequentialSetup().describe_target(_resources(time_limit=3600)) == "LocalSequentialSetup"
+
+
+# ---------------------------------------------------------------------------
 # SchedulerSetup bundling (bundle_size + large-dataset auto-rule)
 # ---------------------------------------------------------------------------
 
@@ -443,6 +468,42 @@ class TestGetJobsToRun:
         # The shipped experiment carries the enforced stamp the context gave it.
         assert batch.experiments[0].validation_protocol == protocol
         assert batch.experiments[0].validation_protocol.enforced is True
+
+    def test_sync_hook_runs_before_the_cache_check(self, tmp_path):
+        calls: list[tuple] = []
+
+        class _SyncingSlurm(SlurmSetup):
+            def sync_results_to_local(self, *, path_setup, benchmark_name, force=False):
+                # The output dir exists by now (ensure_runtime_dirs ran), so a download has somewhere to land.
+                from pathlib import Path
+
+                calls.append(
+                    (path_setup, benchmark_name, force, Path(path_setup.get_output_path(benchmark_name)).is_dir())
+                )
+
+        bs = _benchmark_setup(
+            context=_context(_two_dataset_collection()),
+            experiment_bundle=TabArenaExperimentBundle(
+                models=[_passthrough_experiment("exp_a")],
+                n_random_configs=0,
+                preprocessing_pipelines=["default"],
+            ),
+            path_setup=PathSetup(workspace=str(tmp_path), python_path="/py"),
+            scheduler_setup=_SyncingSlurm(gpu_partition="g", cpu_partition="c", extra_gres=None, bundle_size=2),
+            ignore_cache=True,
+        )
+        bs.get_jobs_to_run()
+        assert calls == [(bs.path_setup, "my_bench", False, True)]
+
+    def test_model_names_lists_registry_models_and_prebuilt_experiments(self):
+        bs = _benchmark_setup(
+            experiment_bundle=TabArenaExperimentBundle(
+                models=[("Linear", 1), _passthrough_experiment("exp_a"), ("Linear", 0)],
+                n_random_configs=0,
+                preprocessing_pipelines=["default"],
+            ),
+        )
+        assert bs._model_names() == ["Linear", "exp_a"]
 
 
 class TestDropCacheHits:

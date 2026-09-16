@@ -172,9 +172,8 @@ def _format_resources(resources: ResourcesSetup) -> str:
 
 
 def _format_partition(scheduler: SchedulerSetup, resources: ResourcesSetup) -> str:
-    """The partition this run lands on (GPU vs CPU), or the scheduler type if it has none."""
-    attr = "gpu_partition" if resources.num_gpus > 0 else "cpu_partition"
-    return getattr(scheduler, attr, None) or type(scheduler).__name__
+    """Where this run lands (a partition, a cloud target, ...), as the scheduler describes it."""
+    return scheduler.describe_target(resources)
 
 
 @dataclass(kw_only=True)
@@ -216,7 +215,8 @@ class TabArenaBenchmarkPlan:
     prefetch_model_weights: bool = True
     """If True, `setup_jobs` warms the weights of any selected foundation models and systems on
     this (head) node before emitting jobs, so parallel/offline compute nodes find them cached. Set
-    False to skip (e.g. weights already present, or no network on the head node)."""
+    False to skip (e.g. weights already present, or no network on the head node). Ignored when the
+    scheduler's `prefetches_weights_on_head` is False (its nodes do not share this node's cache)."""
     offline_weights: bool | Literal["auto"] = "auto"
     """Whether the emitted jobs run with ``HF_HUB_OFFLINE=1``, ``HF_HUB_DISABLE_PROGRESS_BARS=1`` and
     ``AG_FETCH_PRETRAINED_WEIGHTS=false``, so no checkpoint revalidation or download can land in the
@@ -334,7 +334,9 @@ class TabArenaBenchmarkPlan:
         # each setup applies the same config again before it materializes its tasks).
         if self.context.cache_config is not None:
             self.context.cache_config.apply()
-        report = self._prefetch_model_weights() if self.prefetch_model_weights else None
+        # A scheduler whose compute nodes fetch weights themselves (no shared HF cache) opts out.
+        prefetch = self.prefetch_model_weights and self.scheduler_setup.prefetches_weights_on_head
+        report = self._prefetch_model_weights() if prefetch else None
         offline, reason = self._resolve_offline_weights(report, setups)
         print(f"offline_weights={offline} ({reason})")
         weight_plan = self._collect_weight_staging(report, setups)

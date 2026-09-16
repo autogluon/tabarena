@@ -134,6 +134,9 @@ class TabArenaBenchmarkSetup:
         largest bundle observed and is used to budget the per-task time limit.
         """
         self.path_setup.ensure_runtime_dirs(self.benchmark_name)
+        # A scheduler whose nodes write results somewhere else (e.g. a bucket) brings them into the
+        # output dir first, so the cache check below skips what those nodes already finished.
+        self.scheduler_setup.sync_results_to_local(path_setup=self.path_setup, benchmark_name=self.benchmark_name)
         # Point this (dedicated) setup process at the context's configured caches, so any
         # setup-time downloads (e.g. data_foundry/BeyondArena materialization below) land in the
         # right place. The same config is embedded in the JobBatch and re-applied on each worker.
@@ -256,19 +259,40 @@ class TabArenaBenchmarkSetup:
     def get_jobs_dict(self) -> dict:
         """Build the dict consumed by `scheduler_setup.get_run_commands`.
 
-        Contains three pieces of state:
+        Contains four pieces of state:
             - `defaults`: per-job runtime arguments shared across all array tasks.
             - `jobs`: list of `{"items": [...]}` array-task bundles.
             - `max_configs_per_job`: worst-case bundle size (informational; the
               scheduler now budgets each array's time limit per its own bundle
               size, see `SlurmSetup._write_job_batches_and_build_commands`).
+            - `model_names`: the registry names of this run's models (see `_model_names`),
+              for schedulers whose nodes prefetch weights themselves. SLURM ignores it.
         """
         jobs, max_configs_per_job = self.get_jobs_to_run()
         return {
             "defaults": self._build_default_args(),
             "jobs": jobs,
             "max_configs_per_job": max_configs_per_job,
+            "model_names": self._model_names(),
         }
+
+    def _model_names(self) -> list[str]:
+        """Unique benchmark *registry* model names of this run's bundle, in first-appearance order.
+
+        Tuple / string entries name a registry model; pre-built `Experiment` objects contribute their
+        `name` (a `ConfigGenerator`-built entry carries the model class instead and has none).
+        """
+        names: list[str] = []
+        for entry in self.experiment_bundle.models:
+            if isinstance(entry, tuple):
+                name = entry[0]
+            elif isinstance(entry, str):
+                name = entry
+            else:
+                name = getattr(entry, "name", None)
+            if isinstance(name, str) and name not in names:
+                names.append(name)
+        return names
 
     def _build_default_args(self) -> dict:
         """Per-job runtime defaults serialized into every array-task JSON."""
