@@ -1692,18 +1692,27 @@ class AbstractArenaContext:
         ``None`` or ``1`` to load sequentially). Loading is dominated by per-file filesystem
         round trips — predictions are memmapped, not read — so overlapping the I/O across
         methods gives a near-linear speedup on network filesystems (e.g. NFS).
+
+        The per-task label files are the same in every method's artifact, so they are read
+        through one :class:`~tabarena.simulation.label_cache.LabelFileCache`: the first method
+        loads alone and parses them, the remaining methods (in the pool) only verify each
+        file's zip content signature and reuse the parsed frames.
         """
+        from tabarena.simulation.label_cache import shared_label_files
+
         if methods is None:
             methods = self.methods
         metadatas = [
             method if isinstance(method, MethodMetadata) else self.method_metadata(method=method) for method in methods
         ]
         max_workers = max(1, min(max_workers if max_workers is not None else 1, len(metadatas)))
-        if max_workers == 1:
-            repos = [metadata.load_processed() for metadata in metadatas]
-        else:
-            with ThreadPoolExecutor(max_workers=max_workers) as executor:
-                repos = list(executor.map(lambda metadata: metadata.load_processed(), metadatas))
+        with shared_label_files():
+            if max_workers == 1:
+                repos = [metadata.load_processed() for metadata in metadatas]
+            else:
+                repos = [metadatas[0].load_processed()]
+                with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                    repos += list(executor.map(lambda metadata: metadata.load_processed(), metadatas[1:]))
         return EvaluationRepositoryCollection(repos=repos, config_fallback=config_fallback)
 
     # FIXME: This is a hacky approach, refactor

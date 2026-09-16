@@ -656,8 +656,11 @@ class ZeroshotSimulatorContext:
         label and prediction files, so caching avoids re-reading it per label file — and
         passing the same dict on to :meth:`load_pred` avoids another read per directory.
         """
+        from tabarena.simulation.label_cache import get_active_label_cache
+
         if metadata_by_dir is None:
             metadata_by_dir = {}
+        label_cache = get_active_label_cache()
         gt_val = defaultdict(_default_dict)
         gt_test = defaultdict(_default_dict)
         unique_datasets = set(self.unique_datasets)
@@ -671,10 +674,12 @@ class ZeroshotSimulatorContext:
             dataset = metadata["dataset"]
             if dataset in unique_datasets:
                 fold = metadata["fold"]
-                if Path(p).stem.startswith("label-test"):
-                    gt_test[dataset][fold] = pd.read_csv(p, index_col=0)
+                split = "test" if Path(p).stem.startswith("label-test") else "val"
+                if label_cache is not None:
+                    labels = label_cache.read(p, dataset=dataset, fold=fold, split=split)
                 else:
-                    gt_val[dataset][fold] = pd.read_csv(p, index_col=0)
+                    labels = pd.read_csv(p, index_col=0)
+                (gt_test if split == "test" else gt_val)[dataset][fold] = labels
         return GroundTruth(label_val_dict=gt_val, label_test_dict=gt_test)
 
     def load_pred(
