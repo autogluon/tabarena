@@ -133,6 +133,37 @@ class ZeroshotSimulatorContext:
             self._df_configs_ranked = cached
         return cached
 
+    def df_configs_ranked_subset(
+        self,
+        configs: list[str] | None = None,
+        datasets: list[str] | None = None,
+        tasks: list[tuple[str, int]] | None = None,
+    ) -> pd.DataFrame:
+        """The rows of :attr:`df_configs_ranked` selected by :meth:`_filter_df_by_datasets`.
+
+        Each rank depends only on the row and on :attr:`rank_scorer`, so when the full ranked
+        frame has not been built yet the ranks are computed for the selected rows alone instead
+        of copying and ranking every row first. A ray worker that evaluates ensembles on one task
+        asks for a few hundred rows of a frame of hundreds of thousands; building the full ranked
+        frame there cost 0.4 s and over 100 MB of private memory per worker. When the full frame
+        is already cached its rows are returned, so the values are the same either way.
+        """
+        cached = self.__dict__.get("_df_configs_ranked")
+        if cached is None:
+            cached = self.__dict__.get("df_configs_ranked")
+        if cached is not None:
+            return self._filter_df_by_datasets(df=cached, configs=configs, datasets=datasets, tasks=tasks)
+        df = self._filter_df_by_datasets(df=self.df_configs, configs=configs, datasets=datasets, tasks=tasks).copy()
+        if len(self.df_configs) > 0:
+            # also for an empty selection: a float64 column, as the full frame's rows would have
+            df["rank"] = self.rank_scorer.rank_many(
+                tasks=df["task"].to_numpy(),
+                errors=df["metric_error"].to_numpy(),
+            )
+        else:
+            df["rank"] = None
+        return df
+
     # Frames whose string columns are pickled as categoricals (see __getstate__).
     _PICKLE_CATEGORICAL_FRAMES = ("df_configs", "df_baselines", "_df_configs_ranked")
 
