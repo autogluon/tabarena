@@ -24,6 +24,12 @@ elsewhere export it), ``HF_TOKEN`` for the gated weights, and ``gcloud`` for the
 
 Both schedulers land on an RTX PRO 6000 (96 GB), so ``fake_memory_for_estimates`` is 96 either way;
 ``_scheduler_setup`` still returns the VRAM next to the scheduler so a different card stays a one-line change.
+
+While a SkyPilot launch runs, this checkout, the venv and the workspace can be edited freely (the
+workers use the environment and batch staged in the bucket), but do not re-run ``setup`` for the same
+``BENCHMARK_NAME`` until ``sky_progress.sh`` reports ``DONE`` or ``WORKERS GONE``: the cache check sees
+only synced results, so in-flight items would be fitted twice (``setup`` warns when that is the case).
+``eval`` syncs the bucket's results into the workspace itself before building the leaderboard.
 """
 
 from __future__ import annotations

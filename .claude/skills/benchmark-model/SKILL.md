@@ -227,7 +227,12 @@ For a SkyPilot launch use `references/sky_progress.sh <queue_uri> <n_bundles> [-
 the `done/` and `failed/` markers in the bucket queue, lists `sky jobs queue` for the launch, and exits
 when every bundle is done or no worker job is left. Failed items are listed with their coordinates;
 their logs are at `<run_uri>/logs/<launch_id>/<bundle>_<item>.log` (`gcloud storage cat`). A `setup`
-relaunch re-enumerates only the missing items into a fresh queue, exactly like SLURM.
+relaunch re-enumerates only the missing items into a fresh queue, exactly like SLURM, but only after
+the previous launch has drained (`sky_progress.sh` prints `DONE` or `WORKERS GONE`) or was cancelled:
+the cache check sees only synced results, so items still in flight would be enumerated again and
+fitted twice. `setup` warns about such a launch (in its log and in the printed command block); do not
+launch over it. Editing the checkout or the venv while a launch runs is safe, the workers use the
+environment and batch staged in the bucket.
 
 Every interval it prints one line: the percentage of array tasks left, the done / failed / running
 / queued / requeued counts, and the `results.pkl` count against the expected total. Each newly

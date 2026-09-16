@@ -379,9 +379,15 @@ its own; everything else is passed through unchanged.
   server (`SKYPILOT_API_SERVER_ENDPOINT`, preset on login nodes); the printed block fails fast without
   it. The default card is the same RTX PRO 6000 as the SLURM partition, so `fake_memory_for_estimates`
   stays 96. Gated weights need their token in `secrets`. In pool mode run
-  `sky jobs pool down -y <pool>` when the benchmark is finished. A cancelled launch leaves orphaned
-  claims; the next `setup` re-enumerates the missing items into a fresh queue. `sky jobs cancel -n
-  <launch_id> -y` stops a launch.
+  `sky jobs pool down -y <pool>` when the benchmark is finished. `sky jobs cancel -n <launch_id> -y`
+  stops a launch; its orphaned claims are re-enumerated by the next `setup` into a fresh queue.
+- **Do not re-run `setup` for a `benchmark_name` while its launch is still draining.** The running
+  launch is not harmed (a new launch gets its own id and queue), but the head node's cache check only
+  sees results that were synced, so items still in flight are enumerated again and fitted twice.
+  `setup` checks the bucket and prints a warning (also into the command block) naming any launch of
+  the benchmark with bundles not yet done; wait for `sky_progress.sh` to report `DONE` or
+  `WORKERS GONE`, or cancel the old launch first. Editing the checkout, the venv or the workspace
+  while a launch runs is safe: the workers use the staged environment and batch from the bucket.
 - **Grouping is by *effective* settings.** Two `ModelJob`s with the same resources/scheduler/tasks/
   experiment merge into one run (one `JobBatch`, one array). Different `num_gpus` (or any override)
   splits them — that's how GPU vs CPU models become separate `sbatch` commands.

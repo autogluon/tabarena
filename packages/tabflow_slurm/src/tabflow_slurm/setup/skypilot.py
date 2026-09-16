@@ -29,6 +29,7 @@ from __future__ import annotations
 import copy
 import getpass
 import json
+import secrets
 import shutil
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -252,12 +253,27 @@ class SkyPilotSetup(SchedulerSetup):
         copied to the bucket. Because the worker budgets time per item, every bundle size shares one
         queue and one launch (SLURM needs one array per size only because ``--time`` is per task).
         Returns ``None`` when there is nothing to run.
+
+        A previous launch of the same benchmark that is still draining is reported (see
+        :meth:`draining_launches`): the head node's cache check only sees results that were synced,
+        so items that launch is still fitting are enumerated again and would be fitted twice. Wait
+        for ``sky_progress.sh`` to report ``DONE`` or ``WORKERS GONE`` before re-running ``setup``,
+        or cancel the old launch first (a cancelled launch's orphaned claims are re-enumerated
+        correctly, that is the intended relaunch path).
         """
         all_jobs = jobs_dict["jobs"]
         if not all_jobs:
             if print_summary:
                 print("No jobs to run.")
             return None
+
+        draining = self.draining_launches(benchmark_name)
+        for launch, done, total in draining:
+            print(
+                f"WARNING: launch {launch} of {benchmark_name!r} still has {total - done} of {total} bundle(s) not done. "
+                "Items it is still fitting are enumerated again by this setup and would be fitted twice; wait for "
+                "sky_progress.sh to report DONE or WORKERS GONE, or cancel it (sky jobs cancel -n <launch_id> -y)."
+            )
 
         env = stage_environment(
             python_path=path_setup.python_path,
@@ -268,7 +284,7 @@ class SkyPilotSetup(SchedulerSetup):
             extra_requirement_lines=self.requirements_extra_lines,
         )
         layout = self.layout(benchmark_name)
-        launch_id = f"{parallel_safe_benchmark_name}-{datetime.now(UTC):%Y%m%d-%H%M%S}"
+        launch_id = f"{parallel_safe_benchmark_name}-{datetime.now(UTC):%Y%m%d-%H%M%S}-{secrets.token_hex(2)}"
         sky_dir = path_setup.get_setup_out_path(benchmark_name) / "sky" / parallel_safe_benchmark_name
         queue_dir = sky_dir / "queue" / launch_id
         self._write_queue(
@@ -276,6 +292,16 @@ class SkyPilotSetup(SchedulerSetup):
             jobs=all_jobs,
             defaults={**jobs_dict["defaults"], "item_timeout_seconds": self.item_timeout_seconds(resources_setup)},
             job_batch_dir=Path(jobs_dict["defaults"]["job_batch_dir"]),
+        )
+        (queue_dir / "manifest.json").write_text(
+            json.dumps(
+                {
+                    "launch_id": launch_id,
+                    "n_tasks": len(all_jobs),
+                    "n_items": sum(len(job["items"]) for job in all_jobs),
+                    "created": datetime.now(UTC).isoformat(timespec="seconds"),
+                }
+            )
         )
         queue_uri = layout.queue_uri(launch_id)
         self.storage.upload_dir(queue_dir, queue_uri)
@@ -310,6 +336,7 @@ class SkyPilotSetup(SchedulerSetup):
             job_yaml=job_yaml,
             pool_yaml=pool_yaml,
             queue_uri=queue_uri,
+            draining=draining,
         )
         (sky_dir / "launch.json").write_text(
             json.dumps(
@@ -328,6 +355,29 @@ class SkyPilotSetup(SchedulerSetup):
         if print_summary:
             print("##### Setup Jobs\nRun the following command(s) to start the jobs:\n" + "\n".join(commands) + "\n")
         return commands
+
+    def draining_launches(self, benchmark_name: str) -> list[tuple[str, int, int]]:
+        """Launches of ``benchmark_name`` whose queue is not fully done, as ``(launch_id, done, total)`` bundles.
+
+        Reads each queue's ``manifest.json`` (falls back to counting ``tasks/``) and its ``done/``
+        bundle markers. A launch that is still running, one that was cancelled, and one whose workers
+        gave up on orphaned claims all show up here; the caller cannot tell them apart from the bucket
+        alone, which is why this is a warning and not an error.
+        """
+        layout = self.layout(benchmark_name)
+        draining: list[tuple[str, int, int]] = []
+        for launch_id in sorted(self.storage.list_names(f"{layout.run_uri}/queue")):
+            queue_uri = layout.queue_uri(launch_id)
+            try:
+                total = int(json.loads(self.storage.read_text(f"{queue_uri}/manifest.json"))["n_tasks"])
+            except Exception:  # an older queue without a manifest
+                total = len([n for n in self.storage.list_names(f"{queue_uri}/tasks") if n.endswith(".json")])
+            if total == 0:
+                continue
+            done = len([n for n in self.storage.list_names(f"{queue_uri}/done") if "." not in n])
+            if done < total:
+                draining.append((launch_id, done, total))
+        return draining
 
     @staticmethod
     def _write_queue(queue_dir: Path, *, jobs: list[dict], defaults: dict, job_batch_dir: Path) -> None:
@@ -396,10 +446,17 @@ class SkyPilotSetup(SchedulerSetup):
         job_yaml: Path,
         pool_yaml: Path | None,
         queue_uri: str,
+        draining: list[tuple[str, int, int]] = (),
     ) -> list[str]:
         sky = self.sky_command(path_setup)
         num_jobs = min(self.workers, n_tasks)
         lines = [f"# --- {launch_id}: {self.describe_target(resources)}, {n_tasks} bundle(s) ---"]
+        for previous, done, total in draining:
+            lines.append(
+                f"# WARNING: launch {previous} still has {total - done} of {total} bundle(s) not done; its in-flight items "
+                f"were enumerated again here. Let it finish (sky_progress.sh) or cancel it ({sky} jobs cancel -n {previous} -y) "
+                "before launching this one, or accept duplicate fits."
+            )
         if self.api_server_endpoint is not None:
             lines.append(f"export SKYPILOT_API_SERVER_ENDPOINT={self.api_server_endpoint}")
         else:

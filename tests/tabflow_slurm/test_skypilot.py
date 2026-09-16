@@ -249,6 +249,54 @@ class TestGetRunCommands:
         assert job_spec["envs"]["MODELS"] == "TabPFN-3"
         assert "setup" in job_spec
 
+    def test_setup_warns_while_a_previous_launch_is_still_draining(
+        self, local_storage, tmp_path, batch_dir, staged_env, capsys
+    ):
+        ps = self._ps(tmp_path)
+        ps.ensure_runtime_dirs("bench")
+        setup = _setup(local_storage, sky_binary="sky")
+
+        def run():
+            return setup.get_run_commands(
+                jobs_dict=_jobs_dict(batch_dir, n_bundles=3),
+                path_setup=ps,
+                benchmark_name="bench",
+                parallel_safe_benchmark_name="bench_cpu",
+                resources_setup=_resources(),
+                print_summary=False,
+            )[0]
+
+        first = run()
+        assert "WARNING" not in first  # nothing launched before
+        launch_id = json.loads((ps.get_setup_out_path("bench") / "sky" / "bench_cpu" / "launch.json").read_text())[
+            "launch_id"
+        ]
+        queue_uri = f"gs://b/me/tabarena/runs/bench/queue/{launch_id}"
+        assert json.loads(local_storage.read_text(f"{queue_uri}/manifest.json"))["n_tasks"] == 3
+        local_storage.write_text(f"{queue_uri}/done/000000", "ok\n")
+        local_storage.write_text(f"{queue_uri}/done/000000.0", "ok 0 1 cfg_0 d 0 0\n")
+
+        second = run()
+        assert f"# WARNING: launch {launch_id} still has 2 of 3 bundle(s) not done" in second
+        assert f"sky jobs cancel -n {launch_id} -y" in second
+        assert f"WARNING: launch {launch_id} of 'bench' still has 2 of 3" in capsys.readouterr().out
+        assert setup.draining_launches("bench")[0][:1] == (launch_id,)
+
+        for idx in ("000001", "000002"):
+            local_storage.write_text(f"{queue_uri}/done/{idx}", "ok\n")
+        third = run()
+        assert f"launch {launch_id}" not in third  # drained: no warning about it
+        # The second launch (never marked done) is now the one reported.
+        assert third.count("# WARNING") == 1
+
+    def test_draining_launches_falls_back_to_counting_tasks_without_a_manifest(self, local_storage):
+        setup = _setup(local_storage)
+        local_storage.write_text("gs://b/me/tabarena/runs/bench/queue/old-1/tasks/000000.json", "{}")
+        local_storage.write_text("gs://b/me/tabarena/runs/bench/queue/old-1/tasks/000001.json", "{}")
+        local_storage.write_text("gs://b/me/tabarena/runs/bench/queue/old-1/done/000000", "ok\n")
+        assert setup.draining_launches("bench") == [("old-1", 1, 2)]
+        assert setup.draining_launches("other") == []
+
     def test_pool_mode_prints_apply_status_launch_and_down(self, local_storage, tmp_path, batch_dir, staged_env):
         ps = self._ps(tmp_path)
         ps.ensure_runtime_dirs("bench")
