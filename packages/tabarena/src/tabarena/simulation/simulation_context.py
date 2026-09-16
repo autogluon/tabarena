@@ -1,10 +1,8 @@
 from __future__ import annotations
 
 import copy
-import json
 import threading
 from collections import defaultdict
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Self
 
@@ -30,7 +28,7 @@ from .sim_utils import (
 )
 
 if TYPE_CHECKING:
-    import numpy as np
+    from .task_data import TaskData
 
 
 def _default_dict():
@@ -666,72 +664,69 @@ class ZeroshotSimulatorContext:
             configs = [c for c in configs if configs_type[c] in config_types]
         return configs
 
+    @staticmethod
+    def task_entries_from_paths(paths: list[str]) -> dict[Path, list[int] | None]:
+        """Group a context's per-task file paths (``<dataset>/<fold>/<file>``) or per-dataset
+        ``tasks.dat`` paths into ``dataset directory -> folds`` (``None`` = every fold of the file).
+        """
+        from tabarena.simulation.task_data import TASKS_FILENAME
+
+        entries: dict[Path, list[int] | None] = {}
+        seen: dict[Path, set[int]] = {}
+        for p in paths:
+            p = Path(p)
+            if p.name == TASKS_FILENAME:
+                entries.setdefault(p.parent, None)
+                continue
+            dataset_dir, fold = p.parent.parent, int(p.parent.name)
+            folds = seen.setdefault(dataset_dir, set())
+            if fold not in folds:
+                folds.add(fold)
+        for dataset_dir, folds in seen.items():
+            entries[dataset_dir] = sorted(folds)
+        return entries
+
+    def load_task_data(self, paths: list[str], n_threads: int | None = None) -> dict[tuple[str, int], TaskData]:
+        """Prediction metadata and labels of the tasks behind ``paths``, from each dataset's
+        ``tasks.dat`` or its per-task files (see :mod:`tabarena.simulation.task_data`), through the
+        active :class:`~tabarena.simulation.label_cache.LabelFileCache` when one is set.
+
+        The reads run on ``n_threads`` threads over datasets: :data:`LABEL_LOAD_THREADS` on the
+        main thread and 1 inside a worker thread (see the constant).
+        """
+        from tabarena.simulation.label_cache import get_active_label_cache
+        from tabarena.simulation.task_data import load_task_data
+
+        if n_threads is None:
+            n_threads = _default_label_load_threads()
+        unique_datasets = set(self.unique_datasets)
+        entries = {d: f for d, f in self.task_entries_from_paths(paths).items() if d.name in unique_datasets}
+        return load_task_data(entries, n_threads=n_threads, label_cache=get_active_label_cache())
+
     def load_groundtruth(
         self,
         paths_gt: list[str],
         metadata_by_dir: dict[str, dict] | None = None,
         n_threads: int | None = None,
+        task_data: dict[tuple[str, int], TaskData] | None = None,
     ) -> GroundTruth:
-        """Load the per-task labels.
-
-        ``paths_gt`` are the context's label files; they only identify the task directories
-        (``labels.dat`` or the legacy ``label-{val,test}.csv.zip`` pair per directory), which are
-        read with :func:`~tabarena.simulation.label_files.read_task_labels`, through the active
-        :class:`~tabarena.simulation.label_cache.LabelFileCache` when one is set.
-
-        ``metadata_by_dir`` is an optional read-through cache mapping a task directory to its
-        parsed ``metadata.json``. Each directory holds one metadata file shared by its label and
-        prediction files, so caching avoids re-reading it per directory, and passing the same
-        dict on to :meth:`load_pred` avoids another read.
-
-        The metadata reads and then the label reads run on ``n_threads`` threads. The default is
-        :data:`LABEL_LOAD_THREADS` on the main thread and 1 inside a worker thread (see the
-        constant). Both phases are per-file round trips on network filesystems, which release
-        the GIL, so they overlap well. Results are assembled in the order of ``paths_gt``
-        regardless of thread scheduling.
+        """Load the per-task labels behind ``paths_gt`` (see :meth:`load_task_data`); pass
+        ``task_data`` to reuse an earlier load. ``metadata_by_dir`` is filled with each task
+        directory's prediction metadata when given.
         """
-        from tabarena.simulation.label_cache import get_active_label_cache
-        from tabarena.simulation.label_files import read_task_labels
-
-        if metadata_by_dir is None:
-            metadata_by_dir = {}
-        if n_threads is None:
-            n_threads = _default_label_load_threads()
-        label_cache = get_active_label_cache()
+        if task_data is None:
+            task_data = self.load_task_data(paths_gt, n_threads=n_threads)
         gt_val = defaultdict(_default_dict)
         gt_test = defaultdict(_default_dict)
-        unique_datasets = set(self.unique_datasets)
-
-        task_dirs = list(dict.fromkeys(str(Path(p).parent) for p in paths_gt))
-        parents_to_read = [d for d in task_dirs if d not in metadata_by_dir]
-
-        def read_metadata(parent: str) -> tuple[str, dict]:
-            with open(Path(parent) / "metadata.json") as f:
-                return parent, json.load(f)
-
-        def read_labels(job: tuple[str, str, int]) -> tuple[np.ndarray, np.ndarray]:
-            task_dir, dataset, fold = job
-            if label_cache is not None:
-                return label_cache.read_task(task_dir, dataset=dataset, fold=fold)
-            return read_task_labels(task_dir)
-
-        def run(fn, items):
-            if n_threads <= 1 or len(items) <= 1:
-                return [fn(item) for item in items]
-            with ThreadPoolExecutor(max_workers=min(n_threads, len(items))) as executor:
-                return list(executor.map(fn, items))
-
-        for parent, metadata in run(read_metadata, parents_to_read):
-            metadata_by_dir[parent] = metadata
-
-        jobs: list[tuple[str, str, int]] = []
-        for task_dir in task_dirs:
-            metadata = metadata_by_dir[task_dir]
-            if metadata["dataset"] in unique_datasets:
-                jobs.append((task_dir, metadata["dataset"], metadata["fold"]))
-        for (_, dataset, fold), (labels_val, labels_test) in zip(jobs, run(read_labels, jobs), strict=True):
-            gt_val[dataset][fold] = labels_val
-            gt_test[dataset][fold] = labels_test
+        for (dataset, fold), task in task_data.items():
+            gt_val[dataset][fold] = task.labels_val
+            gt_test[dataset][fold] = task.labels_test
+            if metadata_by_dir is not None:
+                metadata_by_dir[str(Path(paths_gt[0]).parent.parent.parent / dataset / str(fold))] = {
+                    **task.metadata,
+                    "dataset": dataset,
+                    "fold": fold,
+                }
         return GroundTruth(label_val_dict=gt_val, label_test_dict=gt_test)
 
     def load_pred(
@@ -741,15 +736,18 @@ class ZeroshotSimulatorContext:
         prediction_format: str = "memmap",
         metadata_by_dir: dict[str, dict] | None = None,
         metadata_files: list[str | Path] | None = None,
+        metadata_dict: dict[str, dict[int, dict]] | None = None,
     ) -> TabularModelPredictions:
         """:param prediction_format: Determines the format of the loaded tabular_predictions. Default = "memmap".
         "memmap": Fast and low memory usage.
         "memopt": Very fast and high memory usage.
         "mem": Slow and high memory usage, simplest format to debug.
         :param metadata_by_dir: Optional cache of parsed per-task ``metadata.json`` keyed by
-        task directory, as filled by :meth:`load_groundtruth`.
+        task directory.
         :param metadata_files: The per-task ``metadata.json`` paths to load; ``None`` walks
         ``path_pred_proba`` for them (see ``TabularPredictionsMemmap``).
+        :param metadata_dict: The per-task prediction metadata already loaded (``dataset -> fold ->
+        metadata``), e.g. from :meth:`load_task_data`; no metadata file is read when given.
         """
         assert prediction_format in ["memmap", "memopt", "mem"]
 
@@ -761,7 +759,11 @@ class ZeroshotSimulatorContext:
 
         path_pred_proba = Path(path_pred_proba)
         zeroshot_pred_proba: TabularModelPredictions = class_map[prediction_format].from_data_dir(
-            data_dir=path_pred_proba, datasets=datasets, metadata_by_dir=metadata_by_dir, metadata_files=metadata_files
+            data_dir=path_pred_proba,
+            datasets=datasets,
+            metadata_by_dir=metadata_by_dir,
+            metadata_files=metadata_files,
+            metadata_dict=metadata_dict,
         )
         all_datasets = self.get_datasets()
         valid_datasets = [d for d in zeroshot_pred_proba.datasets if d in all_datasets]

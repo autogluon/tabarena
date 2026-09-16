@@ -14,8 +14,8 @@ from botocore.errorfactory import ClientError
 from tabarena.loaders import Paths, load_configs, load_results
 from tabarena.repository.evaluation_repository import EvaluationRepository
 from tabarena.simulation.dense_utils import intersect_folds_and_datasets, prune_zeroshot_gt
-from tabarena.simulation.label_files import LABELS_FILENAME
 from tabarena.simulation.simulation_context import ZeroshotSimulatorContext
+from tabarena.simulation.task_data import TASKS_FILENAME
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -451,11 +451,11 @@ def construct_context(
     if dataset_fold_lst_gt is None:
         dataset_fold_lst_gt = [(dataset, fold) for dataset in datasets for fold in folds]
 
-    files_pred = ["metadata.json", "pred-test.dat", "pred-val.dat"]
+    files_pred = ["pred-test.dat", "pred-val.dat"]
     _files_pp = [f"{dataset}/{fold}/{f}" for dataset, fold in dataset_fold_lst_pp for f in files_pred]
 
-    files_label = [LABELS_FILENAME]
-    _files_gt = [f"{dataset}/{fold}/{f}" for dataset, fold in dataset_fold_lst_gt for f in files_label]
+    # prediction metadata and labels of all folds live in one file per dataset
+    _files_gt = [f"{dataset}/{TASKS_FILENAME}" for dataset in sorted({dataset for dataset, _ in dataset_fold_lst_gt})]
 
     if is_relative:
         zs_pp = [str(Path("model_predictions") / f) for f in _files_pp]
@@ -528,27 +528,25 @@ def load_zeroshot_input(
     verbose: bool = True,
     paths_pp: list[str] | None = None,
 ) -> tuple[TabularModelPredictions, GroundTruth, ZeroshotSimulatorContext]:
-    """``paths_pp`` are the context's prediction files (``BenchmarkPaths.zs_pp_full``); the
-    ``metadata.json`` entries among them tell the prediction loader which task directories
-    exist, so it does not have to walk ``path_pred_proba``. Without them it walks as before.
+    """Load labels and prediction metadata for the context's tasks in one pass
+    (:meth:`ZeroshotSimulatorContext.load_task_data`: one ``tasks.dat`` per dataset, or the
+    per-task files), then the predictions. The tasks come from ``paths_pp`` (the context's
+    per-task prediction files) when given, else from ``paths_gt``.
     """
     if verbose:
         print(
             f"Loading ZS inputs:\n\tpred_proba:  {path_pred_proba}\n",
         )
-    metadata_files = [p for p in paths_pp if Path(p).name == "metadata.json"] if paths_pp else None
-    if not metadata_files:
-        metadata_files = None
-    # Shared per-task metadata.json cache: load_groundtruth parses each task dir's metadata
-    # once and load_pred reuses it instead of re-reading the same files.
-    metadata_by_dir: dict[str, dict] = {}
-    zeroshot_gt = zsc.load_groundtruth(paths_gt=paths_gt, metadata_by_dir=metadata_by_dir)
+    task_data = zsc.load_task_data(paths_pp if paths_pp else paths_gt)
+    zeroshot_gt = zsc.load_groundtruth(paths_gt=paths_gt, task_data=task_data)
+    metadata_dict: dict[str, dict[int, dict]] = {}
+    for (dataset, fold), task in task_data.items():
+        metadata_dict.setdefault(dataset, {})[fold] = task.metadata
     zeroshot_pred_proba = zsc.load_pred(
         path_pred_proba=path_pred_proba,
         datasets=datasets,
         prediction_format=prediction_format,
-        metadata_by_dir=metadata_by_dir,
-        metadata_files=metadata_files,
+        metadata_dict=metadata_dict,
     )
 
     # keep only dataset whose folds are all present

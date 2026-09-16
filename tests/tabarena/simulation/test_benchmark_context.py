@@ -48,10 +48,10 @@ def test_default_load_fails_lazily_on_missing_prediction_file(tmp_path):
         loaded.predict_val(dataset=dataset, fold=fold, config=repo.configs()[0])
 
 
-def test_default_load_fails_early_on_missing_label_file(tmp_path):
+def test_default_load_fails_early_on_missing_task_file(tmp_path):
     repo = load_repo_artificial()
     repo.to_dir(tmp_path)
-    dataset, fold = repo.tasks()[0]
-    (tmp_path / "model_predictions" / dataset / str(fold) / "labels.dat").unlink()
+    dataset, _ = repo.tasks()[0]
+    (tmp_path / "model_predictions" / dataset / "tasks.dat").unlink()
     with pytest.raises(FileNotFoundError):
         EvaluationRepository.from_dir(tmp_path, verbose=False)
