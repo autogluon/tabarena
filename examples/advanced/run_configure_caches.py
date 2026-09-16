@@ -12,7 +12,9 @@ The five caches (see ``tabarena.caching.CacheConfig`` for the authoritative refe
   * ``openml``       — THE important one. The materialized datasets + their cross-validation
                        splits, plus all TabArena-derived task artifacts, live here. Point this
                        at a large, ideally shared, disk.
-  * ``huggingface``  — foundation-model weights (TabPFN / Mitra / LimiX / ...). Sets ``HF_HOME``.
+  * ``huggingface``  — foundation-model weights (Mitra / LimiX / ...). Sets ``HF_HOME``. A library
+                       with its own checkpoint cache (TabPFN's ``~/.cache/tabpfn``) is not managed
+                       here; move it with the library's own variable (``TABPFN_MODEL_CACHE_DIR``).
   * ``data_foundry`` — the one-time raw dataset download for data_foundry / BeyondArena (which is
                        then converted into the OpenML cache). Sets ``DATA_FOUNDRY_CACHE``. NOTE:
                        this is NOT ``HF_HOME`` — data_foundry passes an explicit cache dir to

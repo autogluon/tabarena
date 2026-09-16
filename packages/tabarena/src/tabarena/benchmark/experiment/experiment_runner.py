@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import datetime
 import traceback
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 import pandas as pd
@@ -56,6 +56,7 @@ class ExperimentRunner:
         require_warmup: bool = True,
         warmup: bool = True,
         cleanup_on_failure: bool = False,
+        cpu_budget_check: Literal["error", "warn", "off"] = "warn",
     ):
         """Configure the runner and load the split for ``(fold, repeat, sample)``.
 
@@ -102,6 +103,10 @@ class ExperimentRunner:
             wrote the failure artifact), so a multi-item worker does not leak predictor
             directories or served GPU models. Off by default so local debugging keeps the
             artifacts of a failed fit; the SLURM runner turns it on.
+        cpu_budget_check: {"error", "warn", "off"}, default "warn"
+            What to do when the method's CPU budget (``num_cpus``) differs from the CPUs this
+            process may run on (see ``run_cpu_budget_check``): raise, warn, or only record it.
+            Local and debug runs warn; the SLURM runner sets ``"error"``.
         """
         if eval_metric_name is None:
             eval_metric_name = default_eval_metric(task.problem_type)
@@ -126,6 +131,8 @@ class ExperimentRunner:
         self.require_warmup = require_warmup
         self.warmup = warmup
         self.cleanup_on_failure = cleanup_on_failure
+        self.cpu_budget_check = cpu_budget_check
+        self.cpu_thread_info: dict | None = None
         self.time_warmup_s: float | None = None
         self.warmup_report: WarmupReport | None = None
         self.timing_audit: dict | None = None
@@ -217,6 +224,24 @@ class ExperimentRunner:
         return self.task_split_idx
 
     # --- Fit / run lifecycle ----------------------------------------------------------
+    def run_cpu_budget_check(self) -> dict:
+        """Snapshot the thread configuration and check the method's CPU budget against the usable CPUs.
+
+        Runs after the method is constructed and before the warm-up. The snapshot
+        (``tabarena.utils.thread_utils.cpu_thread_info``) records the affinity count, the OMP-style
+        thread variables and the pools already created; ``budget_check`` holds the outcome of
+        ``check_cpu_budget`` for ``self.model.num_cpus_budget`` under ``cpu_budget_check``. A
+        mismatch means the thread pools are sized from the machine rather than from the
+        ``num_cpus`` the results report.
+        """
+        from tabarena.utils.thread_utils import check_cpu_budget, cpu_thread_info
+
+        info = cpu_thread_info()
+        # A runner built without ``__init__`` (test doubles) has no mode; a duck-typed model has no budget.
+        mode = getattr(self, "cpu_budget_check", "warn")
+        info["budget_check"] = check_cpu_budget(getattr(self.model, "num_cpus_budget", None), on_mismatch=mode)
+        return info
+
     def run_warmup(self) -> WarmupReport:
         """Run the method's untimed environment warm-up (see ``AbstractExecModel.warmup_fn``).
 
@@ -308,6 +333,7 @@ class ExperimentRunner:
         time_start_str = utc_time.strftime("%Y-%m-%d %H:%M:%S")
         time_start = utc_time.timestamp()
         self.model = self.init_method()
+        self.cpu_thread_info = self.run_cpu_budget_check()
         self.warmup_report = self.run_warmup()
         self.time_warmup_s = self.warmup_report.duration_s
         self.check_warmup_report(self.warmup_report)
@@ -405,6 +431,8 @@ class ExperimentRunner:
         lists what the warm-up imported, primed and dummy-fitted (``None`` when the runner never
         got to the warm-up). ``timing_audit`` is the environment audit ``fit_custom`` took around the
         fit and predict timers (``None`` when the method's ``fit_custom`` returned none).
+        ``cpu_thread_info`` is the thread-configuration snapshot and CPU budget check taken before
+        the warm-up (see ``run_cpu_budget_check``).
         """
         time_end = datetime.datetime.now(datetime.UTC).timestamp()
         return {
@@ -417,6 +445,7 @@ class ExperimentRunner:
             "time_warmup_s": self.time_warmup_s,
             "warmup_report": self.warmup_report.to_dict() if self.warmup_report is not None else None,
             "timing_audit": getattr(self, "timing_audit", None),
+            "cpu_thread_info": getattr(self, "cpu_thread_info", None),
         }
 
     def convert_to_output(self, out: dict) -> dict:

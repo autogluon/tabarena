@@ -14,19 +14,19 @@ from tabarena.caching import CacheConfig
 def _isolate_cache_state():
     """Snapshot + restore the global cache state each test mutates.
 
-    ``apply()`` writes process-global state (``HF_HOME`` / ``DATA_FOUNDRY_CACHE`` env vars, the
-    OpenML root cache, the TabArena cache-root holder), so we snapshot all of it up front and
-    restore it afterwards to keep tests independent.
+    ``apply()`` writes process-global state (``HF_HOME`` / ``TABPFN_MODEL_CACHE_DIR`` /
+    ``DATA_FOUNDRY_CACHE`` env vars, the OpenML root cache, the TabArena cache-root holder), so we
+    snapshot all of it up front and restore it afterwards to keep tests independent.
     """
     import openml
 
     from tabarena.loaders import set_tabarena_cache_root
 
-    env_keys = ("HF_HOME", "HF_HUB_CACHE", "HUGGINGFACE_HUB_CACHE", "DATA_FOUNDRY_CACHE")
+    env_keys = ("HF_HOME", "HF_HUB_CACHE", "HUGGINGFACE_HUB_CACHE", "TABPFN_MODEL_CACHE_DIR", "DATA_FOUNDRY_CACHE")
     saved_env = {k: os.environ.get(k) for k in env_keys}
     saved_openml_root = openml.config._root_cache_directory
-    constants_present = "huggingface_hub.constants" in sys.modules
-    saved_constants = sys.modules.get("huggingface_hub.constants")
+    patched_modules = ("huggingface_hub.constants",)
+    saved_modules = {name: sys.modules.get(name) for name in patched_modules}
     try:
         yield
     finally:
@@ -37,10 +37,11 @@ def _isolate_cache_state():
                 os.environ[key] = value
         openml.config.set_root_cache_directory(str(saved_openml_root))
         set_tabarena_cache_root(None)
-        if constants_present:
-            sys.modules["huggingface_hub.constants"] = saved_constants
-        else:
-            sys.modules.pop("huggingface_hub.constants", None)
+        for name, module in saved_modules.items():
+            if module is not None:
+                sys.modules[name] = module
+            else:
+                sys.modules.pop(name, None)
 
 
 def test_apply_sets_openml_root(tmp_path):

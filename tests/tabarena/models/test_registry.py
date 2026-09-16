@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import types
+from importlib.machinery import ModuleSpec
 
 import pytest
 
@@ -8,10 +9,38 @@ from tabarena.models import _registry
 from tabarena.models._method_metadata import MethodMetadata
 from tabarena.models._model_info import ModelInfo
 from tabarena.models._registry import (
+    assert_autogluon_resolves,
     discover_models,
     get_model_registry,
     register_model_info,
 )
+
+# Info modules that import only from ``autogluon.tabular.models``, so they resolve on the base
+# install (no ``[benchmark]`` extra) and lock the "registry is populated" precondition.
+_CORE_MODELS = frozenset(
+    {
+        "CatBoost",
+        "ExplainableBM",
+        "ExtraTrees",
+        "KNeighbors",
+        "LightGBM",
+        "LinearModel",
+        "NeuralNetFastAI",
+        "NeuralNetTorch",
+        "RandomForest",
+        "XGBoost",
+    }
+)
+
+
+def _regular_spec(name: str = "autogluon.tabular") -> ModuleSpec:
+    return ModuleSpec(name, None, origin="/fake/autogluon/tabular/__init__.py")
+
+
+def _namespace_spec() -> ModuleSpec:
+    spec = ModuleSpec("autogluon.tabular", None, is_package=True)
+    spec.submodule_search_locations = ["/somewhere/autogluon/tabular"]
+    return spec
 
 
 class _DummyModel:
@@ -45,9 +74,11 @@ def patched_discovery(monkeypatch, fresh_registry):
 
     Tests populate `state["submodules"]` with `(name, is_pkg)` tuples and
     `state["info_modules"]` with `name -> module-or-exception` to control
-    exactly what the discovery walk sees.
+    exactly what the discovery walk sees. `find_spec` is stubbed to a regular
+    package so the walk tests do not depend on the invoking interpreter's cwd.
     """
     state = {"submodules": [], "info_modules": {}}
+    monkeypatch.setattr(_registry, "find_spec", _regular_spec)
 
     def fake_iter_modules(_path):
         for name, is_pkg in state["submodules"]:
@@ -145,6 +176,50 @@ def test_discover_models_skips_packages_without_info(patched_discovery, caplog):
     assert any("legacy" in record.message and "no info module" in record.message for record in caplog.records), (
         f"expected a warning mentioning 'legacy' and the import error, got: {[r.message for r in caplog.records]}"
     )
+
+
+def test_discover_models_raises_when_every_package_is_skipped(patched_discovery, caplog):
+    patched_discovery["submodules"] = [("a", True), ("b", True)]
+    patched_discovery["info_modules"] = {"a": ImportError("x"), "b": ImportError("y")}
+
+    with (
+        caplog.at_level("WARNING", logger="tabarena.models._registry"),
+        pytest.raises(RuntimeError, match="registry is empty") as excinfo,
+    ):
+        discover_models()
+
+    assert "a, b" in str(excinfo.value)
+    assert _registry._REGISTRY is None  # nothing is cached on failure
+    # An empty walk (no packages at all) is not an error.
+    patched_discovery["submodules"] = []
+    assert discover_models() == {}
+
+
+def test_assert_autogluon_resolves_rejects_a_namespace_package(monkeypatch):
+    monkeypatch.setattr(_registry, "find_spec", lambda name: _namespace_spec())
+    with pytest.raises(RuntimeError, match="namespace package") as excinfo:
+        assert_autogluon_resolves()
+    assert "python -P" in str(excinfo.value)
+
+
+@pytest.mark.parametrize(
+    "fake_find_spec",
+    [
+        _regular_spec,
+        lambda name: None,
+        lambda name: (_ for _ in ()).throw(ModuleNotFoundError("No module named 'autogluon'")),
+        lambda name: (_ for _ in ()).throw(ValueError(f"{name}.__spec__ is None")),
+    ],
+    ids=["regular", "child-missing", "not-installed", "spec-less"],
+)
+def test_assert_autogluon_resolves_accepts_everything_but_shadowing(monkeypatch, fake_find_spec):
+    monkeypatch.setattr(_registry, "find_spec", fake_find_spec)
+    assert_autogluon_resolves()
+
+
+def test_real_registry_discovers_core_models():
+    missing = _CORE_MODELS - set(discover_models())
+    assert not missing, f"core models missing from the registry: {sorted(missing)}"
 
 
 def test_discover_models_ignores_underscore_and_non_modelinfo_attrs(patched_discovery):
