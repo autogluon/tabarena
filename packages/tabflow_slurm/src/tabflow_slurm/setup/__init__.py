@@ -25,17 +25,21 @@ from tabflow_slurm.setup.plan import (
 )
 from tabflow_slurm.setup.resources import BeyondArenaResourcesSetup, ResourcesSetup, TabArenaV0pt1ResourcesSetup
 from tabflow_slurm.setup.scheduler import GCPSlurmSetup, LocalSequentialSetup, SchedulerSetup, SlurmSetup
+from tabflow_slurm.setup.sky_storage import GcsStorage
+from tabflow_slurm.setup.skypilot import SkyPilotSetup
 
 __all__ = [
     "BeyondArenaBenchmarkPlan",
     "BeyondArenaResourcesSetup",
     "GCPSlurmSetup",
+    "GcsStorage",
     "LocalSequentialSetup",
     "ModelJob",
     "PathSetup",
     "ResourcesSetup",
     "SchedulerSetup",
     "SingleModel",
+    "SkyPilotSetup",
     "SlurmSetup",
     "TabArenaBenchmarkPlan",
     "TabArenaV0pt1BenchmarkPlan",

@@ -10,6 +10,10 @@ dependencies = [
     "tabarena",
 ]
 
+[project.optional-dependencies]
+# The `sky` CLI for `SkyPilotSetup` (plain upstream SkyPilot with its local API server).
+skypilot = ["skypilot[gcp]==0.13.0"]
+
 [tool.uv.sources]
 tabarena = { workspace = true }
 
