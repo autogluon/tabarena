@@ -82,7 +82,6 @@ class ZeroshotSimulatorContext:
         (
             self.df_configs,
             self.df_baselines,
-            self.df_configs_ranked,
             self.df_metrics,
             self.df_metadata,
             self.task_to_dataset_dict,
@@ -104,7 +103,35 @@ class ZeroshotSimulatorContext:
             score_against_only_automl=self.score_against_only_baselines,
             pct=self.pct,
         )
+        self._df_configs_ranked: pd.DataFrame | None = None
         self.dataset_to_tasks_dict = self._compute_dataset_to_tasks()
+
+    @property
+    def df_configs_ranked(self) -> pd.DataFrame:
+        """``df_configs`` plus a ``rank`` column: each result's rank among the comparison set
+        (see :attr:`rank_scorer`), computed on first access.
+
+        Loading and ensemble simulation never read the ranks, only portfolio and analysis code
+        does, so the column is not built eagerly (0.35 s for a 12-method collection and a few
+        hundredths per method inside the loading pool). The value is what eager construction gave:
+        the ranks depend only on the scorer, which is fixed at construction and rebuilt by the
+        subset methods exactly when the eager column was rebuilt.
+        """
+        cached = self.__dict__.get("_df_configs_ranked")
+        if cached is None:
+            # objects pickled before the column became lazy carry it as a plain attribute
+            cached = self.__dict__.get("df_configs_ranked")
+        if cached is None:
+            cached = self.df_configs.copy()
+            if len(cached) > 0:
+                cached["rank"] = self.rank_scorer.rank_many(
+                    tasks=cached["task"].to_numpy(),
+                    errors=cached["metric_error"].to_numpy(),
+                )
+            else:
+                cached["rank"] = None
+            self._df_configs_ranked = cached
+        return cached
 
     def _compute_dataset_to_tasks(self) -> dict:
         """Returns the mapping of dataset parent to dataset fold names.
@@ -132,7 +159,6 @@ class ZeroshotSimulatorContext:
         (
             self.df_configs,
             self.df_baselines,
-            self.df_configs_ranked,
             self.df_metrics,
             self.df_metadata,
             self.task_to_dataset_dict,
@@ -154,6 +180,7 @@ class ZeroshotSimulatorContext:
             score_against_only_automl=self.score_against_only_baselines,
             pct=self.pct,
         )
+        self._df_configs_ranked = None
         self.dataset_to_tasks_dict = self._compute_dataset_to_tasks()
 
     @classmethod
@@ -168,7 +195,6 @@ class ZeroshotSimulatorContext:
         score_against_only_automl: bool,
         pct: bool,
     ) -> tuple[
-        pd.DataFrame,
         pd.DataFrame,
         pd.DataFrame,
         pd.DataFrame,
@@ -282,15 +308,6 @@ class ZeroshotSimulatorContext:
             tasks=unique_tasks,
             pct=pct,
         )
-        df_configs_ranked = df_configs.copy()
-        if len(df_configs_ranked) > 0:
-            df_configs_ranked["rank"] = rank_scorer.rank_many(
-                tasks=df_configs_ranked["task"].to_numpy(),
-                errors=df_configs_ranked["metric_error"].to_numpy(),
-            )
-        else:
-            df_configs_ranked["rank"] = None
-
         task_to_dataset_dict = {pair_task[i]: pair_dataset[i] for i in pairs_present}
         dataset_to_tid_dict = {}
         for i in pairs_present:
@@ -329,7 +346,6 @@ class ZeroshotSimulatorContext:
         return (
             df_configs,
             df_baselines,
-            df_configs_ranked,
             df_metrics,
             df_metadata,
             task_to_dataset_dict,
@@ -823,7 +839,7 @@ class ZeroshotSimulatorContext:
 
         # Remove datasets from internal dataframes
         self.df_configs = self.df_configs[self.df_configs["dataset"].isin(datasets)]
-        self.df_configs_ranked = self.df_configs_ranked[self.df_configs_ranked["dataset"].isin(datasets)]
+        self._df_configs_ranked = None
         if only_configs:
             datasets_baselines = list(set(self.df_baselines["dataset"]))
             datasets = [d for d in self.unique_datasets if d in datasets or d in datasets_baselines]
@@ -848,7 +864,6 @@ class ZeroshotSimulatorContext:
     def subset_configs(self, configs: list[str]):
         """Only keep the provided configs, drop all others."""
         self.df_configs = self.df_configs[self.df_configs["framework"].isin(configs)]
-        self.df_configs_ranked = self.df_configs_ranked[self.df_configs_ranked["framework"].isin(configs)]
         self._update_all()
 
     def subset_baselines(self, baselines: list[str]):
