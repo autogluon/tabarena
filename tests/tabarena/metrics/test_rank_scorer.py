@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from tabarena.utils.rank_utils import RankScorer
 
@@ -169,3 +170,32 @@ def test_rank_scorer_pct_not_partial():
     ]
     for query, expected in query_expected:
         assert rank_scorer.rank("task1", query) == expected
+
+
+@pytest.mark.parametrize(
+    ("ties_win", "include_partial", "pct"),
+    [(False, True, False), (False, True, True), (False, False, False), (True, False, False), (True, False, True)],
+)
+def test_rank_many_matches_rank(ties_win, include_partial, pct):
+    """``rank_many`` reproduces per-row ``rank`` on ties, zeros, empty tasks, out-of-range and NaN errors."""
+    rng = np.random.default_rng(0)
+    rows = []
+    for t in range(30):
+        base = np.round(rng.random(rng.integers(0, 8)) * 3, 1)  # empty lists, ties and zeros included
+        if t % 5 == 0:
+            base = np.append(base, 0.0)
+        worst = base.max() * 2 if len(base) else 1.0
+        errors = np.concatenate([base, base + 0.05, [0.0, 10.0, np.nan, worst]])
+        rows += [{"task": f"t{t}", "framework": f"m{j}", "metric_error": e} for j, e in enumerate(errors)]
+    df = pd.DataFrame(rows)
+    df_results = df.dropna().groupby(["task", "framework"]).first().reset_index()
+    scorer = RankScorer(
+        df_results=df_results,
+        tasks=sorted(df["task"].unique()),
+        ties_win=ties_win,
+        include_partial=include_partial,
+        pct=pct,
+    )
+    expected = np.array([scorer.rank(task, error) for task, error in zip(df["task"], df["metric_error"], strict=True)])
+    actual = scorer.rank_many(tasks=df["task"].to_numpy(), errors=df["metric_error"].to_numpy())
+    np.testing.assert_array_equal(actual, expected)
