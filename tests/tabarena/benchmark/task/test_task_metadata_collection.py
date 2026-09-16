@@ -360,3 +360,31 @@ class TestFromUserTasks:
             a.tabarena_task_name,
             b.tabarena_task_name,
         ]
+
+
+class TestPreset:
+    def test_directly_built_collection_has_no_preset(self):
+        c = TaskMetadataCollection.from_source([_task_meta(dataset_name="ds_a")])
+        assert c.preset is None
+        assert c.subset([("ds_a", 0, 0)]).preset is None
+
+    def test_from_preset_records_the_suite_and_subsets_keep_it(self):
+        c = TaskMetadataCollection.from_preset("TabArena-v0.1")
+        assert c.preset == "TabArena-v0.1"
+        assert c.subset_tasks(problem_types=["binary"]).preset == "TabArena-v0.1"
+
+    def test_with_preset_binds_the_suite_source_and_keeps_the_tasks(self):
+        from tabarena.benchmark.task.metadata.sources import TabArenaV0pt1TaskMetadataSource
+
+        plain = TaskMetadataCollection.from_source([_task_meta(dataset_name="ds_a")])
+        bound = plain.with_preset("TabArena-v0.1")
+        assert bound.preset == "TabArena-v0.1"
+        assert isinstance(bound.source, TabArenaV0pt1TaskMetadataSource)
+        assert bound == plain  # same tasks; only the provenance changed
+        assert bound.subset([("ds_a", 0, 0)]).preset == "TabArena-v0.1"
+        assert plain.preset is None  # the original is untouched
+
+    def test_with_preset_unknown_suite_raises(self):
+        plain = TaskMetadataCollection.from_source([_task_meta(dataset_name="ds_a")])
+        with pytest.raises(ValueError, match="Unknown preset"):
+            plain.with_preset("NoSuchArena")
