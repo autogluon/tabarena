@@ -151,3 +151,29 @@ def test_rank_column_is_lazy_and_matches_eager():
         score_against_only_baselines=False,
     ).df_configs_ranked
     np.testing.assert_array_equal(rebuilt["rank"].to_numpy(), fresh["rank"].to_numpy())
+
+
+def test_context_pickles_string_columns_as_categoricals_and_restores_them():
+    import pickle
+
+    df_configs = _configs()
+    df_configs["note"] = [None if i % 4 else "x" for i in range(len(df_configs))]  # string column with missing values
+    df_configs["blob"] = [{"k": i} for i in range(len(df_configs))]  # non-string objects stay untouched
+    zsc = ZeroshotSimulatorContext(df_configs=df_configs, df_baselines=_baselines(), folds=None)
+    _ = zsc.df_configs_ranked
+
+    state = zsc.__getstate__()
+    assert set(state["_pickled_categorical_columns"]) == {"df_configs", "df_baselines", "_df_configs_ranked"}
+    pickled_configs = state["df_configs"]
+    assert isinstance(pickled_configs["dataset"].dtype, pd.CategoricalDtype)
+    assert isinstance(pickled_configs["note"].dtype, pd.CategoricalDtype)
+    assert pickled_configs["blob"].dtype == object
+    assert zsc.df_configs["dataset"].dtype == object  # the live object is untouched
+
+    restored = pickle.loads(pickle.dumps(zsc, protocol=5))
+    for attr in ("df_configs", "df_baselines", "_df_configs_ranked", "df_metrics"):
+        a, b = getattr(zsc, attr), getattr(restored, attr)
+        pd.testing.assert_frame_equal(a, b)
+        assert list(a.dtypes) == list(b.dtypes)
+    assert restored.unique_tasks == zsc.unique_tasks
+    assert np.array_equal(restored.rank_scorer.error_dict["11_0"], zsc.rank_scorer.error_dict["11_0"])
