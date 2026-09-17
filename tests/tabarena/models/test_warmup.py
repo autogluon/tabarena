@@ -4,8 +4,9 @@ Heavy libraries are never warmed for real: ``warmup_torch`` and the best-effort 
 monkeypatched where they would matter, so these exercise the dispatch order (declared ``warmup``
 classmethod, torch layer, ``warmup_modules`` over the MRO, ``WARMUP_STEPS_BY_AG_KEY``, shared
 weights, dummy fit), the per-step failure isolation, the CUDA gating and the report contents. The
-dummy-fit tests use a tiny ``AbstractModel`` that stores the label mean; they do import torch (the
-random-state guard forks its generators) but stay on the CPU.
+dummy-fit tests use a tiny ``AbstractModel`` that stores the label mean and stay on the CPU. torch is
+optional for them (CI's pytest job installs none): the model draws from torch's generator only when
+torch is importable, and the tests that check the torch RNG and thread restoration skip without it.
 """
 
 from __future__ import annotations
@@ -86,6 +87,15 @@ class _EBMLike:
     warmup_dummy_fit = False
 
 
+def _torch_or_none():
+    """The torch module when it is installed, else ``None`` (the pytest CI job runs without torch)."""
+    try:
+        import torch
+    except ImportError:
+        return None
+    return torch
+
+
 class _MeanModel(AbstractModel):
     """Stores the label mean; predicts constants. Draws from every global RNG to test the guard."""
 
@@ -94,12 +104,12 @@ class _MeanModel(AbstractModel):
     fits: list[dict] = []
 
     def _fit(self, X, y, num_cpus=1, num_gpus=0, time_limit=None, **kwargs):
-        import torch
-
         X = self.preprocess(X, is_train=True)
         np.random.random()
         random.random()  # noqa: S311
-        torch.rand(1)
+        torch = _torch_or_none()
+        if torch is not None:
+            torch.rand(1)
         self._mean = float(y.mean())
         type(self).fits.append(
             {
@@ -524,8 +534,8 @@ def _assert_rng_states_equal(before, after):
 
 
 def test_dummy_fit_runs_with_synthetic_shapes_and_cleans_up(tmp_path):
+    torch = pytest.importorskip("torch")
     _MeanModel.fits.clear()
-    import torch
 
     threads = torch.get_num_threads()
     before = _rng_states()
@@ -553,7 +563,7 @@ def test_dummy_fit_runs_with_synthetic_shapes_and_cleans_up(tmp_path):
 
 def test_cpu_dummy_fit_never_forks_cuda_generators_on_a_cuda_host(monkeypatch):
     """``num_gpus=0`` forks only the CPU generator even when CUDA is available, so no context is created."""
-    import torch
+    torch = pytest.importorskip("torch")
 
     calls: list[list[int]] = []
     original_fork_rng = torch.random.fork_rng
@@ -574,7 +584,7 @@ def test_cpu_dummy_fit_never_forks_cuda_generators_on_a_cuda_host(monkeypatch):
 
 def test_dummy_fit_records_torch_globals_and_restores_threads():
     """A plain ``AbstractModel`` has no torch layer, so the dummy fit itself must record the torch globals."""
-    import torch
+    torch = pytest.importorskip("torch")
 
     class _ThreadHogModel(_MeanModel):
         ag_key = "_WARMUP_MEAN_THREADS"
