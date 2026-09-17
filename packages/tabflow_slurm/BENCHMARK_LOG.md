@@ -34,6 +34,74 @@ run against `main`. To reproduce an entry, check out its recorded **git SHA**.
 
 ---
 
+## 2026-09-17 — rerun_tabpfn35_17092026
+
+- **Model(s):** TabPFN-3.5 and TabPFN-3.5-Fast (default config only, `NUM_CONFIGS=0`, all 816 splits each)
+- **Git SHA:** `4f6dc780` (branch `benchmark/rerun-new-pipeline-16092026`, PR #584), editable AutoGluon
+  `../autogluon` master `957883c9`
+- **Validation protocol:** `8x1` (TabArena default, asserted by the context)
+- **Purpose:** Re-time the fits of run `tabpfn35_17092026` (suite `tabarena-2026-09-17`, entry below) after dropping
+  `n_preprocessing_jobs=num_cpus` from the wrapper. Starting tabpfn's preprocessing worker pool cost a fixed 15 to
+  20 s per fit, so the hosted fit times carried that constant (no TabPFN-3.5 fit under 16.0 s per split, no Fast
+  fit under 20.2 s, against 2.2 s for TabPFN-3 whose wrapper passes `n_jobs`, which tabpfn ignores). Inference
+  and the predictions were never affected.
+- **Notes:** SkyPilot job pool `tabarena-tabpfn35-fix-17092026` (`--scheduler skypilot-pool`), 32 spot
+  `g4-standard-48` workers (RTX PRO 6000, 96 GB; `fake_memory_for_estimates=96`), bundle size 1, both models in one
+  `ModelJob` (1632 items), shared API server `http://skypilot-api:46580`, run venv
+  `~/.venvs/tabarena_tabpfn35_17092026` (Python 3.12, torch 2.14.0+cu130, tabpfn 9.0.0, editable AutoGluon).
+  Launch `rerun_tabpfn35_17092026_gpu-20260917-203001-791c` (managed jobs 4218-4249); pool created 20:34 UTC, jobs
+  launched 20:46 after a head-node restart, all 1632 items done by 21:14 (no failed item); pool taken down 21:20.
+  Both checkpoints seeded from the head node's `~/.cache/tabpfn` (`offline_weights=True`). Per split against the
+  flawed run: median fit 17.0 s to 2.2 s (TabPFN-3.5) and 21.2 s to 0.9 s (Fast), identical `metric_error` on every
+  split (same seeds), inference within 0.01 s. Result (full task set, joint leaderboard with the hosted rows): Elo
+  and normalized error identical to the hosted entries (TabPFN-3.5 1868, 0.161; Fast 1774, 0.252); median train
+  time per 1K rows 5.67 to 1.84 s and 5.80 to 0.72 s, median predict time unchanged (0.47 s and 0.15 s). Processed
+  and uploaded as suite `tabarena-2026-09-17-fix` (`tabpfn_3_5_method_metadata`, `tabpfn_3_5_fast_method_metadata`
+  switched in place; r2 `cache/artifacts/tabarena-2026-09-17-fix/methods/<Method>/`); the `tabarena-2026-09-17`
+  artifacts were deleted from r2.
+
+```python
+from tabarena.benchmark.experiment import TabArenaV0pt1ExperimentBundle
+from tabarena.benchmark.task.metadata import TaskSubset
+from tabflow_slurm import (
+    ModelJob,
+    PathSetup,
+    SkyPilotSetup,
+    TabArenaV0pt1BenchmarkPlan,
+    TabArenaV0pt1ResourcesSetup,
+)
+
+MODELS = ("TabPFN-3.5", "TabPFN-3.5-Fast")
+plan = TabArenaV0pt1BenchmarkPlan(
+    benchmark_name="rerun_tabpfn35_17092026",
+    model_jobs=[
+        ModelJob(
+            models=[(model, 0) for model in MODELS],
+            name="gpu",
+            resources={"num_gpus": 1, "fake_memory_for_estimates": 96},
+        ),
+    ],
+    task_subset=TaskSubset(),
+    path_setup=PathSetup(
+        workspace="/home/lennart_priorlabs_ai/workspace/benchmarking/tabarena_workspace",
+        python_path="/home/lennart_priorlabs_ai/.venvs/tabarena_tabpfn35_17092026/bin/python",
+    ),
+    experiment_bundle=TabArenaV0pt1ExperimentBundle(model_verbosity=2),
+    resources_setup=TabArenaV0pt1ResourcesSetup(num_cpus=None, memory_limit=None),
+    scheduler_setup=SkyPilotSetup(
+        bundle_size=1,
+        workers=32,
+        secrets=("HF_TOKEN",),
+        use_pool=True,
+        pool_name="tabarena-tabpfn35-fix-17092026",
+        api_server_endpoint="http://skypilot-api:46580",
+    ),
+)
+plan.setup_jobs()
+```
+
+---
+
 ## 2026-09-17 — tabpfn35_17092026
 
 - **Model(s):** TabPFN-3.5 and TabPFN-3.5-Fast (default config only, `NUM_CONFIGS=0`, all 816 splits each)
@@ -65,7 +133,10 @@ run against `main`. To reproduce an entry, check out its recorded **git SHA**.
   #8 regression (1911). TabPFN-3 (rerun row) sits at #11 with Elo 1629. Processed and uploaded as suite
   `tabarena-2026-09-17` (`tabpfn_3_5_method_metadata`, `tabpfn_3_5_fast_method_metadata` in
   `models/tabpfn_3_5/info.py`; r2 `cache/artifacts/tabarena-2026-09-17/methods/<Method>/`), registered in the
-  arena collection as verified (maintainer sign-off 2026-09-17).
+  arena collection as verified (maintainer sign-off 2026-09-17). Superseded the same day: the wrapper passed
+  `n_preprocessing_jobs=num_cpus`, and starting that worker pool added a fixed 15 to 20 s to every timed fit
+  (no TabPFN-3.5 fit under 16.0 s per split, no Fast fit under 20.2 s, against 2.2 s for TabPFN-3). The
+  results were re-run as `rerun_tabpfn35_17092026` (entry above) and the suite's r2 artifacts were deleted.
 
 ```python
 from tabarena.benchmark.experiment import TabArenaV0pt1ExperimentBundle

@@ -25,7 +25,9 @@ tabpfn_3_5_fast_descriptor = ModelDescriptor(
     date_introduced="2026-09-15",
 )
 
-# Run tabpfn35_17092026 (SkyPilot pool, 32 RTX PRO 6000, BENCHMARK_LOG.md), both models in one run.
+# Run rerun_tabpfn35_17092026 (SkyPilot pool, 32 RTX PRO 6000, BENCHMARK_LOG.md), both models in one run.
+# It replaces suite tabarena-2026-09-17 (run tabpfn35_17092026), whose fit times carried the 15 to 20 s
+# start-up of the preprocessing worker pool; those artifacts were deleted from r2.
 tabpfn_3_5_method_metadata = tabpfn_3_5_descriptor.method_metadata(
     method="TabPFN-3.5",
     ag_key="TA-TABPFN-3.5",
@@ -35,7 +37,7 @@ tabpfn_3_5_method_metadata = tabpfn_3_5_descriptor.method_metadata(
     verified=True,
     cache_type="r2",
     validation_protocol="8x1",
-    suite="tabarena-2026-09-17",
+    suite="tabarena-2026-09-17-fix",
     cache_kwargs={"bucket": "tabarena", "prefix": "cache"},
 )
 
@@ -48,7 +50,7 @@ tabpfn_3_5_fast_method_metadata = tabpfn_3_5_fast_descriptor.method_metadata(
     verified=True,
     cache_type="r2",
     validation_protocol="8x1",
-    suite="tabarena-2026-09-17",
+    suite="tabarena-2026-09-17-fix",
     cache_kwargs={"bucket": "tabarena", "prefix": "cache"},
 )
 
