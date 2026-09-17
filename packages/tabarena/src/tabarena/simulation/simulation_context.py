@@ -6,7 +6,7 @@ import threading
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Any, Self
+from typing import TYPE_CHECKING, Any, Self
 
 import pandas as pd
 from autogluon.common.loaders import load_json, load_pd
@@ -28,6 +28,9 @@ from .sim_utils import (
     get_dataset_to_tid_dict,
     get_task_to_dataset_dict,
 )
+
+if TYPE_CHECKING:
+    import numpy as np
 
 
 def _default_dict():
@@ -669,21 +672,26 @@ class ZeroshotSimulatorContext:
         metadata_by_dir: dict[str, dict] | None = None,
         n_threads: int | None = None,
     ) -> GroundTruth:
-        """Load the per-task label files.
+        """Load the per-task labels.
+
+        ``paths_gt`` are the context's label files; they only identify the task directories
+        (``labels.dat`` or the legacy ``label-{val,test}.csv.zip`` pair per directory), which are
+        read with :func:`~tabarena.simulation.label_files.read_task_labels`, through the active
+        :class:`~tabarena.simulation.label_cache.LabelFileCache` when one is set.
 
         ``metadata_by_dir`` is an optional read-through cache mapping a task directory to its
         parsed ``metadata.json``. Each directory holds one metadata file shared by its label and
-        prediction files, so caching avoids re-reading it per label file, and passing the same
-        dict on to :meth:`load_pred` avoids another read per directory.
+        prediction files, so caching avoids re-reading it per directory, and passing the same
+        dict on to :meth:`load_pred` avoids another read.
 
         The metadata reads and then the label reads run on ``n_threads`` threads. The default is
         :data:`LABEL_LOAD_THREADS` on the main thread and 1 inside a worker thread (see the
-        constant). Both phases are dominated by per-file round trips on network filesystems,
-        which release the GIL, so they overlap well; the CSV parse itself mostly does not, which
-        caps the gain for the parse-heavy path. Results are assembled in the order of
-        ``paths_gt`` regardless of thread scheduling.
+        constant). Both phases are per-file round trips on network filesystems, which release
+        the GIL, so they overlap well. Results are assembled in the order of ``paths_gt``
+        regardless of thread scheduling.
         """
         from tabarena.simulation.label_cache import get_active_label_cache
+        from tabarena.simulation.label_files import read_task_labels
 
         if metadata_by_dir is None:
             metadata_by_dir = {}
@@ -694,19 +702,18 @@ class ZeroshotSimulatorContext:
         gt_test = defaultdict(_default_dict)
         unique_datasets = set(self.unique_datasets)
 
-        paths = [Path(p) for p in paths_gt]
-        parents = list(dict.fromkeys(str(p.parent) for p in paths))
-        parents_to_read = [d for d in parents if d not in metadata_by_dir]
+        task_dirs = list(dict.fromkeys(str(Path(p).parent) for p in paths_gt))
+        parents_to_read = [d for d in task_dirs if d not in metadata_by_dir]
 
         def read_metadata(parent: str) -> tuple[str, dict]:
             with open(Path(parent) / "metadata.json") as f:
                 return parent, json.load(f)
 
-        def read_labels(job: tuple[Path, str, int, str]) -> pd.DataFrame:
-            path, dataset, fold, split = job
+        def read_labels(job: tuple[str, str, int]) -> tuple[np.ndarray, np.ndarray]:
+            task_dir, dataset, fold = job
             if label_cache is not None:
-                return label_cache.read(path, dataset=dataset, fold=fold, split=split)
-            return pd.read_csv(path, index_col=0)
+                return label_cache.read_task(task_dir, dataset=dataset, fold=fold)
+            return read_task_labels(task_dir)
 
         def run(fn, items):
             if n_threads <= 1 or len(items) <= 1:
@@ -717,16 +724,14 @@ class ZeroshotSimulatorContext:
         for parent, metadata in run(read_metadata, parents_to_read):
             metadata_by_dir[parent] = metadata
 
-        jobs: list[tuple[Path, str, int, str]] = []
-        for path in paths:
-            metadata = metadata_by_dir[str(path.parent)]
-            dataset = metadata["dataset"]
-            if dataset not in unique_datasets:
-                continue
-            split = "test" if path.stem.startswith("label-test") else "val"
-            jobs.append((path, dataset, metadata["fold"], split))
-        for (_, dataset, fold, split), labels in zip(jobs, run(read_labels, jobs), strict=True):
-            (gt_test if split == "test" else gt_val)[dataset][fold] = labels
+        jobs: list[tuple[str, str, int]] = []
+        for task_dir in task_dirs:
+            metadata = metadata_by_dir[task_dir]
+            if metadata["dataset"] in unique_datasets:
+                jobs.append((task_dir, metadata["dataset"], metadata["fold"]))
+        for (_, dataset, fold), (labels_val, labels_test) in zip(jobs, run(read_labels, jobs), strict=True):
+            gt_val[dataset][fold] = labels_val
+            gt_test[dataset][fold] = labels_test
         return GroundTruth(label_val_dict=gt_val, label_test_dict=gt_test)
 
     def load_pred(

@@ -385,27 +385,24 @@ def merge_zeroshot(
     )
 
 
-def _same_labels(a: pd.Series | pd.DataFrame, b: pd.Series | pd.DataFrame) -> bool:
-    """Whether two label containers are interchangeable: same type, shape, index, dtypes and
-    values (``pandas.equals`` semantics, so NaNs in the same positions count as equal).
-    Artifacts store labels as single-column DataFrames or as Series depending on their
-    converter, hence the type check.
+def _same_labels(a: np.ndarray, b: np.ndarray) -> bool:
+    """Whether two label arrays are interchangeable: same dtype, shape and values (NaNs in the same
+    positions count as equal).
     """
     if a is b:
         return True
-    return type(a) is type(b) and a.equals(b)
+    return a.dtype == b.dtype and a.shape == b.shape and np.array_equal(a, b, equal_nan=a.dtype.kind == "f")
 
 
 def merge_ground_truth(ground_truths: list[GroundTruth]) -> GroundTruth:
     """Merge the ground truths of several repos into one.
 
     Tasks present in several repos resolve to the last repo's labels, as before. When the
-    labels are interchangeable (same dtype, index and values, which is the normal case:
+    labels are interchangeable (same dtype, shape and values, which is the normal case:
     every method repo of a benchmark stores the same labels), the later repos' entries are
-    rebound to the first repo's Series object instead of keeping their own copies. Nothing
-    reads a label Series in place (consumers get ``.values.flatten()`` copies or drop dict
-    entries), so the rebinding changes no values, but it makes the collection pickle roughly
-    ``n_repos`` times smaller. That matters wherever the collection is shipped to workers,
+    rebound to the first repo's array instead of keeping their own copies. Nothing writes
+    into a label array (consumers read or drop dict entries), so the rebinding changes no
+    values, but it makes the collection pickle roughly ``n_repos`` times smaller. That matters wherever the collection is shipped to workers,
     e.g. ``parallel_for(engine="ray")`` puts the repo in the object store and every task
     deserializes it.
     """
