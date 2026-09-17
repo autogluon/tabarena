@@ -30,7 +30,7 @@ _INSTALL_HINT = (
 
 
 def _patch_predictor(predictor_cls: type) -> None:
-    """Developer fix (LimiX ``89ee009``): two habits of ``LimiXPredictor`` that do not fit a process
+    """Developer fix (LimiX ``774aa3e``): two habits of ``LimiXPredictor`` that do not fit a process
     with a network shared across fits.
 
     ``__init__`` builds a ``CacheManager`` on a hard-coded cluster path (``/mnt/public/...``) even
@@ -84,7 +84,7 @@ class LimiX2Model(AbstractTorchModel):
     The inference package is not on PyPI and pins ``torch==2.9.1``, so install it without its
     dependency tree next to the torch already present (it needs ``nvtx`` on top)::
 
-        pip install --no-deps "LimiX @ git+https://github.com/limix-ldm-ai/LimiX.git@89ee0093ac35c791974dc3e8041e4a297fa03c6a"
+        pip install --no-deps "LimiX @ git+https://github.com/limix-ldm-ai/LimiX.git@774aa3e1a994cbe38f33758e3d663e9951855554"
         pip install nvtx
 
     Hyperparameters: ``n_estimators`` keeps the first members of the packaged config (``None``, the
@@ -186,35 +186,12 @@ class LimiX2Model(AbstractTorchModel):
         self._X_train = self.preprocess(X)
         self._y_train = y.to_numpy()
 
-    def __getstate__(self) -> dict:
-        """Developer fix (LimiX ``89ee009``): the pickle leaves the predictor's preprocessing pipelines out.
-
-        ``RebalanceFeatureDistribution._set`` builds the ``power`` (and ``logNormal``) members from
-        lambdas, so a predictor that has run one of them, which every predict with the packaged
-        configs does, no longer pickles with the standard library (``Can't get local object
-        'RebalanceFeatureDistribution._set.<locals>.<lambda>'``); AutoGluon pickles a fitted model
-        for its save and for its memory size. The pipelines are derived from the configuration
-        (``build_preprocess_pipeline`` recreates them from ``inference_pipeline_config`` and ``seed``)
-        and re-fitted on the training context at every predict, so nothing is lost: they are dropped
-        here and :meth:`_ensure_pipelines` puts them back before the next predict. Upstream should
-        build those members from module-level functions.
-        """
-        if self.model is not None:
-            self.model.preprocess_pipelines = None
-        return super().__getstate__()
-
-    def _ensure_pipelines(self) -> None:
-        """Rebuild the predictor's pipelines after a pickle (see :meth:`__getstate__`)."""
-        if self.model.preprocess_pipelines is None:
-            self.model.build_preprocess_pipeline()
-
     def _predict_proba(self, X: pd.DataFrame, **kwargs) -> np.ndarray:
         """One in-context pass over the stored training table and the query rows (LimiX has no
         sklearn fit API). The regression decoder can return a tensor; both come back as float32.
         """
         import torch
 
-        self._ensure_pipelines()
         task_type = "Classification" if self.problem_type in [BINARY, MULTICLASS] else "Regression"
         preds = self.model.predict(self._X_train, self._y_train, self.preprocess(X, **kwargs), task_type=task_type)
         if isinstance(preds, torch.Tensor):
