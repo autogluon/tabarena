@@ -45,15 +45,12 @@ dependencies = [
   # `autogluon.timeseries` (torch, transformers, ...). `autogluon.tabular` transitively
   # provides `autogluon.{common,core,features}`, which is everything the code uses.
   # To use `uv`, you need to do `uv pip install --prerelease=allow .` so it recognizes pre-release AutoGluon.
-  # Floor: the model wrappers import `SharedWeights` from `autogluon.core.models.abstract`
-  # (autogluon/autogluon#5921, merged 2026-09-16), which the 1.6.3b20260917 nightly is the first
-  # to ship. An older nightly or 1.6.2 installs but fails at import time.
-  "autogluon.tabular>=1.6.3b20260917,<1.7",
+  "autogluon.tabular>=1.6,<1.7",
   # core's [ray] extra is exactly ray[default] at the range autogluon.core pins, so the
   # two cannot drift apart. (Not autogluon.tabular[ray]: that maps to core[all], which
   # additionally drags in raytune's hyperopt/stevedore/ray[tune].) autogluon.core is
   # already a transitive dependency via autogluon.tabular, so this adds only ray.
-  "autogluon.core[ray]>=1.6.3b20260917,<1.7",
+  "autogluon.core[ray]>=1.6,<1.7",
   "bencheval",
   "openml>=0.14.1",
   "pyyaml",
