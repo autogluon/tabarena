@@ -19,8 +19,10 @@ if TYPE_CHECKING:
 
     from tabarena.models.prefetch import PrefetchReport
 
-#: File suffixes of TabPFN checkpoints (the library uses both spellings).
-TABPFN_CHECKPOINT_SUFFIXES = frozenset({".ckpt", ".cpkt"})
+#: File suffixes of TabPFN checkpoints: the two spellings of the torch pickles up to TabPFN-3 and the
+#: safetensors files from TabPFN-3.5 on. A safetensors file inside the Hugging Face hub cache is an HF
+#: repo file (:func:`hf_repo_dir` is checked first), so only tabpfn's own cache dir reaches this set.
+TABPFN_CHECKPOINT_SUFFIXES = frozenset({".ckpt", ".cpkt", ".safetensors"})
 
 
 def empty_plan() -> dict:

@@ -153,6 +153,9 @@ tabldm = ["Xiaomi-TabLDM @ git+https://github.com/xiaomi-research/xiaomi-tabldm.
 # flash-attn is optional (faster attention, same results) and needs a prebuilt wheel:
 # `pip install flash-attn --no-build-isolation`.
 mitra_v2 = ["autogluon.tabular[mitra]>=1.6,<1.7"]
+# TabPFN-3.5 / TabPFN-3.5-Fast need the release that ships the v3.5 checkpoints; the shared
+# `tabpfn` extra above stays at the floor the earlier TabPFN versions were benchmarked with.
+tabpfn_3_5 = ["tabpfn>=9.0.0"]
 
 # Core benchmark set: the always-on models for benchmarking, plus the plotting and
 # preprocessing capabilities split out of the core install. Self-references avoid
@@ -193,6 +196,7 @@ extended = [
   "tabarena[exaone_tabular]",
   "tabarena[tabldm]",
   "tabarena[mitra_v2]",
+  "tabarena[tabpfn_3_5]",
 ]
 
 # Convenience: everything (core + extended + probmetrics).

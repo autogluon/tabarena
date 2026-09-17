@@ -15,6 +15,7 @@ def test_collect_weight_paths_classifies_hf_repo_dirs_tabpfn_files_and_unresolve
     blob.write_bytes(b"w")
     snapshot_file = hub / "models--a--b" / "snapshots" / "rev" / "model.bin"
     ckpt = tmp_path / "tabpfn" / "clf.ckpt"
+    safetensors = tmp_path / "tabpfn" / "tabpfn-v3.5.safetensors"  # TabPFN-3.5 ships safetensors
     other = tmp_path / "elsewhere" / "net.pt"
 
     shared = lambda: [str(snapshot_file), str(blob)]  # two names share one prefetcher: called once
@@ -22,6 +23,7 @@ def test_collect_weight_paths_classifies_hf_repo_dirs_tabpfn_files_and_unresolve
         "HF": SimpleNamespace(prefetch_weights=shared),
         "HF-alias": SimpleNamespace(prefetch_weights=shared),
         "PFN": SimpleNamespace(prefetch_weights=lambda: {"classifier": ckpt}),
+        "PFN-3.5": SimpleNamespace(prefetch_weights=lambda: safetensors),
         "Other": SimpleNamespace(prefetch_weights=lambda: str(other)),
         "Tree": SimpleNamespace(prefetch_weights=None),
         "Broken": SimpleNamespace(prefetch_weights=list),
@@ -36,12 +38,14 @@ def test_collect_weight_paths_classifies_hf_repo_dirs_tabpfn_files_and_unresolve
     monkeypatch.setattr("tabarena.models.utils.get_model_info_from_name", fake_get)
     report = PrefetchReport((PrefetchResult("Failed", "Failed", "failed", "boom"),))
 
-    plan = collect_weight_paths(["HF", "HF-alias", "PFN", "Other", "Tree", "Broken", "Failed", "Unknown"], report)
+    plan = collect_weight_paths(
+        ["HF", "HF-alias", "PFN", "PFN-3.5", "Other", "Tree", "Broken", "Failed", "Unknown"], report
+    )
 
     assert plan["hf_repo_dirs"] == [str(hub / "models--a--b")]
     assert plan["hf_hub_cache_src"] == str(hub)
     assert plan["hf_home_src"] == str(tmp_path / "hf")
-    assert plan["tabpfn_files"] == [str(ckpt)]
+    assert plan["tabpfn_files"] == [str(ckpt), str(safetensors)]
     assert plan["tabpfn_cache_dir_src"] == str(tmp_path / "tabpfn")
     assert plan["other_paths"] == [str(other)]
     assert plan["unresolved"] == ["Broken", "Failed"]

@@ -34,6 +34,81 @@ run against `main`. To reproduce an entry, check out its recorded **git SHA**.
 
 ---
 
+## 2026-09-17 — tabpfn35_17092026
+
+- **Model(s):** TabPFN-3.5 and TabPFN-3.5-Fast (default config only, `NUM_CONFIGS=0`, all 816 splits each)
+- **Git SHA:** `33d2d4f4` (branch `add-tabpfn-3.5`, PR #577, stacked on PR #584's `benchmark/rerun-new-pipeline-16092026`
+  at `c3182f62`; the same commits are `56c66736..b2cfc16c` after the rebase onto `f185c68a`), editable AutoGluon
+  `../autogluon` master `957883c9`
+- **Validation protocol:** `8x1` (TabArena default, asserted by the context)
+- **Purpose:** First TabArena run of the September 2026 TabPFN release (tabpfn 9.0.0): the flagship TabPFN-3.5 and
+  the smaller TabPFN-3.5-Fast, one multitask checkpoint each (`tabpfn-v3.5-20260909.safetensors`,
+  `tabpfn-v3.5-fast-20260909.safetensors`, HF repo `Prior-Labs/tabpfn_3_5`).
+- **Notes:** SkyPilot job pool `tabarena-tabpfn35-17092026` (`--scheduler skypilot-pool`), 32 spot `g4-standard-48`
+  workers (RTX PRO 6000, 96 GB; `fake_memory_for_estimates=96`), bundle size 1, both models in one `ModelJob`
+  (1632 items), shared API server `http://skypilot-api:46580`, bucket prefix
+  `gs://p2or-sky-cache-eu-dev/lennart_priorlabs_ai/tabarena`, run venv `~/.venvs/tabarena_10082026` (Python 3.12,
+  torch 2.13.0+cu130, tabpfn 9.0.0). Env manifest `env/48d8015a2f74`, launch `tabpfn35_17092026_gpu-20260917-073728-6334`
+  (managed jobs 3323-3354). Pool applied 07:42 UTC, jobs launched 07:49, all 1632 bundles done 08:42 UTC (about
+  52 min, no failed item, no relaunch, no imputation); pool taken down after the eval. Weights: tabpfn 9.0.0's own
+  downloader needs a Prior Labs token (`TABPFN_TOKEN`) in a headless session, so both checkpoints were placed in
+  `~/.cache/tabpfn` from the HF repo beforehand; the prefetchers returned them and `setup` seeded them
+  (`offline_weights=True`). Two fixes landed on the branch during the run: `TABPFN_CHECKPOINT_SUFFIXES` gains
+  `.safetensors` (without it the seeding classified the files as unstaged and would have re-downloaded), and the
+  eval's `name_prefix_raw` now selects the exact method folder (`TA-TabPFN-3.5` is a prefix of
+  `TA-TabPFN-3.5-Fast`, so the first eval collected both methods and refused). Warm-up audit `ok` for all 1632
+  items (mean warm-up 5.8 s / 5.2 s), no cold imports or CUDA initialisation in the timed sections. Result (full
+  task set, 95 entrants): TabPFN-3.5 #1, Elo 1864 (+94/-67), normalized error 0.158, ahead of TabFM+ (1821) and
+  Causilo (1788); TabPFN-3.5-Fast #5, Elo 1778 (+84/-62), between AutoGluon 1.6 (noncommercial, 4h) and TabFM.
+  Median time per 1K rows: train 5.67 s / 5.80 s, inference 0.48 s / 0.16 s. Subsets: TabPFN-3.5 #1 binary
+  (1845), #3 multiclass (1877), #1 regression (2103); TabPFN-3.5-Fast #4 binary (1785), #5 multiclass (1810),
+  #8 regression (1911). TabPFN-3 (rerun row) sits at #11 with Elo 1629. Processed and uploaded as suite
+  `tabarena-2026-09-17` (`tabpfn_3_5_method_metadata`, `tabpfn_3_5_fast_method_metadata` in
+  `models/tabpfn_3_5/info.py`; r2 `cache/artifacts/tabarena-2026-09-17/methods/<Method>/`), registered in the
+  arena collection as verified (maintainer sign-off 2026-09-17).
+
+```python
+from tabarena.benchmark.experiment import TabArenaV0pt1ExperimentBundle
+from tabarena.benchmark.task.metadata import TaskSubset
+from tabflow_slurm import (
+    ModelJob,
+    PathSetup,
+    SkyPilotSetup,
+    TabArenaV0pt1BenchmarkPlan,
+    TabArenaV0pt1ResourcesSetup,
+)
+
+MODELS = ("TabPFN-3.5", "TabPFN-3.5-Fast")
+plan = TabArenaV0pt1BenchmarkPlan(
+    benchmark_name="tabpfn35_17092026",
+    model_jobs=[
+        ModelJob(
+            models=[(model, 0) for model in MODELS],
+            name="gpu",
+            resources={"num_gpus": 1, "fake_memory_for_estimates": 96},
+        ),
+    ],
+    task_subset=TaskSubset(),
+    path_setup=PathSetup(
+        workspace="/home/lennart_priorlabs_ai/workspace/benchmarking/tabarena_workspace",
+        python_path="/home/lennart_priorlabs_ai/.venvs/tabarena_10082026/bin/python",
+    ),
+    experiment_bundle=TabArenaV0pt1ExperimentBundle(model_verbosity=2),
+    resources_setup=TabArenaV0pt1ResourcesSetup(num_cpus=None, memory_limit=None),
+    scheduler_setup=SkyPilotSetup(
+        bundle_size=1,
+        workers=32,
+        secrets=("HF_TOKEN",),
+        use_pool=True,
+        pool_name="tabarena-tabpfn35-17092026",
+        api_server_endpoint="http://skypilot-api:46580",
+    ),
+)
+plan.setup_jobs()
+```
+
+---
+
 ## 2026-09-16 — rerun_tfms_16092026
 
 - **Model(s):** Causilo, Mitra-v2, Xiaomi-TabLDM, TabFM, TabSwift, TabICLv2, EXAONE-Tabular, TabPFN-3 (default

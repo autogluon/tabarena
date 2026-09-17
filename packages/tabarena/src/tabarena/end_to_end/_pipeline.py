@@ -108,6 +108,22 @@ def group_file_paths_by_task(file_paths: list[Path]) -> dict[str, list[Path]]:
     return groups
 
 
+def filter_file_paths_by_method_dir(file_paths: list[Path], name: str) -> list[Path]:
+    """Keep the ``.../<method dir>/{task}/{split}/results.pkl`` paths whose method dir is ``name`` or ``name_<config>``.
+
+    The walk behind ``name_prefix_raw`` matches every top-level folder starting with ``name``, which
+    also catches a sibling method whose name merely extends it (``TA-TabPFN-3.5`` and
+    ``TA-TabPFN-3.5-Fast``); the ``_`` before the config name is what tells them apart. Paths that
+    are not four levels deep are kept, since the layout check cannot say anything about them.
+    """
+    prefix = f"{name}_"
+    kept = [p for p in file_paths if len(p.parts) < 4 or p.parts[-4] == name or p.parts[-4].startswith(prefix)]
+    if file_paths and not kept:
+        found = sorted({p.parts[-4] for p in file_paths if len(p.parts) >= 4})
+        raise ValueError(f"No raw results of method {name!r}: the method folders matching the prefix are {found}.")
+    return kept
+
+
 def filter_file_paths_by_task_metadata(
     all_file_paths_method: dict[str, list[Path]],
     task_metadata: TaskMetadataCollection,
@@ -534,6 +550,8 @@ def process_path_raw(
             # The parallel directory walk runs on ray; keep "native" fully ray-free.
             num_workers=num_cpus if backend == "ray" else None,
         )
+        if name_prefix_raw is not None:
+            file_paths = filter_file_paths_by_method_dir([Path(p) for p in file_paths], name_prefix_raw)
     elif name_prefix_raw is not None:
         raise ValueError(
             "Pass either pre-discovered `file_paths` (already filtered) or `name_prefix_raw` (a walk filter), not both."

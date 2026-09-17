@@ -38,6 +38,8 @@ EXPECTED: dict[str, tuple[str, str]] = {
     "OrionMSP": ("tabarena.models.orionmsp.hpo", "gen_orionmsp"),
     "LimiX": ("tabarena.models.limix.hpo", "gen_limix"),
     "TabPFN-3": ("tabarena.models.tabpfn_3.hpo", "gen_tabpfn_3"),
+    "TabPFN-3.5": ("tabarena.models.tabpfn_3_5.hpo", "gen_tabpfn_3_5"),
+    "TabPFN-3.5-Fast": ("tabarena.models.tabpfn_3_5.hpo", "gen_tabpfn_3_5_fast"),
     "TabPFN-Wide": ("tabarena.models.tabpfnwide.hpo", "gen_tabpfnwide"),
 }
 

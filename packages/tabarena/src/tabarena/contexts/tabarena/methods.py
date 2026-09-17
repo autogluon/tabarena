@@ -106,6 +106,7 @@ from tabarena.models.tabpfn_3.info import (
     tabpfn_3_method_metadata as tabpfnv3_method_metadata,
     tabpfn_3_new_method_metadata,
 )
+from tabarena.models.tabpfn_3_5.info import tabpfn_3_5_fast_method_metadata, tabpfn_3_5_method_metadata
 from tabarena.models.tabpfnv2_5.info import (
     realtabpfnv25_method_metadata as realtabpfn25_metadata,
     tabpfnv26_method_metadata as tabpfn26_metadata,
@@ -224,6 +225,8 @@ tabarena_method_metadata_collection = MethodMetadataCollection(
         causilo_new_method_metadata,
         mitra_v2_new_method_metadata,
         tabldm_new_method_metadata,
+        tabpfn_3_5_method_metadata,
+        tabpfn_3_5_fast_method_metadata,
     ],
 )
 
