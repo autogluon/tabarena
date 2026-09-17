@@ -171,11 +171,17 @@ def validation_structure_from_metadata(
     ``custom_splits`` / ``tuning_data``, so all of them declare the same structure for the same task.
 
     ``None`` for a task with no grouped or temporal structure, *even when it declares ``stratify_on``*.
-    Such a task has no leakage to prevent, and AutoGluon's own bagging already stratifies classification
-    folds by the label, which is what these tasks stratify on. Declaring a structure anyway would take
-    over splitting only to produce equally valid but differently seeded folds; ``resolve_validation_splits``
-    makes the same choice for the TabArena-resolved path. Only ``group_on`` and ``time_on`` therefore
-    decide, and the metadata never sets both.
+    Every such task in TabArena and BeyondArena stratifies on the label of a classification task, which
+    AutoGluon's default bagging already does (``BaggedEnsembleModel.is_stratified``), so declaring the
+    structure would not change *what* is stratified, only *which* folds come out: with the same learner
+    seed and a single repeat the two paths build identical folds, but repeated bagging seeds later repeats
+    differently, and a wrapper that seeds the learner only alongside a declared structure would move these
+    tasks off the seed the default path used. Leaving the default splitter in place keeps the folds
+    identical to the TabArena-resolved path, which likewise returns no ``custom_splits`` for such a task
+    (``resolve_validation_splits``). Only ``group_on`` and ``time_on`` therefore decide, and the metadata
+    never sets both. A future task stratifying on a column other than the label, or a regression task
+    stratifying on a binned target, would lose its stratification here, since the default splitter
+    stratifies neither; no arena task does so today.
 
     ``group_time_on`` is not part of the structure. In TabArena it is the time *within* a group, read
     only by the group-aware feature generator to order rows inside a group for its "last" aggregates;
