@@ -151,6 +151,13 @@ class TabArenaContext(AbstractArenaContext):
         "high_cats": _cat_fraction_predicate(low=False),
         # purely numerical feature space (percentage_cat_features == 0); a subset of low_cats.
         "numerical": _numerical_only_predicate(),
+        # target distribution: classification by the majority / minority class ratio, regression
+        # by the target's skewness (thresholds in `tabarena.benchmark.task.metadata.balance`).
+        # Datasets whose statistics are unknown (`None`) fall in neither half.
+        "imbalanced": SubsetPredicate(lambda df: df["target_imbalanced"].eq(True), ("target_imbalanced",)),
+        "balanced": SubsetPredicate(lambda df: df["target_imbalanced"].eq(False), ("target_imbalanced",)),
+        # the extreme end of `imbalanced` (a class ratio of 50:1 or more; classification only)
+        "extreme": SubsetPredicate(lambda df: df["target_extreme"].eq(True), ("target_extreme",)),
         # split-level filter: keeps split 0 == (fold 0, repeat 0). Evaluated on the task grid's
         # "split" column (see TaskMetadataCollection.task_grid); a results frame's "fold" is the
         # split, so this maps to fold == 0 there.
@@ -168,6 +175,9 @@ class TabArenaContext(AbstractArenaContext):
         "low_features": ["low_features"],
         "high_features": ["high_features"],
         "numerical": ["numerical"],
+        "balanced": ["balanced"],
+        "imbalanced": ["imbalanced"],
+        "extreme": ["extreme"],
     }
 
     def __init__(

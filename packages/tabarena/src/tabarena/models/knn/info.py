@@ -17,6 +17,7 @@ knn_method_metadata = MethodMetadata.config(
     date="2025-10-20",
     date_introduced="1951",
     reference_url="https://scikit-learn.org/stable/modules/neighbors.html",
+    license="BSD-3-Clause",
     display_name="KNN",
     # FIXME: technically kNN is not verified
 )

@@ -25,6 +25,7 @@ tabldm_method_metadata = MethodMetadata.config(
     cache_type="r2",
     cache_kwargs={"bucket": "tabarena", "prefix": "cache"},
     reference_url="https://huggingface.co/occams/Xiaomi-TabLDM",
+    license="Apache-2.0",
 )
 
 # Rerun on the timing and warm-up pipeline (PR #584).
@@ -48,6 +49,7 @@ tabldm_new_method_metadata = MethodMetadata.config(
     cache_type="r2",
     cache_kwargs={"bucket": "tabarena", "prefix": "cache"},
     reference_url="https://huggingface.co/occams/Xiaomi-TabLDM",
+    license="Apache-2.0",
 )
 
 

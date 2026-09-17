@@ -11,6 +11,7 @@ random_forest_descriptor = ModelDescriptor(
     compute="cpu",
     is_bag=True,
     reference_url="https://link.springer.com/article/10.1023/A:1010933404324",
+    license="BSD-3-Clause",
     date_introduced="2001-10",
 )
 

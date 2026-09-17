@@ -29,7 +29,7 @@ class EXAONETabularModel(AbstractTorchModel):
     Authors: LG AI Research
     Codebase: https://github.com/LGAI-Research/EXAONE-Tabular
     License: code under the BSD-3-Clause-LG AI Research License; the released weights under the
-        EXAONE AI Model License 1.1-NC, which permits non-commercial use only.
+        EXAONE AI Model License 1.2 - NC, which permits non-commercial use only.
     """
 
     ag_key = "TA-EXAONE-TABULAR"

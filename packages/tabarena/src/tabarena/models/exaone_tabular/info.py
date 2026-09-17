@@ -17,6 +17,8 @@ exaone_tabular_method_metadata = MethodMetadata.config(
     date="2026-08-06",
     date_introduced="2026-07-31",
     reference_url="https://github.com/LGAI-Research/EXAONE-Tabular",
+    commercial_use=False,
+    license="EXAONE AI Model License 1.2 - NC",
     display_name="EXAONE-Tabular",
     verified=True,
     cache_type="r2",
@@ -40,6 +42,8 @@ exaone_tabular_new_method_metadata = MethodMetadata.config(
     verified=True,
     cache_type="r2",
     cache_kwargs={"bucket": "tabarena", "prefix": "cache"},
+    commercial_use=False,
+    license="EXAONE AI Model License 1.2 - NC",
 )
 
 

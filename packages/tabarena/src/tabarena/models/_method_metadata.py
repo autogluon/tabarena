@@ -239,6 +239,19 @@ class MethodMetadata:
     #: so the serialized YAML is stable; a tuple rather than a list because
     #: :meth:`MethodMetadataCollection.info` puts this straight into a DataFrame cell.
     tags: tuple[str, ...] = ()
+    #: Whether the method's license permits commercial use. Judged on whatever governs *using*
+    #: the method: the library for a classical model, the pretrained weights for a foundation
+    #: model (a permissively licensed wrapper around research-only weights is still
+    #: non-commercial), and every bundled component for a system. ``True`` is the common case
+    #: (Apache-2.0, MIT, BSD); declare ``False`` for research-only or non-commercial licenses
+    #: such as CC BY-NC. Declared by hand, since raw results carry no license information.
+    #: Drives the leaderboard's "Include non-commercial methods" toggle and its marker.
+    commercial_use: bool = True
+    #: Name of the license that :attr:`commercial_use` was judged on: the SPDX identifier where
+    #: one exists (``"Apache-2.0"``, ``"CC-BY-NC-SA-4.0"``), else the license's own name.
+    #: Purely informative; the leaderboard shows it on hover so a reader can see *why* a method
+    #: carries the non-commercial marker.
+    license: str | None = None
     #: Storage backend for this method's artifacts. ``None`` (the default) infers it in
     #: :meth:`__post_init__`: ``"r2"`` when ``cache_kwargs`` carries a remote location
     #: (``bucket`` + ``prefix``), else ``"local"``. ``"s3"``/``"r2"`` require that location;
@@ -317,6 +330,16 @@ class MethodMetadata:
                 f"Unknown tag(s) {unknown_tags}. Valid values: {MethodTag.values()} (method={self.method!r})."
             )
         assert self.compute in ["cpu", "gpu"]
+        # A plain bool, so the YAML and the info table carry `true`/`false` rather than a numpy
+        # scalar or a string.
+        if not isinstance(self.commercial_use, bool):
+            raise AssertionError(
+                f"commercial_use must be a bool, got {self.commercial_use!r} (method={self.method!r})."
+            )
+        if self.license is not None and not (isinstance(self.license, str) and self.license):
+            raise AssertionError(
+                f"license must be a non-empty string or None, got {self.license!r} (method={self.method!r})."
+            )
         # When set, `date` must be a real calendar date in YYYY-MM-DD format.
         if self.date is not None:
             if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", self.date):
@@ -1276,12 +1299,17 @@ class ModelDescriptor:
     is_bag: bool = False
     reference_url: str | None = None
     date_introduced: str | None = None
+    #: See :attr:`MethodMetadata.commercial_use` / :attr:`MethodMetadata.license`. Intrinsic to
+    #: the model (the same weights and code are benchmarked in every run), so declared here once.
+    commercial_use: bool = True
+    license: str | None = None
 
     def method_metadata(self, *, method: str, **kwargs) -> MethodMetadata:
         """Build a :class:`MethodMetadata` for one benchmark run of this model.
 
         The descriptor's intrinsic fields (``display_name``, ``compute``, ``is_bag``,
-        ``reference_url``, ``date_introduced``) are supplied as defaults; pass any of them in ``**kwargs`` to
+        ``reference_url``, ``date_introduced``, ``commercial_use``, ``license``) are supplied as
+        defaults; pass any of them in ``**kwargs`` to
         override for a variant (e.g. a CPU build of a GPU model, which keeps the same paper
         but a different ``display_name`` and ``compute``). All other (run-specific)
         :class:`MethodMetadata` fields come from ``**kwargs``.
@@ -1301,6 +1329,8 @@ class ModelDescriptor:
             is_bag=self.is_bag,
             reference_url=self.reference_url,
             date_introduced=self.date_introduced,
+            commercial_use=self.commercial_use,
+            license=self.license,
         )
         # Caller-provided values win, so a variant can override an intrinsic default.
         return MethodMetadata.config(method=method, **{**fields_from_descriptor, **kwargs})

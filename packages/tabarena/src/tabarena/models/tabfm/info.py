@@ -18,6 +18,8 @@ tabfm_method_metadata = MethodMetadata.config(
     date="2026-07-07",
     date_introduced="2026-06-30",
     reference_url="https://github.com/google-research/tabfm",
+    commercial_use=False,
+    license="TabFM Non-Commercial License v1.0",
     display_name="TabFM",
     verified=True,
     cache_type="r2",
@@ -37,6 +39,8 @@ tabfm_new_method_metadata = MethodMetadata.config(
     date="2026-07-15",
     date_introduced="2026-06-30",
     reference_url="https://github.com/google-research/tabfm",
+    commercial_use=False,
+    license="TabFM Non-Commercial License v1.0",
     display_name="TabFM",
     verified=True,
     cache_type="r2",
@@ -61,6 +65,8 @@ tabfm_2026_09_method_metadata = MethodMetadata.config(
     verified=True,
     cache_type="r2",
     cache_kwargs={"bucket": "tabarena", "prefix": "cache"},
+    commercial_use=False,
+    license="TabFM Non-Commercial License v1.0",
 )
 
 

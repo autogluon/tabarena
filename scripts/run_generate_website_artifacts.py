@@ -84,6 +84,9 @@ _SUBSET_LABELS: dict[str, str] = {
     "datasets_all": "All Datasets",
     "datasets_small": "Small",
     "datasets_medium": "Medium",
+    "datasets_balanced": "Balanced",
+    "datasets_imbalanced": "Imbalanced",
+    "datasets_extreme": "Extreme imbalance",
     "splits_lite": "Lite",
     "imputation_no": "no imputation",
 }

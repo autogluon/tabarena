@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING
 
 import pandas as pd
 
+from tabarena.benchmark.task.metadata.balance import target_distribution_stats
 from tabarena.benchmark.task.metadata.schema import (
     GroupLabelTypes,
     SplitMetadata,
@@ -282,6 +283,11 @@ def compute_task_metadata(
     )
     missing_value_fraction = float(feature_df.isna().to_numpy().sum() / feature_df.size) if feature_df.size else 0.0
 
+    target_minority_fraction, target_imbalance_ratio, target_skewness = target_distribution_stats(
+        dataset[target_name],
+        is_classification=is_classification,
+    )
+
     return TabArenaTaskMetadata(
         dataset_name=dataset_name,
         eval_metric=eval_metric,
@@ -298,6 +304,9 @@ def compute_task_metadata(
         group_time_on=group_time_on,
         group_labels=group_labels,
         tabarena_task_name=tabarena_task_name,
+        target_minority_fraction=target_minority_fraction,
+        target_imbalance_ratio=target_imbalance_ratio,
+        target_skewness=target_skewness,
         task_id_str=task_id_str,
         num_instances=full_num_instance,
         num_features=full_num_features,

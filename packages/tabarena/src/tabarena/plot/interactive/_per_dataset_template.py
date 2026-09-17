@@ -143,6 +143,12 @@ __BASE_CSS__
   td.pd-num, th.pd-num { text-align: right; }
   /* A win is the exception worth spotting; a deficit is the default and stays quiet. */
   td.pd-margin.is-ahead { color: var(--optimal); font-weight: 650; }
+  /* "Statistically tied with the best": the deficit is real on paper but the splits cannot tell
+     the two apart, which is worth more than the sign. One mark, reused wherever a tie is said. */
+  .pd-tiemark { color: var(--accent); font-weight: 700; margin-left: 3px; cursor: help; }
+  td.pd-margin.is-tied { color: var(--ink); }
+  .pd-tiedcell { color: var(--muted); }
+  .pd-tiedcell b { color: var(--ink); font-weight: 650; }
   .pd-pos { color: var(--muted); }
   .pd-name { font-weight: 620; }
   .pd-tag {
@@ -220,6 +226,10 @@ __BASE_CSS__
   .pd-rankrow .who .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .pd-rankrow .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--fam); flex: none; }
   .pd-rankrow .val { font-variant-numeric: tabular-nums; color: var(--muted); }
+  /* The spread over the splits, quieter than the mean it qualifies. */
+  .pd-rankrow .val .pd-std { font-size: 0.86em; opacity: 0.75; margin-left: 2px; }
+  .pd-rankrow.is-tied .nm { font-weight: 700; }
+  .pd-signote { font-size: 11px; color: var(--muted); margin: -2px 2px 6px; line-height: 1.4; }
   .pd-rankrow.is-active .nm { text-decoration: underline; text-decoration-color: var(--fam); text-underline-offset: 3px; }
   .pd-rankbar { grid-column: 1 / -1; height: 3px; border-radius: 2px; background: var(--line); overflow: hidden; }
   .pd-rankbar span { display: block; height: 100%; background: var(--fam); opacity: 0.7; }
@@ -250,6 +260,7 @@ __BASE_CSS__
            placeholder="Filter datasets by name, domain or source" aria-label="Filter datasets">
     <div class="pd-filtergroup" id="taskfilter"></div>
     <div class="pd-filtergroup" id="sizefilter"></div>
+    <div class="pd-filtergroup" id="balancefilter"></div>
     <span class="hint" id="count"></span>
   </div>
 
@@ -311,26 +322,50 @@ __BASE_JS__
   const detailEl = document.getElementById("detail");
 
   // ---------- indexes ----------
+  // Everything the cell published, and the part of it the host lets the page keep (see
+  // `onExcludeMessage`): an excluded method leaves the rankings, the strips, the winner column
+  // and the contender list as if it had not run, and every per-dataset summary is recomputed
+  // over the rest.
+  const ALL_POINTS = POINTS.slice();
+  let SHOWN = ALL_POINTS;
+  let EXCLUDED = new Set();
   const nD = DATASETS.length;
   const byDataset = Array.from({ length: nD }, () => []);
   const cell = new Map();                       // "dataset:method" -> the point
-  for (const p of POINTS) {
-    byDataset[p.d].push(p);
-    cell.set(p.d + ":" + p.m, p);
+  function indexPoints() {
+    for (const rows of byDataset) rows.length = 0;
+    cell.clear();
+    for (const p of SHOWN) {
+      byDataset[p.d].push(p);
+      cell.set(p.d + ":" + p.m, p);
+    }
   }
+  indexPoints();
   const key = (d, m) => cell.get(d + ":" + m);
+  // The method every tie verdict was measured against: the lowest mean error over everything the
+  // cell published. If the host excludes it, the verdicts of the others no longer describe the
+  // field on screen, so the dataset shows none rather than a stale one.
+  const TRUE_BEST = Array.from({ length: nD }, () => null);
+  for (const p of ALL_POINTS) {
+    if (p.e != null && (TRUE_BEST[p.d] === null || p.e < TRUE_BEST[p.d].e)) TRUE_BEST[p.d] = p;
+  }
 
   // Per-dataset trajectories, one polyline per method, ordered by tuning budget.
   const trajByDataset = Array.from({ length: nD }, () => new Map());
-  for (const row of TRAJ) {
-    const [d, m, n, x, e, i] = row;
-    let arr = trajByDataset[d].get(m);
-    if (!arr) { arr = []; trajByDataset[d].set(m, arr); }
-    arr.push({ n: n, x: x, e: e, i: i });
+  function indexTrajectories() {
+    for (const perMethod of trajByDataset) perMethod.clear();
+    for (const row of TRAJ) {
+      const [d, m, n, x, e, i] = row;
+      if (EXCLUDED.has(TRAJ_METHODS[m])) continue;
+      let arr = trajByDataset[d].get(m);
+      if (!arr) { arr = []; trajByDataset[d].set(m, arr); }
+      arr.push({ n: n, x: x, e: e, i: i });
+    }
+    for (const perMethod of trajByDataset) {
+      for (const arr of perMethod.values()) arr.sort((a, b) => (a.n || 0) - (b.n || 0));
+    }
   }
-  for (const perMethod of trajByDataset) {
-    for (const arr of perMethod.values()) arr.sort((a, b) => (a.n || 0) - (b.n || 0));
-  }
+  indexTrajectories();
   // The trajectory frame is keyed on a method's name without its tuning variant, so a
   // contender picked as "CatBoost (tuned)" finds the CatBoost line.
   const trajIndexByName = new Map(TRAJ_METHODS.map((name, i) => [name, i]));
@@ -346,12 +381,16 @@ __BASE_JS__
   // the middle of the field sits. `spread` is the 90th percentile of the gap to the best,
   // which is what the "field" column sorts on: the worst method alone would make that column
   // report how bad someone's outlier was rather than how much the choice matters here.
-  const STATS = DATASETS.map((ds, d) => {
+  function computeStats(ds, d) {
     const rows = byDataset[d];
     const imps = rows.map(p => p.i).filter(v => v != null).sort((a, b) => a - b);
     let best = null;
     for (const p of rows) if (p.e != null && (best === null || p.e < best.e)) best = p;
     const errs = rows.map(p => p.e).filter(v => v != null).sort((a, b) => a - b);
+    // The methods the splits cannot tell apart from the best (see `tiedText`). `tiedGap` is
+    // how far behind the best a tied method can be here, which the strip draws as a band:
+    // the wider it is, the less this dataset separates the field.
+    const tiedRows = rows.filter(p => p.b === 1);
     return {
       bestErr: errs.length ? errs[0] : null,
       runnerUpErr: errs.length > 1 ? errs[1] : null,
@@ -360,8 +399,34 @@ __BASE_JS__
       median: quantile(imps, 0.5),
       best: best,
       n: rows.length,
+      tied: tiedRows.length,
+      tiedKnown: rows.some(p => p.b != null && p !== best) && best === TRUE_BEST[d],
+      tiedGap: tiedRows.length ? Math.max(...tiedRows.map(p => p.i || 0)) : 0,
     };
-  });
+  }
+  const STATS = DATASETS.map(computeStats);
+
+  // ---------- significance ----------
+  const SIG = CONFIG.significance || {};
+  const SIG_ALPHA = SIG.alpha != null ? SIG.alpha : 0.05;
+  const SIG_TEST = SIG.test || "Wilcoxon signed-rank test over the paired splits";
+  // What a point's `b` flag says, spelled out for tooltips. Absent on a dataset with a single
+  // split, where a paired test has nothing to pair.
+  function tiedText(p, st) {
+    if (p.b == null || (st && !st.tiedKnown)) return null;
+    if (st && st.best === p) return "The best method on this dataset";
+    return p.b === 1
+      ? `Statistically tied with the best (not significantly worse; ${SIG_TEST}, \u03b1 = ${SIG_ALPHA})`
+      : `Significantly worse than the best (${SIG_TEST}, \u03b1 = ${SIG_ALPHA})`;
+  }
+  function tieMark(p, st) {
+    if (!p || p.b !== 1 || !st || !st.tiedKnown || st.best === p) return "";
+    return `<span class="pd-tiemark" title="${escapeHtml(tiedText(p, st))}">\u2248</span>`;
+  }
+  function errWithStd(p, ds) {
+    const std = p.s != null ? ` \u00b1 ${fmtErr(p.s)}` : "";
+    return `${fmtErr(p.e)}${std}`;
+  }
 
   // What a model on this dataset actually fits: the largest training split, which is well below
   // the dataset's own size (a 150,000-row dataset trains on 100,000). The list, the size filter
@@ -405,6 +470,7 @@ __BASE_JS__
     query: "",
     task: "all",
     size: "all",
+    balance: "all",
     sort: "rank",
     dir: 1,
     selected: -1,
@@ -483,6 +549,14 @@ __BASE_JS__
     el("line", {
       x1: x0, y1: mid, x2: x1, y2: mid, stroke: "var(--line)", "stroke-width": 1.5, "stroke-linecap": "round",
     }, svg);
+    // The zone of methods statistically tied with the best, from the best outward. A wide band
+    // says the winner here is a coin toss among several methods; a hairline says it is clear.
+    if (st.tiedKnown && st.tiedGap > 0) {
+      el("rect", {
+        x: x0, y: mid - 6.5, width: Math.max(2, at(st.tiedGap) - x0), height: 13, rx: 3,
+        fill: "var(--accent)", opacity: 0.16,
+      }, svg);
+    }
     // The middle of the field, as a reference for reading where the star sits.
     el("line", {
       x1: at(st.median), y1: mid - 5, x2: at(st.median), y2: mid + 5,
@@ -518,11 +592,14 @@ __BASE_JS__
 
   function stripTip(d, p) {
     const ds = DATASETS[d];
+    const verdict = tiedText(p, STATS[d]);
     return `<div class="t-name">${escapeHtml(METHODS[p.m].name)}</div>` +
       `<div>${METHODS[p.m].family}</div>` +
-      `<div>${escapeHtml(metricName(ds))} error: <b>${fmtErr(p.e)}</b></div>` +
+      `<div>${escapeHtml(metricName(ds))} error: <b>${errWithStd(p, ds)}</b>` +
+      (p.s != null ? ` <span class="t-var">(mean \u00b1 std over ${ds.splits} splits)</span>` : "") + "</div>" +
       `<div>Rank: <b>${fmtNum(p.r, 1)}</b> of ${STATS[d].n}</div>` +
       `<div>Behind the best by <b>${fmtNum(p.i, 1)}%</b></div>` +
+      (verdict ? `<div>${escapeHtml(verdict)}</div>` : "") +
       (p.t != null ? `<div>Mean fit: <b>${fmtTime(p.t)}</b></div>` : "");
   }
 
@@ -538,6 +615,10 @@ __BASE_JS__
     { key: "gap", label: "Margin", num: true,
       hint: "The contender's lead over the runner-up (+) or its deficit against the best method (\u2212)" },
     { key: "spread", label: "The field", hint: "How far the field spreads out on this dataset" },
+    { key: "tied", label: "Tied", num: true,
+      hint: "How many methods are statistically tied with the best here (not significantly worse, " +
+        "one-sided Wilcoxon signed-rank test over the splits, \u03b1 = 0.05). " +
+        "The shaded band on the strip spans them; many tied methods means this dataset does not separate the field" },
     { key: "winner", label: "Winner", hint: "The method with the lowest error here" },
   ];
 
@@ -552,6 +633,7 @@ __BASE_JS__
       case "rank": return c ? c.r : null;
       case "gap": return contenderMargin(d);
       case "spread": return STATS[d].spread;
+      case "tied": return STATS[d].tiedKnown ? STATS[d].tied : null;
       case "winner": return STATS[d].best ? METHODS[STATS[d].best.m].name.toLowerCase() : "";
       default: return null;
     }
@@ -570,6 +652,8 @@ __BASE_JS__
       if (!matchesQuery(ds)) continue;
       if (state.task !== "all" && ds.task !== state.task) continue;
       if (state.size !== "all" && SIZE_OF[d] !== state.size) continue;
+      // "extreme" is the far end of "imbalanced", so it filters on its own flag.
+      if (state.balance === "extreme" ? !ds.extreme : (state.balance !== "all" && ds.balance !== state.balance)) continue;
       out.push(d);
     }
     const dir = state.dir;
@@ -730,10 +814,12 @@ __BASE_JS__
         `<td class="pd-num">${fmtInt(ds.features)}</td>` +
         `<td class="pd-num">${c ? fmtNum(c.r, 1) : "—"}` +
         `<span class="pd-pos"> / ${st.n}</span></td>` +
-        `<td class="pd-num pd-margin${margin > 0.05 ? " is-ahead" : ""}">${fmtMargin(margin)}</td>` +
+        `<td class="pd-num pd-margin${margin > 0.05 ? " is-ahead" : ""}${c && c.b === 1 && st.tiedKnown && st.best !== c ? " is-tied" : ""}">` +
+        `${fmtMargin(margin)}${tieMark(c, st)}</td>` +
         `<td class="pd-stripcell"></td>` +
+        `<td class="pd-num pd-tiedcell">${st.tiedKnown ? `<b>${st.tied}</b> / ${st.n}` : "—"}</td>` +
         `<td>${st.best ? methodHtml(st.best.m) : "—"}</td>`;
-      tr.lastElementChild.previousElementSibling.appendChild(buildStrip(d));
+      tr.querySelector(".pd-stripcell").appendChild(buildStrip(d));
       tr.addEventListener("click", () => select(d));
       frag.appendChild(tr);
     });
@@ -783,8 +869,12 @@ __BASE_JS__
       ["Dataset rows", fmtInt(ds.rows)],
       ["Features", fmtInt(ds.features)],
       ds.classes != null && ds.classes > 0 ? ["Classes", fmtInt(ds.classes)] : null,
+      ds.imbalance_ratio != null ? ["Largest : smallest class", `${fmtNum(ds.imbalance_ratio, 1)} : 1` +
+        (ds.extreme ? " (extreme imbalance)" : ds.balance ? ` (${ds.balance})` : "")] : null,
+      ds.target_skew != null ? ["Target skewness", fmtNum(ds.target_skew, 2) + (ds.balance ? ` (${ds.balance})` : "")] : null,
       ["Splits", fmtInt(ds.splits)],
       ["Methods that ran", fmtInt(STATS[d].n)],
+      STATS[d].tiedKnown ? ["Tied with the best", `${STATS[d].tied} of ${STATS[d].n}`] : null,
       // Imputed results are left out of this page, so the size of the field varies by dataset;
       // naming the missing ones is what makes that legible rather than puzzling.
       ds.skipped ? ["Could not run here", fmtInt(ds.skipped)] : null,
@@ -813,6 +903,11 @@ __BASE_JS__
       "</div>" +
       '<div class="pd-rankcol">' +
       `<div class="grouplabel">Every method on ${escapeHtml(ds.name)}</div>` +
+      (STATS[d].tiedKnown
+        ? `<div class="pd-signote">mean \u00b1 std of the error over ${fmtInt(ds.splits)} splits \u00b7 ` +
+          `<span class="pd-tiemark">\u2248</span> statistically tied with the best (${escapeHtml(SIG_TEST)}, \u03b1 = ${SIG_ALPHA})</div>`
+        : `<div class="pd-signote">too few splits for a significance test (fewer than ${SIG.minSplits || 5}); ` +
+          `mean \u00b1 std of the error where there is more than one</div>`) +
       '<ol class="pd-ranklist" id="pd-rank"></ol>' +
       "</div></div>";
 
@@ -843,18 +938,20 @@ __BASE_JS__
     rows.forEach((p, i) => {
       const m = METHODS[p.m];
       const li = document.createElement("li");
-      li.className = "pd-rankrow" + (p.m === state.contender ? " is-contender" : "");
+      li.className = "pd-rankrow" + (p.m === state.contender ? " is-contender" : "") +
+        (p.b === 1 && STATS[d].tiedKnown ? " is-tied" : "");
       li.style.setProperty("--fam", FAM_VAR[m.family]);
-      li.title = `${m.name} — ${fmtErr(p.e)} ${metricName(DATASETS[d])}, ${fmtNum(p.i, 1)}% behind the best` +
-        (p.t != null ? `, ${fmtTime(p.t)} to fit` : "");
+      const verdict = tiedText(p, STATS[d]);
+      li.title = `${m.name} — ${errWithStd(p, DATASETS[d])} ${metricName(DATASETS[d])}, ${fmtNum(p.i, 1)}% behind the best` +
+        (p.t != null ? `, ${fmtTime(p.t)} to fit` : "") + (verdict ? `. ${verdict}` : "");
       const frac = Math.min(1, Math.max(0, 1 - (p.i || 0) / cap));
       li.innerHTML =
         `<span class="pos">${i + 1}</span>` +
         '<span class="who"><span class="dot"></span>' +
         '<span class="nm">' + (p.m === state.contender ? '<span class="star">&#9733;</span> ' : "") +
         `${escapeHtml(m.base)}</span>` +
-        variantBadge(m) + "</span>" +
-        `<span class="val">${fmtErr(p.e)}</span>` +
+        variantBadge(m) + tieMark(p, STATS[d]) + "</span>" +
+        `<span class="val">${fmtErr(p.e)}` + (p.s != null ? `<span class="pd-std">\u00b1${fmtErr(p.s)}</span>` : "") + "</span>" +
         `<span class="pd-rankbar"><span style="width:${(frac * 100).toFixed(1)}%"></span></span>`;
       li.dataset.t = String(trajIndexOf(p.m));
       li.addEventListener("click", () => togglePicked(trajIndexOf(p.m)));
@@ -1167,7 +1264,8 @@ __BASE_JS__
   // ---------- controls ----------
   function buildContenderSelect() {
     const select = document.getElementById("contender");
-    const order = METHODS.map((m, i) => i).sort((a, b) => {
+    select.textContent = "";
+    const order = METHODS.map((m, i) => i).filter(i => !EXCLUDED.has(METHODS[i].base)).sort((a, b) => {
       const fa = FAM_ORDER.indexOf(METHODS[a].family), fb = FAM_ORDER.indexOf(METHODS[b].family);
       return fa - fb || METHODS[a].name.localeCompare(METHODS[b].name);
     });
@@ -1233,6 +1331,16 @@ __BASE_JS__
     { key: "all", label: "All" },
     ...sizesPresent.map(b => ({ key: b.key, label: b.label })),
   ], "size");
+  // How the target is distributed: classification by the majority-to-minority class ratio,
+  // regression by the target's skewness, as the arena's own "balanced" / "imbalanced" subsets
+  // draw the line. Hidden when the metadata predates the statistics.
+  const BALANCE_LABELS = { balanced: "Balanced", imbalanced: "Imbalanced", extreme: "Extreme" };
+  const balancePresent = Object.keys(BALANCE_LABELS).filter(k =>
+    k === "extreme" ? DATASETS.some(ds => ds.extreme) : DATASETS.some(ds => ds.balance === k));
+  buildFilter("balancefilter", "Target", [
+    { key: "all", label: "All" },
+    ...balancePresent.map(k => ({ key: k, label: BALANCE_LABELS[k] })),
+  ], "balance");
 
   let searchTimer = null;
   document.getElementById("search").addEventListener("input", ev => {
@@ -1243,6 +1351,7 @@ __BASE_JS__
 
   // The host page can preselect the filters so the browser opens on the same slice of the
   // benchmark the reader already chose in the leaderboard's task and dataset tabs.
+  let lastHostFilter = null;
   window.addEventListener("message", ev => {
     const data = ev.data;
     if (data && data.type === "tabarena-perdataset-viewport" && typeof data.height === "number") {
@@ -1251,14 +1360,43 @@ __BASE_JS__
       return;
     }
     if (!data || data.type !== "tabarena-perdataset-filter") return;
-    // The host re-sends this every time the frame reports a height, so ignore the ones that
-    // ask for what is already on screen rather than re-rendering the list for nothing.
-    if (data.task === state.task && data.size === state.size) return;
+    // The host re-sends its selection every time the frame reports a height, and a filter
+    // picked in here changes the height. So a repeat of the host's last message is ignored
+    // outright, rather than compared with the state on screen: otherwise the reader's own
+    // chip would be undone by the echo of a selection they had already widened.
+    const key = [data.task, data.size, data.balance].map(v => String(v || "all")).join("|");
+    if (key === lastHostFilter) return;
+    lastHostFilter = key;
     if (typeof data.task === "string") state.task = data.task;
     if (typeof data.size === "string") state.size = data.size;
+    if (typeof data.balance === "string") state.balance = data.balance;
     syncFilter(document.getElementById("taskfilter"), "task");
     syncFilter(document.getElementById("sizefilter"), "size");
+    syncFilter(document.getElementById("balancefilter"), "balance");
     renderList();
+  });
+
+  // The host's exclusion list (see `onExcludeMessage` in the shared script). Points, strips,
+  // per-dataset summaries and the trajectory lines are all rebuilt over what is left; a
+  // contender that was excluded hands over to the best remaining method.
+  onExcludeMessage(excluded => {
+    EXCLUDED = excluded;
+    SHOWN = ALL_POINTS.filter(p => !excluded.has(METHODS[p.m].base));
+    indexPoints();
+    indexTrajectories();
+    DATASETS.forEach((ds, d) => { STATS[d] = computeStats(ds, d); });
+    if (EXCLUDED.has(METHODS[state.contender].base)) {
+      const remaining = METHODS.map((m, i) => i).filter(i => !EXCLUDED.has(METHODS[i].base));
+      const meanRank = i => {
+        const ranks = SHOWN.filter(p => p.m === i && p.r != null).map(p => p.r);
+        return ranks.length ? ranks.reduce((a, b) => a + b, 0) / ranks.length : Infinity;
+      };
+      state.contender = remaining.length ? remaining.sort((a, b) => meanRank(a) - meanRank(b))[0] : 0;
+    }
+    state.picked = new Set();
+    buildContenderSelect();
+    renderList();
+    renderDetail();
   });
 
   // ---------- keyboard ----------

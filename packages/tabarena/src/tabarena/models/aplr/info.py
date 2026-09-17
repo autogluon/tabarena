@@ -10,6 +10,7 @@ _aplr_common = {
     "is_bag": True,
     "date_introduced": "2022",
     "reference_url": "https://github.com/ottenbreit-data-science/aplr",
+    "license": "MIT",
     "verified": True,
 }
 

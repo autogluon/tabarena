@@ -17,6 +17,7 @@ modernnca_method_metadata = MethodMetadata.config(
     date="2025-06-12",
     date_introduced="2024-07",
     reference_url="https://arxiv.org/abs/2407.03257",
+    license="MIT",
     display_name="ModernNCA (CPU)",
 )
 
@@ -34,6 +35,7 @@ modernnca_gpu_method_metadata = MethodMetadata.config(
     date="2025-06-12",
     date_introduced="2024-07",
     reference_url="https://arxiv.org/abs/2407.03257",
+    license="MIT",
     display_name="ModernNCA",
 )
 

@@ -24,6 +24,7 @@ ctboost_method_metadata = MethodMetadata.config(
     cache_type="r2",
     cache_kwargs={"bucket": "tabarena", "prefix": "cache"},
     reference_url="https://github.com/captnmarkus/ctboost",
+    license="Apache-2.0",
 )
 
 
