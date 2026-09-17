@@ -36,7 +36,8 @@ class TabPFN35Model(AbstractTorchModel):
 
     Codebase: https://github.com/PriorLabs/TabPFN (Apache 2.0)
     Weights: https://huggingface.co/Prior-Labs/tabpfn_3_5 (TabPFN-3.5 License v1.0, non-commercial)
-    Technical report: https://priorlabs.ai/technical-reports/tabpfn-3-5
+    Paper: TabPFN-3.5: Technical Report (Jäger, Erickson, Grinsztajn, Birkel, Flöge et al., 2026),
+    https://arxiv.org/abs/2609.17895
     Model page: https://docs.priorlabs.ai/models
     """
 

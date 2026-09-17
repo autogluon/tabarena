@@ -9,7 +9,7 @@ tabpfn_3_5_descriptor = ModelDescriptor(
     display_name="TabPFN-3.5",
     compute="gpu",
     is_bag=False,
-    reference_url="https://priorlabs.ai/technical-reports/tabpfn-3-5",
+    reference_url="https://arxiv.org/abs/2609.17895",
     date_introduced="2026-09-09",  # tabpfn-v3.5-20260909.safetensors upload to Prior-Labs/tabpfn_3_5
 )
 
@@ -17,7 +17,7 @@ tabpfn_3_5_fast_descriptor = ModelDescriptor(
     display_name="TabPFN-3.5-Fast",
     compute="gpu",
     is_bag=False,
-    reference_url="https://priorlabs.ai/technical-reports/tabpfn-3-5",
+    reference_url="https://arxiv.org/abs/2609.17895",
     date_introduced="2026-09-09",  # tabpfn-v3.5-fast-20260909.safetensors upload to Prior-Labs/tabpfn_3_5
 )
 
