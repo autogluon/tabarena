@@ -80,14 +80,6 @@ class LimiX2Model(AbstractTorchModel):
     A worker uses one GPU unless ``allow_multi_gpu=True``. AutoGluon bagged refit and
     sequential fold workers can be granted every system GPU; that only becomes
     pipeline-parallel inference when this flag is on.
-
-    TabArena quickstart (do not commit this edit to the shared example)::
-
-        TabArenaV0pt1ExperimentBundle(models=[("LimiX-2", 0)]).build_experiments()
-
-    Single OpenML task 363612 (airfoil_self_noise, first split only)::
-
-        TaskSubset(task_ids=[363612], split_indices="lite")
     """
 
     ag_key = "TA-LIMIX-2"
@@ -97,7 +89,7 @@ class LimiX2Model(AbstractTorchModel):
     _supported_problem_types = ["binary", "multiclass", "regression"]
     default_resources_physical_cores_only = True
     default_num_gpus = 1
-    minimum_num_gpus = 0
+    minimum_num_gpus = 1
     _default_ag_args_ensemble_extra = {
         "fold_fitting_strategy": "sequential_local",
         "refit_folds": True,
