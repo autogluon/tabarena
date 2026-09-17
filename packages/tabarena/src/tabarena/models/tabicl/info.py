@@ -49,7 +49,7 @@ tabiclv2_method_metadata = tabiclv2_descriptor.method_metadata(
     cache_kwargs={"bucket": "tabarena", "prefix": "cache", "upload_as_public": True},
 )
 
-# Pareto-front rerun with the improved train/infer time measurement.
+# Pareto-front rerun with the improved train/infer time measurement; superseded by the rerun below.
 tabiclv2_new_method_metadata = tabiclv2_descriptor.method_metadata(
     method="TabICLv2",
     date="2026-07-15",
@@ -59,6 +59,21 @@ tabiclv2_new_method_metadata = tabiclv2_descriptor.method_metadata(
     config_default="TabICLv2_c1_default_BAG_L1",
     can_hpo=False,
     suite="tabarena-2026-07-13",
+    cache_type="r2",
+    cache_kwargs={"bucket": "tabarena", "prefix": "cache"},
+)
+
+# Rerun on the timing and warm-up pipeline (PR #584).
+tabiclv2_2026_09_method_metadata = tabiclv2_descriptor.method_metadata(
+    method="TabICLv2",
+    date="2026-09-16",
+    # ag_key matches the rerun's raw data; model_key stays "TABICLV2" for stable registry naming.
+    ag_key="TA-TABICLv2",
+    model_key="TABICLV2",
+    config_default="TabICLv2_c1_default_BAG_L1",
+    can_hpo=False,
+    validation_protocol="8x1",
+    suite="tabarena-2026-09-16",
     cache_type="r2",
     cache_kwargs={"bucket": "tabarena", "prefix": "cache"},
 )
@@ -76,7 +91,7 @@ tabicl_info = ModelInfo(
 tabiclv2_info = ModelInfo(
     model_cls=TabICLv2Model,
     search_space=gen_tabiclv2,
-    method_metadata=tabiclv2_new_method_metadata,
+    method_metadata=tabiclv2_2026_09_method_metadata,
     pip_extra=("tabicl>=2.0.0",),
     prefetch_weights=TabICLv2Model.prefetch_weights,
 )

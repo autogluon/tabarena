@@ -53,6 +53,7 @@ nori_info = ModelInfo(
 
 # Nori-30M — a larger (~29M) version of Nori; a separate leaderboard entry (does not supersede
 # the base above). Auto-discovered by the model registry alongside nori_info.
+# Superseded by the rerun below; kept so the hosted artifacts stay loadable.
 nori30m_method_metadata = MethodMetadata.config(
     method="Nori-30M",
     suite="tabarena-2026-07-13",
@@ -70,10 +71,29 @@ nori30m_method_metadata = MethodMetadata.config(
     cache_kwargs={"bucket": "tabarena", "prefix": "cache"},
 )
 
+# Rerun on the timing and warm-up pipeline (PR #584).
+nori30m_new_method_metadata = MethodMetadata.config(
+    method="Nori-30M",
+    validation_protocol="8x1",
+    suite="tabarena-2026-09-16",
+    ag_key="TA-NORI-30M",
+    config_default="Nori-30M_c1_default_BAG_L1",
+    can_hpo=False,
+    compute="gpu",
+    is_bag=False,
+    date="2026-09-16",
+    date_introduced="2026-07-21",
+    reference_url="https://huggingface.co/Synthefy/Nori-30M",
+    display_name="Nori-30M",
+    verified=True,
+    cache_type="r2",
+    cache_kwargs={"bucket": "tabarena", "prefix": "cache"},
+)
+
 nori30m_info = ModelInfo(
     model_cls=Nori30MModel,
     search_space=gen_nori30m,
-    method_metadata=nori30m_method_metadata,
+    method_metadata=nori30m_new_method_metadata,
     pip_extra=("synthefy-nori>=0.10.0",),  # >=0.10.0 provides the model= variant selector
     prefetch_weights=Nori30MModel.prefetch_weights,
 )

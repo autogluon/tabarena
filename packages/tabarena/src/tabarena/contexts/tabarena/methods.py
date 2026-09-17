@@ -43,7 +43,7 @@ from tabarena.models._method_metadata_collection import MethodMetadataCollection
 # lists / downstream collections.)
 from tabarena.models.aplr.info import aplr_method_metadata
 from tabarena.models.catboost.info import catboost_new_method_metadata
-from tabarena.models.causilo.info import causilo_method_metadata
+from tabarena.models.causilo.info import causilo_method_metadata, causilo_new_method_metadata
 from tabarena.models.chimeraboost.info import (
     chimeraboost_method_metadata,
     chimeraboost_new_method_metadata,
@@ -54,7 +54,10 @@ from tabarena.models.ebm.info import (
     ebm_method_metadata as ebm_metadata,
     ebm_new_method_metadata,
 )
-from tabarena.models.exaone_tabular.info import exaone_tabular_method_metadata
+from tabarena.models.exaone_tabular.info import (
+    exaone_tabular_method_metadata,
+    exaone_tabular_new_method_metadata,
+)
 from tabarena.models.extra_trees.info import extra_trees_new_method_metadata
 from tabarena.models.fastai.info import fastai_method_metadata
 from tabarena.models.iltm.info import iltm_method_metadata
@@ -63,10 +66,15 @@ from tabarena.models.lightgbm.info import lightgbm_method_metadata
 from tabarena.models.limix.info import limix_method_metadata as limix_metadata
 from tabarena.models.lr.info import lr_method_metadata as lr_metadata
 from tabarena.models.mitra.info import mitra_method_metadata as mitra_metadata
-from tabarena.models.mitra_v2.info import mitra_v2_method_metadata
+from tabarena.models.mitra_v2.info import mitra_v2_method_metadata, mitra_v2_new_method_metadata
 from tabarena.models.modernnca.info import modernnca_gpu_method_metadata
 from tabarena.models.nn_torch.info import nn_torch_method_metadata
-from tabarena.models.nori.info import nori30m_method_metadata, nori_method_metadata, nori_new_method_metadata
+from tabarena.models.nori.info import (
+    nori30m_method_metadata,
+    nori30m_new_method_metadata,
+    nori_method_metadata,
+    nori_new_method_metadata,
+)
 from tabarena.models.orionmsp.info import orionmsp_method_metadata as orionmsp_metadata
 from tabarena.models.perpetual_booster.info import (
     perpetual_booster_method_metadata as perpetualbooster_metadata,
@@ -80,15 +88,21 @@ from tabarena.models.tabdpt.info import (
     tabdpt_method_metadata as tabdpt_metadata,
     tabdpt_turbo_method_metadata,
 )
-from tabarena.models.tabfm.info import tabfm_method_metadata, tabfm_new_method_metadata
+from tabarena.models.tabfm.info import (
+    tabfm_2026_09_method_metadata,
+    tabfm_method_metadata,
+    tabfm_new_method_metadata,
+)
 from tabarena.models.tabicl.info import (
     tabicl_method_metadata,
+    tabiclv2_2026_09_method_metadata,
     tabiclv2_method_metadata as tabiclv2_metadata,
     tabiclv2_new_method_metadata,
 )
-from tabarena.models.tabldm.info import tabldm_method_metadata
+from tabarena.models.tabldm.info import tabldm_method_metadata, tabldm_new_method_metadata
 from tabarena.models.tabm.info import tabm_new_method_metadata
 from tabarena.models.tabpfn_3.info import (
+    tabpfn_3_2026_09_method_metadata,
     tabpfn_3_method_metadata as tabpfnv3_method_metadata,
     tabpfn_3_new_method_metadata,
 )
@@ -97,7 +111,11 @@ from tabarena.models.tabpfnv2_5.info import (
     tabpfnv26_method_metadata as tabpfn26_metadata,
 )
 from tabarena.models.tabstar.info import tabstar_method_metadata as tabstar_metadata
-from tabarena.models.tabswift.info import tabswift_method_metadata, tabswift_new_method_metadata
+from tabarena.models.tabswift.info import (
+    tabswift_2026_09_method_metadata,
+    tabswift_method_metadata,
+    tabswift_new_method_metadata,
+)
 from tabarena.models.xgboost.info import xgboost_method_metadata
 from tabarena.models.xrfm.info import xrfm_method_metadata as xrfm_metadata
 
@@ -190,22 +208,22 @@ tabarena_method_metadata_collection = MethodMetadataCollection(
         tabflex_metadata,
         realtabpfn25_metadata,
         contexttab_metadata,
-        tabiclv2_new_method_metadata,
+        tabiclv2_2026_09_method_metadata,
         tabstar_metadata,
         perpetualbooster_metadata,
         tabpfn26_metadata,
         limix_metadata,
         orionmsp_metadata,
-        tabpfn_3_new_method_metadata,
+        tabpfn_3_2026_09_method_metadata,
         iltm_method_metadata,
         nori_new_method_metadata,
-        nori30m_method_metadata,
-        tabfm_new_method_metadata,
-        tabswift_new_method_metadata,
-        exaone_tabular_method_metadata,
-        causilo_method_metadata,
-        mitra_v2_method_metadata,
-        tabldm_method_metadata,
+        nori30m_new_method_metadata,
+        tabfm_2026_09_method_metadata,
+        tabswift_2026_09_method_metadata,
+        exaone_tabular_new_method_metadata,
+        causilo_new_method_metadata,
+        mitra_v2_new_method_metadata,
+        tabldm_new_method_metadata,
     ],
 )
 
@@ -220,6 +238,15 @@ methods_superseded: list[MethodMetadata] = [
     tabswift_method_metadata,
     tabpfnv3_method_metadata,
     tabiclv2_metadata,
+    tabiclv2_new_method_metadata,  # rerun tabarena-2026-09-16 replaced it
+    tabpfn_3_new_method_metadata,  # rerun tabarena-2026-09-16 replaced it
+    nori30m_method_metadata,  # rerun tabarena-2026-09-16 replaced it
+    tabfm_new_method_metadata,  # rerun tabarena-2026-09-16 replaced it
+    tabswift_new_method_metadata,  # rerun tabarena-2026-09-16 replaced it
+    exaone_tabular_method_metadata,  # rerun tabarena-2026-09-16 replaced it
+    causilo_method_metadata,  # rerun tabarena-2026-09-16 replaced it
+    mitra_v2_method_metadata,  # rerun tabarena-2026-09-16 replaced it
+    tabldm_method_metadata,  # rerun tabarena-2026-09-16 replaced it
 ]
 
 # All historical results for each method = the latest collection + every superseded variant: the

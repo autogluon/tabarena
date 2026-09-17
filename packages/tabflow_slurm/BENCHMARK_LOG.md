@@ -69,7 +69,12 @@ run against `main`. To reproduce an entry, check out its recorded **git SHA**.
   regression 1733) while median train time per 1K rows drops 2 to 4 times (Causilo 2.01 to 0.68 s, EXAONE
   5.79 to 2.00 s, TabPFN-3 3.66 to 1.29 s, Xiaomi-TabLDM 4.85 to 1.12 s, TabICLv2 2.05 to 0.75 s, TabSwift
   1.18 to 0.57 s, Mitra-v2 66.4 to 57.1 s, TabFM 38.8 to 16.1 s); TabFM 1777 (hosted 1779) after the 8 h relaunch
-  of its 27 large-table splits. About 300 GPU hours; the run finished 2026-09-17 04:27 UTC.
+  of its 27 large-table splits. About 300 GPU hours; the run finished 2026-09-17 04:27 UTC. Processed and
+  uploaded as suite `tabarena-2026-09-16` (`causilo_new_method_metadata`, `mitra_v2_new_method_metadata`,
+  `tabldm_new_method_metadata`, `tabfm_2026_09_method_metadata`, `tabswift_2026_09_method_metadata`,
+  `tabiclv2_2026_09_method_metadata`, `exaone_tabular_new_method_metadata`, `tabpfn_3_2026_09_method_metadata`,
+  `nori30m_new_method_metadata`), which now hold the nine slots in the arena collection while the replaced
+  entries moved to `methods_superseded`.
 
 ```python
 from tabarena.benchmark.experiment import TabArenaV0pt1ExperimentBundle
