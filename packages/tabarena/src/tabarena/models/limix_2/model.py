@@ -5,11 +5,10 @@ import logging
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 from autogluon.common.utils.resource_utils import ResourceManager
 from autogluon.core.constants import BINARY, MULTICLASS
 from autogluon.tabular.models.abstract.abstract_torch_model import AbstractTorchModel
-
-import pandas as pd
 
 logger = logging.getLogger(__name__)
 
