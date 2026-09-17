@@ -34,6 +34,90 @@ run against `main`. To reproduce an entry, check out its recorded **git SHA**.
 
 ---
 
+## 2026-09-16 — rerun_tfms_16092026
+
+- **Model(s):** Causilo, Mitra-v2, Xiaomi-TabLDM, TabFM, TabSwift, TabICLv2, EXAONE-Tabular, TabPFN-3 (default
+  config only, all 816 splits each) and Nori-30M (default config, the 222 regression splits)
+- **Git SHA:** `f87f22d3` (main) plus the fixes of the rerun PR on branch `benchmark/rerun-new-pipeline-16092026`
+  (listed in the notes); editable AutoGluon `../autogluon` master `957883c9`
+- **Validation protocol:** `8x1` (TabArena default, asserted by the context)
+- **Purpose:** Re-run every hosted foundation model under the timing and warm-up pipeline (PR stack #539 to #546,
+  AutoGluon #5919 to #5921) to refresh the hosted train and inference times; first campaign run on SkyPilot
+  (`--scheduler skypilot-pool`, PR #573).
+- **Notes:** SkyPilot job pool `tabarena-rerun-16092026`, 32 spot `g4-standard-48` workers (RTX PRO 6000, 96 GB;
+  `fake_memory_for_estimates=96`), bundle size 1, shared API server `http://skypilot-api:46580`, bucket prefix
+  `gs://p2or-sky-cache-eu-dev/lennart_priorlabs_ai/tabarena`, run venv `~/.venvs/tabarena_rerun_16092026`
+  (Python 3.12, torch 2.13.0+cu130, tabpfn 8.4.0, synthefy-nori 0.14.0). Env manifest `env/1b7b185f5888`
+  (main and Nori-30M launches), `env/ffbec55b27d0` (fix launches). Launches: `gpu-20260916-164300-11c9` (6528
+  bundles, 32 jobs, 17:29 to 01:30 UTC), `gpu_regression-20260916-165215-4f05` (Nori-30M, 222 bundles, 8 jobs,
+  done 18:21), `gpu_fix-20260916-175055-954e` (Causilo, 816 bundles, done 19:47), `gpu_fix_regression-20260916-175343-576b`
+  (TabICLv2 regression, 222 bundles, done 18:46) and `gpu_tabfm_8h-20260917-014736-77f0` (the 27 TabFM splits
+  of APSFailure, GiveMeSomeCredit and customer_satisfaction_in_airline that hit AutoGluon's fold budget under the
+  one-hour limit; redone with `time_limit=8h` like the hosted run `tabfm_07072026`, a documented protocol
+  deviation for this model). Infrastructure fixes made during the run (the rerun PR): `GcsStorage.upload_dir`
+  follows symlinks (HF snapshots never reached the bucket), `seed_model_weights` re-seeds an empty remote
+  manifest and mirrors the head node's cached weights (`collect_weight_paths`) into the scratch root before the
+  prefetch, HF `trees/` listings are seeded (tabpfn-style `snapshot_download` of a pinned commit needs them
+  offline; every Causilo item failed without them), the TabICLv2 prefetcher fetches the regressor checkpoint and
+  returns paths, the TabPFN-3 prefetcher downloads the v3 checkpoints only and returns paths, the worker builds
+  its venv with `--no-deps` (a re-resolved freeze failed on `mlxtend` vs `matplotlib`), the printed `pool apply`
+  drops `--workers`, and the worker keeps its per-item scratch under a short `/tmp` path (Ray plasma and
+  multiprocessing sockets exceed 107 bytes under the launch directory). Smoke fits of all nine models passed on
+  the head-node CPU. Result: 6750 result files; warm-up audit `ok` for every item, no cold imports or CUDA
+  initialisation in the timed sections. Rerun rows match the hosted Elo within noise (Causilo 1785, Mitra-v2
+  1764, EXAONE-Tabular 1737, TabPFN-3 1625, Xiaomi-TabLDM 1581, TabICLv2 1558, TabSwift 1327, Nori-30M
+  regression 1733) while median train time per 1K rows drops 2 to 4 times (Causilo 2.01 to 0.68 s, EXAONE
+  5.79 to 2.00 s, TabPFN-3 3.66 to 1.29 s, Xiaomi-TabLDM 4.85 to 1.12 s, TabICLv2 2.05 to 0.75 s, TabSwift
+  1.18 to 0.57 s, Mitra-v2 66.4 to 57.1 s, TabFM 38.8 to 16.1 s); TabFM 1777 (hosted 1779) after the 8 h relaunch
+  of its 27 large-table splits. About 300 GPU hours; the run finished 2026-09-17 04:27 UTC.
+
+```python
+from tabarena.benchmark.experiment import TabArenaV0pt1ExperimentBundle
+from tabarena.benchmark.task.metadata import TaskSubset
+from tabflow_slurm import (
+    ModelJob,
+    PathSetup,
+    SkyPilotSetup,
+    TabArenaV0pt1BenchmarkPlan,
+    TabArenaV0pt1ResourcesSetup,
+)
+
+ALL_TASK_MODELS = ("Causilo", "Mitra-v2", "Xiaomi-TabLDM", "TabFM", "TabSwift", "TabICLv2", "EXAONE-Tabular", "TabPFN-3")
+gpu_resources = {"num_gpus": 1, "fake_memory_for_estimates": 96}
+plan = TabArenaV0pt1BenchmarkPlan(
+    benchmark_name="rerun_tfms_16092026",
+    model_jobs=[
+        ModelJob(models=[(model, 0) for model in ALL_TASK_MODELS], name="gpu", resources=gpu_resources),
+        ModelJob(
+            models=[("Nori-30M", 0)],
+            name="gpu_regression",
+            resources=gpu_resources,
+            tasks=TaskSubset(subset="regression"),
+        ),
+    ],
+    task_subset=TaskSubset(),
+    path_setup=PathSetup(
+        workspace="/home/lennart_priorlabs_ai/workspace/benchmarking/tabarena_workspace",
+        python_path="/home/lennart_priorlabs_ai/.venvs/tabarena_rerun_16092026/bin/python",
+    ),
+    experiment_bundle=TabArenaV0pt1ExperimentBundle(model_verbosity=2),
+    resources_setup=TabArenaV0pt1ResourcesSetup(num_cpus=None, memory_limit=None),
+    scheduler_setup=SkyPilotSetup(
+        bundle_size=1,
+        workers=32,
+        secrets=("HF_TOKEN",),
+        use_pool=True,
+        pool_name="tabarena-rerun-16092026",
+        api_server_endpoint="http://skypilot-api:46580",
+    ),
+)
+plan.setup_jobs()
+# Relaunches under the same benchmark name: Causilo (all tasks) and TabICLv2 (regression tasks) after the
+# seeding fixes, and TabFM with resources={"num_gpus": 1, "fake_memory_for_estimates": 96, "time_limit": 8 * 60 * 60}.
+```
+
+---
+
 ## 2026-09-13 — causilo_13092026
 
 - **Model(s):** Causilo (default config only, `NUM_CONFIGS=0`)
