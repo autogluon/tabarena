@@ -385,23 +385,53 @@ def merge_zeroshot(
     )
 
 
-# TODO: Does not yet verify equivalence
+def _same_labels(a: pd.Series | pd.DataFrame, b: pd.Series | pd.DataFrame) -> bool:
+    """Whether two label containers are interchangeable: same type, shape, index, dtypes and
+    values (``pandas.equals`` semantics, so NaNs in the same positions count as equal).
+    Artifacts store labels as single-column DataFrames or as Series depending on their
+    converter, hence the type check.
+    """
+    if a is b:
+        return True
+    return type(a) is type(b) and a.equals(b)
+
+
 def merge_ground_truth(ground_truths: list[GroundTruth]) -> GroundTruth:
+    """Merge the ground truths of several repos into one.
+
+    Tasks present in several repos resolve to the last repo's labels, as before. When the
+    labels are interchangeable (same dtype, index and values, which is the normal case:
+    every method repo of a benchmark stores the same labels), the later repos' entries are
+    rebound to the first repo's Series object instead of keeping their own copies. Nothing
+    reads a label Series in place (consumers get ``.values.flatten()`` copies or drop dict
+    entries), so the rebinding changes no values, but it makes the collection pickle roughly
+    ``n_repos`` times smaller. That matters wherever the collection is shipped to workers,
+    e.g. ``parallel_for(engine="ray")`` puts the repo in the object store and every task
+    deserializes it.
+    """
     assert isinstance(ground_truths, list)
     ground_truths = [gt for gt in ground_truths if gt is not None]
     if len(ground_truths) == 0:
         return None
 
-    label_test_dict = copy.copy(ground_truths[0]._label_test_dict)
-    label_val_dict = copy.copy(ground_truths[0]._label_val_dict)
+    # Fresh inner dicts: the merged view must not grow the first repo's own dicts.
+    label_test_dict = {d: dict(folds) for d, folds in ground_truths[0]._label_test_dict.items()}
+    label_val_dict = {d: dict(folds) for d, folds in ground_truths[0]._label_val_dict.items()}
     for gt in ground_truths[1:]:
-        datasets_gt = gt.datasets
-        for d in datasets_gt:
+        for d in gt.datasets:
             if d not in label_test_dict:
                 label_test_dict[d] = {}
                 label_val_dict[d] = {}
-            label_test_dict[d].update(gt._label_test_dict[d])
-            label_val_dict[d].update(gt._label_val_dict[d])
+            for merged, own in (
+                (label_test_dict[d], gt._label_test_dict[d]),
+                (label_val_dict[d], gt._label_val_dict[d]),
+            ):
+                for fold, series in own.items():
+                    existing = merged.get(fold)
+                    if existing is not None and _same_labels(existing, series):
+                        own[fold] = existing
+                    else:
+                        merged[fold] = series
     return GroundTruth(label_test_dict=label_test_dict, label_val_dict=label_val_dict)
 
 
