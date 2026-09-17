@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 import pandas as pd
+from autogluon.common.utils.validation_structure import ValidationStructure
 from loguru import logger
 
 from tabarena.benchmark.task.metadata import GroupLabelTypes
@@ -148,6 +149,64 @@ def preset_uses_bagging(fit_kwargs: dict | None) -> bool:
 
 
 # --- Validation splits ------------------------------------------------------------------
+
+
+#: ``data_foundry``'s split seed (its ``SPLIT_RANDOM_STATE``, a local constant of its split builders), which TabArena's
+#: resolved splits use. AutoGluon's
+#: learner seeds its structure-aware splits from its own ``random_state`` (default 0), so a fit that lets
+#: AutoGluon build the splits reproduces TabArena's folds only with this seed.
+SPLIT_RANDOM_STATE = 4267
+
+
+def validation_structure_from_metadata(
+    metadata: ValidationMetadata,
+    *,
+    temporal_forward_only: bool = False,
+    size_validation_on_groups: bool | None = None,
+) -> ValidationStructure | None:
+    """The AutoGluon :class:`ValidationStructure` a task's validation metadata declares, or None.
+
+    The one projection for every path that lets AutoGluon resolve a task's validation splits itself
+    (``TabularPredictor.fit(validation_structure=...)``) rather than receiving TabArena's resolved
+    ``custom_splits`` / ``tuning_data``, so all of them declare the same structure for the same task.
+
+    ``None`` for a task with no grouped or temporal structure, *even when it declares ``stratify_on``*.
+    Every such task in TabArena and BeyondArena stratifies on the label of a classification task, which
+    AutoGluon's default bagging already does (``BaggedEnsembleModel.is_stratified``), so declaring the
+    structure would not change *what* is stratified, only *which* folds come out: with the same learner
+    seed and a single repeat the two paths build identical folds, but repeated bagging seeds later repeats
+    differently, and a wrapper that seeds the learner only alongside a declared structure would move these
+    tasks off the seed the default path used. Leaving the default splitter in place keeps the folds
+    identical to the TabArena-resolved path, which likewise returns no ``custom_splits`` for such a task
+    (``resolve_validation_splits``). Only ``group_on`` and ``time_on`` therefore decide, and the metadata
+    never sets both. A future task stratifying on a column other than the label, or a regression task
+    stratifying on a binned target, would lose its stratification here, since the default splitter
+    stratifies neither; no arena task does so today.
+
+    ``group_time_on`` is not part of the structure. In TabArena it is the time *within* a group, read
+    only by the group-aware feature generator to order rows inside a group for its "last" aggregates;
+    it never takes part in splitting. AutoGluon's ``ValidationStructure`` has no such field.
+
+    ``size_validation_on_groups`` decides what AutoGluon's size-dependent choices (fold counts, holdout
+    size, every ``validation_size_curves`` entry) are measured against. ``None`` applies TabArena's rule
+    for config runs: group instances exactly when the labels are per group, rows otherwise. A system whose
+    configuration is written in training rows passes ``False``, or a 4,400-row task with 90 groups would
+    be sized as a 90-row one.
+
+    ``temporal_forward_only`` asks for forward-chaining temporal validation on a ``time_on`` task (fold
+    *i* validates block *i+1* and trains only on earlier blocks); it has no effect otherwise.
+    """
+    if metadata.group_on is None and metadata.time_on is None:
+        return None
+    if size_validation_on_groups is None:
+        size_validation_on_groups = metadata.group_labels == GroupLabelTypes.PER_GROUP
+    return ValidationStructure(
+        group_on=metadata.group_on,
+        time_on=metadata.time_on,
+        stratify_on=metadata.stratify_on,
+        temporal_forward_only=temporal_forward_only,
+        size_validation_on_groups=size_validation_on_groups,
+    )
 
 
 def resolve_validation_splits(

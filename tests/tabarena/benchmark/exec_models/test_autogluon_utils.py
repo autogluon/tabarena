@@ -84,3 +84,66 @@ def test_preset_uses_bagging():
     assert agu.preset_uses_bagging({"hyperparameters": {"GBM": {}}}) is False
     assert agu.preset_uses_bagging({"hyperparameters": {"GBM": {}}, "num_bag_folds": 8}) is True
     assert agu.preset_uses_bagging({"num_bag_folds": 1}) is False
+
+
+# ---- validation_structure_from_metadata -------------------------------------------------------------------------
+
+
+def _metadata(**fields):
+    from tabarena.benchmark.task.metadata import ValidationMetadata
+
+    return ValidationMetadata(target_name="y", **fields)
+
+
+def test_validation_structure_from_metadata_group_per_group_sizes_on_groups():
+    from tabarena.benchmark.task.metadata import GroupLabelTypes
+
+    structure = agu.validation_structure_from_metadata(
+        _metadata(group_on="patient", group_labels=GroupLabelTypes.PER_GROUP, group_time_on="visit")
+    )
+    assert structure is not None
+    assert structure.group_on == "patient"
+    assert structure.time_on is None
+    assert structure.size_validation_on_groups is True
+    assert structure.temporal_forward_only is False
+    # the within-group time column orders rows for the feature generator; it is not a split directive
+    assert not hasattr(structure, "group_time_on")
+
+
+def test_validation_structure_from_metadata_group_per_sample_sizes_on_rows():
+    from tabarena.benchmark.task.metadata import GroupLabelTypes
+
+    structure = agu.validation_structure_from_metadata(
+        _metadata(group_on=["site", "subject"], group_labels=GroupLabelTypes.PER_SAMPLE, stratify_on="y")
+    )
+    assert structure.group_on == ["site", "subject"]
+    assert structure.stratify_on == "y"
+    assert structure.size_validation_on_groups is False
+
+
+def test_validation_structure_from_metadata_explicit_sizing_wins():
+    from tabarena.benchmark.task.metadata import GroupLabelTypes
+
+    structure = agu.validation_structure_from_metadata(
+        _metadata(group_on="patient", group_labels=GroupLabelTypes.PER_GROUP), size_validation_on_groups=False
+    )
+    assert structure.size_validation_on_groups is False
+
+
+def test_validation_structure_from_metadata_temporal_forwards_the_flag():
+    plain = agu.validation_structure_from_metadata(_metadata(time_on="date"))
+    forward = agu.validation_structure_from_metadata(_metadata(time_on="date"), temporal_forward_only=True)
+    assert plain.time_on == "date" and plain.temporal_forward_only is False
+    assert forward.temporal_forward_only is True
+    assert plain.group_on is None and plain.size_validation_on_groups is False
+
+
+def test_validation_structure_from_metadata_stratify_only_is_no_structure():
+    assert agu.validation_structure_from_metadata(_metadata(stratify_on="y")) is None
+    assert agu.validation_structure_from_metadata(_metadata()) is None
+
+
+def test_split_random_state_is_data_foundry_seed():
+    # data_foundry keeps the seed as a local constant inside its split builders (curation_recommendations.py);
+    # this pins the value TabArena's resolved splits were built with.
+    assert agu.SPLIT_RANDOM_STATE == 4267
