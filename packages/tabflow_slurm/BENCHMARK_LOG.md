@@ -102,6 +102,103 @@ plan.setup_jobs()
 
 ---
 
+## 2026-09-17 — limix2_17092026
+
+- **Model(s):** LimiX-2 (default config only, `NUM_CONFIGS=0`, all 816 splits)
+- **Git SHA:** `952dfdf0` (branch `limix_2`, PR #575, stacked on PR #584's `benchmark/rerun-new-pipeline-16092026` at
+  `3040a65d`); editable AutoGluon `../autogluon` at `4db475bf` (master `957883c9` plus the `get_info` fix of
+  autogluon/autogluon#5925, merged upstream 2026-09-17)
+- **Validation protocol:** `8x1` (TabArena default, asserted by the context)
+- **Purpose:** Maintainer re-run of the LimiX-2 submission (Stable AI, 400M-parameter in-context foundation model,
+  PR #575, LimiX inference commit `774aa3e1`, checkpoint `stable-ai/LimiX-2` revision `20c07a07`) on the full TabArena task set.
+- **Notes:** SkyPilot job pool `tabarena-limix2-17092026` (`--scheduler skypilot-pool`), 64 spot `g4-standard-48`
+  workers (RTX PRO 6000, 96 GB; `fake_memory_for_estimates=96`), bundle size 1, shared API server
+  `http://skypilot-api:46580`, bucket prefix `gs://p2or-sky-cache-eu-dev/lennart_priorlabs_ai/tabarena`, run venv
+  `~/.venvs/tabarena_10082026` (Python 3.12, torch 2.13.0+cu130, `LimiX @ git+...@774aa3e1` installed with `--no-deps`
+  plus `nvtx`, since the package pins torch 2.9.1). **Protocol deviation:** two `ModelJob`s with longer time limits than
+  the 1 h default, `time_limit=2h` for 42 datasets (`gpu`, 735 items) and `time_limit=8h` for the nine large or wide
+  datasets the authors named (`gpu_8h`, 81 items: APSFailure, Bioresponse, customer_satisfaction_in_airline,
+  Diabetes130US, GiveMeSomeCredit, hiva_agnostic, kddcup09_appetency, QSAR-TID-11, SDSS17), following the TabFM
+  precedent of `rerun_tfms_16092026`; an in-context model has no early stopping, so the budgets only decide whether an
+  item completes. Three launches were needed. Launch 1 (13:25 UTC, env `54b9527da02c`, tabarena `441b9980`): every
+  finished item failed in `post_evaluate` because the refit child's pickle raised `Can't get local object
+  'RebalanceFeatureDistribution._set.<locals>.<lambda>'` (LimiX built its `power` preprocessing members from lambdas
+  at their first transform, inside predict) and `BaggedEnsembleModel.get_info` summed the resulting `None` memory size
+  (`TypeError`); fixed upstream in AutoGluon (autogluon/autogluon#5925) and in LimiX (`774aa3e1`, static methods with
+  identical bodies, predictions unchanged). Launch 2 (14:50 UTC, env `92fb22b79e87`) ran on a rolled pool whose 30
+  leftover version-1 workers still failed; the 183 items that finished on version-2 workers were kept. Launch 3
+  (15:27 UTC, env `b136cf77d8a7`, pool recreated after `pool down`): `limix2_17092026_gpu-20260917-151555-b699`
+  (552 bundles, managed jobs 4007-4070, done 16:45 UTC) and `limix2_17092026_gpu_8h-20260917-151805-d1cb` (81 bundles,
+  jobs 3943-4006 plus 4217; the last item, an APSFailure split, finished 23:40 UTC; APSFailure takes about 3.25 h per split, so the whole 8h group ran about 8 h on the 64-worker pool). Two APSFailure claims were orphaned when
+  SkyPilot "recovered" their jobs after controller status-check timeouts and the recovered worker did not recognise
+  its own claims (fixed in #587); the claim objects were deleted and one more job launched. Warm-up audit `ok` for
+  every item (mean warm-up 4.1 s), no cold imports or CUDA initialisation in the timed sections. Result (full task
+  set, 96 entrants): LimiX-2 #1, Elo 1943 (+118/-80), normalized score 0.922, improvability 3.4%; #1 in the
+  binary (1912, +142/-88), multiclass (1988, +396/-195) and regression (2200, +341/-175) subsets, ahead of TabPFN-3.5
+  (1861) and TabFM+ (1821) overall; median time per 1K rows: train 30.94 s, inference 9.028 s
+  (TabPFN-3.5: 5.7 s / 0.5 s). Its predecessor LimiX (v1) sits at #35 (Elo 1344).
+
+```python
+from tabarena.benchmark.experiment import TabArenaV0pt1ExperimentBundle
+from tabarena.benchmark.task.metadata import TaskSubset
+from tabflow_slurm import (
+    ModelJob,
+    PathSetup,
+    SkyPilotSetup,
+    TabArenaV0pt1BenchmarkPlan,
+    TabArenaV0pt1ResourcesSetup,
+)
+
+MODEL = "LimiX-2"
+LONG_JOB_DATASETS = (
+    "APSFailure",
+    "Bioresponse",
+    "customer_satisfaction_in_airline",
+    "Diabetes130US",
+    "GiveMeSomeCredit",
+    "hiva_agnostic",
+    "kddcup09_appetency",
+    "QSAR-TID-11",
+    "SDSS17",
+)
+gpu_resources = {"num_gpus": 1, "fake_memory_for_estimates": 96}
+plan = TabArenaV0pt1BenchmarkPlan(
+    benchmark_name="limix2_17092026",
+    model_jobs=[
+        ModelJob(
+            models=[(MODEL, 0)],
+            name="gpu",
+            resources={**gpu_resources, "time_limit": 2 * 60 * 60},
+            tasks=TaskSubset(dataset_names=default_budget_datasets),  # every TabArena dataset not in LONG_JOB_DATASETS
+        ),
+        ModelJob(
+            models=[(MODEL, 0)],
+            name="gpu_8h",
+            resources={**gpu_resources, "time_limit": 8 * 60 * 60},
+            tasks=TaskSubset(dataset_names=list(LONG_JOB_DATASETS)),
+        ),
+    ],
+    task_subset=TaskSubset(),
+    path_setup=PathSetup(
+        workspace="/home/lennart_priorlabs_ai/workspace/benchmarking/tabarena_workspace",
+        python_path="/home/lennart_priorlabs_ai/.venvs/tabarena_10082026/bin/python",
+    ),
+    experiment_bundle=TabArenaV0pt1ExperimentBundle(model_verbosity=2),
+    resources_setup=TabArenaV0pt1ResourcesSetup(num_cpus=None, memory_limit=None),
+    scheduler_setup=SkyPilotSetup(
+        bundle_size=1,
+        workers=64,
+        secrets=("HF_TOKEN",),
+        use_pool=True,
+        pool_name="tabarena-limix2-17092026",
+        api_server_endpoint="http://skypilot-api:46580",
+    ),
+)
+plan.setup_jobs()
+```
+
+---
+
 ## 2026-09-17 — tabpfn35_17092026
 
 - **Model(s):** TabPFN-3.5 and TabPFN-3.5-Fast (default config only, `NUM_CONFIGS=0`, all 816 splits each)
