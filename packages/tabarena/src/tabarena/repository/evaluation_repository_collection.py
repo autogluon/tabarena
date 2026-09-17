@@ -285,7 +285,8 @@ class EvaluationRepositoryCollection(AbstractRepository, EnsembleMixin, GroundTr
         """
         combinations = []
         for repo in repos:
-            df = repo.metrics(set_index=False)
+            # the keys only; `metrics()` would also build each repo's (lazy) rank column
+            df = repo._zeroshot_context.df_configs
             combinations.append(
                 list(zip(df["dataset"].tolist(), df["fold"].tolist(), df["framework"].tolist(), strict=True))
             )
