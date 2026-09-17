@@ -5,8 +5,9 @@ monkeypatched where they would matter, so these exercise the dispatch order (dec
 classmethod, torch layer, ``warmup_modules`` over the MRO, ``WARMUP_STEPS_BY_AG_KEY``, shared
 weights, dummy fit), the per-step failure isolation, the CUDA gating and the report contents. The
 dummy-fit tests use a tiny ``AbstractModel`` that stores the label mean and stay on the CPU. torch is
-optional for them (CI's pytest job installs none): the model draws from torch's generator only when
-torch is importable, and the tests that check the torch RNG and thread restoration skip without it.
+optional for them (an install without the benchmark extra has none): the model draws from torch's
+generator only when torch is importable, and the tests that check the torch RNG and thread
+restoration skip without it. CI installs the CPU build of torch, so all of them run there.
 """
 
 from __future__ import annotations
@@ -88,7 +89,7 @@ class _EBMLike:
 
 
 def _torch_or_none():
-    """The torch module when it is installed, else ``None`` (the pytest CI job runs without torch)."""
+    """The torch module when it is installed, else ``None`` (an install without the benchmark extra)."""
     try:
         import torch
     except ImportError:
