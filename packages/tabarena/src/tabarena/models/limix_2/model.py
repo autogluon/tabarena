@@ -1,333 +1,230 @@
 from __future__ import annotations
 
 import json
-import logging
+from importlib import resources
 from pathlib import Path
+from typing import ClassVar
 
 import numpy as np
 import pandas as pd
-from autogluon.common.utils.resource_utils import ResourceManager
+from autogluon.common.utils.pandas_utils import get_approximate_df_mem_usage
 from autogluon.core.constants import BINARY, MULTICLASS
+from autogluon.core.models.abstract import SharedWeights
 from autogluon.tabular.models.abstract.abstract_torch_model import AbstractTorchModel
 
-logger = logging.getLogger(__name__)
-
-_DEFAULT_HF_REPO = "stable-ai/LimiX-2"
-_DEFAULT_HF_FILENAME = "LimiX-2.ckpt"
-#: Commit pinned so the checkpoint fetched here never silently changes if the
-#: repo's default branch moves. Bump deliberately when picking up a newer file.
-_DEFAULT_HF_REVISION = "20c07a07801973a0aec57c31062bdb2ea1cda2b2"
-
-_LIMIX_INSTALL_HINT = (
-    "LimiX-2 inference code is not installed. Install it with:\n"
-    '  pip install "LimiX @ git+https://github.com/limix-ldm-ai/LimiX.git"'
+_HF_REPO = "stable-ai/LimiX-2"
+_HF_FILENAME = "LimiX-2.ckpt"
+#: Commit pinned so the checkpoint fetched here never silently changes if the repo's default branch
+#: moves. Bump deliberately (with a note on what changed) when picking up a newer checkpoint.
+_HF_REVISION = "20c07a07801973a0aec57c31062bdb2ea1cda2b2"
+#: The release's no-retrieval inference configs, one per task type, packaged in the LimiX
+#: distribution's top-level ``config`` package.
+_DEFAULT_CONFIGS = {
+    "classification": "cls_default_noretrieval_v2.json",
+    "regression": "reg_default_noretrieval_v2.json",
+}
+_INSTALL_HINT = (
+    "LimiX-2 needs the LimiX inference package, installed without its dependency tree "
+    "(it pins torch==2.9.1): see the LimiX2Model docstring."
 )
 
 
-def _redirect_unwritable_inference_cache() -> None:
-    """V2.0 CacheManager mkdir's its default cache root in ``__init__``.
+def _patch_predictor(predictor_cls: type) -> None:
+    """Developer fix (LimiX ``89ee009``): two habits of ``LimiXPredictor`` that do not fit a process
+    with a network shared across fits.
 
-    That default is a cluster path (not always writable). If mkdir fails, point
-    subsequent constructions at ``~/.cache/limix/infe_cache``.
+    ``__init__`` builds a ``CacheManager`` on a hard-coded cluster path (``/mnt/public/...``) even
+    with ``use_data_cache=False``, and its ``os.makedirs`` fails on any other machine: an unwritable
+    cache root is redirected to ``~/.cache/limix/infe_cache``. ``close()`` (also run by ``__del__``)
+    moves the network to the CPU; with the network shared by the bagged children, one collected child
+    would move it away from the estimators still using it, and the next timed predict would pay the
+    copy back: ``close`` only shuts the pipeline-parallel worker pool down. Upstream should build the
+    cache manager lazily and leave a network it did not build alone. Applied once per process.
     """
-    try:
-        from inference.v2_0.predictor import LimiXPredictor as V2Predictor
-    except ImportError:
+    if getattr(predictor_cls, "_tabarena_patched", False):
         return
+    cache_cls = predictor_cls.CacheManager
+    cache_init = cache_cls.__init__
 
-    cache_cls = getattr(V2Predictor, "CacheManager", None)
-    if cache_cls is None or getattr(cache_cls, "_tabarena_writable_cache", False):
-        return
-
-    orig_init = cache_cls.__init__
-
-    def _init(self, cache_dir=None, *args, **kwargs):
-        if cache_dir is None:
-            cache_dir = Path.home() / ".cache" / "limix" / "infe_cache"
-        cache_dir = Path(cache_dir)
+    def init_cache(self, cache_dir="/mnt/public/infe_cache", *args, **kwargs):
         try:
-            cache_dir.mkdir(parents=True, exist_ok=True)
+            cache_init(self, cache_dir, *args, **kwargs)
         except OSError:
-            cache_dir = Path.home() / ".cache" / "limix" / "infe_cache"
-            cache_dir.mkdir(parents=True, exist_ok=True)
-            logger.warning("LimiX-2 inference cache is not writable; using %s", cache_dir)
-        orig_init(self, str(cache_dir), *args, **kwargs)
+            fallback = Path.home() / ".cache" / "limix" / "infe_cache"
+            fallback.mkdir(parents=True, exist_ok=True)
+            cache_init(self, str(fallback), *args, **kwargs)
 
-    cache_cls.__init__ = _init
-    cache_cls._tabarena_writable_cache = True
+    def close(self):
+        pool = getattr(self, "_pipeline_gpu_pool", None)
+        if pool is not None:
+            pool.close()
+            self._pipeline_gpu_pool = None
+
+    cache_cls.__init__ = init_cache
+    predictor_cls.close = close
+    predictor_cls._tabarena_patched = True
 
 
 class LimiX2Model(AbstractTorchModel):
-    """LimiX-2 tabular foundation model (in-context learning, no train loop).
+    """LimiX-2 TabArena integration.
 
-    Paper: LimiX-2: A Large Foundation Model for Structured Data (LDM)
-    Authors: LimiX Team (Stable AI)
-    Codebase: https://github.com/limix-ldm-ai/LimiX
-    Weights: https://huggingface.co/stable-ai/LimiX-2
-    License: StableAI LimiX Non-Commercial License v1.0 (weights);
-        Stable AI Technology Co., Ltd. License, Version 1.0 (code)
+    LimiX-2 is Stable AI's 400M-parameter tabular foundation model, a Contextual Mechanism Network
+    pretrained with context-conditional masked modeling on synthetic data from structural causal
+    models. Prediction is in context: the fit stores the training table, and every predict passes it
+    together with the query rows through an ensemble of preprocessing pipelines (32 members for
+    classification, 8 for regression) into one forward pass each. No parameter is updated, so the
+    fit consumes no validation data and ignores the time limit. Regression predictions come back on
+    the original target scale.
 
-    Install the official inference package, then download ``LimiX-2.ckpt`` from Hugging Face
-    (this wrapper calls ``hf_hub_download`` with a pinned revision)::
+    Paper: LimiX-2: A Large Foundation Model for Structured Data (LimiX Team, Stable AI, 2026),
+    https://arxiv.org/abs/2609.17488
+    Codebase: https://github.com/limix-ldm-ai/LimiX (Stable AI Technology Co., Ltd. License, Version 1.0)
+    Weights: https://huggingface.co/stable-ai/LimiX-2 (StableAI LimiX Non-Commercial License v1.0)
 
-        pip install "LimiX @ git+https://github.com/limix-ldm-ai/LimiX.git"
+    The inference package is not on PyPI and pins ``torch==2.9.1``, so install it without its
+    dependency tree next to the torch already present (it needs ``nvtx`` on top)::
 
-    ``LimiXPredictor.predict`` is in-context: the train table is stored at fit time and
-    passed again at predict time. V2.0 regression already returns the original target
-    scale, so this wrapper does not standardize or invert ``y``.
+        pip install --no-deps "LimiX @ git+https://github.com/limix-ldm-ai/LimiX.git@89ee0093ac35c791974dc3e8041e4a297fa03c6a"
+        pip install nvtx
 
-    A worker uses one GPU unless ``allow_multi_gpu=True``. AutoGluon bagged refit and
-    sequential fold workers can be granted every system GPU; that only becomes
-    pipeline-parallel inference when this flag is on.
+    Hyperparameters: ``n_estimators`` keeps the first members of the packaged config (``None``, the
+    default, keeps all), ``inference_config`` replaces the packaged config with a dict of the same
+    shape, ``model_path`` points at another checkpoint, and every other key is forwarded to
+    ``LimiXPredictor`` (``seed``, ``softmax_temperature``, ``test_batch_size``, ``deterministic``, ...).
     """
 
     ag_key = "TA-LIMIX-2"
     ag_name = "TA-LimiX-2"
     ag_priority = 100
+    warmup_modules: ClassVar[tuple[str, ...]] = (
+        "limix",
+        "inference.v2_0.predictor",
+        "model.v2_0.loading",
+        "huggingface_hub",
+    )
+    gpu_strongly_recommended = True  # in-context inference over the training table is far slower on a CPU
 
     _supported_problem_types = ["binary", "multiclass", "regression"]
+    _default_auxiliary_params_extra = {"max_classes": 10}  # the checkpoint's classification head
+    #: One fold at a time, and a refit on the full data instead of the bag: same quality for an
+    #: in-context model, one network at inference.
+    _default_ag_args_ensemble_extra = {"fold_fitting_strategy": "sequential_local", "refit_folds": True}
     default_resources_physical_cores_only = True
     default_num_gpus = 1
     minimum_num_gpus = 1
-    _default_ag_args_ensemble_extra = {
-        "fold_fitting_strategy": "sequential_local",
-        "refit_folds": True,
-    }
-    # Keep constant features so train/test column shapes stay aligned for ICL predict.
-    _default_auxiliary_params_extra = {
-        "max_rows": 100_000,
-        "max_classes": 10,
-    }
+    #: The predictor builds its network through ``load_model`` (the ``utils.loading`` dispatcher, bound
+    #: in the v2 predictor module), which reads the checkpoint on the CPU; one build per checkpoint
+    #: and device per process. The loader names no device, so ``_fit`` records it on ``self.device``
+    #: before constructing the predictor.
+    shared_weights: ClassVar[SharedWeights] = SharedWeights(
+        loader="inference.v2_0.predictor:load_model",
+        key=("model_path", "mask_prediction", "deterministic"),
+    )
+    #: One ensemble member keeps the warm-up's dummy fit cheap; the member count never touches the network.
+    cheap_hyperparameters: ClassVar[dict] = {"n_estimators": 1}
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.model = None
-        self.X_train_processed_: pd.DataFrame | None = None
-        self.y_train_processed_: np.ndarray | None = None
-        self.device = None
-        self.gpu_ids: list[int] | None = None
-        self.autobatch_flag = False
-        self.softmax_temperature = 0.9
-        self.inference_seed = 0
-        self.inference_config: dict | list | None = None
+        self._X_train: pd.DataFrame | None = None
+        self._y_train: np.ndarray | None = None
 
-    @classmethod
-    def _default_param_dict(cls) -> dict:
-        return {
-            "use_default_params": True,
-            "autobatch": True,
-            "inference_seed": 0,
-            "softmax_temperature": 0.9,
-            "allow_multi_gpu": False,
-        }
-
-    def _set_default_params(self):
-        for param, val in self._default_param_dict().items():
-            self._set_default_param_value(param, val)
-
-    def _allow_multi_gpu(self) -> bool:
-        return bool(self._get_model_params().get("allow_multi_gpu", False))
-
-    def _get_maximum_resources(self) -> dict[str, int | float]:
-        """Keep a worker on one GPU unless ``allow_multi_gpu`` is set."""
-        if self._allow_multi_gpu():
-            return {}
-        return {"num_gpus": 1}
-
-    @staticmethod
-    def _to_official_feature_frame(X: pd.DataFrame) -> pd.DataFrame:
-        """Cast pandas ``category`` / ``string`` columns to ``object``.
-
-        Official demos load CSV, so categoricals arrive as ``object``. TabArena often
-        stores them as ``category`` or pandas ``string``. Official
-        ``encode_categorical_features`` also accepts those dtypes; we still
-        normalize to ``object`` so the frames match the official CSV-demo path
-        before ``LimiXPredictor`` encodes / scales.
+    def _preprocess(self, X: pd.DataFrame, **kwargs) -> pd.DataFrame:
+        """Hand LimiX the frame it encodes itself, with pandas ``category`` and ``string`` columns as
+        ``object`` (the dtype its CSV-fed examples see).
         """
-        X = X.copy()
-        for col in X.columns:
-            dtype = X[col].dtype
-            if isinstance(dtype, pd.CategoricalDtype) or (
-                pd.api.types.is_string_dtype(dtype) and not pd.api.types.is_object_dtype(dtype)
-            ):
-                X[col] = X[col].astype(object)
-        return X
-
-    def _preprocess(self, X: pd.DataFrame, *, is_train: bool = False, **kwargs) -> pd.DataFrame:
         X = super()._preprocess(X, **kwargs)
-        return self._to_official_feature_frame(X)
+        to_object = [
+            col
+            for col, dtype in X.dtypes.items()
+            if isinstance(dtype, pd.CategoricalDtype)
+            or (pd.api.types.is_string_dtype(dtype) and not pd.api.types.is_object_dtype(dtype))
+        ]
+        return X.astype(dict.fromkeys(to_object, object)) if to_object else X
 
-    def _default_inference_config(self) -> dict | list:
-        """Load the official LimiX-2 / V2.0 noretrieval JSON shipped with the ``LimiX`` package."""
+    def _default_inference_config(self) -> dict:
+        """The packaged no-retrieval configuration of this task type."""
+        task = "classification" if self.problem_type in [BINARY, MULTICLASS] else "regression"
         try:
-            import config as config_pkg
-        except ImportError as err:
-            raise ImportError(_LIMIX_INSTALL_HINT) from err
-
-        name = (
-            "cls_default_noretrieval_v2.json"
-            if self.problem_type in [BINARY, MULTICLASS]
-            else "reg_default_noretrieval_v2.json"
-        )
-        path = Path(config_pkg.__file__).with_name(name)
-        if not path.is_file():
-            raise FileNotFoundError(
-                f"Packaged LimiX-2 inference config {name!r} was not found at {path}. {_LIMIX_INSTALL_HINT}",
-            )
-        logger.log(20, "LimiX-2: using inference config %s", path)
-        with path.open("r") as f:
-            return json.load(f)
-
-    @classmethod
-    def prefetch_weights(cls) -> str:
-        """Download ``LimiX-2.ckpt`` from Hugging Face and return the local path.
-
-        Tries the local cache first so offline compute nodes skip the etag
-        HEAD-request that ``hf_hub_download`` performs by default.
-        """
-        try:
-            from huggingface_hub import hf_hub_download
-            from huggingface_hub.errors import LocalEntryNotFoundError
-        except ImportError as err:
-            raise ImportError(
-                "huggingface_hub is required to download LimiX-2 weights. "
-                "Install huggingface_hub and retry LimiX2Model.prefetch_weights().",
-            ) from err
-
-        try:
-            try:
-                return hf_hub_download(
-                    repo_id=_DEFAULT_HF_REPO,
-                    filename=_DEFAULT_HF_FILENAME,
-                    revision=_DEFAULT_HF_REVISION,
-                    local_files_only=True,
-                )
-            except LocalEntryNotFoundError:
-                return hf_hub_download(
-                    repo_id=_DEFAULT_HF_REPO,
-                    filename=_DEFAULT_HF_FILENAME,
-                    revision=_DEFAULT_HF_REVISION,
-                )
-        except Exception as err:
-            raise RuntimeError(
-                "Failed to download LimiX-2.ckpt from Hugging Face (stable-ai/LimiX-2). "
-                "Install huggingface_hub and ensure network access, or set HF_HOME to a "
-                "cache that already contains the file, then call LimiX2Model.prefetch_weights().",
-            ) from err
-
-    @classmethod
-    def warmup(cls, **kwargs) -> None:
-        """Import the installed LimiX inference package (untimed, data-independent)."""
-        from tabarena.models.warmup import warmup_imports
-
-        try:
-            warmup_imports("limix")
-        except ImportError as err:
-            raise ImportError(_LIMIX_INSTALL_HINT) from err
+            text = resources.files("config").joinpath(_DEFAULT_CONFIGS[task]).read_text()
+        except ModuleNotFoundError as err:
+            raise ImportError(_INSTALL_HINT) from err
+        return json.loads(text)
 
     def _fit(
         self,
         X: pd.DataFrame,
         y: pd.Series,
+        num_cpus: int = 1,
         num_gpus: int = 0,
         **kwargs,
     ):
         import torch
 
-        available_num_gpus = ResourceManager.get_gpu_count_torch(cuda_only=True)
-        if num_gpus > 0 and (available_num_gpus == 0 or not torch.cuda.is_available()):
-            logger.warning(
-                "LimiX-2 was asked for %s GPU(s) but CUDA is not available; running on CPU. "
-                "Official inference is much slower on CPU.",
-                num_gpus,
-            )
-            num_gpus = 0
-        elif num_gpus > available_num_gpus:
-            raise AssertionError(
-                f"Fit specified to use {num_gpus} GPU, but only {available_num_gpus} "
-                "CUDA GPUs are available. Please activate CUDA or switch to CPU usage.",
-            )
-        self.device = torch.device("cuda" if num_gpus != 0 else "cpu")
-        # gpu_ids are logical indices inside this process (0..n-1), not physical ids.
-        n_gpus = int(num_gpus) if self.device.type == "cuda" else 0
-        allow_multi_gpu = self._allow_multi_gpu()
-        if n_gpus >= 2 and not allow_multi_gpu:
-            logger.log(20, "LimiX-2: allow_multi_gpu=False, using 1 GPU instead of %s", n_gpus)
-            n_gpus = 1
-        self.gpu_ids = list(range(n_gpus)) if n_gpus >= 2 else None
-        if self.gpu_ids:
-            logger.log(20, f"LimiX-2: pipeline-parallel inference on {n_gpus} GPUs {self.gpu_ids}")
-
-        self.X_train_processed_ = self.preprocess(X, y=y, is_train=True)
-        self.y_train_processed_ = np.asarray(y)
-
-        hps: dict = self._get_model_params().copy()
-        hps.pop("allow_multi_gpu", False)
-        self.autobatch_flag = hps.pop("autobatch", True)
-        self.softmax_temperature = hps.pop("softmax_temperature", 0.9)
-        model_path = hps.pop("model_path", None) or self.prefetch_weights()
-        self.inference_seed = hps.pop("inference_seed", 0)
-        self.inference_config = hps.pop("inference_config", None) or self._default_inference_config()
-
         try:
-            from limix import LimiXPredictor
-            from model.v2_0.autobatch import AutobatchConfig
+            from inference.v2_0.predictor import LimiXPredictor
         except ImportError as err:
-            raise ImportError(_LIMIX_INSTALL_HINT) from err
+            raise ImportError(_INSTALL_HINT) from err
 
-        _redirect_unwritable_inference_cache()
-        AutobatchConfig.ENABLE_AUTOBATCH = self.autobatch_flag
-        predictor_kwargs = {
-            "device": self.device,
-            "model_path": model_path,
-            "inference_config": self.inference_config,
-            "softmax_temperature": self.softmax_temperature,
-            "seed": self.inference_seed,
-        }
-        if self.gpu_ids:
-            predictor_kwargs["gpu_ids"] = self.gpu_ids
-        self.model = LimiXPredictor(**predictor_kwargs)
+        _patch_predictor(LimiXPredictor)
+        self.device = self._resolve_fit_device(num_gpus)  # keys the shared network; the loader names no device
+        hps = self._get_model_params()
+        model_path = hps.pop("model_path", None) or self.prefetch_weights()
+        inference_config = hps.pop("inference_config", None) or self._default_inference_config()
+        n_estimators = hps.pop("n_estimators", None)
+        if n_estimators is not None:
+            inference_config = {**inference_config, "pipelines": inference_config["pipelines"][:n_estimators]}
+        # The ``limix.LimiXPredictor`` factory reads the checkpoint itself and hands the dict to this
+        # constructor; constructed directly, the v2 class reads it through ``load_model``, the call the
+        # shared-weights declaration names.
+        self.model = LimiXPredictor(
+            device=torch.device(self.device),
+            model_path=str(model_path),
+            inference_config=inference_config,
+            preprocess_num_jobs=num_cpus,
+            **hps,
+        )
+        self._X_train = self.preprocess(X)
+        self._y_train = y.to_numpy()
 
     def _predict_proba(self, X: pd.DataFrame, **kwargs) -> np.ndarray:
-        """Forward the stored train table plus the query; LimiX has no sklearn fit API.
-
-        AutoGluon's binary contract is a 1-d positive-class probability, so the
-        (n, 2) output is converted here — bagged fold scoring reads this array
-        directly.
+        """One in-context pass over the stored training table and the query rows (LimiX has no
+        sklearn fit API). The regression decoder can return a tensor; both come back as float32.
         """
         import torch
 
-        X_test = self.preprocess(X, **kwargs)
         task_type = "Classification" if self.problem_type in [BINARY, MULTICLASS] else "Regression"
-        preds = self.model.predict(
-            self.X_train_processed_,
-            self.y_train_processed_,
-            X_test,
-            task_type=task_type,
-        )
-        if isinstance(preds, tuple):
-            preds = preds[0]
+        preds = self.model.predict(self._X_train, self._y_train, self.preprocess(X, **kwargs), task_type=task_type)
         if isinstance(preds, torch.Tensor):
-            preds = preds.detach().to(torch.float32).cpu().numpy()
-        else:
-            preds = np.asarray(preds, dtype=np.float32)
-        return self._convert_proba_to_unified_form(preds)
+            preds = preds.detach().float().cpu().numpy()
+        return self._convert_proba_to_unified_form(np.asarray(preds, dtype=np.float32))
 
     def get_device(self) -> str:
-        if self.device is None:
-            return "cpu"
-        if isinstance(self.device, str):
-            return self.device
-        return self.device.type
+        return self.model.device.type
 
     def _set_device(self, device: str):
-        import torch
-
-        self.device = torch.device(device)
-        if self.model is not None:
-            self.model.device = self.device
-            if getattr(self.model, "model", None) is not None:
-                self.model.model.to(self.device)
+        self.model.device = self.to_torch_device(device)
+        self.model.model.to(self.model.device)
 
     def _more_tags(self) -> dict:
-        return {"can_refit_full": True}
+        return {"can_refit_full": True}  # no validation data is consumed by the fit
+
+    @classmethod
+    def _estimate_memory_usage_static(cls, *, X: pd.DataFrame, **kwargs) -> int:
+        """A 10 GB baseline (the 400M-parameter network, its activations and the per-member
+        preprocessing copies) plus five times the frame.
+        """
+        return int(10 * 1e9 + 5 * get_approximate_df_mem_usage(X).sum())
+
+    @classmethod
+    def prefetch_weights(cls) -> str:
+        """Resolve the pinned ``LimiX-2.ckpt`` to a local path: the Hugging Face cache first (no
+        network round trip on an offline node), a download otherwise.
+        """
+        from huggingface_hub import hf_hub_download
+        from huggingface_hub.errors import LocalEntryNotFoundError
+
+        kwargs = {"repo_id": _HF_REPO, "filename": _HF_FILENAME, "revision": _HF_REVISION}
+        try:
+            return hf_hub_download(**kwargs, local_files_only=True)
+        except LocalEntryNotFoundError:
+            return hf_hub_download(**kwargs)
