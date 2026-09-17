@@ -14,7 +14,7 @@ def _metadata_files(data_dir: Path) -> list[Path]:
 
 def test_memmap_from_metadata_files_matches_walk(tmp_path):
     repo = load_repo_artificial()
-    repo.to_dir(tmp_path)
+    repo.to_dir_task_data(tmp_path)  # per-task layout (metadata.json per task), before consolidation
     data_dir = tmp_path / "model_predictions"
     metadata_files = _metadata_files(data_dir)
     assert len(metadata_files) == len(repo.tasks())

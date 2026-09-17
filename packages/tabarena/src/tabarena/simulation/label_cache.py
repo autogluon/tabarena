@@ -18,6 +18,8 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import numpy as np
+
 from tabarena.simulation.label_files import (
     LABELS_FILENAME,
     LEGACY_LABEL_FILENAMES,
@@ -30,7 +32,6 @@ from tabarena.simulation.label_files import (
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
-    import numpy as np
 
 logger = logging.getLogger(__name__)
 
@@ -91,6 +92,28 @@ class LabelFileCache:
         with self._lock:
             self._entries.setdefault(key, (signature, labels))
         return labels
+
+    def share(
+        self, *, dataset: str, fold: int, labels_val: np.ndarray, labels_test: np.ndarray
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Return the cached arrays for this task when their content matches ``labels_val`` /
+        ``labels_test`` (sizes, dtypes and CRC-32 of the bytes), else cache and return the given ones.
+        Lets artifacts loaded together hold one array per task instead of a copy each.
+        """
+        signature = (
+            "arrays",
+            labels_val.dtype.str,
+            labels_val.size,
+            zlib.crc32(np.ascontiguousarray(labels_val)),
+            labels_test.dtype.str,
+            labels_test.size,
+            zlib.crc32(np.ascontiguousarray(labels_test)),
+        )
+        key = (dataset, fold)
+        cached = self._lookup(key, signature)
+        if cached is not None:
+            return cached
+        return self._store(key, signature, (labels_val, labels_test))
 
     def read_task(self, task_dir: str | Path, *, dataset: str, fold: int) -> tuple[np.ndarray, np.ndarray]:
         """``(labels_val, labels_test)`` of one task directory (see :func:`read_task_labels`)."""

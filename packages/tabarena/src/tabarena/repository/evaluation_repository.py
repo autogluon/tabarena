@@ -389,8 +389,12 @@ def write_processed_context(
     ``datasets`` / ``folds`` default to the ones present in ``dataset_fold_lst_pp``.
     """
     from tabarena.simulation.benchmark_context import BenchmarkContext, construct_context
+    from tabarena.simulation.task_data import consolidate_task_data
 
     path = os.path.abspath(path) + os.path.sep
+    # Per-task writers left one metadata.json + labels file per task; fold them into one
+    # tasks.dat per dataset now that every task of the artifact is written.
+    consolidate_task_data(Path(path) / "model_predictions")
 
     # FIXME: use tasks rather than datasets and folds separately
     if datasets is None:
