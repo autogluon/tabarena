@@ -729,7 +729,8 @@ class ZeroshotSimulatorContext:
                     "dataset": dataset,
                     "fold": fold,
                 }
-        return GroundTruth(label_val_dict=gt_val, label_test_dict=gt_test)
+        # task-data arrays are already in the stored form (see GroundTruth.__init__)
+        return GroundTruth(label_val_dict=gt_val, label_test_dict=gt_test, normalize=False)
 
     def load_pred(
         self,
