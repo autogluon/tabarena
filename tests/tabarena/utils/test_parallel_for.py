@@ -68,3 +68,34 @@ def test_parallel_for_ray_context_deserialized_once_per_worker():
     assert len(ids_per_worker) <= 2
     # every task on a given worker saw the same deserialized context object
     assert all(len(ids) == 1 for ids in ids_per_worker.values()), ids_per_worker
+
+
+class _RecordsShipping:
+    """Pickles to whether it was pickled inside `shipping_context`."""
+
+    def __init__(self):
+        self.shipped = None
+
+    def __getstate__(self):
+        from tabarena.utils.shipping import is_shipping
+
+        return {"shipped": is_shipping()}
+
+
+def test_parallel_for_ray_put_marks_shipping():
+    """The context handed to ray is pickled inside `shipping_context`; a plain pickle is not."""
+    import pickle
+
+    ray = pytest.importorskip("ray")
+    try:
+        ray.init(num_cpus=2, include_dashboard=False, log_to_driver=False, ignore_reinit_error=True)
+    except Exception as e:
+        pytest.skip(f"ray could not start: {e}")
+    try:
+        assert pickle.loads(pickle.dumps(_RecordsShipping())).shipped is False
+        res = parallel_for(
+            lambda x, probe: probe.shipped, [{"x": 0}], context=dict(probe=_RecordsShipping()), engine="ray"
+        )
+        assert res == [True]
+    finally:
+        ray.shutdown()

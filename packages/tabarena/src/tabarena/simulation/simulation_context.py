@@ -1211,3 +1211,48 @@ class ZeroshotSimulatorContext:
             pct=pct,
             score_against_only_baselines=score_against_only_baselines,
         )
+
+
+class PredictOnlyZeroshotSimulatorContext(ZeroshotSimulatorContext):
+    """The part of a context that a repository needs to serve predictions.
+
+    A collection ships its sub-repositories to worker processes only to route prediction
+    reads through them, and that path consults ``df_metrics`` (metric and problem type per
+    dataset) and nothing else. This copy keeps the small per-dataset tables and dictionaries
+    and drops the result frames and the rank scorer, which are the bulk of a context; reading
+    one of them raises instead of returning stale or partial data. Built by
+    :func:`from_context` inside :func:`tabarena.utils.shipping.shipping_context`; never for
+    pickles that have to round-trip.
+    """
+
+    _DROPPED = ("df_configs", "df_baselines", "_df_configs_ranked", "rank_scorer")
+
+    @classmethod
+    def from_context(cls, context: ZeroshotSimulatorContext) -> PredictOnlyZeroshotSimulatorContext:
+        light = cls.__new__(cls)
+        light.__dict__.update({k: v for k, v in context.__dict__.items() if k not in cls._DROPPED})
+        return light
+
+    @staticmethod
+    def _unavailable(name: str):
+        raise RuntimeError(
+            f"'{name}' is not available: this repository was shipped to a worker as a predict-only "
+            f"copy (it serves predictions and dataset info, not result frames). Use the collection "
+            f"it belongs to, or ship the full repository outside `shipping_context`."
+        )
+
+    @property
+    def df_configs(self) -> pd.DataFrame:
+        self._unavailable("df_configs")
+
+    @property
+    def df_baselines(self) -> pd.DataFrame:
+        self._unavailable("df_baselines")
+
+    @property
+    def df_configs_ranked(self) -> pd.DataFrame:
+        self._unavailable("df_configs_ranked")
+
+    @property
+    def rank_scorer(self) -> RankScorer:
+        self._unavailable("rank_scorer")
