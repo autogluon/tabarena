@@ -1,6 +1,20 @@
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
+
+
+def has_duplicate_keys(keys: np.ndarray, n_range: int) -> bool:
+    """Whether the non-negative integer ``keys`` (all below ``n_range``) contain a repeat.
+
+    Counts with ``bincount`` when the key range is not much larger than the number of keys
+    (linear, no sort), else falls back to a hash-based check.
+    """
+    if keys.size == 0:
+        return False
+    if n_range <= 4 * keys.size:
+        return bool((np.bincount(keys, minlength=n_range) > 1).any())
+    return bool(pd.Index(keys).has_duplicates)
 
 
 # FIXME: Doesn't work for multi-fold
