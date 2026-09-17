@@ -111,11 +111,16 @@ class CausiloModel(AbstractTorchModel):
         return {"can_refit_full": True}
 
 
-def prefetch_weights():
+def prefetch_weights() -> str:
+    """Download the pinned Causilo checkpoints into the Hugging Face cache; return the snapshot folder.
+
+    The returned path lets the node staging and the SkyPilot seeding copy the repository directory,
+    including the hub's ``trees`` listing that ``snapshot_download`` of a pinned commit needs offline.
+    """
     from causilo.checkpoints import RELEASE_COMMIT, REPOSITORY
     from huggingface_hub import snapshot_download
 
-    snapshot_download(
+    return snapshot_download(
         REPOSITORY,
         revision=RELEASE_COMMIT,
         allow_patterns=[

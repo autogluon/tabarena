@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import tempfile
+from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar
 
 from autogluon.common.utils.pandas_utils import get_approximate_df_mem_usage
@@ -219,17 +220,28 @@ class TabICLModelBase(AbstractTorchModel):
         raise NotImplementedError("This method must be implemented in the subclass.")
 
     @classmethod
-    def prefetch_weights(cls) -> None:
-        """Pre-download this variant's checkpoint(s) by loading each from its search space.
+    def prefetch_weights(cls) -> list[Path]:
+        """Download this variant's checkpoints and return their paths in the Hugging Face cache.
 
         Self-describing: iterates ``cls.checkpoint_search_space()`` (so the v1 and v2 wrappers each
-        warm their own checkpoints) and triggers the classifier weight download for each.
+        warm their own checkpoints) and loads every checkpoint it names, the classifier and, for a
+        ``(classifier, regressor)`` entry, the regressor too, which downloads a missing file. The
+        paths let the node staging and the SkyPilot seeding copy exactly these files, so an offline
+        worker also finds the regressor checkpoint.
         """
-        from tabicl import TabICLClassifier
+        from tabicl import TabICLClassifier, TabICLRegressor
 
+        paths: list[Path] = []
         for entry in cls.checkpoint_search_space():
-            clf_checkpoint = entry[0] if isinstance(entry, tuple) else entry
-            TabICLClassifier(checkpoint_version=clf_checkpoint)._load_model()
+            clf_checkpoint, reg_checkpoint = entry if isinstance(entry, tuple) else (entry, None)
+            classifier = TabICLClassifier(checkpoint_version=clf_checkpoint)
+            classifier._load_model()
+            paths.append(Path(classifier.model_path_))
+            if reg_checkpoint is not None:
+                regressor = TabICLRegressor(checkpoint_version=reg_checkpoint)
+                regressor._load_model()
+                paths.append(Path(regressor.model_path_))
+        return paths
 
     def get_device(self) -> str:
         return self.model.device_.type
