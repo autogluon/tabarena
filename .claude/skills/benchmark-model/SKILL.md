@@ -255,6 +255,7 @@ and classify:
 | CUDA out of memory | folds co-scheduled on the card, or one huge table | confirm `fake_memory_for_estimates`; for a single wide table consider `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` in the wrapper's warm-up, a smaller support size, or `fold_fitting_strategy="sequential_local"` |
 | Python traceback in the wrapper | a bug the smoke fit did not reach | fix it in the wrapper, then relaunch |
 | `jq: command not found`, import errors | environment, not the model | fix the venv, then relaunch |
+| `PENDING` with reason `launch failed requeued held` | the spot node failed to boot; SLURM requeued the task but holds it until someone releases it | `scontrol release <job>_<task>`; a loop over `squeue -r -o "%i %r"` every few minutes when the partition keeps losing nodes |
 | `LocalEntryNotFoundError`, `PretrainedWeightsUnavailableError`, `WeightsUnavailableError` | the job ran with `offline_weights` and a checkpoint was not in the shared cache | re-run `setup` (its head-node prefetch fills the cache) or set `offline_weights=False` on the plan for that run |
 | `##### item FAILED` lines with `##### bundle summary: ok=N failed=M` | one item of the bundle failed; the array task continues with its siblings and exits non-zero at the end | count the `results.pkl` files, not the task state: a `FAILED` task may have completed most of its items, and only the failed ones are missing |
 
@@ -273,6 +274,17 @@ re-approves only the items still missing, and you launch the new, smaller `sbatc
 monitor it the same way. Stop the loop and ask the maintainer when a failure needs a design decision
 (for example a dataset that cannot fit the card) or when more than a handful of items fail for
 the same reason; the Mitra-v2 `hiva_agnostic` case is the reference for such a decision.
+
+Keep one array per benchmark run. When the plan changes while an array runs (a dataset group moves
+to another scheduler, the bundle size or time limit changes, a fix needs a relaunch), cancel the
+running array first and run `setup` once more so a single new array holds everything still
+missing. Do not submit a second array next to a running one: the two overlap unless the datasets
+were split by hand, three arrays need three sets of monitors and requeue loops, and a second
+`setup` under the same `ModelJob` name overwrites the `slurm_run_data_<benchmark>_<name>.json`
+that the running tasks read when they start, so they would run the wrong items. Cancelling is
+cheap: every finished item already has its `results.pkl`, so only the item each task is on is lost,
+and the cache check folds the rest into the new array. The same rule holds for SkyPilot launches:
+let a launch drain or cancel it before the next `setup`.
 
 The run is complete when every array is `DONE` and the `results.pkl` count equals the expected
 total. State both numbers.
@@ -326,6 +338,9 @@ Next in the lifecycle is the `upload-method` skill, pointed at `<WORKSPACE>/outp
   `TabArenaEvalConfig`). BeyondArena is a different eval shape (`BeyondArenaContext`,
   `BeyondArenaEvalConfig`, `BenchmarkRun` comparisons); adapt
   `packages/tabflow_slurm/experiments/run_beyondarena.py` for that instead.
+- SLURM tasks import the checkout live over the shared filesystem (SkyPilot workers use the archive
+  staged at `setup`). Do not pull, rebase or edit package code in that checkout while an array runs;
+  a task that starts during the change fails on a half-updated registry. Test-only edits are safe.
 - `benchmark_name` is a cache key: reuse it unchanged across relaunches and `eval`; change it only
   for a genuinely new run. The setup refuses a `benchmark_name` whose cached results were fit under
   another validation protocol than the context enforces; that is a new run, not a relaunch.
