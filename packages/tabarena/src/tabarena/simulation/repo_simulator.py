@@ -251,7 +251,7 @@ class RepoSimulator:
         n_iterations: int = 40,
         fit_order: Literal["original", "random"] = "original",
         seed: int = 0,
-        backend_group_folds: bool = True,
+        backend_group_folds: bool = False,
         **kwargs,
     ) -> pd.DataFrame:
         if configs is None:
