@@ -5,10 +5,11 @@ import logging
 from pathlib import Path
 
 import numpy as np
-import pandas as pd
 from autogluon.common.utils.resource_utils import ResourceManager
 from autogluon.core.constants import BINARY, MULTICLASS
 from autogluon.tabular.models.abstract.abstract_torch_model import AbstractTorchModel
+
+import pandas as pd
 
 logger = logging.getLogger(__name__)
 
@@ -79,6 +80,14 @@ class LimiX2Model(AbstractTorchModel):
     A worker uses one GPU unless ``allow_multi_gpu=True``. AutoGluon bagged refit and
     sequential fold workers can be granted every system GPU; that only becomes
     pipeline-parallel inference when this flag is on.
+
+    TabArena quickstart (do not commit this edit to the shared example)::
+
+        TabArenaV0pt1ExperimentBundle(models=[("LimiX-2", 0)]).build_experiments()
+
+    Single OpenML task 363612 (airfoil_self_noise, first split only)::
+
+        TaskSubset(task_ids=[363612], split_indices="lite")
     """
 
     ag_key = "TA-LIMIX-2"
@@ -88,22 +97,16 @@ class LimiX2Model(AbstractTorchModel):
     _supported_problem_types = ["binary", "multiclass", "regression"]
     default_resources_physical_cores_only = True
     default_num_gpus = 1
-    minimum_num_gpus = 1
+    minimum_num_gpus = 0
     _default_ag_args_ensemble_extra = {
         "fold_fitting_strategy": "sequential_local",
         "refit_folds": True,
     }
     # Keep constant features so train/test column shapes stay aligned for ICL predict.
     _default_auxiliary_params_extra = {
-        "drop_unique": False,
+        "max_rows": 100_000,
         "max_classes": 10,
     }
-
-    #: Official Hugging Face checkpoint filename (``stable-ai/LimiX-2``).
-    _checkpoint_filename = "LimiX-2.ckpt"
-
-    #: V2.0 already batches internally; this is only a VRAM safety net for huge queries.
-    batch_test_n_rows: int = 100_000
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -116,7 +119,6 @@ class LimiX2Model(AbstractTorchModel):
         self.softmax_temperature = 0.9
         self.inference_seed = 0
         self.inference_config: dict | list | None = None
-        self._explicit_model_path: str | None = None
 
     @classmethod
     def _default_param_dict(cls) -> dict:
@@ -275,26 +277,7 @@ class LimiX2Model(AbstractTorchModel):
         model_path = hps.pop("model_path", None) or self.prefetch_weights()
         self.inference_seed = hps.pop("inference_seed", 0)
         self.inference_config = hps.pop("inference_config", None) or self._default_inference_config()
-        self._explicit_model_path = str(model_path)
-        self._build_predictor()
 
-    def _as_torch_device(self):
-        """AutoGluon stores ``device`` as a string after ``_post_fit`` / ``set_device``."""
-        import torch
-
-        device = self.device
-        if device is None:
-            return torch.device("cpu")
-        if isinstance(device, torch.device):
-            return device
-        return torch.device(device)
-
-    def is_fit(self) -> bool:
-        """True after ``_fit`` even when the official predictor was omitted from the pickle."""
-        return self.model is not None or self._explicit_model_path is not None
-
-    def _build_predictor(self) -> None:
-        """Construct the official ``LimiXPredictor`` from the stored checkpoint path."""
         try:
             from limix import LimiXPredictor
             from model.v2_0.autobatch import AutobatchConfig
@@ -304,8 +287,8 @@ class LimiX2Model(AbstractTorchModel):
         _redirect_unwritable_inference_cache()
         AutobatchConfig.ENABLE_AUTOBATCH = self.autobatch_flag
         predictor_kwargs = {
-            "device": self._as_torch_device(),
-            "model_path": str(self._explicit_model_path),
+            "device": self.device,
+            "model_path": model_path,
             "inference_config": self.inference_config,
             "softmax_temperature": self.softmax_temperature,
             "seed": self.inference_seed,
@@ -313,28 +296,6 @@ class LimiX2Model(AbstractTorchModel):
         if self.gpu_ids:
             predictor_kwargs["gpu_ids"] = self.gpu_ids
         self.model = LimiXPredictor(**predictor_kwargs)
-
-    def _ensure_predictor(self) -> None:
-        if self.model is not None:
-            return
-        if not self._explicit_model_path:
-            raise RuntimeError("LimiX-2 predictor is missing and no checkpoint path was stored at fit time.")
-        self._build_predictor()
-
-    def __getstate__(self):
-        """Drop the official predictor: its sklearn pipeline stores unpicklable lambdas."""
-        state = self.__dict__.copy()
-        state["model"] = None
-        return state
-
-    def save(self, path: str | None = None, verbose: bool = True) -> str:
-        """Omit ``LimiXPredictor`` from the pickle; it is rebuilt on the next predict."""
-        predictor = self.model
-        self.model = None
-        try:
-            return super().save(path=path, verbose=verbose)
-        finally:
-            self.model = predictor
 
     def _predict_proba(self, X: pd.DataFrame, **kwargs) -> np.ndarray:
         """Forward the stored train table plus the query; LimiX has no sklearn fit API.
@@ -345,32 +306,20 @@ class LimiX2Model(AbstractTorchModel):
         """
         import torch
 
-        self._ensure_predictor()
         X_test = self.preprocess(X, **kwargs)
         task_type = "Classification" if self.problem_type in [BINARY, MULTICLASS] else "Regression"
-
-        chunk_size = self.batch_test_n_rows
-        n_test = X_test.shape[0]
-        chunks = []
-        for start in range(0, n_test, chunk_size):
-            if isinstance(X_test, pd.DataFrame):
-                x_chunk = X_test.iloc[start : start + chunk_size]
-            else:
-                x_chunk = X_test[start : start + chunk_size]
-            chunk_out = self.model.predict(
-                self.X_train_processed_,
-                self.y_train_processed_,
-                x_chunk,
-                task_type=task_type,
-            )
-            if isinstance(chunk_out, tuple):
-                chunk_out = chunk_out[0]
-            if isinstance(chunk_out, torch.Tensor):
-                chunk_out = chunk_out.detach().to(torch.float32).cpu().numpy()
-            else:
-                chunk_out = np.asarray(chunk_out, dtype=np.float32)
-            chunks.append(chunk_out)
-        preds = np.concatenate(chunks, axis=0) if len(chunks) > 1 else chunks[0]
+        preds = self.model.predict(
+            self.X_train_processed_,
+            self.y_train_processed_,
+            X_test,
+            task_type=task_type,
+        )
+        if isinstance(preds, tuple):
+            preds = preds[0]
+        if isinstance(preds, torch.Tensor):
+            preds = preds.detach().to(torch.float32).cpu().numpy()
+        else:
+            preds = np.asarray(preds, dtype=np.float32)
         return self._convert_proba_to_unified_form(preds)
 
     def get_device(self) -> str:
