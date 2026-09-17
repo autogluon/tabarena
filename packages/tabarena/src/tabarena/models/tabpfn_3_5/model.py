@@ -146,10 +146,12 @@ class TabPFN35Model(AbstractTorchModel):
 
         hps = dict(self._get_model_params())
         checkpoint_per_problem_type = hps.pop(self.checkpoint_param_name, None)
+        # ``n_preprocessing_jobs`` stays at tabpfn's default of 1: a worker pool costs a fixed 15 to 20 s
+        # per fit to start, which dwarfs the preprocessing it parallelizes and was charged to the
+        # timed fit of every split in suite tabarena-2026-09-17.
         default_hps = {
             "model_path": self._resolve_model_path(checkpoint_per_problem_type),
             "device": device,
-            "n_preprocessing_jobs": num_cpus,
             "categorical_features_indices": self._categorical_indices,
             self.seed_name: self.fixed_random_state,
         }
