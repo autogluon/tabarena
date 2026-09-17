@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import pickle
+import subprocess
 from pathlib import Path
 
 import pandas as pd
@@ -18,7 +20,9 @@ from tabflow_slurm.setup.sky_cache import (
     collect_weight_entries,
     dataset_id_from_task_xml,
     is_portable_user_task,
+    mirror_local_weights,
     openml_task_entries,
+    prefetch_weights_into,
     seed_dataset_cache,
     seed_model_weights,
     upgrade_legacy_user_task,
@@ -264,6 +268,8 @@ def _fake_prefetch(models, *, python, cache_root):
     (repo / "snapshots" / "rev1" / "model.ckpt").symlink_to(repo / "blobs" / "abc")
     (repo / "refs").mkdir()
     (repo / "refs" / "main").write_text("rev1")
+    (repo / "trees").mkdir()
+    (repo / "trees" / "rev1.json").write_text("{}")
     (repo / ".locks").mkdir()
     (repo / ".locks" / "x.lock").write_text("")
     (Path(cache_root) / "xdg" / "tabpfn").mkdir(parents=True)
@@ -285,6 +291,7 @@ class TestWeights:
         assert rels == [
             ("huggingface/hub/models--Prior-Labs--tabpfn_3/snapshots", True),
             ("huggingface/hub/models--Prior-Labs--tabpfn_3/refs", True),
+            ("huggingface/hub/models--Prior-Labs--tabpfn_3/trees", True),
             ("xdg/tabpfn/tabpfn-v3.ckpt", False),
         ]
 
@@ -310,6 +317,7 @@ class TestWeights:
                 "TabPFN-3": [
                     "huggingface/hub/models--Prior-Labs--tabpfn_3/snapshots",
                     "huggingface/hub/models--Prior-Labs--tabpfn_3/refs",
+                    "huggingface/hub/models--Prior-Labs--tabpfn_3/trees",
                     "xdg/tabpfn/tabpfn-v3.ckpt",
                 ],
                 "Linear": [],
@@ -324,7 +332,7 @@ class TestWeights:
             == "weights"
         )
         assert local_storage.exists("gs://b/tabarena/cache/weights/TabPFN-3.json")
-        assert report.uploaded_files == 3 and not list((tmp_path / "scratch").glob("*"))
+        assert report.uploaded_files == 4 and not list((tmp_path / "scratch").glob("*"))
         # A second setup takes the remote manifest and never prefetches again.
         manifest_again, report_again = seed_model_weights(["TabPFN-3"], **kwargs)
         assert calls == [["TabPFN-3"]]
@@ -345,3 +353,78 @@ class TestWeights:
         assert manifest == {"weights": {}, "offline_weights": False}
         assert report.unverified == ["weights of TabPFN-3"]
         assert isinstance(report, CacheSeedReport)
+
+
+class TestLocalFirstSeeding:
+    def test_seed_model_weights_reseeds_a_model_whose_remote_manifest_is_empty(self, tmp_path, local_storage):
+        calls: list = []
+
+        def prefetch(models, *, python, cache_root):
+            calls.append(list(models))
+            _fake_prefetch(models, python=python, cache_root=cache_root)
+
+        # A manifest without entries records a seeding whose prefetch produced nothing.
+        local_storage.write_text("gs://b/tabarena/cache/weights/TabPFN-3.json", '{"model": "TabPFN-3", "entries": []}')
+        manifest, _ = seed_model_weights(
+            ["TabPFN-3"],
+            python="x",
+            storage=local_storage,
+            cache_uri="gs://b/tabarena/cache",
+            scratch_dir=tmp_path / "scratch",
+            prefetch=prefetch,
+            has_prefetcher=lambda m: True,
+        )
+        assert calls == [["TabPFN-3"]]
+        assert manifest["offline_weights"] is True
+        rels = manifest["weights"]["TabPFN-3"]
+        assert rels[0] == "huggingface/hub/models--Prior-Labs--tabpfn_3/snapshots"
+        remote = json.loads(local_storage.read_text("gs://b/tabarena/cache/weights/TabPFN-3.json"))
+        assert remote["entries"] == rels
+
+    def test_mirror_local_weights_links_the_node_cache_into_the_scratch_root(self, tmp_path):
+        node = tmp_path / "node"  # this node's caches, laid out as the libraries keep them
+        _fake_prefetch(["TabPFN-3"], python="x", cache_root=node)
+        repo = node / "huggingface" / "hub" / "models--Prior-Labs--tabpfn_3"
+        plan = {"hf_repo_dirs": [str(repo)], "tabpfn_files": [str(node / "xdg" / "tabpfn" / "tabpfn-v3.ckpt")]}
+        root = tmp_path / "scratch"
+        assert mirror_local_weights(plan, root) == 2
+        mirrored = root / "huggingface" / "hub" / "models--Prior-Labs--tabpfn_3"
+        assert (mirrored / "snapshots" / "rev1" / "model.ckpt").is_symlink()
+        assert (mirrored / "snapshots" / "rev1" / "model.ckpt").read_bytes() == b"weights"
+        assert (mirrored / "blobs" / "abc").read_bytes() == b"weights"
+        assert (mirrored / "refs" / "main").read_text() == "rev1"
+        assert not (mirrored / ".locks").exists()
+        assert (root / "xdg" / "tabpfn" / "tabpfn-v3.ckpt").read_bytes() == b"ckpt"
+        # The root then seeds exactly like one a prefetch downloaded into.
+        assert [e.rel for e in collect_weight_entries(root)] == [
+            "huggingface/hub/models--Prior-Labs--tabpfn_3/snapshots",
+            "huggingface/hub/models--Prior-Labs--tabpfn_3/refs",
+            "huggingface/hub/models--Prior-Labs--tabpfn_3/trees",
+            "xdg/tabpfn/tabpfn-v3.ckpt",
+        ]
+        assert (mirrored / "trees" / "rev1.json").read_text() == "{}"
+        assert mirror_local_weights(plan, root) == 2  # files already present are kept
+
+    def test_prefetch_weights_into_mirrors_before_it_downloads(self, tmp_path, monkeypatch):
+        node = tmp_path / "node"
+        _fake_prefetch(["TabPFN-3"], python="x", cache_root=node)
+        plan = {
+            "hf_repo_dirs": [str(node / "huggingface" / "hub" / "models--Prior-Labs--tabpfn_3")],
+            "tabpfn_files": [],
+        }
+        root = tmp_path / "scratch"
+        seen: dict = {}
+
+        def fake_run(argv, *, env=None, check=False, **kwargs):
+            seen["env"] = env
+            seen["mirrored"] = (
+                root / "huggingface" / "hub" / "models--Prior-Labs--tabpfn_3" / "refs" / "main"
+            ).exists()
+            return subprocess.CompletedProcess(argv, 0)
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+        prefetch_weights_into(["TabPFN-3"], python="x", cache_root=root, resolve=lambda names, *, python: plan)
+        assert seen["mirrored"] is True
+        assert seen["env"]["HF_HOME"] == str(root / "huggingface")
+        assert seen["env"]["XDG_CACHE_HOME"] == str(root / "xdg")
+        assert "HF_HUB_OFFLINE" not in seen["env"]

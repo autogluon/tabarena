@@ -254,6 +254,7 @@ class TestRenderEnvSetupScript:
         for needle in (
             'gcloud storage cp "$ENV_SPEC"',
             "uv venv --python",
+            '--no-deps -r "$ROOT/requirements.txt"',
             "--no-deps -e",
             "env.done",
             'mkdir -p "$ROOT" "$CACHE_ROOT"',

@@ -367,7 +367,7 @@ class TestGetRunCommands:
         assert pool_yaml.exists()
         assert "export SKYPILOT_API_SERVER_ENDPOINT=http://skypilot-api:46580" in block
         assert "${SKYPILOT_API_SERVER_ENDPOINT:?" not in block
-        assert f"sky jobs pool apply -y -p tabarena-gpu --workers 2 {pool_yaml}" in block
+        assert f"sky jobs pool apply -y -p tabarena-gpu {pool_yaml}" in block
         assert "sky jobs pool status --all tabarena-gpu" in block
         assert "sky jobs launch -y -d --pool tabarena-gpu -n bench_gpu-" in block
         assert "--num-jobs 2 " in block

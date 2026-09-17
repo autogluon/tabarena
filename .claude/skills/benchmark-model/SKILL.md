@@ -205,7 +205,7 @@ SkyPilot (`--scheduler skypilot` / `skypilot-pool`): `setup` also freezes the ru
 checkouts it installs and copies the batch plus one task file per bundle into the bucket, then prints
 a command block instead of `sbatch`: an endpoint guard, `sky check gcp` (once per machine), then either one
 `sky jobs launch -y -d -n <launch_id> --num-jobs N <job.yaml>` (per-job mode) or
-`sky jobs pool apply -y -p <pool> --workers N <pool.yaml>`, `sky jobs pool status --all <pool>` (wait
+`sky jobs pool apply -y -p <pool> <pool.yaml>` (the YAML carries the worker count), `sky jobs pool status --all <pool>` (wait
 for READY) and `sky jobs launch -y -d --pool <pool> ...` (pool mode). Run them as printed and record
 the job ids from `sky jobs queue`. The block ends with the eval reminder and, in pool mode, with
 `sky jobs pool down -y <pool>`, which must run when the benchmark is finished (a pool bills while idle).

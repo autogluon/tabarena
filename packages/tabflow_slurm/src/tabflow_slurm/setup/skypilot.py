@@ -158,7 +158,10 @@ class SkyPilotSetup(SchedulerSetup):
     cpu_memory: str = "64+"
     """``resources.memory`` (GB) for CPU runs."""
     cpu_instance_type: str | None = None
-    """Pin a machine type for CPU runs instead of ``cpus``/``memory`` (comparable timings)."""
+    """Pin a machine type for CPU runs instead of ``cpus``/``memory``. The cluster's admin policy rejects
+    a request that names an instance type (it reaches the policy with an inferred infra next to the
+    optimizer's region); an exact ``cpu_cpus`` / ``cpu_memory`` pair (``"16"`` / ``"64"``) passes and the
+    optimizer resolves it to the cheapest exact match, ``n4-standard-16`` on this cluster."""
     use_spot: bool = True
     """Spot VMs; managed jobs recover from preemption."""
     disk_size: int = 128
@@ -544,7 +547,8 @@ class SkyPilotSetup(SchedulerSetup):
         if pool_yaml is not None:
             pool = self.pool_for(resources)
             lines.append(
-                f"{sky} jobs pool apply -y -p {pool} --workers {self.workers} {pool_yaml}    # idempotent; a new env rolls the workers"
+                # The YAML carries the worker count; this sky version rejects --workers next to a YAML.
+                f"{sky} jobs pool apply -y -p {pool} {pool_yaml}    # idempotent; a new env rolls the workers"
             )
             lines.append(f"{sky} jobs pool status --all {pool}    # wait until every worker is READY")
             lines.append(f"{sky} jobs launch -y -d --pool {pool} -n {launch_id} --num-jobs {num_jobs} {job_yaml}")

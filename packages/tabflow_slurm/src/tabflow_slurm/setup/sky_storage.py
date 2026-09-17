@@ -144,8 +144,12 @@ class GcsStorage:
         self._run("cp", uri, str(local))
 
     def upload_dir(self, local: Path, uri: str) -> None:
-        """``gcloud storage rsync -r <local> <uri>``."""
-        self._run("rsync", "-r", str(local), uri)
+        """``gcloud storage rsync -r --no-ignore-symlinks <local> <uri>``.
+
+        ``rsync`` skips symlinks unless told otherwise; the flag uploads what they point to, which is
+        how a Hugging Face ``snapshots`` directory (symlinks into ``blobs``) reaches the bucket as files.
+        """
+        self._run("rsync", "-r", "--no-ignore-symlinks", str(local), uri)
 
     def copy_tree(self, local: Path, uri: str) -> None:
         """One ``cp`` per directory that holds files, with explicit object names.
