@@ -24,6 +24,78 @@ if TYPE_CHECKING:
     from .evaluation_repository import EvaluationRepository
 
 
+class _ResultIndex:
+    """Which repository holds each ``(dataset, fold, config)`` result.
+
+    A dense ``int16`` matrix over task codes (rows) and config codes (columns), ``-1`` where no
+    repository has the result, plus the two code dicts. The previous form, a dict with one
+    ``(dataset, fold, config)`` tuple key per result, cost 0.6 s to ship to a ray worker and
+    0.2 s to rebuild there for the 790k results of a 12-method collection and about 30 MB of
+    private memory per worker; this is a few MB and deserializes as one array.
+    """
+
+    def __init__(self, task_index: dict[tuple[str, int], int], config_index: dict[str, int], repo_of: np.ndarray):
+        self.task_index = task_index
+        self.config_index = config_index
+        self.repo_of = repo_of
+
+    @classmethod
+    def from_repos(cls, repos: list, overlap: Literal["raise", "first", "last"] = "raise") -> _ResultIndex:
+        if overlap not in ("raise", "first", "last"):
+            raise ValueError(f"Unknown overlap value: '{overlap}'")
+        frames = [repo._zeroshot_context.df_configs for repo in repos]
+        task_index: dict[tuple[str, int], int] = {}
+        config_index: dict[str, int] = {}
+        per_repo_codes = []
+        for df in frames:
+            dataset_codes, dataset_uniques = pd.factorize(df["dataset"].to_numpy())
+            fold = df["fold"].to_numpy().astype(np.int64)
+            fold_codes, fold_uniques = pd.factorize(fold)
+            pair_codes, pair_keys = pd.factorize(dataset_codes.astype(np.int64) * len(fold_uniques) + fold_codes)
+            pair_tasks = [
+                (dataset_uniques[k // len(fold_uniques)], int(fold_uniques[k % len(fold_uniques)])) for k in pair_keys
+            ]
+            task_codes = np.fromiter(
+                (task_index.setdefault(task, len(task_index)) for task in pair_tasks),
+                dtype=np.int64,
+                count=len(pair_tasks),
+            )[pair_codes]
+            framework_codes, framework_uniques = pd.factorize(df["framework"].to_numpy())
+            config_codes = np.fromiter(
+                (config_index.setdefault(c, len(config_index)) for c in framework_uniques),
+                dtype=np.int64,
+                count=len(framework_uniques),
+            )[framework_codes]
+            per_repo_codes.append((task_codes, config_codes))
+        repo_of = np.full((len(task_index), len(config_index)), -1, dtype=np.int16)
+        for repo_idx, (task_codes, config_codes) in enumerate(per_repo_codes):
+            if overlap == "last":
+                repo_of[task_codes, config_codes] = repo_idx
+                continue
+            occupied = repo_of[task_codes, config_codes] != -1
+            if overlap == "raise" and occupied.any():
+                # TODO: Improve error message
+                raise AssertionError(f"Overlap detected in provided repositories! (overlap='{overlap}')")
+            free = ~occupied
+            repo_of[task_codes[free], config_codes[free]] = repo_idx
+        return cls(task_index=task_index, config_index=config_index, repo_of=repo_of)
+
+    def get(self, dataset: str, fold: int, config: str) -> int | None:
+        task = self.task_index.get((dataset, fold))
+        column = self.config_index.get(config)
+        if task is None or column is None:
+            return None
+        repo_idx = int(self.repo_of[task, column])
+        return None if repo_idx < 0 else repo_idx
+
+    def values(self):
+        """Repository index of every present result (no particular order)."""
+        return self.repo_of[self.repo_of >= 0].tolist()
+
+    def __len__(self) -> int:
+        return int((self.repo_of >= 0).sum())
+
+
 # TODO: Improve error message for overlap
 class EvaluationRepositoryCollection(AbstractRepository, EnsembleMixin, GroundTruthMixin):
     """Repository collection class that implements core functionality related to
@@ -71,17 +143,14 @@ class EvaluationRepositoryCollection(AbstractRepository, EnsembleMixin, GroundTr
         self._mapping = self._compute_repo_mapping()
         super().__init__(zeroshot_context=zeroshot_context, config_fallback=config_fallback)
 
-    def _compute_repo_mapping(self) -> dict[tuple[str, int, str], int]:
-        repo_result_combinations = self._generate_dataset_fold_config_combinations(repos=self.repos)
-        return self._combination_mapping_to_repo_index(
-            repo_result_combinations=repo_result_combinations, overlap=self.overlap
-        )
+    def _compute_repo_mapping(self) -> _ResultIndex:
+        return _ResultIndex.from_repos(repos=self.repos, overlap=self.overlap)
 
     def get_result_to_repo_idx(self, dataset: str, fold: int, config: str) -> int | None:
         """Returns the repo idx in `self.repos` containing the specified (dataset, fold, config) result.
         Returns None if no such repo exists.
         """
-        return self._mapping.get((dataset, fold, config), None)
+        return self._mapping.get(dataset, fold, config)
 
     def get_result_to_repo(
         self, dataset: str, fold: int, config: str
@@ -89,7 +158,7 @@ class EvaluationRepositoryCollection(AbstractRepository, EnsembleMixin, GroundTr
         """Returns the repo in `self.repos` containing the specified (dataset, fold, config) result.
         Returns None if no such repo exists.
         """
-        repo_idx = self._mapping.get((dataset, fold, config), None)
+        repo_idx = self._mapping.get(dataset, fold, config)
         if repo_idx is None:
             return repo_idx
         return self.repos[repo_idx]
@@ -272,56 +341,6 @@ class EvaluationRepositoryCollection(AbstractRepository, EnsembleMixin, GroundTr
             verbose=verbose,
         )
         return self
-
-    @staticmethod
-    def _generate_dataset_fold_config_combinations(
-        repos: list[EvaluationRepository],
-    ) -> list[list[tuple[str, int, str]]]:
-        """Returns the combinations (dataset, fold, config) for each repository.
-
-        Built by zipping the three key columns rather than materializing the metrics frame's
-        MultiIndex as tuples (``MultiIndex.tolist`` cost about 1.2 s for the 790k results of a
-        12-method collection; zipping the columns takes a fraction of that for the same tuples).
-        """
-        combinations = []
-        for repo in repos:
-            # the keys only; `metrics()` would also build each repo's (lazy) rank column
-            df = repo._zeroshot_context.df_configs
-            combinations.append(
-                list(zip(df["dataset"].tolist(), df["fold"].tolist(), df["framework"].tolist(), strict=True))
-            )
-        return combinations
-
-    @staticmethod
-    def _combination_mapping_to_repo_index(
-        repo_result_combinations: list[list[tuple[str, int, str]]],
-        overlap: Literal["raise", "first", "last"] = "raise",
-    ) -> dict[tuple[str, int, str], int]:
-        """Returns a dictionary mapping each (dataset, fold, config) to the repository index."""
-        if overlap == "first":
-            len_combinations = len(repo_result_combinations)
-            # traverse the repositories in reverse order to match `overlap` order
-            mapping = {
-                (dataset, fold, config): repo_index
-                for repo_index in range(len_combinations - 1, -1, -1)
-                for (dataset, fold, config) in repo_result_combinations[repo_index]
-            }
-        elif overlap in ["last", "raise"]:
-            mapping = {
-                (dataset, fold, config): repo_index
-                for repo_index, repo_combinations in enumerate(repo_result_combinations)
-                for (dataset, fold, config) in repo_combinations
-            }
-            if overlap == "raise":
-                len_combinations_total = 0
-                for c in repo_result_combinations:
-                    len_combinations_total += len(c)
-                if len_combinations_total != len(mapping):
-                    # TODO: Improve error message
-                    raise AssertionError(f"Overlap detected in provided repositories! (overlap='{overlap}')")
-        else:
-            raise ValueError(f"Unknown overlap value: '{overlap}'")
-        return mapping
 
 
 def _concat_results_drop_duplicates(frames: list[pd.DataFrame]) -> pd.DataFrame:

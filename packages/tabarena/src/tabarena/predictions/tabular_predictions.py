@@ -420,14 +420,50 @@ class TabularPredictionsMemmap(TabularModelPredictions):
 
     @staticmethod
     def _finalize_metadata(res: dict) -> dict:
+        """Attach ``models_all`` (the file's model order, never restricted) and ``model_indices``
+        (model -> row in the memmap) to every task's metadata.
+
+        Model names are interned across tasks and an identical model list is shared as one
+        object, so a pickled artifact carries each name and each distinct list once instead of
+        once per task. ``model_indices`` is derived from ``models_all`` and is rebuilt on
+        unpickling rather than shipped (see ``__getstate__``).
+        """
+        names: dict[str, str] = {}
+        lists: dict[tuple[str, ...], list[str]] = {}
         for dataset in res:
             for fold in res[dataset]:
                 metadata_task = dict(res[dataset][fold])
-                model_indices = {m: i for i, m in enumerate(metadata_task["models"])}
+                models = tuple(names.setdefault(m, m) for m in metadata_task["models"])
+                models_all = lists.setdefault(models, list(models))
+                metadata_task["models_all"] = models_all
+                metadata_task["models"] = list(models_all)
                 # This is required to keep track of the indices of models after `restrict_models` is called.
-                metadata_task["model_indices"] = model_indices
+                metadata_task["model_indices"] = TabularPredictionsMemmap._model_indices(models_all)
                 res[dataset][fold] = metadata_task
         return res
+
+    @staticmethod
+    def _model_indices(models_all: list[str]) -> dict[str, int]:
+        return {m: i for i, m in enumerate(models_all)}
+
+    def __getstate__(self):
+        state = dict(self.__dict__)
+        state["metadata_dict"] = {
+            dataset: {
+                fold: {k: v for k, v in metadata_task.items() if k != "model_indices"}
+                for fold, metadata_task in fold_dict.items()
+            }
+            for dataset, fold_dict in self.metadata_dict.items()
+        }
+        return state
+
+    def __setstate__(self, state):
+        self.__dict__.update(state)
+        for fold_dict in self.metadata_dict.values():
+            for metadata_task in fold_dict.values():
+                if "model_indices" not in metadata_task:
+                    models_all = metadata_task.get("models_all", metadata_task["models"])
+                    metadata_task["model_indices"] = self._model_indices(models_all)
 
     def predict_val(
         self, dataset: str, fold: int, models: list[str] | None = None, model_fallback: str | None = None
