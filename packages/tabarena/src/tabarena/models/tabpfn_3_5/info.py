@@ -21,22 +21,31 @@ tabpfn_3_5_fast_descriptor = ModelDescriptor(
     date_introduced="2026-09-15",
 )
 
-# Not benchmarked yet: no suite and no hosted artifacts until a run exists (the upload step fills
-# them in and confirms the config name).
+# Run tabpfn35_17092026 (SkyPilot pool, 32 RTX PRO 6000, BENCHMARK_LOG.md), both models in one run.
 tabpfn_3_5_method_metadata = tabpfn_3_5_descriptor.method_metadata(
     method="TabPFN-3.5",
     ag_key="TA-TABPFN-3.5",
+    config_default="TabPFN-3.5_c1_default_BAG_L1",
     can_hpo=False,
-    date="2026-09-16",
+    date="2026-09-17",
     verified=False,
+    cache_type="r2",
+    validation_protocol="8x1",
+    suite="tabarena-2026-09-17",
+    cache_kwargs={"bucket": "tabarena", "prefix": "cache"},
 )
 
 tabpfn_3_5_fast_method_metadata = tabpfn_3_5_fast_descriptor.method_metadata(
     method="TabPFN-3.5-Fast",
     ag_key="TA-TABPFN-3.5-FAST",
+    config_default="TabPFN-3.5-Fast_c1_default_BAG_L1",
     can_hpo=False,
-    date="2026-09-16",
+    date="2026-09-17",
     verified=False,
+    cache_type="r2",
+    validation_protocol="8x1",
+    suite="tabarena-2026-09-17",
+    cache_kwargs={"bucket": "tabarena", "prefix": "cache"},
 )
 
 

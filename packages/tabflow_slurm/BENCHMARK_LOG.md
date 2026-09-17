@@ -62,7 +62,10 @@ run against `main`. To reproduce an entry, check out its recorded **git SHA**.
   Causilo (1788); TabPFN-3.5-Fast #5, Elo 1778 (+84/-62), between AutoGluon 1.6 (noncommercial, 4h) and TabFM.
   Median time per 1K rows: train 5.67 s / 5.80 s, inference 0.48 s / 0.16 s. Subsets: TabPFN-3.5 #1 binary
   (1845), #3 multiclass (1877), #1 regression (2103); TabPFN-3.5-Fast #4 binary (1785), #5 multiclass (1810),
-  #8 regression (1911). TabPFN-3 (rerun row) sits at #11 with Elo 1629. Not uploaded yet.
+  #8 regression (1911). TabPFN-3 (rerun row) sits at #11 with Elo 1629. Processed and uploaded as suite
+  `tabarena-2026-09-17` (`tabpfn_3_5_method_metadata`, `tabpfn_3_5_fast_method_metadata` in
+  `models/tabpfn_3_5/info.py`; r2 `cache/artifacts/tabarena-2026-09-17/methods/<Method>/`), registered in the
+  arena collection with `verified=False` pending sign-off.
 
 ```python
 from tabarena.benchmark.experiment import TabArenaV0pt1ExperimentBundle
