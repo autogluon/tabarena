@@ -4,8 +4,9 @@ Heavy libraries are never warmed for real: ``warmup_torch`` and the best-effort 
 monkeypatched where they would matter, so these exercise the dispatch order (declared ``warmup``
 classmethod, torch layer, ``warmup_modules`` over the MRO, ``WARMUP_STEPS_BY_AG_KEY``, shared
 weights, dummy fit), the per-step failure isolation, the CUDA gating and the report contents. The
-dummy-fit tests use a tiny ``AbstractModel`` that stores the label mean; they do import torch (the
-random-state guard forks its generators) but stay on the CPU.
+dummy-fit tests use a tiny ``AbstractModel`` that stores the label mean and stay on the CPU; torch is
+optional (the default CI job runs without it): the fake draws from torch's generator only when torch
+is installed, and the tests that inspect torch itself skip without it.
 """
 
 from __future__ import annotations
@@ -23,6 +24,15 @@ import tabarena.models.warmup as wu
 from tabarena.utils import ray_utils
 
 # --- fakes ------------------------------------------------------------------------------------
+
+
+def _optional_torch():
+    """The torch module when installed, else ``None``."""
+    try:
+        import torch
+    except ImportError:
+        return None
+    return torch
 
 
 class _DeclaredWarmupModel:
@@ -94,12 +104,12 @@ class _MeanModel(AbstractModel):
     fits: list[dict] = []
 
     def _fit(self, X, y, num_cpus=1, num_gpus=0, time_limit=None, **kwargs):
-        import torch
-
         X = self.preprocess(X, is_train=True)
         np.random.random()
         random.random()  # noqa: S311
-        torch.rand(1)
+        torch = _optional_torch()
+        if torch is not None:
+            torch.rand(1)
         self._mean = float(y.mean())
         type(self).fits.append(
             {
@@ -406,6 +416,8 @@ def test_kernel_probe_flag_reads_env(monkeypatch):
 def test_warmup_torch_returns_steps_without_cuda(monkeypatch):
     torch = pytest.importorskip("torch")
     monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
+    # an earlier test in the session may have created the CUDA context on a GPU host
+    monkeypatch.setattr(torch.cuda, "is_initialized", lambda: False)
     assert wu.warmup_torch(cuda=None) == ["torch:import"]
     assert wu.warmup_torch(cuda=True) == ["torch:import"]  # requested but unavailable
     before = wu.snapshot_torch_globals()
@@ -510,24 +522,23 @@ def test_warmup_ag_stack_without_ray(monkeypatch, recorded_imports):
 
 
 def _rng_states():
-    import torch
-
-    return random.getstate(), np.random.get_state(), torch.get_rng_state().clone()
+    torch = _optional_torch()
+    torch_state = torch.get_rng_state().clone() if torch is not None else None
+    return random.getstate(), np.random.get_state(), torch_state
 
 
 def _assert_rng_states_equal(before, after):
-    import torch
-
+    torch = _optional_torch()
     assert before[0] == after[0]
     assert before[1][0] == after[1][0] and np.array_equal(before[1][1], after[1][1]) and before[1][2:] == after[1][2:]
-    assert torch.equal(before[2], after[2])
+    if torch is not None:
+        assert torch.equal(before[2], after[2])
 
 
 def test_dummy_fit_runs_with_synthetic_shapes_and_cleans_up(tmp_path):
     _MeanModel.fits.clear()
-    import torch
-
-    threads = torch.get_num_threads()
+    torch = _optional_torch()
+    threads = torch.get_num_threads() if torch is not None else None
     before = _rng_states()
     report = wu.warmup_model_cls(_MeanModel, problem_type="binary", num_cpus=2, num_gpus=0, hyperparameters={"lr": 1})
     after = _rng_states()
@@ -548,12 +559,13 @@ def test_dummy_fit_runs_with_synthetic_shapes_and_cleans_up(tmp_path):
     assert record["torch_globals_changed"] == {}
     assert "dummy_fit:_MeanModel" in report.steps and report.failed_steps == []
     _assert_rng_states_equal(before, after)
-    assert torch.get_num_threads() == threads
+    if torch is not None:
+        assert torch.get_num_threads() == threads
 
 
 def test_cpu_dummy_fit_never_forks_cuda_generators_on_a_cuda_host(monkeypatch):
     """``num_gpus=0`` forks only the CPU generator even when CUDA is available, so no context is created."""
-    import torch
+    torch = pytest.importorskip("torch")
 
     calls: list[list[int]] = []
     original_fork_rng = torch.random.fork_rng
@@ -574,7 +586,7 @@ def test_cpu_dummy_fit_never_forks_cuda_generators_on_a_cuda_host(monkeypatch):
 
 def test_dummy_fit_records_torch_globals_and_restores_threads():
     """A plain ``AbstractModel`` has no torch layer, so the dummy fit itself must record the torch globals."""
-    import torch
+    torch = pytest.importorskip("torch")
 
     class _ThreadHogModel(_MeanModel):
         ag_key = "_WARMUP_MEAN_THREADS"
@@ -682,10 +694,12 @@ def test_warmup_feature_generator_cls_dispatches_classvar_and_classmethod(record
     assert wu.warmup_feature_generator_cls(None).steps == []
 
 
-def test_run_warmup_fn_records_imports_and_status(throwaway_package):
+def test_run_warmup_fn_records_imports_and_status(throwaway_package, monkeypatch):
     def fn():
         __import__(throwaway_package)
 
+    # an earlier test in the session may have created the CUDA context on a GPU host
+    monkeypatch.setattr(wu, "cuda_initialized", lambda: False)
     report = wu.run_warmup_fn(fn, label="M")
     assert report.status == "ok" and report.label == "M"
     assert report.duration_s is not None and report.duration_s >= 0
