@@ -46,3 +46,39 @@ def test_metrics_filtered_ranks_match_full_frame_without_building_it():
         pd.testing.assert_frame_equal(filtered[key], reference[key])
     assert list(filtered["c"].columns) == list(full.columns)
     assert len(filtered["empty"]) == 0
+
+
+def test_context_drops_resource_columns_by_default():
+    """The compute-resource result columns are left out of the context's frames unless asked for;
+    everything else is unchanged.
+    """
+    from tabarena.simulation.simulation_context import ZeroshotSimulatorContext
+
+    base = load_repo_artificial()._zeroshot_context
+    df_configs = base.df_configs.drop(columns=["task"]).copy()
+    df_configs["num_cpus"] = 8
+    df_configs["num_gpus"] = 0
+    df_configs["disk_usage"] = 12345
+    df_configs["kept_extra"] = 1.5
+    df_metadata = base.df_metadata
+
+    context = ZeroshotSimulatorContext(df_configs=df_configs, df_metadata=df_metadata)
+    for c in ZeroshotSimulatorContext.DROPPED_RESULT_COLUMNS:
+        assert c not in context.df_configs.columns
+    assert "kept_extra" in context.df_configs.columns
+    assert context.drop_columns == ZeroshotSimulatorContext.DROPPED_RESULT_COLUMNS
+    # the caller's frame is not modified
+    assert "num_cpus" in df_configs.columns
+
+    kept = ZeroshotSimulatorContext(df_configs=df_configs, df_metadata=df_metadata, drop_columns=())
+    assert {"num_cpus", "num_gpus", "disk_usage"} <= set(kept.df_configs.columns)
+    pd.testing.assert_frame_equal(
+        kept.df_configs.drop(columns=list(ZeroshotSimulatorContext.DROPPED_RESULT_COLUMNS)), context.df_configs
+    )
+    pd.testing.assert_frame_equal(
+        kept.df_configs_ranked["rank"].to_frame(), context.df_configs_ranked["rank"].to_frame()
+    )
+
+    # frames without the columns are untouched
+    plain = ZeroshotSimulatorContext(df_configs=base.df_configs.drop(columns=["task"]), df_metadata=df_metadata)
+    pd.testing.assert_frame_equal(plain.df_configs, context.df_configs.drop(columns=["kept_extra"]))
