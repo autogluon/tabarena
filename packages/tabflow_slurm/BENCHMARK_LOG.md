@@ -65,7 +65,7 @@ run against `main`. To reproduce an entry, check out its recorded **git SHA**.
   #8 regression (1911). TabPFN-3 (rerun row) sits at #11 with Elo 1629. Processed and uploaded as suite
   `tabarena-2026-09-17` (`tabpfn_3_5_method_metadata`, `tabpfn_3_5_fast_method_metadata` in
   `models/tabpfn_3_5/info.py`; r2 `cache/artifacts/tabarena-2026-09-17/methods/<Method>/`), registered in the
-  arena collection with `verified=False` pending sign-off.
+  arena collection as verified (maintainer sign-off 2026-09-17).
 
 ```python
 from tabarena.benchmark.experiment import TabArenaV0pt1ExperimentBundle
