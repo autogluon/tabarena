@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 import pandas as pd
+from autogluon.common.utils.validation_structure import ValidationStructure
 from loguru import logger
 
 from tabarena.benchmark.task.metadata import GroupLabelTypes
@@ -31,7 +32,6 @@ from tabarena.benchmark.task.metadata import GroupLabelTypes
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
-    from autogluon.common.utils.validation_structure import ValidationStructure
     from autogluon.core.models import AbstractModel
 
     from tabarena.benchmark.task.metadata import ValidationMetadata
@@ -190,8 +190,6 @@ def validation_structure_from_metadata(
     ``temporal_forward_only`` asks for forward-chaining temporal validation on a ``time_on`` task (fold
     *i* validates block *i+1* and trains only on earlier blocks); it has no effect otherwise.
     """
-    from autogluon.common.utils.validation_structure import ValidationStructure
-
     if metadata.group_on is None and metadata.time_on is None:
         return None
     if size_validation_on_groups is None:
