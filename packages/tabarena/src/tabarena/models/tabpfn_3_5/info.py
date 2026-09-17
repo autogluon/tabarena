@@ -10,6 +10,8 @@ tabpfn_3_5_descriptor = ModelDescriptor(
     compute="gpu",
     is_bag=False,
     reference_url="https://arxiv.org/abs/2609.17895",
+    commercial_use=False,
+    license="TabPFN-3.5 License v1.0 (non-commercial)",
     date_introduced="2026-09-15",
 )
 
@@ -18,6 +20,8 @@ tabpfn_3_5_fast_descriptor = ModelDescriptor(
     compute="gpu",
     is_bag=False,
     reference_url="https://arxiv.org/abs/2609.17895",
+    commercial_use=False,
+    license="TabPFN-3.5 License v1.0 (non-commercial)",
     date_introduced="2026-09-15",
 )
 
