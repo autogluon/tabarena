@@ -112,10 +112,10 @@ def test_rank_scorer_unique_and_duplicate_results_agree_with_pivot():
     pivot = df.pivot_table(values="metric_error", index="task", columns="framework")
     for task in tasks:
         row = pivot.loc[task].to_numpy(dtype=float)
-        assert fast.error_dict[task] == sorted(row[~np.isnan(row)].tolist())
+        assert list(fast.error_dict[task]) == sorted(row[~np.isnan(row)].tolist())
     doubled = pd.concat([df, df.assign(metric_error=df["metric_error"] + 1)], ignore_index=True)
     averaged = RankScorer(df_results=doubled, tasks=tasks)
     pivot2 = doubled.pivot_table(values="metric_error", index="task", columns="framework")
     for task in tasks:
         row = pivot2.loc[task].to_numpy(dtype=float)
-        assert averaged.error_dict[task] == sorted(row[~np.isnan(row)].tolist())
+        assert list(averaged.error_dict[task]) == sorted(row[~np.isnan(row)].tolist())
