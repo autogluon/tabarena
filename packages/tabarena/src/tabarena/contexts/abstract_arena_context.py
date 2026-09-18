@@ -676,6 +676,8 @@ class AbstractArenaContext:
         These are the baseline/reference results ``compare`` compares new results against.
         A context constructed with no methods contributes none (empty DataFrame), so a
         self-contained arena's leaderboard is computed purely from ``new_results``.
+        ``download_results`` is forwarded to each method's
+        :meth:`~tabarena.models._method_metadata.MethodMetadata.load_results` as ``download``.
         """
         if methods is None:
             methods = self.methods
@@ -689,33 +691,9 @@ class AbstractArenaContext:
         if not methods:
             return pd.DataFrame()
 
-        df_results_lst = []
-        for method in methods:
-            method_metadata = self.method_metadata(method=method)
-            if isinstance(download_results, bool) and download_results:
-                method_downloader = method_metadata.method_downloader()
-                method_downloader.download_results()
-
-            try:
-                df_results = method_metadata.load_results()
-            except FileNotFoundError as err:
-                if isinstance(download_results, str) and download_results == "auto":
-                    print(
-                        f"Missing local results files for method! "
-                        f"Attempting to download from s3 and retry... "
-                        f'(download_results={download_results}, method="{method_metadata.method}")',
-                    )
-                    method_downloader = method_metadata.method_downloader()
-                    method_downloader.download_results()
-                    df_results = method_metadata.load_results()
-                else:
-                    print(
-                        f"Missing local results files for method {method_metadata.method}! "
-                        f"Try setting `download_results=True` to get the required files.",
-                    )
-                    raise err
-            df_results_lst.append(df_results)
-
+        df_results_lst = [
+            self.method_metadata(method=method).load_results(download=download_results) for method in methods
+        ]
         return pd.concat(df_results_lst, ignore_index=True)
 
     def load_model_results(
@@ -746,30 +724,9 @@ class AbstractArenaContext:
         if not methods:
             return pd.DataFrame()
 
-        df_results_lst = []
-        for method in methods:
-            method_metadata = self.method_metadata(method=method)
-            if isinstance(download_results, bool) and download_results:
-                method_metadata.method_downloader().download_results()
-
-            try:
-                df_results = method_metadata.load_model_results()
-            except FileNotFoundError as err:
-                if isinstance(download_results, str) and download_results == "auto":
-                    print(
-                        f"Missing local model_results for method! Attempting to download from s3 "
-                        f'and retry... (method="{method_metadata.method}")',
-                    )
-                    method_metadata.method_downloader().download_results()
-                    df_results = method_metadata.load_model_results()
-                else:
-                    print(
-                        f"Missing local model_results for method {method_metadata.method}! "
-                        f"Try setting `download_results=True` to get the required files.",
-                    )
-                    raise err
-            df_results_lst.append(df_results)
-
+        df_results_lst = [
+            self.method_metadata(method=method).load_model_results(download=download_results) for method in methods
+        ]
         df_model_results = pd.concat(df_results_lst, ignore_index=True)
         if configs is not None:
             df_model_results = df_model_results[df_model_results["method"].isin(set(configs))]
