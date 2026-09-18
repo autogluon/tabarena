@@ -1,6 +1,6 @@
 """TabDPT's network load as a separable call, and a constructor that takes the network, so one network per process serves every fit.
 
-Developer fix. ``tabdpt.estimator.TabDPTEstimator.__init__`` (tabdpt 1.2.0) reads the safetensors
+Developer fix. ``tabdpt.estimator.TabDPTEstimator.__init__`` (tabdpt 1.2.0 and 1.3.0) reads the safetensors
 checkpoint and builds the network inside the constructor and offers neither a constructor argument nor
 a reload hook for an existing network. :func:`load_network` is the loading half of that constructor and
 the wrapper's ``shared_weights`` loader; :class:`_SharedNetworkEstimator` reproduces the rest of the
@@ -72,10 +72,12 @@ def load_network(model_weight_path: str | Path, device: str, *, use_flash: bool,
 class _SharedNetworkEstimator(TabDPTEstimator):
     """``TabDPTEstimator`` whose constructor takes an already built network instead of reading the checkpoint.
 
-    The body is tabdpt 1.2.0 ``estimator.py`` lines 89 to 152 with the checkpoint read and
+    The body is tabdpt 1.3.0 ``estimator.py`` lines 89 to 152 with the checkpoint read and
     ``TabDPTModel.load`` replaced by the network :meth:`from_shared` stores on the instance before
-    running the constructor. The signature (names, order, defaults, annotations) is identical to
-    the library constructor so sklearn's ``get_params`` keeps working through the task subclasses.
+    running the constructor. 1.2.0 (the superseded TabDPT-Turbo pin) differs only in the name of
+    the PCA projection attribute, so both names are initialised. The signature (names, order,
+    defaults, annotations) is identical to the library constructor so sklearn's ``get_params``
+    keeps working through the task subclasses.
 
     A shared module must never be mutated, so the constructor refuses a configuration whose
     effective ``compile`` flag is True: ``TabDPTEstimator.fit`` would call ``self.model.compile()``
@@ -181,6 +183,9 @@ class _SharedNetworkEstimator(TabDPTEstimator):
                     '["standard", "minmax", "robust", "power", "quantile-uniform", "quantile-normal", "log1p", None]'
                 )
 
+        # tabdpt 1.3.0 names the PCA projection `projection`, 1.2.0 names it `V`; `fit` and `to` read
+        # whichever the installed release uses.
+        self.projection = None
         self.V = None
 
 
