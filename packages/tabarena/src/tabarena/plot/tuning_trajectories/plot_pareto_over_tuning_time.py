@@ -1529,8 +1529,10 @@ def _plot_tuning_trajectories_from_prepared(
 
         # The same trajectories, kept dataset by dataset for the website's per-dataset browser.
         # Written here because this is where the trajectory frame exists; the conversion step
-        # turns it into the explorer. The same two filters the leaderboard above applies, so a
-        # dataset's chart shows the field the aggregate figure shows.
+        # turns it into the explorer. Only ``hidden_methods`` applies here: the baseline ban
+        # above exists because KNN and Linear stretch the improvability axis of the aggregate
+        # figure, while on a single dataset they can be competitive (Linear on Fitness_Club) and
+        # a reader who clicks them in the browser expects to see their trajectory.
         if per_dataset_trajectories:
             per_dataset = compute_per_dataset_trajectories(
                 combined_data=combined_data,
@@ -1541,7 +1543,7 @@ def _plot_tuning_trajectories_from_prepared(
                 subset=subset,
                 folds=folds,
                 method_rename_map=method_rename_map,
-                hidden_methods=[*(["KNN", "Linear"] if ban_bad_methods else []), *(hidden_methods or [])],
+                hidden_methods=hidden_methods,
             )
             fig_save_dir_subset.mkdir(parents=True, exist_ok=True)
             per_dataset.to_csv(fig_save_dir_subset / "tuning_trajectories_per_dataset.csv", index=False)

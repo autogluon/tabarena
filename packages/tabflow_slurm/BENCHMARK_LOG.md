@@ -34,6 +34,80 @@ run against `main`. To reproduce an entry, check out its recorded **git SHA**.
 
 ---
 
+## 2026-09-16 — rerun_ebm_catboost_16092026
+
+- **Model(s):** ExplainableBM (EBM) and CatBoost, default plus 200 random configs (`NUM_CONFIGS="all"`, 201 configs
+  per split, 164,016 items per model, 328,032 in total) on all 816 splits
+- **Git SHA:** `f87f22d3` (main) plus the fixes of PR #584 on `benchmark/rerun-new-pipeline-16092026` (merged as
+  `e53cc52c`); editable AutoGluon `../autogluon` master `957883c9`
+- **Validation protocol:** `8x1` (TabArena default, asserted by the context)
+- **Purpose:** Re-run the two hosted CPU tree boosters under the timing and warm-up pipeline (PR stack #539 to #546,
+  AutoGluon #5919 to #5921) so their hosted train and inference times come from the same measurement as the
+  foundation models re-run in `rerun_tfms_16092026`.
+- **Notes:** Hardware `n4-standard-16` spot (16 vCPU, 64 GB) throughout, as SLURM partition `cpun416mtspotinteractive`
+  and as SkyPilot pool workers (`cpus=16, memory=64, use_spot`; the shared API server's admin policy rejects a pinned
+  instance type and spread the pool over `europe-west4` and `asia-northeast1`). `num_cpus=None` resolves to the node's
+  16 vCPUs. The run alternated between the two schedulers as spot capacity moved: SLURM array 1156150 (bundle 12,
+  stopped by the maintainer, slow), SkyPilot pools `tabarena-rerun-16092026-cpu` and `-cpu2` (600 workers each; both
+  died of control-plane overload: SQLite locks and zombie `CANCELLING` jobs on the jobs controller, replica-manager
+  assertion errors on the pool controller; the VMs had to be deleted with `gcloud`), pool `-cpu3` (250 workers, about
+  160 to 215 alive under spot reclaims; CatBoost launch `cpu-20260917-073825-896d`, remainder
+  `cpu_catboost_rest-20260918-004301-ef34`, EBM tail `cpu_ebm_tail_sky-20260918-033957-17c3`) and SLURM arrays
+  1159855, 1162259, 1162810 (EBM, superseded by a clean restart), 1166154 (EBM, all remaining items, bundle 12) and
+  1169391 (EBM, the last 2,808 items, bundle 4). Every hand-over between schedulers was a cache-aware `setup` after
+  cancelling the other side, so no item was fitted twice on purpose (a handful straddling a dataset boundary may
+  have been). Infrastructure lessons went into the `benchmark-model` skill and PR #584: one array per run,
+  `scontrol release` for tasks parked as `launch failed requeued held`, no pulls into a checkout that SLURM imports
+  live, a SLURM `setup` does not sync the bucket (sync before mixing schedulers), stuck `RECOVERING` pool jobs hold
+  their claims until cancelled, a worker's per-item scratch must stay under a short path (Unix socket limit hit by
+  EBM's multiprocessing and Ray). Spot preemption was heavy (about 510 SLURM requeues); 5 items failed for reasons
+  other than preemption (a registry import during a branch update) and were refit by the follow-up setup. Result:
+  CatBoost 164,016 results, no failed item; processed and uploaded as suite `tabarena-2026-09-16` in PR #584 with
+  Elo identical to the July suite (default 1378, tuned 1407, tuned + ensembled 1419), but the median train time per
+  1K rows rose from 5.88 to 8.68 s (default) and 1346 to 2081 s (tuned). NOT HOSTED in the end: the maintainer
+  reverted the collection to the July suite `tabarena-2026-07-13` and the r2 artifacts were deleted again (follow-up
+  PR), because the two runs' fit times are not comparable until it is settled which CPU count the tree boosters
+  should be timed with (the 16 vCPUs of an n4-standard-16 are 8 physical cores) and on which hardware the July
+  suite ran. EBM: 164,016 results, no failed item, finished 2026-09-18 17:20 UTC; processed with 17 `Not close TEST` warnings (superconductivity and physiochemical_protein, 0.007 to 0.028 percent of the test rows of one bagged config each, float rounding in the re-aggregated bag predictions). Joint leaderboard of the run's eval: default Elo 1188, tuned 1219, tuned + ensembled 1256; median train time per 1K rows 10.70 s (default) and 2674 s (tuned) against 6.67 s and 1711 s in the July suite, the same 1.5 to 1.6 times slowdown as CatBoost; median predict time unchanged. Also not hosted, for the same reason; its upload was stopped and removed. The raw results of both models stay in the workspace (`output/rerun_ebm_catboost_16092026/data`) for the timing investigation. About 3,900 node-hours of n4-standard-16 across both models.
+
+```python
+from tabarena.benchmark.experiment import TabArenaV0pt1ExperimentBundle
+from tabarena.benchmark.task.metadata import TaskSubset
+from tabflow_slurm import (
+    GCPSlurmSetup,
+    ModelJob,
+    PathSetup,
+    SkyPilotSetup,
+    TabArenaV0pt1BenchmarkPlan,
+    TabArenaV0pt1ResourcesSetup,
+)
+
+MODELS = ("ExplainableBM", "CatBoost")
+plan = TabArenaV0pt1BenchmarkPlan(
+    benchmark_name="rerun_ebm_catboost_16092026",
+    model_jobs=[
+        ModelJob(models=[(model, "all") for model in MODELS], name="cpu"),
+    ],
+    task_subset=TaskSubset(),
+    path_setup=PathSetup(
+        workspace="/home/lennart_priorlabs_ai/workspace/benchmarking/tabarena_workspace",
+        python_path="/home/lennart_priorlabs_ai/.venvs/tabarena_rerun_16092026/bin/python",
+    ),
+    experiment_bundle=TabArenaV0pt1ExperimentBundle(model_verbosity=2),
+    resources_setup=TabArenaV0pt1ResourcesSetup(num_cpus=None, memory_limit=None),
+    # SLURM launches (the EBM arrays; bundle_size=4 for the final 2,808 heavy items):
+    scheduler_setup=GCPSlurmSetup(cpu_partition="cpun416mtspotinteractive", bundle_size=12, array_job_limit=300),
+    # SkyPilot launches (CatBoost and the EBM tail) used instead:
+    # scheduler_setup=SkyPilotSetup(bundle_size=20, workers=250, cpu_cpus="16", cpu_memory="64", use_pool=True,
+    #                               pool_name="tabarena-rerun-16092026-cpu3", api_server_endpoint="http://skypilot-api:46580"),
+)
+plan.setup_jobs()
+# Relaunches under the same benchmark name scoped with ModelJob(models=[(model, "all")], tasks=TaskSubset(dataset_names=[...]))
+# when a dataset group moved between the schedulers.
+```
+
+---
+
 ## 2026-09-17 — rerun_tabpfn35_17092026
 
 - **Model(s):** TabPFN-3.5 and TabPFN-3.5-Fast (default config only, `NUM_CONFIGS=0`, all 816 splits each)

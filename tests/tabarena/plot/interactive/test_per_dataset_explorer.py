@@ -336,3 +336,18 @@ def test_explorer_points_carry_spread_and_tie_fields(tmp_path):
     default = by_method[names.index("CAT (default)")]
     assert default["b"] == 0
     assert '"significance"' in html
+
+
+def test_rows_without_a_trajectory_say_so_instead_of_swallowing_the_click(tmp_path):
+    out = build_per_dataset_explorer_html(
+        results_per_split=_results_per_split(),
+        method_info=_METHOD_INFO,
+        trajectories=None,
+        dataset_metadata=None,
+        default_contender="CatBoost (tuned)",
+        save_path=tmp_path / "per_dataset_explorer.html",
+    )
+    html = out.read_text(encoding="utf-8")
+    assert "const hasTraj = trajIndexOf(p.m) >= 0;" in html
+    assert "No tuning trajectory was published for this method" in html
+    assert ".pd-rankrow.no-traj { cursor: default; }" in html

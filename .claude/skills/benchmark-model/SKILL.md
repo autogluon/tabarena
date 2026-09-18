@@ -320,6 +320,19 @@ Report to the maintainer, in this order:
 4. Anything the numbers hide: imputed tasks, failed splits that were left out, time-limit hits,
    the `flash-attn` kind of "installed without X" caveat.
 
+### CPU models: check the fit times before they replace hosted results
+
+A re-run of a CPU model reproduces its Elo but not necessarily its fit times: CatBoost and EBM re-run on
+`n4-standard-16` spot nodes in September 2026 matched the July suite's Elo exactly while their median fit
+time per 1K rows came out 1.5 to 1.6 times higher, and the results were not hosted for that reason. Before a
+CPU rerun takes over a collection slot, compare its `median_time_train_s_per_1K` with the suite it replaces
+and explain any gap. The open questions to settle, with tests rather than assumptions: whether the tree
+boosters should be timed with the physical cores only (the 16 vCPUs of an `n4-standard-16` are 8 physical
+cores with hyper-threads; `num_cpus=None` resolves to all 16) or with every vCPU, whether their thread
+count should follow that choice, and which machine and CPU count the hosted suite was timed on (record
+both in the log entry of every CPU run). The same run type on GPU nodes is unaffected: the foundation
+models re-run under the new pipeline got faster, as the pipeline change predicts.
+
 ## Step 8: Record the run and hand over
 
 Append the run to `packages/tabflow_slurm/BENCHMARK_LOG.md` (newest first, template at the top of
