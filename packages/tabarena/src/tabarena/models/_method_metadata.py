@@ -9,7 +9,7 @@ from dataclasses import dataclass, field, fields
 from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
-from typing import TYPE_CHECKING, ClassVar, Literal, Self
+from typing import TYPE_CHECKING, Callable, ClassVar, Literal, Self, TypeVar
 
 import pandas as pd
 import yaml
@@ -115,6 +115,9 @@ def infer_validation_protocol(keys: Iterable[str | None]) -> str | None:
     if not unique:
         return None
     return unique.pop() if len(unique) == 1 else "mixed"
+
+
+T = TypeVar("T")
 
 
 @dataclass(eq=False)
@@ -975,22 +978,37 @@ class MethodMetadata:
             )
         raise ValueError(f"Invalid cache_type for uploads: {cache_type}")
 
-    def load_model_results(self) -> pd.DataFrame:
-        return pd.read_parquet(path=self.path_results_model())
+    def _load_results_file(self, path: Path, download: str | bool) -> pd.DataFrame:
+        return self._load_artifact(
+            kind="results",
+            load=lambda: pd.read_parquet(path=path),
+            own_path=True,
+            path=path,
+            download=download,
+            hosted=self.has_results,
+            fetch=lambda downloader: downloader.download_results(),
+        )
 
-    def load_hpo_results(self) -> pd.DataFrame:
-        return pd.read_parquet(path=self.path_results_hpo())
+    def load_model_results(self, download: str | bool = "auto") -> pd.DataFrame:
+        """The per-config ``model_results`` table; ``download`` as in :meth:`load_processed`."""
+        return self._load_results_file(self.path_results_model(), download=download)
 
-    def load_portfolio_results(self) -> pd.DataFrame:
-        return pd.read_parquet(path=self.path_results_portfolio())
+    def load_hpo_results(self, download: str | bool = "auto") -> pd.DataFrame:
+        """The aggregated ``hpo_results`` table; ``download`` as in :meth:`load_processed`."""
+        return self._load_results_file(self.path_results_hpo(), download=download)
 
-    def load_results(self) -> pd.DataFrame:
+    def load_portfolio_results(self, download: str | bool = "auto") -> pd.DataFrame:
+        """The ``portfolio_results`` table; ``download`` as in :meth:`load_processed`."""
+        return self._load_results_file(self.path_results_portfolio(), download=download)
+
+    def load_results(self, download: str | bool = "auto") -> pd.DataFrame:
+        """The results table this method's type reports; ``download`` as in :meth:`load_processed`."""
         if self.method_type == "config":
-            df_results = self.load_hpo_results()
+            df_results = self.load_hpo_results(download=download)
         elif self.method_type == "baseline":
-            df_results = self.load_model_results()
+            df_results = self.load_model_results(download=download)
         elif self.method_type == "portfolio":
-            df_results = self.load_portfolio_results()
+            df_results = self.load_portfolio_results(download=download)
         else:
             raise ValueError(f"Unknown method_type: {self.method_type} for method {self.method}")
         return df_results
@@ -1027,36 +1045,129 @@ class MethodMetadata:
         path_raw: str | Path | None = None,
         engine: str = "ray",
         as_holdout: bool = False,
+        download: str | bool = "auto",
     ) -> list[BaselineResult]:
-        """Loads the raw results artifacts from all `results.pkl` files in the `path_raw` directory.
+        """Load the raw results from every ``results.pkl`` under ``path_raw``.
 
-        Parameters
-        ----------
-        path_raw
-        engine
-        as_holdout
-
-        Returns:
-        -------
-
+        ``download`` as in :meth:`load_processed`. The raw archive holds every split's
+        predictions, so an automatic fetch can be large; it only happens when the local load
+        would otherwise fail.
         """
+        own_path = path_raw is None or Path(path_raw) == self.path_raw
         if path_raw is None:
             path_raw = self.path_raw
-        return load_raw(path_raw=path_raw, engine=engine, as_holdout=as_holdout)
+
+        def load() -> list[BaselineResult]:
+            # `load_raw` diagnoses a directory without result files with an AssertionError listing
+            # what it found instead; on the method's own cache path that is a cache miss.
+            if own_path and not any(Path(path_raw).rglob("results.pkl")):
+                raise FileNotFoundError(f"No results.pkl under {path_raw}")
+            return load_raw(path_raw=path_raw, engine=engine, as_holdout=as_holdout)
+
+        return self._load_artifact(
+            kind="raw",
+            load=load,
+            own_path=own_path,
+            path=path_raw,
+            download=download,
+            hosted=self.has_raw,
+            fetch=lambda downloader: downloader.download_raw(),
+        )
 
     def load_processed(
         self,
         path_processed: str | Path | None = None,
         prediction_format: Literal["memmap", "memopt", "mem"] = "memmap",
         verbose: bool = False,
+        download: str | bool = "auto",
     ) -> EvaluationRepository:
+        """Load the processed artifacts, fetching them from the remote store on a local miss.
+
+        ``download`` follows the convention of the context's ``load_results``: ``"auto"`` (the
+        default) downloads only when the local load fails, ``True`` always downloads first,
+        ``False`` never downloads. The miss is detected by the load itself rather than by a
+        directory check, since a failed load can leave an empty ``processed`` directory behind.
+
+        A download targets this method's own cache path, so it only applies when loading from
+        there: an explicit ``path_processed`` elsewhere is loaded as given, and ``download=True``
+        with such a path is an error. Methods declaring ``has_processed=False`` are never fetched.
+        """
+        own_path = path_processed is None or Path(path_processed) == self.path_processed
         if path_processed is None:
             path_processed = self.path_processed
-        return EvaluationRepository.from_dir(
+        return self._load_artifact(
+            kind="processed",
+            load=lambda: EvaluationRepository.from_dir(
+                path=path_processed,
+                prediction_format=prediction_format,
+                verbose=verbose,
+            ),
+            own_path=own_path,
             path=path_processed,
-            prediction_format=prediction_format,
-            verbose=verbose,
+            download=download,
+            hosted=self.has_processed,
+            fetch=lambda downloader: downloader.download_processed(),
         )
+
+    def _load_artifact(
+        self,
+        *,
+        kind: str,
+        load: Callable[[], T],
+        own_path: bool,
+        path: str | Path,
+        download: str | bool,
+        hosted: bool,
+        fetch: Callable[[MethodDownloader], None],
+    ) -> T:
+        """Run ``load``, fetching the ``kind`` artifacts from the remote store on a local miss.
+
+        ``download="auto"`` downloads and retries once after a failed load, ``True`` downloads
+        first, ``False`` never downloads. A download targets this method's own cache path, so an
+        explicit path elsewhere (``own_path=False``) is loaded as given and ``download=True``
+        with it is an error. ``hosted`` is the method's ``has_<kind>`` flag: an automatic fetch
+        is skipped when the method declares the artifacts were never uploaded.
+        """
+        force = isinstance(download, bool) and download
+        auto = isinstance(download, str) and download == "auto"
+        if force:
+            if not own_path:
+                raise ValueError(
+                    f"download=True targets this method's cache path, but path={path} was given "
+                    f"(method={self.method!r}, kind={kind!r}).",
+                )
+            fetch(self.method_downloader())
+
+        def missing(hint: str) -> FileNotFoundError:
+            return FileNotFoundError(
+                f"Missing local {kind} artifacts for method {self.method!r} (suite={self.suite!r}) under {path}. {hint}",
+            )
+
+        try:
+            return load()
+        except FileNotFoundError as err:
+            if not own_path:
+                raise
+            if auto and hosted and self.has_remote_cache:
+                print(
+                    f"Missing local {kind} artifacts for method! "
+                    f"Attempting to download from {self.cache_type} and retry... "
+                    f'(download={download}, method="{self.method}")',
+                )
+                fetch(self.method_downloader())
+                try:
+                    return load()
+                except FileNotFoundError as retry_err:
+                    raise missing(
+                        f"The {self.cache_type} store has no {kind} artifacts for this method either.",
+                    ) from retry_err
+            if not hosted:
+                raise missing(f"The method declares has_{kind}=False, so none are hosted.") from err
+            if self.has_remote_cache:
+                raise missing("Try `download=True` to fetch them.") from err
+            raise missing(
+                f"The method has no remote store (cache_type={self.cache_type!r}) to fetch them from.",
+            ) from err
 
     def generate_repo(
         self,

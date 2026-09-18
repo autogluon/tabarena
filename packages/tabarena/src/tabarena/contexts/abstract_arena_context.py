@@ -676,6 +676,8 @@ class AbstractArenaContext:
         These are the baseline/reference results ``compare`` compares new results against.
         A context constructed with no methods contributes none (empty DataFrame), so a
         self-contained arena's leaderboard is computed purely from ``new_results``.
+        ``download_results`` is forwarded to each method's
+        :meth:`~tabarena.models._method_metadata.MethodMetadata.load_results` as ``download``.
         """
         if methods is None:
             methods = self.methods
@@ -689,33 +691,9 @@ class AbstractArenaContext:
         if not methods:
             return pd.DataFrame()
 
-        df_results_lst = []
-        for method in methods:
-            method_metadata = self.method_metadata(method=method)
-            if isinstance(download_results, bool) and download_results:
-                method_downloader = method_metadata.method_downloader()
-                method_downloader.download_results()
-
-            try:
-                df_results = method_metadata.load_results()
-            except FileNotFoundError as err:
-                if isinstance(download_results, str) and download_results == "auto":
-                    print(
-                        f"Missing local results files for method! "
-                        f"Attempting to download from s3 and retry... "
-                        f'(download_results={download_results}, method="{method_metadata.method}")',
-                    )
-                    method_downloader = method_metadata.method_downloader()
-                    method_downloader.download_results()
-                    df_results = method_metadata.load_results()
-                else:
-                    print(
-                        f"Missing local results files for method {method_metadata.method}! "
-                        f"Try setting `download_results=True` to get the required files.",
-                    )
-                    raise err
-            df_results_lst.append(df_results)
-
+        df_results_lst = [
+            self.method_metadata(method=method).load_results(download=download_results) for method in methods
+        ]
         return pd.concat(df_results_lst, ignore_index=True)
 
     def load_model_results(
@@ -746,30 +724,9 @@ class AbstractArenaContext:
         if not methods:
             return pd.DataFrame()
 
-        df_results_lst = []
-        for method in methods:
-            method_metadata = self.method_metadata(method=method)
-            if isinstance(download_results, bool) and download_results:
-                method_metadata.method_downloader().download_results()
-
-            try:
-                df_results = method_metadata.load_model_results()
-            except FileNotFoundError as err:
-                if isinstance(download_results, str) and download_results == "auto":
-                    print(
-                        f"Missing local model_results for method! Attempting to download from s3 "
-                        f'and retry... (method="{method_metadata.method}")',
-                    )
-                    method_metadata.method_downloader().download_results()
-                    df_results = method_metadata.load_model_results()
-                else:
-                    print(
-                        f"Missing local model_results for method {method_metadata.method}! "
-                        f"Try setting `download_results=True` to get the required files.",
-                    )
-                    raise err
-            df_results_lst.append(df_results)
-
+        df_results_lst = [
+            self.method_metadata(method=method).load_model_results(download=download_results) for method in methods
+        ]
         df_model_results = pd.concat(df_results_lst, ignore_index=True)
         if configs is not None:
             df_model_results = df_model_results[df_model_results["method"].isin(set(configs))]
@@ -1685,8 +1642,15 @@ class AbstractArenaContext:
         methods: list[str | MethodMetadata] | None = None,
         config_fallback: str | None = None,
         max_workers: int | None = 16,
+        download_processed: str | bool = "auto",
     ) -> EvaluationRepositoryCollection:
         """Load each method's processed artifacts and combine them into a collection.
+
+        ``download_processed`` is forwarded to each method's
+        :meth:`~tabarena.models._method_metadata.MethodMetadata.load_processed` as ``download``:
+        ``"auto"`` (the default) fetches a method's processed artifacts from its remote store only
+        when they are missing locally, ``True`` always fetches them first, ``False`` never
+        downloads.
 
         Methods load in a thread pool of ``max_workers`` (capped at the method count; pass
         ``None`` or ``1`` to load sequentially). Loading is dominated by per-file filesystem
@@ -1706,13 +1670,17 @@ class AbstractArenaContext:
             method if isinstance(method, MethodMetadata) else self.method_metadata(method=method) for method in methods
         ]
         max_workers = max(1, min(max_workers if max_workers is not None else 1, len(metadatas)))
+
+        def load(metadata: MethodMetadata) -> EvaluationRepository:
+            return metadata.load_processed(download=download_processed)
+
         with shared_label_files():
             if max_workers == 1:
-                repos = [metadata.load_processed() for metadata in metadatas]
+                repos = [load(metadata) for metadata in metadatas]
             else:
-                repos = [metadatas[0].load_processed()]
+                repos = [load(metadatas[0])]
                 with ThreadPoolExecutor(max_workers=max_workers) as executor:
-                    repos += list(executor.map(lambda metadata: metadata.load_processed(), metadatas[1:]))
+                    repos += list(executor.map(load, metadatas[1:]))
         return EvaluationRepositoryCollection(repos=repos, config_fallback=config_fallback)
 
     # FIXME: This is a hacky approach, refactor

@@ -236,13 +236,14 @@ class InMemoryMethodMetadata(MethodMetadata):
         return cls(results=base.load_results(), repo=repo, hpo_trajectories=hpo_trajectories, **base.to_info_dict())
 
     # ------------------------------------------------------------------ in-memory artifacts
-    def load_results(self) -> pd.DataFrame:
+    # `download` is accepted for signature parity with `MethodMetadata`; there is nothing to fetch.
+    def load_results(self, download: str | bool = "auto") -> pd.DataFrame:
         return self._results.copy(deep=True)
 
-    def load_model_results(self) -> pd.DataFrame:
+    def load_model_results(self, download: str | bool = "auto") -> pd.DataFrame:
         return self._results.copy(deep=True)
 
-    def load_hpo_results(self) -> pd.DataFrame:
+    def load_hpo_results(self, download: str | bool = "auto") -> pd.DataFrame:
         return self._results.copy(deep=True)
 
     @property
