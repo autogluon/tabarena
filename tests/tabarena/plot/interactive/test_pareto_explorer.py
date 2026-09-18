@@ -151,3 +151,11 @@ def test_dim_off_front_is_off_by_default_and_reaches_the_page(tmp_path):
     assert '"dimOffFront": false' in default
     assert '"dimOffFront": true' in dimmed
     assert "const dim = CONFIG.dimOffFront && on && !front.points.has(p);" in dimmed
+
+
+def test_host_metric_echo_does_not_undo_a_local_pick(tmp_path):
+    """The host repeats its metric on every height report; only a change of the host's choice applies."""
+    out = build_pareto_explorer_html(points=_scatter_points(), save_path=tmp_path / "explorer.html")
+    html = out.read_text(encoding="utf-8")
+    assert "let lastHostMetric = null;" in html
+    assert "if (d.metric === lastHostMetric) return;" in html

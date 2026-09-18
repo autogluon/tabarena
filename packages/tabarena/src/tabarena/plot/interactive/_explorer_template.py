@@ -578,9 +578,16 @@ __BASE_JS__
   // Embedded, the host can pick the metric for us: the leaderboard's "I care about" control
   // decides whether the page leads with Elo or Improvability, and every panel follows without
   // regenerating an artifact per metric. Ignored when the metric is not one this chart offers.
+  // The host re-sends its choice every time the frame reports a height, and a metric picked in
+  // here (or a paper-view toggle) changes the height. So a repeat of the host's last message is
+  // ignored outright, rather than compared with the metric on screen: otherwise the reader's
+  // own pick would be undone by the echo of a choice the host had already made.
+  let lastHostMetric = null;
   window.addEventListener("message", ev => {
     const d = ev.data;
     if (!d || d.type !== "tabarena-explorer-metric") return;
+    if (d.metric === lastHostMetric) return;
+    lastHostMetric = d.metric;
     if (!METRICS.some(m => m.key === d.metric) || d.metric === metricKey) return;
     if (metricSelect) metricSelect.value = d.metric;
     setMetric(d.metric);
