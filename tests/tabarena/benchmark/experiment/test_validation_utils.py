@@ -1056,7 +1056,7 @@ def test_resolve_holdout_split_grouped_stratified_keeps_all_train_classes():
 
 
 # ===========================================================================
-# AGWrapper._apply_task_specific_holdout — wiring the split into tuning_data
+# AGSingleWrapper._apply_task_specific_holdout — wiring the split into tuning_data
 # ===========================================================================
 
 
@@ -1066,16 +1066,17 @@ def _make_holdout_wrapper(
     validation_protocol: ValidationProtocol | None = BEYONDARENA_VALIDATION_PROTOCOL,
     fit_kwargs: dict | None = None,
 ):
-    """Build a bare ``AGWrapper`` (full predictor, no fit) for exercising the validation-split logic.
+    """Build a bare ``AGSingleWrapper`` (single-model holdout fit, no fit run) for the holdout-split logic.
 
     The default protocol is task-specific (BeyondArena); ``TABARENA_V0PT1_VALIDATION_PROTOCOL`` is the
-    non-task-specific case. ``fit_kwargs`` lets a test choose the validation mode the way a full
-    ``TabularPredictor`` run would: include ``num_bag_folds`` (>= 2) for the bagged path, or omit it
-    for the holdout path.
+    non-task-specific case. The carving belongs to the single-model wrappers: a full ``AGWrapper``
+    declares the structure to AutoGluon instead (see ``test_autogluon_structure.py``).
     """
-    from tabarena.benchmark.exec_models.autogluon import AGWrapper
+    from tabarena.benchmark.exec_models.autogluon import AGSingleWrapper
 
-    return AGWrapper(
+    return AGSingleWrapper(
+        model_cls="GBM",
+        model_hyperparameters={},
         problem_type="regression",
         eval_metric=None,
         validation_metadata=validation_metadata,
@@ -1164,12 +1165,12 @@ def test_build_predictor_args_sets_tuning_data_for_grouped_holdout():
 
 
 # ===========================================================================
-# AGWrapper validation dispatch: bagging (custom_splits) vs holdout (tuning_data)
+# Single-model wrappers: bagged (custom_splits) vs holdout (tuning_data)
 #
-# A full AutoGluon `TabularPredictor` run (AGWrapper) validates via bagging or holdout depending on
-# its settings. Both must get the task-aware (grouped/temporal) non-IID split. `num_bag_folds >= 2`
-# -> grouped/temporal `custom_splits` (no `tuning_data`); otherwise a single grouped/temporal
-# `tuning_data` holdout (no `custom_splits`). The two are mutually exclusive.
+# The single-model wrappers resolve the task-aware (grouped/temporal) split in TabArena: a bagged fit
+# (AGSingleBagWrapper) gets `custom_splits` (no `tuning_data`), a holdout fit (AGSingleWrapper) a
+# single `tuning_data` holdout (no `custom_splits`). A full predictor (AGWrapper) declares the
+# structure to AutoGluon instead; see tests/tabarena/benchmark/exec_models/test_autogluon_structure.py.
 # ===========================================================================
 
 
@@ -1177,25 +1178,34 @@ def _custom_splits(fit_kwargs: dict):
     return fit_kwargs.get("ag_args_ensemble", {}).get("custom_splits")
 
 
+def _make_single_bag_wrapper(validation_metadata: dict | None):
+    from tabarena.benchmark.exec_models.autogluon import AGSingleBagWrapper
+
+    return AGSingleBagWrapper(
+        model_cls="GBM",
+        model_hyperparameters={},
+        problem_type="regression",
+        eval_metric=None,
+        validation_metadata=validation_metadata,
+        validation_protocol=BEYONDARENA_VALIDATION_PROTOCOL,
+    )
+
+
 @pytest.mark.skipif(not _DATA_FOUNDRY_AVAILABLE, reason="data_foundry not installed")
 def test_build_predictor_args_grouped_bagging_uses_custom_splits_not_tuning_data():
     """Bagged grouped fit -> group-disjoint custom_splits folds, and NOT a tuning_data holdout."""
     n = 600
     group_values = [f"g{i % 20}" for i in range(n)]
-    wrapper = _make_holdout_wrapper(
-        {"group_on": "grp", "group_labels": GroupLabelTypes.PER_SAMPLE},
-        fit_kwargs={"num_bag_folds": 8, "num_bag_sets": 1},
-    )
+    wrapper = _make_single_bag_wrapper({"group_on": "grp", "group_labels": GroupLabelTypes.PER_SAMPLE})
     X = pd.DataFrame({"feature": np.arange(n, dtype=float), "grp": group_values})
     y = pd.Series(np.arange(n, dtype=float))
 
     _train_data, _init_kwargs, fit_kwargs = wrapper._build_predictor_args(X=X, y=y, X_val=None, y_val=None)
 
-    # Bagging path: custom_splits, no holdout tuning_data, fold count preserved.
+    # Bagging path: custom_splits, no holdout tuning_data, one split per fold and repeat.
     assert "tuning_data" not in fit_kwargs
     splits = _custom_splits(fit_kwargs)
-    assert splits is not None and len(splits) == 8
-    assert fit_kwargs.get("num_bag_folds") == 8
+    assert splits is not None and len(splits) == fit_kwargs["num_bag_folds"] * fit_kwargs["num_bag_sets"]
     groups = np.asarray(group_values)
     for train_idx, val_idx in splits:
         assert set(groups[train_idx]).isdisjoint(set(groups[val_idx])), "a group spans a bagged fold"
@@ -1205,7 +1215,7 @@ def test_build_predictor_args_grouped_bagging_uses_custom_splits_not_tuning_data
 def test_build_predictor_args_temporal_bagging_uses_custom_splits_not_tuning_data():
     """Bagged temporal fit -> non-empty time-based custom_splits folds, and no tuning_data."""
     n = 600
-    wrapper = _make_holdout_wrapper({"time_on": "time"}, fit_kwargs={"num_bag_folds": 8, "num_bag_sets": 1})
+    wrapper = _make_single_bag_wrapper({"time_on": "time"})
     X = pd.DataFrame({"feature": np.arange(n, dtype=float), "time": np.arange(n)})
     y = pd.Series(np.arange(n, dtype=float))
 
@@ -1239,22 +1249,37 @@ def test_build_predictor_args_temporal_holdout_is_forward_and_has_no_custom_spli
 # ===========================================================================
 
 
+def _make_predictor_wrapper(validation_metadata: dict | None, *, validation_protocol=BEYONDARENA_VALIDATION_PROTOCOL):
+    from tabarena.benchmark.exec_models.autogluon import AGWrapper
+
+    return AGWrapper(
+        problem_type="regression",
+        eval_metric=None,
+        validation_metadata=validation_metadata,
+        validation_protocol=validation_protocol,
+    )
+
+
 def test_predictor_wrapper_without_counts_leaves_the_bagging_to_autogluon():
-    wrapper = _make_holdout_wrapper(None)
+    wrapper = _make_predictor_wrapper(None)
     fit_kwargs: dict = {}
     assert wrapper._apply_validation_splits(fit_kwargs, X=_make_X(600), y=pd.Series(np.zeros(600))) is None
     assert fit_kwargs == {}
-    assert wrapper.get_validation_record() == {}
+    record = wrapper.get_validation_record()
+    assert record["validation_structure"] is False
+    assert record["num_bag_folds_nominal"] is None
+    assert record["regime"] is None
 
 
 def test_predictor_wrapper_explicit_counts_are_fit_as_given():
-    wrapper = _make_holdout_wrapper(None, validation_protocol=TABARENA_V0PT1_VALIDATION_PROTOCOL)
+    wrapper = _make_predictor_wrapper(None, validation_protocol=TABARENA_V0PT1_VALIDATION_PROTOCOL)
     fit_kwargs = {"num_bag_folds": 3, "num_bag_sets": 2}
     assert wrapper._apply_validation_splits(fit_kwargs, X=_make_X(600), y=pd.Series(np.zeros(600))) == 3
     assert fit_kwargs == {"num_bag_folds": 3, "num_bag_sets": 2}
     record = wrapper.get_validation_record()
     assert record["regime"] == "explicit"
     assert (record["num_bag_folds_resolved"], record["num_bag_sets_resolved"]) == (3, 2)
+    assert record["validation_structure"] is False
 
 
 # ===========================================================================

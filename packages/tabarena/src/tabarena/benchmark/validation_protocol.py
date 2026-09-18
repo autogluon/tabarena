@@ -270,6 +270,8 @@ class ValidationResolution:
         clamps: Names of the data-dependent reductions that applied.
         custom_splits: Whether explicit group / time-aware folds were passed.
         num_custom_splits: How many custom splits were passed.
+        validation_structure: Whether the task's structure was declared to AutoGluon
+            (``TabularPredictor.fit(validation_structure=...)``), which then built the splits itself.
         task_specific_holdout: Whether a task-aware holdout split replaced AutoGluon's default one.
         holdout_rows: Rows of that holdout split.
         structure: The effective split structure (``group_on``, ``time_on``, ``stratify_on``, ``group_labels``).
@@ -284,6 +286,7 @@ class ValidationResolution:
     clamps: tuple[str, ...] = ()
     custom_splits: bool = False
     num_custom_splits: int | None = None
+    validation_structure: bool = False
     task_specific_holdout: bool = False
     holdout_rows: int | None = None
     structure: dict[str, Any] = field(default_factory=dict)

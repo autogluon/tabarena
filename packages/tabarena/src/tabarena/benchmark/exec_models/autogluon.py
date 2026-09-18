@@ -3,7 +3,6 @@ from __future__ import annotations
 import copy
 import os
 import shutil
-from dataclasses import replace
 from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
 import numpy as np
@@ -14,10 +13,12 @@ from autogluon.core.utils import get_pred_from_proba
 from loguru import logger
 
 from tabarena.benchmark.exec_models.autogluon_utils import (
+    SPLIT_RANDOM_STATE,
     get_num_group_instances,
     resolve_holdout_split,
     resolve_model_cls,
     resolve_validation_splits,
+    validation_structure_from_metadata,
 )
 from tabarena.benchmark.exec_models.base import AbstractExecModel
 from tabarena.benchmark.exec_models.persist_inference import (
@@ -65,7 +66,13 @@ class AGWrapper(AbstractExecModel):
     folds (re-injected as ``ag_args_ensemble['custom_splits']``). A holdout fit (``AGSingleWrapper``)
     uses ``resolve_holdout_split`` to produce a single group/time-aware train/validation split, fed to
     ``TabularPredictor`` as ``tuning_data`` (a single model does not consume ``custom_splits``). A full
-    predictor (``AGWrapper`` itself) lets AutoGluon decide unless ``fit_kwargs`` name the counts.
+    predictor (``AGWrapper`` itself) fits the counts ``fit_kwargs`` name, or lets AutoGluon decide
+    without them; with ``task_specific_validation`` it declares the task's grouped / temporal
+    structure to ``TabularPredictor.fit(validation_structure=...)`` and AutoGluon builds the folds,
+    or the holdout split, itself (one fit trains many models, so TabArena cannot pre-resolve splits
+    per model). The learner is then seeded with ``split_random_state`` so those splits follow the
+    same seed as TabArena's resolved ones; a task without such structure keeps AutoGluon's default
+    splitter and seed.
 
     Parameters
     ----------
@@ -75,6 +82,17 @@ class AGWrapper(AbstractExecModel):
         Extra keyword arguments for ``TabularPredictor.fit(...)``. The bagging counts are not
         passed here: a single-model wrapper takes them from ``validation_protocol``; a full
         predictor may name ``num_bag_folds`` / ``num_bag_sets`` explicitly (fit as given).
+    temporal_forward_only:
+        Full predictor only. Ask AutoGluon for forward-chaining temporal validation on a ``time_on``
+        task instead of leave-one-block-out: fold *i* validates time block *i+1* and trains only on
+        earlier blocks. Costs the earliest block (never validated) and trains each fold on less data;
+        no effect on a task without ``time_on``; cannot be combined with stacking (AutoGluon raises).
+    split_random_state:
+        Full predictor only. Seed for AutoGluon's structure-aware splitting, injected as the
+        learner's ``random_state`` when a structure is declared. Defaults to ``data_foundry``'s
+        seed (:data:`~tabarena.benchmark.exec_models.autogluon_utils.SPLIT_RANDOM_STATE`) so the
+        folds match TabArena's resolved ones; an explicit ``init_kwargs["learner_kwargs"]["random_state"]``
+        wins.
     persist:
         If True (default), persist the fitted model in memory before inference (untimed, in
         ``pre_predict`` through ``persist_for_inference``), so the measured inference time is that of
@@ -137,8 +155,15 @@ class AGWrapper(AbstractExecModel):
         fit_kwargs: dict | None = None,
         persist: bool = True,
         validation_protocol: ValidationProtocol | dict | None = None,
+        temporal_forward_only: bool = False,
+        split_random_state: int = SPLIT_RANDOM_STATE,
         **kwargs,
     ):
+        if self.bagged_fit is not None and (temporal_forward_only or split_random_state != SPLIT_RANDOM_STATE):
+            raise ValueError(
+                "`temporal_forward_only` and `split_random_state` act on the full predictor, which declares the "
+                "task's structure to AutoGluon; a single-model wrapper resolves its splits in TabArena."
+            )
         if "use_task_specific_validation" in kwargs:
             raise TypeError(
                 "`use_task_specific_validation` is not a wrapper argument; task-specific validation is the "
@@ -152,6 +177,8 @@ class AGWrapper(AbstractExecModel):
         self.init_kwargs = init_kwargs
         self.fit_kwargs = fit_kwargs
         self.validation_protocol = ValidationProtocol.from_config(validation_protocol)
+        self.temporal_forward_only = temporal_forward_only
+        self.split_random_state = split_random_state
         self.persist = persist
         self._persisted_models: list[str] | None = None
         self._validation_resolution: ValidationResolution | None = None
@@ -308,10 +335,13 @@ class AGWrapper(AbstractExecModel):
         Works on deep copies of the configured ``init_kwargs`` / ``fit_kwargs`` so the
         wrapper can be re-fit. The steps:
 
-        1. Resolve the bagging counts from the validation protocol (``_apply_validation_splits``),
-           which for a task-specific protocol may clamp the fold / repeat counts and produce
-           explicit ``custom_splits`` (re-injected into ``ag_args_ensemble``).
-        2. On the non-bagged (holdout) path, carve a single task-aware validation split off the
+        1. Resolve the bagging counts from the validation protocol (``_apply_validation_splits``).
+           For a bagged single-model wrapper a task-specific protocol may clamp the fold / repeat
+           counts and produce explicit ``custom_splits`` (re-injected into ``ag_args_ensemble``);
+           for a full predictor it declares the task's structure as ``validation_structure``
+           instead, and the learner is seeded with ``split_random_state`` so AutoGluon's splits
+           follow TabArena's seed (an explicit ``learner_kwargs["random_state"]`` wins).
+        2. On the single-model holdout path, carve a single task-aware validation split off the
            training data (``_apply_task_specific_holdout``) and hand it to ``TabularPredictor`` as
            explicit ``tuning_data`` — a single model does not consume the bagged ``custom_splits``.
         3. If ``feature_generator_cls`` is given, instantiate it (forwarding any group/time
@@ -345,6 +375,10 @@ class AGWrapper(AbstractExecModel):
         num_folds = self._apply_validation_splits(fit_kwargs, X=X, y=y)
         if X_val is None:
             X, y, X_val, y_val = self._apply_task_specific_holdout(X=X, y=y, num_folds=num_folds)
+        if fit_kwargs.get("validation_structure") is not None:
+            # The learner's random_state also seeds AutoGluon's default splitter, so it is set only
+            # alongside a declared structure: an unstructured task keeps the default splitter's seed.
+            init_kwargs.setdefault("learner_kwargs", {}).setdefault("random_state", self.split_random_state)
         self._apply_feature_generator(fit_kwargs)
 
         # TODO: think about if we can reset the index here without breaking simulation artifacts
@@ -362,12 +396,15 @@ class AGWrapper(AbstractExecModel):
         the protocol has a tiny-data regime, and with ``task_specific_validation`` run through
         ``resolve_validation_splits`` (data-dependent clamps plus explicit ``custom_splits``). A
         holdout wrapper (``bagged_fit=False``) resolves nothing here. A full predictor
-        (``bagged_fit=None``) passes its own ``fit_kwargs`` counts through, adding task-specific
-        custom splits for them when the protocol asks for it. What was resolved is kept on
+        (``bagged_fit=None``) passes its own ``fit_kwargs`` counts through and, when the protocol
+        asks for task-specific validation, declares the task's grouped / temporal structure as
+        ``fit_kwargs["validation_structure"]`` (``_declare_validation_structure``): AutoGluon then
+        builds the folds, or the holdout split, itself. What was resolved is kept on
         ``self._validation_resolution`` for the result record.
 
         Returns the effective ``num_folds``: ``None`` (or ``<= 1``) signals the non-bagged holdout
-        path, which ``_build_predictor_args`` then handles via a single task-aware split.
+        path, which ``_build_predictor_args`` then handles via a single task-aware split for a
+        single-model wrapper.
         """
         num_folds = fit_kwargs.pop("num_bag_folds", None)
         num_repeats = fit_kwargs.pop("num_bag_sets", None)
@@ -395,22 +432,59 @@ class AGWrapper(AbstractExecModel):
                 )
             return None
 
-        # Full predictor: explicit counts are fit as given; without them AutoGluon decides.
-        if num_folds is None or num_folds <= 1:
-            if num_folds is not None:
-                fit_kwargs["num_bag_folds"] = num_folds
-            if num_repeats is not None:
-                fit_kwargs["num_bag_sets"] = num_repeats
-            return num_folds
-        explicit = replace(
-            self.validation_protocol if self.validation_protocol is not None else ValidationProtocol(),
-            num_bag_folds=num_folds,
-            num_bag_sets=num_repeats if num_repeats is not None else 1,
-            tiny_num_bag_folds=None,
-            tiny_num_bag_sets=None,
-            tiny_max_group_instances=None,
+        # Full predictor: the counts are fit as given (without them AutoGluon decides); the task's
+        # structure, when the protocol asks for it, is declared rather than resolved here.
+        if num_folds is not None:
+            fit_kwargs["num_bag_folds"] = num_folds
+        if num_repeats is not None:
+            fit_kwargs["num_bag_sets"] = num_repeats
+        self._declare_validation_structure(fit_kwargs, num_folds=num_folds, num_repeats=num_repeats)
+        return num_folds
+
+    def _declare_validation_structure(
+        self, fit_kwargs: dict, *, num_folds: int | None, num_repeats: int | None
+    ) -> None:
+        """Declare the task's structure to AutoGluon for a full-predictor fit (in place).
+
+        With a task-specific protocol and a task that has grouped or temporal structure,
+        ``fit_kwargs["validation_structure"]`` is set from the validation metadata
+        (:func:`~tabarena.benchmark.exec_models.autogluon_utils.validation_structure_from_metadata`)
+        and AutoGluon resolves the splits: group-disjoint or time-blocked folds for a bagged fit,
+        the matching holdout for a non-bagged one, and any clamping (fewer groups than folds,
+        repeats collapsed) inside its ``ValidationStructure``. A task without such structure keeps
+        AutoGluon's default splitter, as the single-model wrappers do (``resolve_validation_splits``
+        returns no ``custom_splits`` for it). The class-count adaptation is switched on when the
+        protocol asks for it. The resolution record notes what was declared.
+        """
+        protocol = self.validation_protocol
+        structure = None
+        if protocol is not None and protocol.task_specific_validation:
+            structure = validation_structure_from_metadata(
+                self.validation_metadata, temporal_forward_only=self.temporal_forward_only
+            )
+            if structure is None:
+                logger.info(
+                    "Task declares no grouped or temporal structure; AutoGluon's default splitter is used "
+                    f"(num_bag_folds={num_folds}, num_bag_sets={num_repeats}).",
+                )
+            else:
+                fit_kwargs["validation_structure"] = structure
+                logger.info(
+                    f"Delegating validation splitting to AutoGluon: {structure} (num_bag_folds={num_folds}, "
+                    f"num_bag_sets={num_repeats}, split_random_state={self.split_random_state}).",
+                )
+        bagged = num_folds is not None and num_folds > 1
+        if protocol is not None and protocol.adapt_num_folds_to_n_classes and bagged:
+            fit_kwargs["adapt_num_bag_folds_to_n_classes"] = True
+        self._validation_resolution = ValidationResolution(
+            regime="explicit" if bagged else None,
+            num_bag_folds_nominal=num_folds,
+            num_bag_sets_nominal=num_repeats,
+            num_bag_folds_resolved=num_folds if bagged else None,
+            num_bag_sets_resolved=(num_repeats if num_repeats is not None else 1) if bagged else None,
+            validation_structure=structure is not None,
+            structure=structure_of(self.validation_metadata),
         )
-        return self._resolve_bagged_fit(fit_kwargs, protocol=explicit, X=X, y=y, regime="explicit")
 
     def _resolve_bagged_fit(
         self,
@@ -483,15 +557,19 @@ class AGWrapper(AbstractExecModel):
         ensemble), so the resolved holdout rows are returned as explicit ``X_val`` / ``y_val`` and
         fed to ``TabularPredictor`` as ``tuning_data`` instead.
 
-        Only acts on the holdout path: a task-specific validation protocol and no bagging
-        (``num_folds`` is ``None`` / ``<= 1``). Otherwise, or when the task carries no
-        grouped/temporal structure (``resolve_holdout_split`` returns ``None``), returns the data
-        unchanged with ``X_val=None`` so AutoGluon's built-in holdout is used.
+        Only acts on the single-model holdout path: a task-specific validation protocol and no
+        bagging (``num_folds`` is ``None`` / ``<= 1``). A full predictor (``bagged_fit=None``)
+        never carves here: its holdout follows the ``validation_structure`` it declared, which
+        AutoGluon resolves itself. Otherwise, or when the task carries no grouped/temporal
+        structure (``resolve_holdout_split`` returns ``None``), returns the data unchanged with
+        ``X_val=None`` so AutoGluon's built-in holdout is used.
 
         Returns ``(X_train, y_train, X_val, y_val)``; rows keep their original index.
         """
         protocol = self.validation_protocol
-        if protocol is None or not protocol.task_specific_validation or (num_folds is not None and num_folds > 1):
+        if self.bagged_fit is None or protocol is None or not protocol.task_specific_validation:
+            return X, y, None, None
+        if num_folds is not None and num_folds > 1:
             return X, y, None, None
 
         X_reset = X.reset_index(drop=True)
