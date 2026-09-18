@@ -1685,8 +1685,14 @@ class AbstractArenaContext:
         methods: list[str | MethodMetadata] | None = None,
         config_fallback: str | None = None,
         max_workers: int | None = 16,
+        download_processed: str | bool = "auto",
     ) -> EvaluationRepositoryCollection:
         """Load each method's processed artifacts and combine them into a collection.
+
+        ``download_processed`` follows :meth:`load_results`: ``"auto"`` (the default) fetches a
+        method's processed artifacts from its remote store only when they are missing locally,
+        ``True`` always fetches them first, ``False`` never downloads. A method whose artifacts
+        are missing and cannot be fetched raises :class:`FileNotFoundError`.
 
         Methods load in a thread pool of ``max_workers`` (capped at the method count; pass
         ``None`` or ``1`` to load sequentially). Loading is dominated by per-file filesystem
@@ -1706,14 +1712,53 @@ class AbstractArenaContext:
             method if isinstance(method, MethodMetadata) else self.method_metadata(method=method) for method in methods
         ]
         max_workers = max(1, min(max_workers if max_workers is not None else 1, len(metadatas)))
+
+        def load(metadata: MethodMetadata) -> EvaluationRepository:
+            return self._load_processed(metadata, download_processed=download_processed)
+
         with shared_label_files():
             if max_workers == 1:
-                repos = [metadata.load_processed() for metadata in metadatas]
+                repos = [load(metadata) for metadata in metadatas]
             else:
-                repos = [metadatas[0].load_processed()]
+                repos = [load(metadatas[0])]
                 with ThreadPoolExecutor(max_workers=max_workers) as executor:
-                    repos += list(executor.map(lambda metadata: metadata.load_processed(), metadatas[1:]))
+                    repos += list(executor.map(load, metadatas[1:]))
         return EvaluationRepositoryCollection(repos=repos, config_fallback=config_fallback)
+
+    @staticmethod
+    def _load_processed(
+        metadata: MethodMetadata,
+        download_processed: str | bool = "auto",
+    ) -> EvaluationRepository:
+        """Load one method's processed artifacts, downloading them on a local cache miss.
+
+        A processed directory may exist without being loadable (an interrupted extraction, a
+        directory created by another step), so the miss is detected by the load itself
+        rather than by a directory check.
+        """
+        if isinstance(download_processed, bool) and download_processed:
+            metadata.method_downloader().download_processed()
+        try:
+            return metadata.load_processed()
+        except FileNotFoundError as err:
+            can_download = isinstance(download_processed, str) and download_processed == "auto"
+            if can_download and metadata.has_remote_cache:
+                print(
+                    f"Missing local processed artifacts for method! "
+                    f"Attempting to download from {metadata.cache_type} and retry... "
+                    f'(download_processed={download_processed}, method="{metadata.method}")',
+                )
+                metadata.method_downloader().download_processed()
+                return metadata.load_processed()
+            hint = (
+                "Try `download_processed=True` to fetch them."
+                if metadata.has_remote_cache
+                else f"The method has no remote store (cache_type={metadata.cache_type!r}) to fetch them from."
+            )
+            raise FileNotFoundError(
+                f"Missing local processed artifacts for method {metadata.method!r} "
+                f"(suite={metadata.suite!r}) under {metadata.path_processed}. {hint}",
+            ) from err
 
     # FIXME: This is a hacky approach, refactor
     def generate_hpo_trajectories(
