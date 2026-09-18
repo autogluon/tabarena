@@ -760,8 +760,9 @@ class AGExperiment(Experiment):
         Runner kwargs, merged over the default ``{"compute_simulation_artifacts": False}``.
     **kwargs:
         Forwarded to ``Experiment.__init__`` (e.g. ``preprocessing_pipeline``,
-        ``validation_protocol``, which a task-specific protocol uses for the task-aware holdout or
-        custom splits of explicit counts).
+        ``validation_protocol``; with ``task_specific_validation`` the wrapper declares the task's
+        grouped / temporal structure to ``TabularPredictor.fit(validation_structure=...)`` and
+        AutoGluon builds the folds or the holdout itself, see ``AGWrapper``).
     """
 
     VALIDATION_FLAVOUR: ClassVar[ValidationFlavour | None] = "predictor"
