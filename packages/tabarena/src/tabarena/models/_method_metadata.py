@@ -1049,14 +1049,68 @@ class MethodMetadata:
         path_processed: str | Path | None = None,
         prediction_format: Literal["memmap", "memopt", "mem"] = "memmap",
         verbose: bool = False,
+        download: str | bool = "auto",
     ) -> EvaluationRepository:
+        """Load the processed artifacts, fetching them from the remote store on a local miss.
+
+        ``download`` follows the convention of the context's ``load_results``: ``"auto"`` (the
+        default) downloads only when the local load fails, ``True`` always downloads first,
+        ``False`` never downloads. The miss is detected by the load itself rather than by a
+        directory check, since a failed load can leave an empty ``processed`` directory behind.
+
+        A download targets this method's own cache path, so it only applies when loading from
+        there: an explicit ``path_processed`` elsewhere is loaded as given, and ``download=True``
+        with such a path is an error.
+        """
+        own_path = path_processed is None or Path(path_processed) == self.path_processed
         if path_processed is None:
             path_processed = self.path_processed
-        return EvaluationRepository.from_dir(
-            path=path_processed,
-            prediction_format=prediction_format,
-            verbose=verbose,
-        )
+        force = isinstance(download, bool) and download
+        auto = isinstance(download, str) and download == "auto"
+        if force:
+            if not own_path:
+                raise ValueError(
+                    f"download=True targets this method's cache path {self.path_processed}, "
+                    f"but path_processed={path_processed} was given.",
+                )
+            self.method_downloader().download_processed()
+
+        def load() -> EvaluationRepository:
+            return EvaluationRepository.from_dir(
+                path=path_processed,
+                prediction_format=prediction_format,
+                verbose=verbose,
+            )
+
+        def missing(hint: str) -> FileNotFoundError:
+            return FileNotFoundError(
+                f"Missing local processed artifacts for method {self.method!r} "
+                f"(suite={self.suite!r}) under {path_processed}. {hint}",
+            )
+
+        try:
+            return load()
+        except FileNotFoundError as err:
+            if not own_path:
+                raise
+            if auto and self.has_remote_cache:
+                print(
+                    f"Missing local processed artifacts for method! "
+                    f"Attempting to download from {self.cache_type} and retry... "
+                    f'(download={download}, method="{self.method}")',
+                )
+                self.method_downloader().download_processed()
+                try:
+                    return load()
+                except FileNotFoundError as retry_err:
+                    raise missing(
+                        f"The {self.cache_type} store has no processed artifacts for this method either.",
+                    ) from retry_err
+            if self.has_remote_cache:
+                raise missing("Try `download=True` to fetch them.") from err
+            raise missing(
+                f"The method has no remote store (cache_type={self.cache_type!r}) to fetch them from.",
+            ) from err
 
     def generate_repo(
         self,
