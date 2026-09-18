@@ -2,23 +2,43 @@ from __future__ import annotations
 
 import tempfile
 from pathlib import Path
-from typing import TYPE_CHECKING
 
-if TYPE_CHECKING:
-    import pandas as pd
+import numpy as np
+
+from tabarena.simulation.label_files import as_label_array, widen_labels, write_labels_dat
+
+
+def _as_stored_array(labels) -> np.ndarray:
+    if not (isinstance(labels, np.ndarray) and labels.ndim == 1):
+        raise TypeError(f"normalize=False requires 1-D arrays, got {type(labels).__name__}")
+    return labels
 
 
 class GroundTruth:
+    """Per-task validation and test labels, as 1-D arrays in row order.
+
+    Integer labels are kept in the narrowest integer dtype that holds them (see
+    :func:`~tabarena.simulation.label_files.as_label_array`) and widened to int64 by
+    :meth:`labels_val` / :meth:`labels_test`; floats keep their dtype.
+    """
+
     def __init__(
-        self, label_val_dict: dict[str, dict[int, pd.Series]], label_test_dict: dict[str, dict[int, pd.Series]]
+        self,
+        label_val_dict: dict[str, dict[int, object]],
+        label_test_dict: dict[str, dict[int, object]],
+        normalize: bool = True,
     ):
-        """:param label_val_dict: dictionary from tid to fold to labels series where the index are openml rows and
-        values are the labels
+        """:param label_val_dict: dataset -> fold -> labels (array, Series or single-column DataFrame;
+        normalized to arrays, row ids of a Series/DataFrame index are dropped)
         :param label_test_dict: same as `label_val_dict`
+        :param normalize: pass ``False`` when every value is already a 1-D array in the stored form
+        (as decoded from ``tasks.dat`` / ``labels.dat``, or taken from another GroundTruth): skips
+        the per-array min/max scan behind the narrowing check, about 0.15 s per BeyondArena method.
         """
         assert set(label_val_dict.keys()) == set(label_test_dict.keys())
-        self._label_val_dict = label_val_dict
-        self._label_test_dict = label_test_dict
+        convert = as_label_array if normalize else _as_stored_array
+        self._label_val_dict = {d: {f: convert(v) for f, v in folds.items()} for d, folds in label_val_dict.items()}
+        self._label_test_dict = {d: {f: convert(v) for f, v in folds.items()} for d, folds in label_test_dict.items()}
 
     @property
     def datasets(self) -> list[str]:
@@ -56,12 +76,18 @@ class GroundTruth:
                 self._label_val_dict[dataset].pop(fold)
                 self._label_test_dict[dataset].pop(fold)
 
-    def labels_val(self, dataset: str, fold: int):
-        # Note we could also expose the series index (original row of OpenML)
-        return self._label_val_dict[dataset][fold].values.flatten()
+    def labels_val(self, dataset: str, fold: int) -> np.ndarray:
+        return self._labels(self._label_val_dict[dataset][fold])
 
-    def labels_test(self, dataset: str, fold: int):
-        return self._label_test_dict[dataset][fold].values.flatten()
+    def labels_test(self, dataset: str, fold: int) -> np.ndarray:
+        return self._labels(self._label_test_dict[dataset][fold])
+
+    @staticmethod
+    def _labels(labels) -> np.ndarray:
+        if not isinstance(labels, np.ndarray):
+            # GroundTruth objects pickled before labels were stored as arrays hold DataFrames.
+            labels = as_label_array(labels)
+        return widen_labels(labels)
 
     # TODO: Unit test
     @classmethod
@@ -90,12 +116,10 @@ class GroundTruth:
                     upload_s3_folder(bucket=s3_bucket, prefix=s3_prefix, folder_to_upload=temp_dir)
                 return
 
-        datasets = self.datasets
-        for dataset in datasets:
+        for dataset in self.datasets:
             for fold in self._label_val_dict[dataset]:
-                target_folder = Path(data_dir) / dataset / str(fold)
-                target_folder.mkdir(exist_ok=True, parents=True)
-                labels_val = self._label_val_dict[dataset][fold]
-                labels_test = self._label_test_dict[dataset][fold]
-                labels_val.to_csv(target_folder / "label-val.csv.zip", index=True)
-                labels_test.to_csv(target_folder / "label-test.csv.zip", index=True)
+                write_labels_dat(
+                    Path(data_dir) / dataset / str(fold),
+                    labels_val=self._label_val_dict[dataset][fold],
+                    labels_test=self._label_test_dict[dataset][fold],
+                )

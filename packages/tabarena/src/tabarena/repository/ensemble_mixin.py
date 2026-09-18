@@ -471,6 +471,12 @@ class EnsembleMixin:
             Whether to simulate the models being fit in their original order sequentially or randomly.
         seed: int, default = 0
             The random seed used to shuffle `configs` if `fit_order="random"`.
+        backend_group_folds: bool, default = False
+            Scheduling granularity under the parallel backend. False submits one task per
+            (dataset, fold) split; True submits one task per dataset that evaluates all of
+            its folds sequentially. Results are identical; per-split scheduling balances the
+            load across workers far better, because per-dataset tasks leave the last few
+            large datasets running on a handful of workers while the rest of the machine idles.
         backend: Literal["ray", "native"], default = "ray"
             The backend to use when running the list of tasks.
         progress_bar: bool, default = True
@@ -642,7 +648,7 @@ class EnsembleMixin:
         fit_order: Literal["original", "random"] = "original",
         seed: int = 0,
         rank: bool = False,
-        backend_group_folds: bool = True,
+        backend_group_folds: bool = False,
         backend: Literal["ray", "native"] = "ray",
     ) -> tuple[pd.DataFrame, pd.DataFrame]:
         """Identical to calling `evaluate_ensemble` once for each row in df_info,
@@ -668,6 +674,10 @@ class EnsembleMixin:
             Whether to simulate the models being fit in their original order sequentially or randomly.
         seed: int, default = 0
             The random seed used to shuffle `configs` if `fit_order="random"`.
+        backend_group_folds: bool, default = False
+            Scheduling granularity under the parallel backend, as in :meth:`evaluate_ensembles`:
+            False submits one task per (dataset, fold) row of ``df_info``, True one task per
+            dataset covering all of its rows.
         backend: Literal["ray", "native"], default = "ray"
             The backend to use when running the list of tasks.
 

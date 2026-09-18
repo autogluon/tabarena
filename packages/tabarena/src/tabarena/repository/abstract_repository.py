@@ -258,9 +258,10 @@ class AbstractRepository(ABC, SaveLoadMixin):
             time_infer_s : Inference time of the config
             rank : Rank of the config
         """
-        df = self._zeroshot_context.df_configs_ranked
         if tasks is not None or configs is not None:
-            df = self._zeroshot_context._filter_df_by_datasets(df=df, tasks=tasks, configs=configs)
+            df = self._zeroshot_context.df_configs_ranked_subset(tasks=tasks, configs=configs)
+        else:
+            df = self._zeroshot_context.df_configs_ranked
 
         masks = []
         if datasets is not None:

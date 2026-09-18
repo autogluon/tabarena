@@ -839,13 +839,59 @@ class AGExperiment(Experiment):
         A full ``TabularPredictor`` run has no single ``model_hyperparameters``; its
         ``fit_kwargs["hyperparameters"]`` maps each model key to a config dict *or a list of config
         dicts*. Every config is wrapped, so single- and multi-model AutoGluon experiments both get
-        the same model-specific preprocessing as the single-model config experiments. A no-op when
-        there is no ``hyperparameters`` dict (e.g. a preset-driven run) — the model-agnostic feature
-        generator still applies.
+        the same model-specific preprocessing as the single-model config experiments.
+
+        The hyperparameters are first resolved to a config dict the same way
+        ``TabularPredictor.fit`` resolves them, so every run shape gets per-model preprocessing
+        identical to a dict-driven run:
+
+        * a *named* config (``hyperparameters`` as a string, e.g. an AutoGluon preset's portfolio
+          ``"noncommercial_2026_08_05"``) is expanded via the same lookup ``fit`` performs;
+        * a bare ``presets=`` run takes the ``hyperparameters`` entry of the preset dict(s)
+          (first-to-last, the last preset that sets the key wins — and, like AutoGluon, an
+          explicit ``hyperparameters`` key blocks the presets' value even when it is ``None``);
+        * no hyperparameters from either source falls back to ``fit``'s own ``"default"``.
+
+        Without the resolution the string / preset would pass through to AutoGluon untouched and
+        every model would silently miss the model-specific step (e.g. raw string columns would
+        reach models whose encoders only handle ``category`` dtype, like TabDPT). The resolved
+        dict is written back to ``fit_kwargs["hyperparameters"]``; explicit fit kwargs take
+        precedence over presets in AutoGluon, and the value equals what the preset would have
+        resolved to, so the fit itself is unchanged.
         """
-        hyperparameters = method_kwargs.get("fit_kwargs", {}).get("hyperparameters")
+        fit_kwargs = method_kwargs.get("fit_kwargs", {})
+        hyperparameters = fit_kwargs.get("hyperparameters")
+        if hyperparameters is None and "hyperparameters" not in fit_kwargs and "presets" in fit_kwargs:
+            # Mirrors autogluon.common's `_apply_presets`: string presets resolve through the
+            # preset dict / aliases (and YAML paths), inline dict presets are used as-is.
+            from autogluon.common.utils.decorators import _resolve_preset_str
+            from autogluon.tabular.configs.presets_configs import tabular_presets_alias, tabular_presets_dict
+
+            presets = fit_kwargs["presets"]
+            for preset in presets if isinstance(presets, list) else [presets]:
+                if isinstance(preset, str):
+                    preset = _resolve_preset_str(preset, tabular_presets_dict, tabular_presets_alias)
+                if isinstance(preset, dict) and "hyperparameters" in preset:
+                    hyperparameters = preset["hyperparameters"]
+        if hyperparameters is None:
+            hyperparameters = "default"  # TabularPredictor.fit's fallback when nothing sets them
+        if isinstance(hyperparameters, str):
+            # Raises ValueError (listing the valid names) at experiment-preprocessing time on a
+            # typo, instead of deeper inside the fit.
+            from autogluon.tabular.configs.hyperparameter_configs import get_hyperparameter_config
+
+            hyperparameters = get_hyperparameter_config(hyperparameters)
         if not isinstance(hyperparameters, dict):
+            warnings.warn(
+                f"Experiment {self.name!r} uses the tabarena_default preprocessing pipeline but "
+                f"its fit_kwargs['hyperparameters'] resolved to {hyperparameters!r}, which the "
+                f"model-specific preprocessing cannot be injected into. Models that rely on it "
+                f"(e.g. ordinal encoding of string columns) will misbehave; pass hyperparameters "
+                f"as a config dict or a named AutoGluon config string.",
+                stacklevel=2,
+            )
             return
+        fit_kwargs["hyperparameters"] = hyperparameters
         for model_key, configs in hyperparameters.items():
             if isinstance(configs, list):
                 hyperparameters[model_key] = [

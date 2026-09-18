@@ -14,7 +14,8 @@ logger = logging.getLogger(__name__)
 
 from tabarena.simulation.dense_utils import prune_zeroshot_gt
 from tabarena.simulation.ground_truth import GroundTruth
-from tabarena.simulation.simulation_context import ZeroshotSimulatorContext
+from tabarena.simulation.simulation_context import PredictOnlyZeroshotSimulatorContext, ZeroshotSimulatorContext
+from tabarena.utils.shipping import is_shipping
 
 from .abstract_repository import AbstractRepository
 from .ensemble_mixin import EnsembleMixin
@@ -22,6 +23,78 @@ from .ground_truth_mixin import GroundTruthMixin
 
 if TYPE_CHECKING:
     from .evaluation_repository import EvaluationRepository
+
+
+class _ResultIndex:
+    """Which repository holds each ``(dataset, fold, config)`` result.
+
+    A dense ``int16`` matrix over task codes (rows) and config codes (columns), ``-1`` where no
+    repository has the result, plus the two code dicts. The previous form, a dict with one
+    ``(dataset, fold, config)`` tuple key per result, cost 0.6 s to ship to a ray worker and
+    0.2 s to rebuild there for the 790k results of a 12-method collection and about 30 MB of
+    private memory per worker; this is a few MB and deserializes as one array.
+    """
+
+    def __init__(self, task_index: dict[tuple[str, int], int], config_index: dict[str, int], repo_of: np.ndarray):
+        self.task_index = task_index
+        self.config_index = config_index
+        self.repo_of = repo_of
+
+    @classmethod
+    def from_repos(cls, repos: list, overlap: Literal["raise", "first", "last"] = "raise") -> _ResultIndex:
+        if overlap not in ("raise", "first", "last"):
+            raise ValueError(f"Unknown overlap value: '{overlap}'")
+        frames = [repo._zeroshot_context.df_configs for repo in repos]
+        task_index: dict[tuple[str, int], int] = {}
+        config_index: dict[str, int] = {}
+        per_repo_codes = []
+        for df in frames:
+            dataset_codes, dataset_uniques = pd.factorize(df["dataset"].to_numpy())
+            fold = df["fold"].to_numpy().astype(np.int64)
+            fold_codes, fold_uniques = pd.factorize(fold)
+            pair_codes, pair_keys = pd.factorize(dataset_codes.astype(np.int64) * len(fold_uniques) + fold_codes)
+            pair_tasks = [
+                (dataset_uniques[k // len(fold_uniques)], int(fold_uniques[k % len(fold_uniques)])) for k in pair_keys
+            ]
+            task_codes = np.fromiter(
+                (task_index.setdefault(task, len(task_index)) for task in pair_tasks),
+                dtype=np.int64,
+                count=len(pair_tasks),
+            )[pair_codes]
+            framework_codes, framework_uniques = pd.factorize(df["framework"].to_numpy())
+            config_codes = np.fromiter(
+                (config_index.setdefault(c, len(config_index)) for c in framework_uniques),
+                dtype=np.int64,
+                count=len(framework_uniques),
+            )[framework_codes]
+            per_repo_codes.append((task_codes, config_codes))
+        repo_of = np.full((len(task_index), len(config_index)), -1, dtype=np.int16)
+        for repo_idx, (task_codes, config_codes) in enumerate(per_repo_codes):
+            if overlap == "last":
+                repo_of[task_codes, config_codes] = repo_idx
+                continue
+            occupied = repo_of[task_codes, config_codes] != -1
+            if overlap == "raise" and occupied.any():
+                # TODO: Improve error message
+                raise AssertionError(f"Overlap detected in provided repositories! (overlap='{overlap}')")
+            free = ~occupied
+            repo_of[task_codes[free], config_codes[free]] = repo_idx
+        return cls(task_index=task_index, config_index=config_index, repo_of=repo_of)
+
+    def get(self, dataset: str, fold: int, config: str) -> int | None:
+        task = self.task_index.get((dataset, fold))
+        column = self.config_index.get(config)
+        if task is None or column is None:
+            return None
+        repo_idx = int(self.repo_of[task, column])
+        return None if repo_idx < 0 else repo_idx
+
+    def values(self):
+        """Repository index of every present result (no particular order)."""
+        return self.repo_of[self.repo_of >= 0].tolist()
+
+    def __len__(self) -> int:
+        return int((self.repo_of >= 0).sum())
 
 
 # TODO: Improve error message for overlap
@@ -71,17 +144,38 @@ class EvaluationRepositoryCollection(AbstractRepository, EnsembleMixin, GroundTr
         self._mapping = self._compute_repo_mapping()
         super().__init__(zeroshot_context=zeroshot_context, config_fallback=config_fallback)
 
-    def _compute_repo_mapping(self) -> dict[tuple[str, int, str], int]:
-        repo_result_combinations = self._generate_dataset_fold_config_combinations(repos=self.repos)
-        return self._combination_mapping_to_repo_index(
-            repo_result_combinations=repo_result_combinations, overlap=self.overlap
-        )
+    def __getstate__(self):
+        """Inside :func:`tabarena.utils.shipping.shipping_context`, ship the sub-repositories as
+        predict-only copies.
+
+        A worker only ever reaches a sub-repository through :meth:`_predict_multi`, which reads its
+        predictions and ``dataset_info``; the sub-repositories' result frames duplicate what the
+        collection's own context already carries. For a 12-method collection they are a quarter of
+        the pickle, most of the ``ray.put`` time and about 60 MB of private memory per worker.
+        Outside the context (disk pickles, deepcopy) the full state is pickled.
+        """
+        state = dict(self.__dict__)
+        if is_shipping():
+            state["repos"] = [self._predict_only_copy(repo) for repo in self.repos]
+        return state
+
+    @staticmethod
+    def _predict_only_copy(repo: EvaluationRepository | EvaluationRepositoryCollection):
+        if isinstance(repo, EvaluationRepositoryCollection):
+            # its own __getstate__ lightens its sub-repositories in turn; its merged context stays
+            return repo
+        light = copy.copy(repo)
+        light._zeroshot_context = PredictOnlyZeroshotSimulatorContext.from_context(repo._zeroshot_context)
+        return light
+
+    def _compute_repo_mapping(self) -> _ResultIndex:
+        return _ResultIndex.from_repos(repos=self.repos, overlap=self.overlap)
 
     def get_result_to_repo_idx(self, dataset: str, fold: int, config: str) -> int | None:
         """Returns the repo idx in `self.repos` containing the specified (dataset, fold, config) result.
         Returns None if no such repo exists.
         """
-        return self._mapping.get((dataset, fold, config), None)
+        return self._mapping.get(dataset, fold, config)
 
     def get_result_to_repo(
         self, dataset: str, fold: int, config: str
@@ -89,7 +183,7 @@ class EvaluationRepositoryCollection(AbstractRepository, EnsembleMixin, GroundTr
         """Returns the repo in `self.repos` containing the specified (dataset, fold, config) result.
         Returns None if no such repo exists.
         """
-        repo_idx = self._mapping.get((dataset, fold, config), None)
+        repo_idx = self._mapping.get(dataset, fold, config)
         if repo_idx is None:
             return repo_idx
         return self.repos[repo_idx]
@@ -273,43 +367,31 @@ class EvaluationRepositoryCollection(AbstractRepository, EnsembleMixin, GroundTr
         )
         return self
 
-    @staticmethod
-    def _generate_dataset_fold_config_combinations(
-        repos: list[EvaluationRepository],
-    ) -> list[list[tuple[str, int, str]]]:
-        """Returns the combinations (dataset, fold, config) for each repository."""
-        return [repo.dataset_fold_config_pairs() for repo in repos]
 
-    @staticmethod
-    def _combination_mapping_to_repo_index(
-        repo_result_combinations: list[list[tuple[str, int, str]]],
-        overlap: Literal["raise", "first", "last"] = "raise",
-    ) -> dict[tuple[str, int, str], int]:
-        """Returns a dictionary mapping each (dataset, fold, config) to the repository index."""
-        if overlap == "first":
-            len_combinations = len(repo_result_combinations)
-            # traverse the repositories in reverse order to match `overlap` order
-            mapping = {
-                (dataset, fold, config): repo_index
-                for repo_index in range(len_combinations - 1, -1, -1)
-                for (dataset, fold, config) in repo_result_combinations[repo_index]
-            }
-        elif overlap in ["last", "raise"]:
-            mapping = {
-                (dataset, fold, config): repo_index
-                for repo_index, repo_combinations in enumerate(repo_result_combinations)
-                for (dataset, fold, config) in repo_combinations
-            }
-            if overlap == "raise":
-                len_combinations_total = 0
-                for c in repo_result_combinations:
-                    len_combinations_total += len(c)
-                if len_combinations_total != len(mapping):
-                    # TODO: Improve error message
-                    raise AssertionError(f"Overlap detected in provided repositories! (overlap='{overlap}')")
-        else:
-            raise ValueError(f"Unknown overlap value: '{overlap}'")
-        return mapping
+def _concat_results_drop_duplicates(frames: list[pd.DataFrame]) -> pd.DataFrame:
+    """``pd.concat(frames, ignore_index=True).drop_duplicates(ignore_index=True)`` without hashing
+    every column of every row.
+
+    A result row is identified by ``(framework, dataset, fold)``; two rows can only be exact
+    duplicates if they share that key. The key is factorized (three integer passes instead of a
+    hash of 17 mixed-type columns over the 790k rows of a 12-method collection); when no key
+    repeats there is nothing to drop, otherwise ``drop_duplicates`` runs on the repeated-key rows
+    only and the frame is reassembled in the original order, so the result is identical.
+    """
+    df = pd.concat(frames, ignore_index=True)
+    if not {"framework", "dataset", "fold"}.issubset(df.columns):
+        return df.drop_duplicates(ignore_index=True)
+    framework_codes, framework_uniques = pd.factorize(df["framework"].to_numpy())
+    dataset_codes, dataset_uniques = pd.factorize(df["dataset"].to_numpy())
+    fold = df["fold"].to_numpy()
+    fold_codes, fold_uniques = pd.factorize(fold)
+    key = (framework_codes.astype(np.int64) * len(dataset_uniques) + dataset_codes) * len(fold_uniques) + fold_codes
+    repeated = pd.Series(key).duplicated(keep=False).to_numpy()
+    if not repeated.any():
+        return df
+    kept = df[~repeated]
+    deduped = df[repeated].drop_duplicates()
+    return pd.concat([kept, deduped]).sort_index(kind="stable").reset_index(drop=True)
 
 
 def merge_zeroshot(
@@ -320,16 +402,14 @@ def merge_zeroshot(
     df_baselines_lst = [z.df_baselines for z in zeroshot_contexts]
     df_baselines_lst = [df_baselines for df_baselines in df_baselines_lst if len(df_baselines) > 0]
     if df_baselines_lst:
-        df_baselines = pd.concat(df_baselines_lst, ignore_index=True)
-        df_baselines = df_baselines.drop_duplicates(ignore_index=True)
+        df_baselines = _concat_results_drop_duplicates(df_baselines_lst)
     else:
         df_baselines = None
 
     df_configs_lst = [z.df_configs for z in zeroshot_contexts]
     df_configs_lst = [df_configs for df_configs in df_configs_lst if len(df_configs) > 0]
     if df_configs_lst:
-        df_configs = pd.concat(df_configs_lst, ignore_index=True)
-        df_configs = df_configs.drop_duplicates(ignore_index=True)
+        df_configs = _concat_results_drop_duplicates(df_configs_lst)
     else:
         df_configs = None
 
@@ -385,24 +465,52 @@ def merge_zeroshot(
     )
 
 
-# TODO: Does not yet verify equivalence
+def _same_labels(a: np.ndarray, b: np.ndarray) -> bool:
+    """Whether two label arrays are interchangeable: same dtype, shape and values (NaNs in the same
+    positions count as equal).
+    """
+    if a is b:
+        return True
+    return a.dtype == b.dtype and a.shape == b.shape and np.array_equal(a, b, equal_nan=a.dtype.kind == "f")
+
+
 def merge_ground_truth(ground_truths: list[GroundTruth]) -> GroundTruth:
+    """Merge the ground truths of several repos into one.
+
+    Tasks present in several repos resolve to the last repo's labels, as before. When the
+    labels are interchangeable (same dtype, shape and values, which is the normal case:
+    every method repo of a benchmark stores the same labels), the later repos' entries are
+    rebound to the first repo's array instead of keeping their own copies. Nothing writes
+    into a label array (consumers read or drop dict entries), so the rebinding changes no
+    values, but it makes the collection pickle roughly ``n_repos`` times smaller. That matters wherever the collection is shipped to workers,
+    e.g. ``parallel_for(engine="ray")`` puts the repo in the object store and every task
+    deserializes it.
+    """
     assert isinstance(ground_truths, list)
     ground_truths = [gt for gt in ground_truths if gt is not None]
     if len(ground_truths) == 0:
         return None
 
-    label_test_dict = copy.copy(ground_truths[0]._label_test_dict)
-    label_val_dict = copy.copy(ground_truths[0]._label_val_dict)
+    # Fresh inner dicts: the merged view must not grow the first repo's own dicts.
+    label_test_dict = {d: dict(folds) for d, folds in ground_truths[0]._label_test_dict.items()}
+    label_val_dict = {d: dict(folds) for d, folds in ground_truths[0]._label_val_dict.items()}
     for gt in ground_truths[1:]:
-        datasets_gt = gt.datasets
-        for d in datasets_gt:
+        for d in gt.datasets:
             if d not in label_test_dict:
                 label_test_dict[d] = {}
                 label_val_dict[d] = {}
-            label_test_dict[d].update(gt._label_test_dict[d])
-            label_val_dict[d].update(gt._label_val_dict[d])
-    return GroundTruth(label_test_dict=label_test_dict, label_val_dict=label_val_dict)
+            for merged, own in (
+                (label_test_dict[d], gt._label_test_dict[d]),
+                (label_val_dict[d], gt._label_val_dict[d]),
+            ):
+                for fold, series in own.items():
+                    existing = merged.get(fold)
+                    if existing is not None and _same_labels(existing, series):
+                        own[fold] = existing
+                    else:
+                        merged[fold] = series
+    # the repos' arrays are already in the stored form; re-normalizing would scan each of them
+    return GroundTruth(label_test_dict=label_test_dict, label_val_dict=label_val_dict, normalize=False)
 
 
 #: Task-metadata columns that define evaluation semantics: a cross-repo disagreement here

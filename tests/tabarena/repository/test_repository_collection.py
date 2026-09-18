@@ -171,3 +171,181 @@ def test_repository_collection_single():
     verify_equivalent_repository(repo1=repo, repo2=repo_collection_nested, verify_ensemble=True)
     for v in repo_collection_nested._mapping.values():
         assert v == 0
+
+
+def test_repository_collection_shares_ground_truth():
+    """Repos with interchangeable labels share one array per task after merging."""
+    import pickle
+
+    repo = load_repo_artificial()
+    repo_1 = repo.subset(configs=["NeuralNetFastAI_r2"])
+    repo_2 = repo.subset(configs=["NeuralNetFastAI_r1"])
+    gt_1, gt_2 = repo_1._ground_truth, repo_2._ground_truth
+    task = ("abalone", 0)
+    assert gt_1._label_val_dict[task[0]][task[1]] is not gt_2._label_val_dict[task[0]][task[1]]
+    size_separate = len(pickle.dumps([repo_1._ground_truth, repo_2._ground_truth]))
+
+    repo_collection = EvaluationRepositoryCollection(repos=[repo_1, repo_2])
+    for dataset in repo.datasets():
+        for fold in repo.folds:
+            for attr in ("_label_val_dict", "_label_test_dict"):
+                shared = getattr(repo_collection._ground_truth, attr)[dataset][fold]
+                assert getattr(gt_1, attr)[dataset][fold] is shared
+                assert getattr(gt_2, attr)[dataset][fold] is shared
+    size_shared = len(pickle.dumps([repo_1._ground_truth, repo_2._ground_truth, repo_collection._ground_truth]))
+    assert size_shared < size_separate
+    verify_equivalent_repository(repo1=repo, repo2=repo_collection, verify_ensemble=True)
+
+    # the merged dicts are the collection's own: growing it must not touch the first repo
+    repo_3 = repo.subset(datasets=["ada"])
+    repo_4 = repo.subset(datasets=["abalone"])
+    EvaluationRepositoryCollection(repos=[repo_3, repo_4])
+    assert repo_3._ground_truth.datasets == ["ada"]
+
+    # differing labels are not shared, and the last repo wins as before
+    repo_5 = repo.subset(configs=["NeuralNetFastAI_r1"])
+    labels = repo_5._ground_truth._label_val_dict["abalone"][0]
+    repo_5._ground_truth._label_val_dict["abalone"][0] = labels.copy() + 1
+    repo_collection = EvaluationRepositoryCollection(repos=[repo_1, repo_5])
+    merged = repo_collection._ground_truth._label_val_dict["abalone"][0]
+    assert merged is repo_5._ground_truth._label_val_dict["abalone"][0]
+    assert gt_1._label_val_dict["abalone"][0] is not merged
+    assert np.array_equal(
+        repo_collection.labels_val(dataset="abalone", fold=0), repo_5.labels_val(dataset="abalone", fold=0)
+    )
+
+
+def test_same_labels():
+    from tabarena.repository.evaluation_repository_collection import _same_labels
+
+    a = np.array([1.0, np.nan, 3.0])
+    assert _same_labels(a, a.copy())
+    assert not _same_labels(a, a.copy() + 1)
+    assert not _same_labels(a, a.astype("float32"))
+    assert not _same_labels(a, a[:2])
+    b = np.array([0, 1, 1], dtype=np.int8)
+    assert _same_labels(b, b.copy())
+    assert not _same_labels(b, b.astype(np.int64))
+
+
+def test_concat_results_drop_duplicates_matches_pandas():
+    import pandas as pd
+
+    from tabarena.repository.evaluation_repository_collection import _concat_results_drop_duplicates
+
+    repo = load_repo_artificial()
+    a = repo.subset(configs=["NeuralNetFastAI_r1"])._zeroshot_context.df_configs
+    b = repo.subset(configs=["NeuralNetFastAI_r2"])._zeroshot_context.df_configs
+    exact_dup = a.iloc[:2]
+    conflict = a.iloc[2:3].copy()
+    conflict["metric_error"] += 1.0  # same (framework, dataset, fold), different value: both rows stay
+    for frames in ([a, b], [a, b, exact_dup], [a, exact_dup, b, conflict]):
+        expected = pd.concat(frames, ignore_index=True).drop_duplicates(ignore_index=True)
+        got = _concat_results_drop_duplicates(frames)
+        assert got.equals(expected) and got.index.equals(expected.index)
+
+
+def test_result_index_matches_pairs():
+    """Every (dataset, fold, config) result maps to the repo holding it; anything else maps to None."""
+    repo = load_repo_artificial()
+    repos = [repo.subset(configs=["NeuralNetFastAI_r1"]), repo.subset(datasets=["ada"], configs=["NeuralNetFastAI_r2"])]
+    collection = EvaluationRepositoryCollection(repos=repos)
+    expected = {}
+    for idx, r in enumerate(repos):
+        for key in r.dataset_fold_config_pairs():
+            expected[key] = idx
+    assert len(collection._mapping) == len(expected)
+    for (dataset, fold, config), idx in expected.items():
+        assert collection.get_result_to_repo_idx(dataset=dataset, fold=fold, config=config) == idx
+    assert collection.get_result_to_repo_idx(dataset="abalone", fold=0, config="NeuralNetFastAI_r2") is None
+    assert collection.get_result_to_repo_idx(dataset="nope", fold=0, config="NeuralNetFastAI_r1") is None
+    assert collection.get_result_to_repo_idx(dataset="ada", fold=99, config="NeuralNetFastAI_r1") is None
+    assert sorted(collection._mapping.values()) == sorted(expected.values())
+
+
+def _collection_for_shipping():
+    repo = load_repo_artificial()
+    repo_1 = repo.subset(configs=["NeuralNetFastAI_r2"])
+    repo_2 = repo.subset(configs=["NeuralNetFastAI_r1"])
+    return repo, EvaluationRepositoryCollection(repos=[repo_1, repo_2])
+
+
+def test_repository_collection_shipping_pickle_predict_only_subrepos():
+    """Pickled inside `shipping_context`, the sub-repositories arrive as predict-only copies:
+    predictions, dataset info and the collection's own methods are unchanged, the sub-repositories'
+    result frames are gone and say so when read, and the pickle is smaller.
+    """
+    import pickle
+
+    from tabarena.simulation.simulation_context import PredictOnlyZeroshotSimulatorContext
+    from tabarena.utils.shipping import is_shipping, shipping_context
+
+    repo, collection = _collection_for_shipping()
+    full_bytes = pickle.dumps(collection, protocol=5)
+    assert not is_shipping()
+    with shipping_context():
+        assert is_shipping()
+        light_bytes = pickle.dumps(collection, protocol=5)
+    assert not is_shipping()
+    assert len(light_bytes) < len(full_bytes)
+
+    shipped = pickle.loads(light_bytes)
+    assert type(shipped._zeroshot_context) is type(collection._zeroshot_context)  # the collection keeps its context
+    for sub, orig in zip(shipped.repos, collection.repos, strict=True):
+        assert isinstance(sub._zeroshot_context, PredictOnlyZeroshotSimulatorContext)
+        assert sub.dataset_info(dataset="abalone") == orig.dataset_info(dataset="abalone")
+        for name in ("df_configs", "df_baselines", "df_configs_ranked", "rank_scorer"):
+            with pytest.raises(RuntimeError, match="predict-only"):
+                getattr(sub._zeroshot_context, name)
+        with pytest.raises(RuntimeError, match="predict-only"):
+            sub.metrics()
+    # the shipped collection behaves like the original on everything a worker does
+    assert shipped.metrics().equals(collection.metrics())
+    configs = repo.configs()
+    for dataset in repo.datasets():
+        for fold in repo.folds:
+            for func in ("predict_test_multi", "predict_val_multi"):
+                a = getattr(repo, func)(dataset=dataset, fold=fold, configs=configs)
+                b = getattr(shipped, func)(dataset=dataset, fold=fold, configs=configs)
+                assert np.array_equal(a, b)
+    ens_a = collection.evaluate_ensemble(dataset="abalone", fold=0, configs=configs, ensemble_size=5)
+    ens_b = shipped.evaluate_ensemble(dataset="abalone", fold=0, configs=configs, ensemble_size=5)
+    assert ens_a[0].equals(ens_b[0])
+    assert ens_a[1].equals(ens_b[1])
+    # the original was not modified by being pickled
+    for orig in collection.repos:
+        assert not isinstance(orig._zeroshot_context, PredictOnlyZeroshotSimulatorContext)
+        orig.metrics()
+
+
+def test_repository_collection_pickle_round_trip_outside_shipping():
+    """A plain pickle keeps the sub-repositories complete."""
+    import pickle
+
+    _, collection = _collection_for_shipping()
+    restored = pickle.loads(pickle.dumps(collection, protocol=5))
+    for sub, orig in zip(restored.repos, collection.repos, strict=True):
+        assert type(sub._zeroshot_context) is type(orig._zeroshot_context)
+        assert sub.metrics().equals(orig.metrics())
+        assert sub._zeroshot_context.df_configs.equals(orig._zeroshot_context.df_configs)
+
+
+def test_repository_collection_shipping_nested_collection():
+    """A collection inside a collection keeps its merged context; its own sub-repositories are lightened."""
+    import pickle
+
+    from tabarena.simulation.simulation_context import PredictOnlyZeroshotSimulatorContext
+    from tabarena.utils.shipping import shipping_context
+
+    repo, inner = _collection_for_shipping()
+    outer = EvaluationRepositoryCollection(repos=[inner])
+    with shipping_context():
+        shipped = pickle.loads(pickle.dumps(outer, protocol=5))
+    inner_shipped = shipped.repos[0]
+    assert isinstance(inner_shipped, EvaluationRepositoryCollection)
+    assert not isinstance(inner_shipped._zeroshot_context, PredictOnlyZeroshotSimulatorContext)
+    assert all(isinstance(r._zeroshot_context, PredictOnlyZeroshotSimulatorContext) for r in inner_shipped.repos)
+    configs = repo.configs()
+    a = repo.predict_val_multi(dataset="ada", fold=1, configs=configs)
+    b = shipped.predict_val_multi(dataset="ada", fold=1, configs=configs)
+    assert np.array_equal(a, b)

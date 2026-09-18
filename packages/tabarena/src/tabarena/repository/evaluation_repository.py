@@ -327,7 +327,11 @@ class EvaluationRepository(AbstractRepository, EnsembleMixin, GroundTruthMixin):
         prediction_format: Literal["memmap", "memopt", "mem"] = "memmap",
         update_relative_path: bool = True,
         verbose: bool = True,
+        validate: bool = False,
     ) -> Self:
+        """``validate=True`` checks that every file the context lists exists before loading and
+        raises ``FileNotFoundError`` naming the missing ones (see ``BenchmarkContext.load``).
+        """
         from tabarena.simulation.benchmark_context import BenchmarkContext
 
         path_context = str(Path(path) / "context.json")
@@ -335,7 +339,7 @@ class EvaluationRepository(AbstractRepository, EnsembleMixin, GroundTruthMixin):
         if update_relative_path:
             context.benchmark_paths.relative_path = str(Path(path))
 
-        return context.load_repo(prediction_format=prediction_format, verbose=verbose)
+        return context.load_repo(prediction_format=prediction_format, verbose=verbose, validate=validate)
 
     @classmethod
     def _convert_sim_artifacts(
@@ -385,8 +389,12 @@ def write_processed_context(
     ``datasets`` / ``folds`` default to the ones present in ``dataset_fold_lst_pp``.
     """
     from tabarena.simulation.benchmark_context import BenchmarkContext, construct_context
+    from tabarena.simulation.task_data import consolidate_task_data
 
     path = os.path.abspath(path) + os.path.sep
+    # Per-task writers left one metadata.json + labels file per task; fold them into one
+    # tasks.dat per dataset now that every task of the artifact is written.
+    consolidate_task_data(Path(path) / "model_predictions")
 
     # FIXME: use tasks rather than datasets and folds separately
     if datasets is None:
@@ -404,7 +412,6 @@ def write_processed_context(
         configs_hyperparameters = [configs_hyperparameters]
 
     # FIXME: Make this a repo constructor method?
-    # FIXME: s3_download_map doesn't work with is_relative yet
     context: BenchmarkContext = construct_context(
         name=None,
         datasets=datasets,

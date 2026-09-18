@@ -417,6 +417,8 @@ def test_kernel_probe_flag_reads_env(monkeypatch):
 def test_warmup_torch_returns_steps_without_cuda(monkeypatch):
     torch = pytest.importorskip("torch")
     monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
+    # an earlier test in the session may have created the CUDA context on a GPU host
+    monkeypatch.setattr(torch.cuda, "is_initialized", lambda: False)
     assert wu.warmup_torch(cuda=None) == ["torch:import"]
     assert wu.warmup_torch(cuda=True) == ["torch:import"]  # requested but unavailable
     before = wu.snapshot_torch_globals()
@@ -693,7 +695,10 @@ def test_warmup_feature_generator_cls_dispatches_classvar_and_classmethod(record
     assert wu.warmup_feature_generator_cls(None).steps == []
 
 
-def test_run_warmup_fn_records_imports_and_status(throwaway_package):
+def test_run_warmup_fn_records_imports_and_status(throwaway_package, monkeypatch):
+    # an earlier test in the session may have created the CUDA context on a GPU host
+    monkeypatch.setattr(wu, "cuda_initialized", lambda: False)
+
     def fn():
         __import__(throwaway_package)
 

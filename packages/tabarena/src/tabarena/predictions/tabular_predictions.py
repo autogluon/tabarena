@@ -53,6 +53,8 @@ class TabularModelPredictions:
         data_dir: str | Path,
         datasets: list[str] | None = None,
         metadata_by_dir: dict[str, dict] | None = None,
+        metadata_files: list[str | Path] | None = None,
+        metadata_dict: dict[str, dict[int, dict]] | None = None,
     ):
         raise NotImplementedError()
 
@@ -241,9 +243,15 @@ class TabularPredictionsInMemory(TabularModelPredictions):
         data_dir: str | Path,
         datasets: list[str] | None = None,
         metadata_by_dir: dict[str, dict] | None = None,
+        metadata_files: list[str | Path] | None = None,
+        metadata_dict: dict[str, dict[int, dict]] | None = None,
     ):
         memmap = TabularPredictionsMemmap.from_data_dir(
-            data_dir=data_dir, datasets=datasets, metadata_by_dir=metadata_by_dir
+            data_dir=data_dir,
+            datasets=datasets,
+            metadata_by_dir=metadata_by_dir,
+            metadata_files=metadata_files,
+            metadata_dict=metadata_dict,
         )
         return cls.from_dict(pred_dict=memmap.to_dict(), datasets=datasets)
 
@@ -309,22 +317,234 @@ def path_memmap(folder_memmap: Path, dataset: str, fold: int):
     return folder_memmap / dataset / str(fold)
 
 
+class _TaskTable:
+    """The per-task prediction metadata of a memmap store, one array per field.
+
+    A store holds one ``metadata.json`` worth of information per task: the model list, the two
+    prediction shapes and the dtype. As one dict per task that was 44k small dicts for a
+    12-method collection, which took 0.26 s and 46 MB of private memory to unpickle in every
+    ray worker. Here each field is an array over tasks (row order = load order), the distinct
+    model lists and dtypes are stored once and referenced by code, and per-task model
+    availability (what :meth:`TabularPredictionsMemmap.restrict_models` narrows) is a boolean
+    mask over the task's model list. The ``(dataset, fold) -> row`` index is built on first use
+    and never pickled.
+    """
+
+    _SHAPE_PAD = -1
+
+    def __init__(
+        self,
+        datasets: list[str],
+        dataset_code: np.ndarray,
+        fold: np.ndarray,
+        model_lists: list[list[str]],
+        model_list_code: np.ndarray,
+        available: np.ndarray,
+        val_shape: np.ndarray,
+        test_shape: np.ndarray,
+        dtypes: list[str],
+        dtype_code: np.ndarray,
+    ):
+        self.datasets = datasets
+        self.dataset_code = dataset_code
+        self.fold = fold
+        self.model_lists = model_lists
+        self.model_list_code = model_list_code
+        self.available = available
+        self.val_shape = val_shape
+        self.test_shape = test_shape
+        self.dtypes = dtypes
+        self.dtype_code = dtype_code
+
+    def __getstate__(self):
+        return {k: v for k, v in self.__dict__.items() if k != "_index"}
+
+    def __setstate__(self, state):
+        self.__dict__.update(state)
+
+    @classmethod
+    def from_metadata_dict(cls, metadata_dict: dict[str, dict[int, dict]]) -> _TaskTable:
+        """Build from ``dataset -> fold -> {"models", "pred_val_shape", "pred_test_shape", "dtype"}``.
+
+        ``models_all`` (the file's model order) is used when present, with ``models`` as the
+        currently available subset; otherwise ``models`` is both.
+        """
+        datasets: list[str] = []
+        dataset_index: dict[str, int] = {}
+        model_lists: list[list[str]] = []
+        model_list_index: dict[tuple[str, ...], int] = {}
+        dtypes: list[str] = []
+        dtype_index: dict[str, int] = {}
+        dataset_code, fold, model_list_code, dtype_code = [], [], [], []
+        val_shapes, test_shapes, availability = [], [], []
+        for dataset, fold_dict in metadata_dict.items():
+            for fold_id, task in fold_dict.items():
+                models_all = tuple(task.get("models_all", task["models"]))
+                if models_all not in model_list_index:
+                    model_list_index[models_all] = len(model_lists)
+                    model_lists.append(list(models_all))
+                dtype = str(task["dtype"])
+                if dtype not in dtype_index:
+                    dtype_index[dtype] = len(dtypes)
+                    dtypes.append(dtype)
+                if dataset not in dataset_index:
+                    dataset_index[dataset] = len(datasets)
+                    datasets.append(dataset)
+                models = task["models"]
+                if "models_all" not in task or len(models) == len(models_all):
+                    availability.append(None)  # every model available (the state a store loads in)
+                else:
+                    selected = set(models)
+                    availability.append([m in selected for m in models_all])
+                dataset_code.append(dataset_index[dataset])
+                fold.append(int(fold_id))
+                model_list_code.append(model_list_index[models_all])
+                dtype_code.append(dtype_index[dtype])
+                val_shapes.append(tuple(int(x) for x in task["pred_val_shape"]))
+                test_shapes.append(tuple(int(x) for x in task["pred_test_shape"]))
+        n = len(fold)
+        width = max((len(m) for m in model_lists), default=0)
+        available = np.zeros((n, width), dtype=bool)
+        for i, row in enumerate(availability):
+            if row is None:
+                available[i, : len(model_lists[model_list_code[i]])] = True
+            else:
+                available[i, : len(row)] = row
+        return cls(
+            datasets=datasets,
+            dataset_code=np.asarray(dataset_code, dtype=np.int32),
+            fold=np.asarray(fold, dtype=np.int64),
+            model_lists=model_lists,
+            model_list_code=np.asarray(model_list_code, dtype=np.int32),
+            available=available,
+            val_shape=cls._pad_shapes(val_shapes),
+            test_shape=cls._pad_shapes(test_shapes),
+            dtypes=dtypes,
+            dtype_code=np.asarray(dtype_code, dtype=np.int16),
+        )
+
+    @classmethod
+    def _pad_shapes(cls, shapes: list[tuple[int, ...]]) -> np.ndarray:
+        width = max((len(sh) for sh in shapes), default=0)
+        out = np.full((len(shapes), width), cls._SHAPE_PAD, dtype=np.int64)
+        for i, sh in enumerate(shapes):
+            out[i, : len(sh)] = sh
+        return out
+
+    def __len__(self) -> int:
+        return len(self.fold)
+
+    @property
+    def index(self) -> dict[str, dict[int, int]]:
+        """``dataset -> fold -> row``."""
+        index = self.__dict__.get("_index")
+        if index is None:
+            index = {}
+            for row, (code, fold) in enumerate(zip(self.dataset_code.tolist(), self.fold.tolist(), strict=True)):
+                index.setdefault(self.datasets[code], {})[fold] = row
+            self._index = index
+        return index
+
+    def row(self, dataset: str, fold: int) -> int | None:
+        folds = self.index.get(dataset)
+        return None if folds is None else folds.get(fold)
+
+    def models_all(self, row: int) -> list[str]:
+        return self.model_lists[self.model_list_code[row]]
+
+    def models(self, row: int) -> list[str]:
+        models_all = self.models_all(row)
+        mask = self.available[row]
+        return [m for i, m in enumerate(models_all) if mask[i]]
+
+    def shape(self, row: int, split: str) -> tuple[int, ...]:
+        padded = self.val_shape[row] if split == "val" else self.test_shape[row]
+        return tuple(int(x) for x in padded if x != self._SHAPE_PAD)
+
+    def dtype(self, row: int) -> str:
+        return self.dtypes[self.dtype_code[row]]
+
+    def take(self, keep: np.ndarray) -> _TaskTable:
+        """The table restricted to the rows where ``keep`` is True (order preserved)."""
+        return _TaskTable(
+            datasets=self.datasets,
+            dataset_code=self.dataset_code[keep],
+            fold=self.fold[keep],
+            model_lists=self.model_lists,
+            model_list_code=self.model_list_code[keep],
+            available=self.available[keep],
+            val_shape=self.val_shape[keep],
+            test_shape=self.test_shape[keep],
+            dtypes=self.dtypes,
+            dtype_code=self.dtype_code[keep],
+        )
+
+    def restrict_models(self, models: list[str]) -> None:
+        selected = set(models)
+        for code, models_all in enumerate(self.model_lists):
+            membership = np.zeros(self.available.shape[1], dtype=bool)
+            membership[: len(models_all)] = [m in selected for m in models_all]
+            rows = self.model_list_code == code
+            self.available[rows] &= membership
+
+    def dataset_names(self) -> list[str]:
+        """Datasets with at least one row, in row order."""
+        seen = dict.fromkeys(self.dataset_code.tolist())
+        return [self.datasets[code] for code in seen]
+
+    def to_metadata_dict(self) -> dict[str, dict[int, dict]]:
+        """The legacy ``dataset -> fold -> metadata`` view (``models``, ``models_all``,
+        ``model_indices``, ``pred_val_shape``, ``pred_test_shape``, ``dtype``), built fresh.
+        """
+        out: dict[str, dict[int, dict]] = {}
+        for row in range(len(self)):
+            models_all = self.models_all(row)
+            out.setdefault(self.datasets[self.dataset_code[row]], {})[int(self.fold[row])] = {
+                "models": self.models(row),
+                "pred_val_shape": list(self.shape(row, "val")),
+                "pred_test_shape": list(self.shape(row, "test")),
+                "dtype": self.dtype(row),
+                "models_all": models_all,
+                "model_indices": {m: i for i, m in enumerate(models_all)},
+            }
+        return out
+
+
 class TabularPredictionsMemmap(TabularModelPredictions):
     def __init__(
         self,
         data_dir: str | Path,
         datasets: list[str] | None = None,
         metadata_by_dir: dict[str, dict] | None = None,
+        metadata_files: list[str | Path] | None = None,
+        metadata_dict: dict[str, dict[int, dict]] | None = None,
     ):
         """:param data_dir: data where the predictions has been saved
         :param datasets: if specified, the predictions only contains those datasets
         :param metadata_by_dir: optional cache of parsed per-task ``metadata.json`` keyed by
-            task directory (e.g. filled by ``ZeroshotSimulatorContext.load_groundtruth``);
-            cached directories skip the file read
+            task directory; cached directories skip the file read
+        :param metadata_files: the per-task ``metadata.json`` paths to load. When given, only
+            these tasks are loaded and ``data_dir`` is not walked. ``None`` walks ``data_dir`` for
+            ``*metadata.json``.
+        :param metadata_dict: the per-task metadata already loaded, ``dataset -> fold -> {"models",
+            "pred_val_shape", "pred_test_shape", "dtype"}`` (e.g. from a dataset's ``tasks.dat``, see
+            :mod:`tabarena.simulation.task_data`); no metadata file is read when given.
         """
         self.data_dir = Path(data_dir)
-        self.metadata_dict = self._load_metadatas(data_dir, metadata_by_dir=metadata_by_dir)
+        if metadata_dict is None:
+            metadata_dict = self._load_metadatas(
+                data_dir, metadata_by_dir=metadata_by_dir, metadata_files=metadata_files
+            )
+        self._table = _TaskTable.from_metadata_dict(metadata_dict)
         super().__init__(datasets=datasets)
+
+    @property
+    def metadata_dict(self) -> dict[str, dict[int, dict]]:
+        """Per-task metadata as ``dataset -> fold -> {"models", "models_all", "model_indices",
+        "pred_val_shape", "pred_test_shape", "dtype"}``. A view built from the task table on each
+        access; mutate the store through ``restrict_*``, not through this dict.
+        """
+        return self._table.to_metadata_dict()
 
     @classmethod
     def from_data_dir(
@@ -332,8 +552,16 @@ class TabularPredictionsMemmap(TabularModelPredictions):
         data_dir: str | Path,
         datasets: list[str] | None = None,
         metadata_by_dir: dict[str, dict] | None = None,
+        metadata_files: list[str | Path] | None = None,
+        metadata_dict: dict[str, dict[int, dict]] | None = None,
     ):
-        return cls(data_dir=data_dir, datasets=datasets, metadata_by_dir=metadata_by_dir)
+        return cls(
+            data_dir=data_dir,
+            datasets=datasets,
+            metadata_by_dir=metadata_by_dir,
+            metadata_files=metadata_files,
+            metadata_dict=metadata_dict,
+        )
 
     @classmethod
     def from_dict(
@@ -365,29 +593,34 @@ class TabularPredictionsMemmap(TabularModelPredictions):
         }
 
     @staticmethod
-    def _load_metadatas(data_dir, metadata_by_dir: dict[str, dict] | None = None):
+    def _load_metadatas(
+        data_dir,
+        metadata_by_dir: dict[str, dict] | None = None,
+        metadata_files: list[str | Path] | None = None,
+    ) -> dict[str, dict[int, dict]]:
         if metadata_by_dir is None:
             metadata_by_dir = {}
         res = defaultdict(dict)
-        metadata_files = list(Path(data_dir).rglob("*metadata.json"))
-        for metadata_file in metadata_files:
+        if metadata_files is None:
+            metadata_files = list(Path(data_dir).rglob("*metadata.json"))
+        for metadata_file in map(Path, metadata_files):
             cached = metadata_by_dir.get(str(metadata_file.parent))
             if cached is not None:
-                # copy: `pop` and the model_indices assignment below must not mutate the cache
-                metadata = dict(cached)
+                metadata = dict(cached)  # copy: `pop` must not mutate the cache
             else:
                 with open(metadata_file) as f:
                     metadata = json.load(f)
             dataset = metadata.pop("dataset")
             fold = metadata.pop("fold")
             res[dataset][fold] = metadata
-        for dataset in res:
-            for fold in res[dataset]:
-                metadata_task = res[dataset][fold]
-                model_indices = {m: i for i, m in enumerate(metadata_task["models"])}
-                # This is required to keep track of the indices of models after `restrict_models` is called.
-                metadata_task["model_indices"] = model_indices
         return res
+
+    def __setstate__(self, state):
+        legacy = state.pop("metadata_dict", None)
+        self.__dict__.update(state)
+        if "_table" not in self.__dict__:
+            # pickled before the task table: one metadata dict per task
+            self._table = _TaskTable.from_metadata_dict(legacy or {})
 
     def predict_val(
         self, dataset: str, fold: int, models: list[str] | None = None, model_fallback: str | None = None
@@ -402,14 +635,15 @@ class TabularPredictionsMemmap(TabularModelPredictions):
     def _load_pred(
         self, dataset: str, split: str, fold: int, models: list[str] | None = None, model_fallback: str | None = None
     ):
-        assert dataset in self.metadata_dict, f"{dataset} not available."
-        assert fold in self.metadata_dict[dataset], f"Fold {fold} of {dataset} not available."
+        assert dataset in self._table.index, f"{dataset} not available."
+        row = self._table.row(dataset, fold)
+        assert row is not None, f"Fold {fold} of {dataset} not available."
 
         assert split in ["val", "test"]
         task_folder = path_memmap(folder_memmap=self.data_dir, dataset=dataset, fold=fold)
-        metadata = self.metadata_dict[dataset][fold]
-        model_indices_all = metadata["model_indices"]
-        model_indices_available = {m: model_indices_all[m] for m in metadata["models"]}
+        models_all = self._table.models_all(row)
+        mask = self._table.available[row]
+        model_indices_available = {m: i for i, m in enumerate(models_all) if mask[i]}
         if model_fallback:
             # we use the model fallback if a model is not present
             models = [m if m in model_indices_available else model_fallback for m in models]
@@ -429,36 +663,33 @@ class TabularPredictionsMemmap(TabularModelPredictions):
                 f"Missing {len(missing_models)} out of {len(models)} requested model results for this task: {missing_models}"
                 f"\n\tEither remove these models from the request or specify `model_fallback` to fill missing values.",
             ) from e
-        dtype = metadata["dtype"]
         pred = np.memmap(
             str(task_folder / f"pred-{split}.dat"),
-            dtype=dtype,
+            dtype=self._table.dtype(row),
             mode="r",
-            shape=tuple(metadata[f"pred_{split}_shape"]),
+            shape=self._table.shape(row, split),
         )
         return pred[model_indices]
 
     def restrict_datasets(self, datasets: list[str]):
-        datasets = set(datasets)
-        self.metadata_dict = {dataset: folds for dataset, folds in self.metadata_dict.items() if dataset in datasets}
+        keep_codes = {self._table.datasets.index(d) for d in set(datasets) if d in self._table.datasets}
+        keep = (
+            np.isin(self._table.dataset_code, list(keep_codes))
+            if keep_codes
+            else np.zeros(len(self._table), dtype=bool)
+        )
+        self._table = self._table.take(keep)
 
     def restrict_folds(self, folds: list[int]):
-        folds = set(folds)
-        self.metadata_dict = {
-            dataset: {fold: fold_metadata for fold, fold_metadata in fold_dict.items() if fold in folds}
-            for dataset, fold_dict in self.metadata_dict.items()
-        }
+        self._table = self._table.take(np.isin(self._table.fold, list(set(folds))))
 
     def restrict_models(self, models: list[str]):
-        selected_models = set(models)
-        for dataset, fold_dict in self.metadata_dict.items():
-            for fold, _fold_metadata in fold_dict.items():
-                self.metadata_dict[dataset][fold]["models"] = [
-                    m for m in self.metadata_dict[dataset][fold]["models"] if m in selected_models
-                ]
+        self._table.restrict_models(models)
 
     def _model_available_dict(self) -> dict[str, dict[int, list[str]]]:
-        return {
-            dataset: {fold: fold_info["models"] for fold, fold_info in fold_dict.items()}
-            for dataset, fold_dict in self.metadata_dict.items()
-        }
+        table = self._table
+        out: dict[str, dict[int, list[str]]] = {}
+        datasets = table.datasets
+        for row, (code, fold) in enumerate(zip(table.dataset_code.tolist(), table.fold.tolist(), strict=True)):
+            out.setdefault(datasets[code], {})[fold] = table.models(row)
+        return out

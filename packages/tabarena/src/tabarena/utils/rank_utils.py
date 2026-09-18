@@ -1,11 +1,9 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 import numpy as np
+import pandas as pd
 
-if TYPE_CHECKING:
-    import pandas as pd
+from tabarena.simulation.sim_utils import has_duplicate_keys
 
 
 def get_rank(
@@ -84,12 +82,31 @@ class RankScorer:
         :param pct: whether to display the returned rankings in percentile form.
         """
         assert all(col in df_results for col in [metric_error_col, task_col, framework_col])
-        all_datasets = set(df_results[task_col].unique())
-        for task in tasks:
-            assert task in all_datasets, f"{task_col} {task} not present in passed evaluations"
         self.ties_win = ties_win
         self.pct = pct
         self.include_partial = include_partial
+        task_values = df_results[task_col].to_numpy()
+        task_codes, task_uniques = pd.factorize(task_values)
+        all_datasets = set(task_uniques.tolist())
+        for task in tasks:
+            assert task in all_datasets, f"{task_col} {task} not present in passed evaluations"
+        framework_codes, framework_uniques = pd.factorize(df_results[framework_col].to_numpy())
+        result_keys = task_codes.astype(np.int64) * len(framework_uniques) + framework_codes
+        errors = df_results[metric_error_col].to_numpy(dtype=np.float64)
+        if not has_duplicate_keys(result_keys, n_range=len(task_uniques) * len(framework_uniques)):
+            # One result per (task, framework): the pivot below would just reshape, so sort the
+            # finite errors by task directly and slice each task's run.
+            valid = ~np.isnan(errors)
+            order = np.lexsort((errors[valid], task_codes[valid]))
+            task_sorted = task_codes[valid][order]
+            errors_sorted = errors[valid][order]
+            bounds = np.searchsorted(task_sorted, np.arange(len(task_uniques) + 1))
+            # sorted error arrays per task (views into one array; `get_rank` iterates them and
+            # `rank_many` concatenates them, neither needs Python lists)
+            per_task = {task_uniques[i]: errors_sorted[bounds[i] : bounds[i + 1]] for i in range(len(task_uniques))}
+            self.error_dict = {task: per_task[task] for task in tasks}
+            return
+        # Repeated (task, framework) results: keep pivot_table's averaging of them.
         df_pivot = df_results.pivot_table(values=metric_error_col, index=task_col, columns=framework_col)
         # Sort a materialized copy: under pandas copy-on-write `.values` is a read-only
         # view (in-place sort raises), and on multi-block frames it is a throwaway copy
@@ -101,7 +118,64 @@ class RankScorer:
         self.error_dict = {}
         for task in tasks:
             row = sorted_errors[row_by_task[task]]
-            self.error_dict[task] = row[~np.isnan(row)].tolist()
+            self.error_dict[task] = row[~np.isnan(row)]
+
+    def rank_many(self, tasks, errors) -> np.ndarray:
+        """Vectorized :meth:`rank` over aligned ``tasks`` and ``errors`` arrays.
+
+        Returns the same values as calling :meth:`rank` per row (including the NaN handling of
+        each branch). The per-task "how many reference errors are below / at most this error"
+        counts come from two sorts of the reference and query errors together, keyed by task,
+        so no Python loop runs per task; the partial-rank terms are then plain array arithmetic.
+        """
+        errors = np.asarray(errors, dtype=np.float64)
+        codes_q, uniques = pd.factorize(np.asarray(tasks))
+        ref_arrays = [np.asarray(self.error_dict[task], dtype=np.float64) for task in uniques]
+        sizes = np.fromiter((a.size for a in ref_arrays), dtype=np.int64, count=len(ref_arrays))
+        offsets = np.concatenate([[0], np.cumsum(sizes)])
+        flat_ref = np.concatenate(ref_arrays) if ref_arrays else np.empty(0)
+        n_ref = flat_ref.size
+        values = np.concatenate([flat_ref, errors])
+        codes_all = np.concatenate([np.repeat(np.arange(len(ref_arrays)), sizes), codes_q])
+        is_query = np.concatenate([np.zeros(n_ref, dtype=np.int8), np.ones(errors.size, dtype=np.int8)])
+
+        def refs_before(query_first_on_ties: bool) -> np.ndarray:
+            # Sort by (task, value, tie flag); a query's position minus the references of earlier
+            # tasks counts the references of its own task that sort before it. NaN queries sort
+            # last within their task, as np.searchsorted places them.
+            tie = 1 - is_query if query_first_on_ties else is_query
+            order = np.lexsort((tie, values, codes_all))
+            cum_ref = np.cumsum(order < n_ref)
+            pos = np.empty(values.size, dtype=np.int64)
+            pos[order] = np.arange(values.size)
+            return cum_ref[pos[n_ref:]] - offsets[codes_q]
+
+        left = refs_before(query_first_on_ties=True)  # references strictly below the error
+        right = refs_before(query_first_on_ties=False)  # references at most the error
+        n = sizes[codes_q]
+        if self.ties_win and not self.include_partial:
+            # mirrors `rank`: a bare searchsorted, so NaN errors rank n
+            rank = left.astype(np.float64)
+            return rank / n if self.pct else rank
+        rank = left.astype(np.float64) if self.ties_win else left + 0.5 * (right - left)
+        if self.include_partial and n_ref:
+            has_refs = n > 0
+            win = right < n
+            # first win and the element processed just before it (0 when nothing precedes)
+            first_win = flat_ref[np.where(has_refs, offsets[codes_q] + np.minimum(right, np.maximum(n - 1, 0)), 0)]
+            prior = np.where((right > 0) & has_refs, flat_ref[offsets[codes_q] + np.maximum(right - 1, 0)], 0.0)
+            with np.errstate(divide="ignore", invalid="ignore"):
+                divisor = first_win - prior
+                partial_win = np.minimum(np.where(divisor == 0, 0.5, (errors - prior) / divisor / 2), 0.5)
+                partial_loss = np.minimum((errors - prior) / prior, 1) / 2
+            rank = rank + np.where(win & (errors > 0) & has_refs, partial_win, 0.0)
+            rank = rank + np.where(~win & (prior != 0), partial_loss, 0.0)
+        # `get_rank`: a NaN error compares False against everything, so the first element counts
+        # as a win with no partial rank; the result is 0.
+        rank = np.where(np.isnan(errors), 0.0, rank)
+        if self.pct:
+            rank = rank / (n + 0.5 if self.include_partial else n)
+        return rank
 
     def rank(self, task: str, error: float) -> float:
         """Get the rank of a result on a dataset given an error."""

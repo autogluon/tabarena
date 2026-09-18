@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import copy
-import json
+import os
+import threading
 from collections import defaultdict
 from pathlib import Path
-from typing import Any, Self
+from typing import TYPE_CHECKING, Any, Self
 
+import numpy as np
 import pandas as pd
 from autogluon.common.loaders import load_json, load_pd
 from autogluon.common.savers import save_json, save_pd
@@ -21,11 +23,12 @@ from tabarena.utils.rank_utils import RankScorer
 
 from .ground_truth import GroundTruth
 from .sim_utils import (
-    filter_datasets,
     get_dataset_to_metric_problem_type,
-    get_dataset_to_tid_dict,
-    get_task_to_dataset_dict,
+    has_duplicate_keys,
 )
+
+if TYPE_CHECKING:
+    from .task_data import TaskData
 
 
 def _default_dict():
@@ -33,7 +36,24 @@ def _default_dict():
     return defaultdict(dict)
 
 
+#: Threads used by :meth:`ZeroshotSimulatorContext.load_groundtruth` for the per-task file reads
+#: when it runs on the main thread. Calls from a worker thread (a method-loading pool) use one
+#: thread: eleven methods loading side by side already saturate the filesystem and the GIL, and
+#: nesting more threads there measured slower.
+LABEL_LOAD_THREADS = 8
+
+
+def _default_label_load_threads() -> int:
+    return LABEL_LOAD_THREADS if threading.current_thread() is threading.main_thread() else 1
+
+
 class ZeroshotSimulatorContext:
+    # Result columns not carried into the context by default: the compute resources a result was
+    # produced with. They are in the method's results files for reporting, but nothing that works
+    # on a repository reads them, and as int64 columns they were a quarter of the result frame's
+    # bytes in memory, in every ray worker, and in pickles.
+    DROPPED_RESULT_COLUMNS: tuple[str, ...] = ("num_cpus", "num_gpus", "disk_usage")
+
     def __init__(
         self,
         df_configs: pd.DataFrame = None,
@@ -43,6 +63,7 @@ class ZeroshotSimulatorContext:
         folds: list[int] | None = None,
         pct: bool = False,
         score_against_only_baselines: bool = True,
+        drop_columns: tuple[str, ...] | None = None,
     ):
         """Encapsulates results evaluated on multiple base models/datasets/folds.
         :param df_configs: results of configs by multiple datasets/folds
@@ -51,6 +72,8 @@ class ZeroshotSimulatorContext:
         :param pct: whether to use percentage rather than rank numbers
         :param score_against_only_baselines: if `True`, the scores are ranks (or percentage if `pct` is True) over the baselines only
         baselines. If False, the scores are computed against both baselines and the configs.
+        :param drop_columns: result columns to leave out of `df_configs` and `df_baselines` when present.
+        None means :attr:`DROPPED_RESULT_COLUMNS`; pass an empty tuple to keep every column.
         """
         if df_configs is None:
             df_configs = self._create_empty_df_configs()
@@ -58,6 +81,11 @@ class ZeroshotSimulatorContext:
             df_baselines = self._create_empty_df_baselines()
         if configs_hyperparameters is None:
             configs_hyperparameters = {}
+        if drop_columns is None:
+            drop_columns = self.DROPPED_RESULT_COLUMNS
+        self.drop_columns = tuple(drop_columns)
+        df_configs = self._drop_columns(df_configs)
+        df_baselines = self._drop_columns(df_baselines)
 
         self.folds = folds
         self.score_against_only_baselines = score_against_only_baselines
@@ -68,7 +96,6 @@ class ZeroshotSimulatorContext:
         (
             self.df_configs,
             self.df_baselines,
-            self.df_configs_ranked,
             self.df_metrics,
             self.df_metadata,
             self.task_to_dataset_dict,
@@ -90,7 +117,112 @@ class ZeroshotSimulatorContext:
             score_against_only_automl=self.score_against_only_baselines,
             pct=self.pct,
         )
+        self._df_configs_ranked: pd.DataFrame | None = None
         self.dataset_to_tasks_dict = self._compute_dataset_to_tasks()
+
+    @property
+    def df_configs_ranked(self) -> pd.DataFrame:
+        """``df_configs`` plus a ``rank`` column: each result's rank among the comparison set
+        (see :attr:`rank_scorer`), computed on first access.
+
+        Loading and ensemble simulation never read the ranks, only portfolio and analysis code
+        does, so the column is not built eagerly (0.35 s for a 12-method collection and a few
+        hundredths per method inside the loading pool). The value is what eager construction gave:
+        the ranks depend only on the scorer, which is fixed at construction and rebuilt by the
+        subset methods exactly when the eager column was rebuilt.
+        """
+        cached = self.__dict__.get("_df_configs_ranked")
+        if cached is None:
+            # objects pickled before the column became lazy carry it as a plain attribute
+            cached = self.__dict__.get("df_configs_ranked")
+        if cached is None:
+            cached = self.df_configs.copy()
+            if len(cached) > 0:
+                cached["rank"] = self.rank_scorer.rank_many(
+                    tasks=cached["task"].to_numpy(),
+                    errors=cached["metric_error"].to_numpy(),
+                )
+            else:
+                cached["rank"] = None
+            self._df_configs_ranked = cached
+        return cached
+
+    def df_configs_ranked_subset(
+        self,
+        configs: list[str] | None = None,
+        datasets: list[str] | None = None,
+        tasks: list[tuple[str, int]] | None = None,
+    ) -> pd.DataFrame:
+        """The rows of :attr:`df_configs_ranked` selected by :meth:`_filter_df_by_datasets`.
+
+        Each rank depends only on the row and on :attr:`rank_scorer`, so when the full ranked
+        frame has not been built yet the ranks are computed for the selected rows alone instead
+        of copying and ranking every row first. A ray worker that evaluates ensembles on one task
+        asks for a few hundred rows of a frame of hundreds of thousands; building the full ranked
+        frame there cost 0.4 s and over 100 MB of private memory per worker. When the full frame
+        is already cached its rows are returned, so the values are the same either way.
+        """
+        cached = self.__dict__.get("_df_configs_ranked")
+        if cached is None:
+            cached = self.__dict__.get("df_configs_ranked")
+        if cached is not None:
+            return self._filter_df_by_datasets(df=cached, configs=configs, datasets=datasets, tasks=tasks)
+        df = self._filter_df_by_datasets(df=self.df_configs, configs=configs, datasets=datasets, tasks=tasks).copy()
+        if len(self.df_configs) > 0:
+            # also for an empty selection: a float64 column, as the full frame's rows would have
+            df["rank"] = self.rank_scorer.rank_many(
+                tasks=df["task"].to_numpy(),
+                errors=df["metric_error"].to_numpy(),
+            )
+        else:
+            df["rank"] = None
+        return df
+
+    # Frames whose string columns are pickled as categoricals (see __getstate__).
+    _PICKLE_CATEGORICAL_FRAMES = ("df_configs", "df_baselines", "_df_configs_ranked")
+
+    def __getstate__(self):
+        """Pickle the result frames' string columns as categoricals.
+
+        The frames are hundreds of thousands of rows whose ``dataset`` / ``framework`` / ``task``
+        / ``metric`` / ``problem_type`` columns hold a few thousand distinct strings. Pickled as
+        object columns they cost one memo lookup per cell on both ends; as categoricals they are
+        an integer code array (sent out of band) plus the distinct values. ``__setstate__``
+        restores the object dtype, so nothing outside pickling ever sees a categorical and the
+        pandas ``groupby`` / ``value_counts`` semantics of the frames are unchanged. Cuts the ray
+        transfer of a 12-method collection's contexts by about half.
+        """
+        state = dict(self.__dict__)
+        converted: dict[str, list[str]] = {}
+        for attr in self._PICKLE_CATEGORICAL_FRAMES:
+            df = state.get(attr)
+            if df is None or len(df) == 0:
+                continue
+            columns = [
+                c
+                for c in df.columns
+                if df[c].dtype == object and pd.api.types.infer_dtype(df[c], skipna=True) == "string"
+            ]
+            if not columns:
+                continue
+            state[attr] = df.astype(dict.fromkeys(columns, "category"))
+            converted[attr] = columns
+        state["_pickled_categorical_columns"] = converted
+        return state
+
+    def __setstate__(self, state):
+        converted = state.pop("_pickled_categorical_columns", {})
+        self.__dict__.update(state)
+        for attr, columns in converted.items():
+            df = self.__dict__[attr]
+            # column by column: a frame-level astype would copy the numeric columns too, which
+            # arrive as zero-copy views into ray's object store and should stay that way
+            for c in columns:
+                df[c] = df[c].astype(object)
+
+    def _drop_columns(self, df: pd.DataFrame) -> pd.DataFrame:
+        present = [c for c in self.drop_columns if c in df.columns]
+        return df.drop(columns=present) if present else df
 
     def _compute_dataset_to_tasks(self) -> dict:
         """Returns the mapping of dataset parent to dataset fold names.
@@ -118,7 +250,6 @@ class ZeroshotSimulatorContext:
         (
             self.df_configs,
             self.df_baselines,
-            self.df_configs_ranked,
             self.df_metrics,
             self.df_metadata,
             self.task_to_dataset_dict,
@@ -140,6 +271,7 @@ class ZeroshotSimulatorContext:
             score_against_only_automl=self.score_against_only_baselines,
             pct=self.pct,
         )
+        self._df_configs_ranked = None
         self.dataset_to_tasks_dict = self._compute_dataset_to_tasks()
 
     @classmethod
@@ -154,7 +286,6 @@ class ZeroshotSimulatorContext:
         score_against_only_automl: bool,
         pct: bool,
     ) -> tuple[
-        pd.DataFrame,
         pd.DataFrame,
         pd.DataFrame,
         pd.DataFrame,
@@ -191,21 +322,34 @@ class ZeroshotSimulatorContext:
             dataset_problem_types, on=["dataset"]
         )
 
-        unique_dataset_folds_set = df_configs[["dataset", "fold"]].drop_duplicates()
-        unique_dataset_folds_set_baselines = df_baselines[["dataset", "fold"]].drop_duplicates()
-        unique_dataset_folds_set_to_concat = [unique_dataset_folds_set, unique_dataset_folds_set_baselines]
-        unique_dataset_folds_set_to_concat = [u for u in unique_dataset_folds_set_to_concat if len(u) > 0]
-        unique_dataset_folds_set = pd.concat(unique_dataset_folds_set_to_concat, ignore_index=True).drop_duplicates()
+        # One hashing pass per frame: integer codes for the (dataset, fold) pairs of configs and
+        # baselines together, in first-occurrence order (what drop_duplicates would keep). Every
+        # per-task structure below derives from these codes instead of re-hashing the string
+        # columns of the full frame, which the pandas equivalents did about fifteen times.
+        n_configs = len(df_configs)
+        dataset_all = np.concatenate([df_configs["dataset"].to_numpy(), df_baselines["dataset"].to_numpy()])
+        fold_all = np.concatenate([df_configs["fold"].to_numpy(), df_baselines["fold"].to_numpy()]).astype(np.int64)
+        tid_all = np.concatenate([df_configs["tid"].to_numpy(), df_baselines["tid"].to_numpy()])
+        assert fold_all.min(initial=0) >= 0, "folds must be non-negative"
+        dataset_codes, dataset_uniques = pd.factorize(dataset_all)
+        fold_span = int(fold_all.max(initial=0)) + 1
+        pair_codes, pair_keys = pd.factorize(dataset_codes.astype(np.int64) * fold_span + fold_all)
 
-        sources_to_check = []
-        df_baselines = filter_datasets(df=df_baselines, datasets=unique_dataset_folds_set)
-        df_configs = filter_datasets(df=df_configs, datasets=unique_dataset_folds_set)
-        sources_to_check.append(("df_baselines", df_baselines))
-        sources_to_check.append(("df_configs", df_configs))
+        # every row's (dataset, fold) is in the union of both frames by construction, so the
+        # former merge against that union only reset the index
+        df_configs = df_configs.reset_index(drop=True)
+        df_baselines = df_baselines.reset_index(drop=True)
 
-        for source, df_source in sources_to_check:
-            config_task_counts = df_source[["framework", "dataset", "fold"]].value_counts()
-            if config_task_counts.max() > 1:
+        framework_codes, framework_uniques = pd.factorize(
+            np.concatenate([df_configs["framework"].to_numpy(), df_baselines["framework"].to_numpy()])
+        )
+        result_keys = framework_codes.astype(np.int64) * len(pair_keys) + pair_codes
+        for source, df_source, keys in (
+            ("df_baselines", df_baselines, result_keys[n_configs:]),
+            ("df_configs", df_configs, result_keys[:n_configs]),
+        ):
+            if has_duplicate_keys(keys, n_range=len(framework_uniques) * len(pair_keys)):
+                config_task_counts = df_source[["framework", "dataset", "fold"]].value_counts()
                 raise AssertionError(
                     f"Multiple rows in `{source}` exist for a config task pair! "
                     f"There should only ever be one row per config task pair. "
@@ -214,24 +358,30 @@ class ZeroshotSimulatorContext:
                     f"{config_task_counts}"
                 )
 
-        df_baselines = filter_datasets(df=df_baselines, datasets=unique_dataset_folds_set)
-
+        keep = np.ones(len(fold_all), dtype=bool)
         if folds is not None:
-            unique_dataset_folds_set = unique_dataset_folds_set[unique_dataset_folds_set["fold"].isin(folds)]
-            df_configs = filter_datasets(df=df_configs, datasets=unique_dataset_folds_set)
-            df_baselines = filter_datasets(df=df_baselines, datasets=unique_dataset_folds_set)
+            keep = np.isin(fold_all, np.asarray(folds))
+            df_configs = df_configs[keep[:n_configs]].reset_index(drop=True)
+            df_baselines = df_baselines[keep[n_configs:]].reset_index(drop=True)
+        pair_codes_c = pair_codes[:n_configs][keep[:n_configs]]
+        pair_codes_b = pair_codes[n_configs:][keep[n_configs:]]
 
-        df_configs["task"] = df_configs["tid"].astype(str) + "_" + df_configs["fold"].astype(str)
-        df_baselines["task"] = df_baselines["tid"].astype(str) + "_" + df_baselines["fold"].astype(str)
+        # per unique pair: dataset, fold, tid (constant per dataset, see _compute_dataset_tid) and task name
+        pair_first_row = np.empty(len(pair_keys), dtype=np.int64)
+        pair_first_row[pair_codes[::-1]] = np.arange(len(pair_codes))[::-1]  # reversed, so the first row wins
+        pair_dataset = dataset_uniques[pair_keys // fold_span]
+        pair_fold = pair_keys % fold_span
+        pair_tid = tid_all[pair_first_row]
+        pair_task = (pd.Series(pair_tid).astype(str) + "_" + pd.Series(pair_fold).astype(str)).to_numpy()
+        df_configs["task"] = pair_task[pair_codes_c]
+        df_baselines["task"] = pair_task[pair_codes_b]
 
-        unique_tasks = sorted(df_configs["task"].unique())
-        unique_datasets = sorted(df_configs["dataset"].unique())
-
-        unique_tasks += sorted(df_baselines["task"].unique())
-        unique_datasets += sorted(df_baselines["dataset"].unique())
-
-        unique_tasks = sorted(set(unique_tasks))
-        unique_datasets = sorted(set(unique_datasets))
+        present = np.zeros(len(pair_keys), dtype=bool)
+        present[pair_codes_c] = True
+        present[pair_codes_b] = True
+        pairs_present = np.flatnonzero(present)
+        unique_tasks = sorted(set(pair_task[pairs_present].tolist()))
+        unique_datasets = sorted(set(pair_dataset[pairs_present].tolist()))
 
         unique_folds = cls._compute_folds_from_data(df_configs=df_configs, df_baselines=df_baselines)
 
@@ -249,24 +399,20 @@ class ZeroshotSimulatorContext:
             tasks=unique_tasks,
             pct=pct,
         )
-        df_configs_ranked = df_configs.copy()
-        if len(df_configs_ranked) > 0:
-            df_configs_ranked["rank"] = df_configs_ranked.apply(
-                lambda row: rank_scorer.rank(row["task"], row["metric_error"]),
-                axis=1,
+        task_to_dataset_dict = {pair_task[i]: pair_dataset[i] for i in pairs_present}
+        dataset_to_tid_dict = {}
+        for i in pairs_present:
+            dataset_to_tid_dict.setdefault(
+                pair_dataset[i], pair_tid[i].item() if hasattr(pair_tid[i], "item") else pair_tid[i]
             )
-        else:
-            df_configs_ranked["rank"] = None
-
-        task_to_dataset_dict = get_task_to_dataset_dict(df=df_configs)
-        dataset_to_tid_dict = get_dataset_to_tid_dict(df=df_configs)
-        task_to_dataset_dict_baselines = get_task_to_dataset_dict(df=df_baselines)
-        dataset_to_tid_dict_baselines = get_dataset_to_tid_dict(df=df_baselines)
-        task_to_dataset_dict.update(task_to_dataset_dict_baselines)
-        dataset_to_tid_dict.update(dataset_to_tid_dict_baselines)
         assert len(unique_datasets) == len(dataset_to_tid_dict.keys())
 
-        df_metrics = get_dataset_to_metric_problem_type(df_configs=df_configs, df_baselines=df_baselines)
+        df_metrics = cls._dataset_metric_problem_type(
+            df_configs=df_configs,
+            df_baselines=df_baselines,
+            dataset_codes=dataset_codes[keep],
+            dataset_uniques=dataset_uniques,
+        )
 
         cls._minimize_df_metadata(df_metadata=df_metadata, unique_datasets=unique_datasets)
 
@@ -282,29 +428,15 @@ class ZeroshotSimulatorContext:
 
         dataset_to_problem_type_dict = df_metrics["problem_type"].to_dict()
 
-        task_to_fold_dict_configs = (
-            df_configs[["task", "fold"]].drop_duplicates().set_index("task").squeeze(axis=1).to_dict()
-        )
-        task_to_fold_dict_baselines = (
-            df_baselines[["task", "fold"]].drop_duplicates().set_index("task").squeeze(axis=1).to_dict()
-        )
-        task_to_fold_dict = copy.copy(task_to_fold_dict_configs)
-        for k, v in task_to_fold_dict_baselines.items():
-            if k not in task_to_fold_dict:
-                task_to_fold_dict[k] = v
-
-        dataset_to_folds_configs = df_configs[["dataset", "fold"]].drop_duplicates()
-        dataset_to_folds_baselines = df_baselines[["dataset", "fold"]].drop_duplicates()
-
-        dataset_to_folds_df = pd.concat(
-            [dataset_to_folds_configs, dataset_to_folds_baselines], ignore_index=True
-        ).drop_duplicates()
-        dataset_to_folds_dict = dataset_to_folds_df.groupby("dataset")["fold"].apply(list).apply(sorted).to_dict()
+        task_to_fold_dict = {pair_task[i]: int(pair_fold[i]) for i in pairs_present}
+        dataset_to_folds_dict: dict[str, list[int]] = {}
+        for i in pairs_present:
+            dataset_to_folds_dict.setdefault(pair_dataset[i], []).append(int(pair_fold[i]))
+        dataset_to_folds_dict = {d: sorted(f) for d, f in dataset_to_folds_dict.items()}
 
         return (
             df_configs,
             df_baselines,
-            df_configs_ranked,
             df_metrics,
             df_metadata,
             task_to_dataset_dict,
@@ -318,6 +450,38 @@ class ZeroshotSimulatorContext:
             configs_hyperparameters,
             rank_scorer,
         )
+
+    @staticmethod
+    def _dataset_metric_problem_type(
+        *,
+        df_configs: pd.DataFrame,
+        df_baselines: pd.DataFrame,
+        dataset_codes: np.ndarray,
+        dataset_uniques: np.ndarray,
+    ) -> pd.DataFrame:
+        """``dataset -> (metric, problem_type)`` frame, one row per dataset in first-occurrence
+        order across configs then baselines; raises through
+        :func:`~tabarena.simulation.sim_utils.get_dataset_to_metric_problem_type` when a dataset
+        carries more than one combination.
+        """
+        metric_all = np.concatenate([df_configs["metric"].to_numpy(), df_baselines["metric"].to_numpy()])
+        problem_type_all = np.concatenate(
+            [df_configs["problem_type"].to_numpy(), df_baselines["problem_type"].to_numpy()]
+        )
+        metric_codes, metric_uniques = pd.factorize(metric_all)
+        pt_codes, pt_uniques = pd.factorize(problem_type_all)
+        combo = (dataset_codes.astype(np.int64) * len(metric_uniques) + metric_codes) * len(pt_uniques) + pt_codes
+        combo_codes, combo_uniques = pd.factorize(combo)
+        combo_dataset = combo_uniques // (len(metric_uniques) * len(pt_uniques))
+        if has_duplicate_keys(combo_dataset, n_range=len(dataset_uniques)):
+            return get_dataset_to_metric_problem_type(df_configs=df_configs, df_baselines=df_baselines)
+        return pd.DataFrame(
+            {
+                "dataset": dataset_uniques[combo_dataset],
+                "metric": metric_uniques[(combo_uniques // len(pt_uniques)) % len(metric_uniques)],
+                "problem_type": pt_uniques[combo_uniques % len(pt_uniques)],
+            }
+        ).set_index("dataset")
 
     @staticmethod
     def _validate_df_metadata(df_metadata: pd.DataFrame):
@@ -586,12 +750,17 @@ class ZeroshotSimulatorContext:
                 if self.dataset_to_problem_type_dict[self.task_to_dataset_dict[task]] in problem_type
             ]
         if as_dataset_fold:
-            tasks = [self._task_to_dataset_fold(task) for task in tasks]
+            # Resolve the tid -> dataset map once; `tid_to_dataset_dict` is a property that
+            # rebuilds the dict on every access, which made this loop quadratic in practice.
+            tid_to_dataset = self.tid_to_dataset_dict
+            tasks = [self._task_to_dataset_fold(task, tid_to_dataset=tid_to_dataset) for task in tasks]
         return tasks
 
-    def _task_to_dataset_fold(self, task: str) -> tuple[str, int]:
+    def _task_to_dataset_fold(self, task: str, tid_to_dataset: dict[int, str] | None = None) -> tuple[str, int]:
+        if tid_to_dataset is None:
+            tid_to_dataset = self.tid_to_dataset_dict
         tid, fold = task_to_tid_fold(task=task)
-        dataset = self.tid_to_dataset_dict[tid]
+        dataset = tid_to_dataset[tid]
         return dataset, fold
 
     def _get_tasks_from_datasets(self, datasets: list[str]):
@@ -645,32 +814,72 @@ class ZeroshotSimulatorContext:
             configs = [c for c in configs if configs_type[c] in config_types]
         return configs
 
-    def load_groundtruth(self, paths_gt: list[str], metadata_by_dir: dict[str, dict] | None = None) -> GroundTruth:
-        """``metadata_by_dir`` is an optional read-through cache mapping a task directory to
-        its parsed ``metadata.json``. Each directory holds one metadata file shared by its
-        label and prediction files, so caching avoids re-reading it per label file — and
-        passing the same dict on to :meth:`load_pred` avoids another read per directory.
+    @staticmethod
+    def task_entries_from_paths(paths: list[str]) -> dict[Path, list[int] | None]:
+        """Group a context's per-task file paths (``<dataset>/<fold>/<file>``) or per-dataset
+        ``tasks.dat`` paths into ``dataset directory -> folds`` (``None`` = every fold of the file).
         """
-        if metadata_by_dir is None:
-            metadata_by_dir = {}
+        from tabarena.simulation.task_data import TASKS_FILENAME
+
+        # String splits rather than one Path per entry: a context lists one entry per task file
+        # (tens of thousands) and pathlib costs about 13 us each.
+        entries: dict[Path, list[int] | None] = {}
+        seen: dict[str, set[int]] = {}
+        for p in paths:
+            p = str(p).rstrip(os.sep)
+            head, _, name = p.rpartition(os.sep)
+            if name == TASKS_FILENAME:
+                entries.setdefault(Path(head), None)
+                continue
+            dataset_dir, _, fold = head.rpartition(os.sep)
+            seen.setdefault(dataset_dir, set()).add(int(fold))
+        for dataset_dir, folds in seen.items():
+            entries[Path(dataset_dir)] = sorted(folds)
+        return entries
+
+    def load_task_data(self, paths: list[str], n_threads: int | None = None) -> dict[tuple[str, int], TaskData]:
+        """Prediction metadata and labels of the tasks behind ``paths``, from each dataset's
+        ``tasks.dat`` or its per-task files (see :mod:`tabarena.simulation.task_data`), through the
+        active :class:`~tabarena.simulation.label_cache.LabelFileCache` when one is set.
+
+        The reads run on ``n_threads`` threads over datasets: :data:`LABEL_LOAD_THREADS` on the
+        main thread and 1 inside a worker thread (see the constant).
+        """
+        from tabarena.simulation.label_cache import get_active_label_cache
+        from tabarena.simulation.task_data import load_task_data
+
+        if n_threads is None:
+            n_threads = _default_label_load_threads()
+        unique_datasets = set(self.unique_datasets)
+        entries = {d: f for d, f in self.task_entries_from_paths(paths).items() if d.name in unique_datasets}
+        return load_task_data(entries, n_threads=n_threads, label_cache=get_active_label_cache())
+
+    def load_groundtruth(
+        self,
+        paths_gt: list[str],
+        metadata_by_dir: dict[str, dict] | None = None,
+        n_threads: int | None = None,
+        task_data: dict[tuple[str, int], TaskData] | None = None,
+    ) -> GroundTruth:
+        """Load the per-task labels behind ``paths_gt`` (see :meth:`load_task_data`); pass
+        ``task_data`` to reuse an earlier load. ``metadata_by_dir`` is filled with each task
+        directory's prediction metadata when given.
+        """
+        if task_data is None:
+            task_data = self.load_task_data(paths_gt, n_threads=n_threads)
         gt_val = defaultdict(_default_dict)
         gt_test = defaultdict(_default_dict)
-        unique_datasets = set(self.unique_datasets)
-        for p in paths_gt:
-            parent = Path(p).parent
-            metadata = metadata_by_dir.get(str(parent))
-            if metadata is None:
-                with open(parent / "metadata.json") as f:
-                    metadata = json.load(f)
-                metadata_by_dir[str(parent)] = metadata
-            dataset = metadata["dataset"]
-            if dataset in unique_datasets:
-                fold = metadata["fold"]
-                if Path(p).stem.startswith("label-test"):
-                    gt_test[dataset][fold] = pd.read_csv(p, index_col=0)
-                else:
-                    gt_val[dataset][fold] = pd.read_csv(p, index_col=0)
-        return GroundTruth(label_val_dict=gt_val, label_test_dict=gt_test)
+        for (dataset, fold), task in task_data.items():
+            gt_val[dataset][fold] = task.labels_val
+            gt_test[dataset][fold] = task.labels_test
+            if metadata_by_dir is not None:
+                metadata_by_dir[str(Path(paths_gt[0]).parent.parent.parent / dataset / str(fold))] = {
+                    **task.metadata,
+                    "dataset": dataset,
+                    "fold": fold,
+                }
+        # task-data arrays are already in the stored form (see GroundTruth.__init__)
+        return GroundTruth(label_val_dict=gt_val, label_test_dict=gt_test, normalize=False)
 
     def load_pred(
         self,
@@ -678,13 +887,19 @@ class ZeroshotSimulatorContext:
         datasets: list[str],
         prediction_format: str = "memmap",
         metadata_by_dir: dict[str, dict] | None = None,
+        metadata_files: list[str | Path] | None = None,
+        metadata_dict: dict[str, dict[int, dict]] | None = None,
     ) -> TabularModelPredictions:
         """:param prediction_format: Determines the format of the loaded tabular_predictions. Default = "memmap".
         "memmap": Fast and low memory usage.
         "memopt": Very fast and high memory usage.
         "mem": Slow and high memory usage, simplest format to debug.
         :param metadata_by_dir: Optional cache of parsed per-task ``metadata.json`` keyed by
-        task directory, as filled by :meth:`load_groundtruth`.
+        task directory.
+        :param metadata_files: The per-task ``metadata.json`` paths to load; ``None`` walks
+        ``path_pred_proba`` for them (see ``TabularPredictionsMemmap``).
+        :param metadata_dict: The per-task prediction metadata already loaded (``dataset -> fold ->
+        metadata``), e.g. from :meth:`load_task_data`; no metadata file is read when given.
         """
         assert prediction_format in ["memmap", "memopt", "mem"]
 
@@ -696,7 +911,11 @@ class ZeroshotSimulatorContext:
 
         path_pred_proba = Path(path_pred_proba)
         zeroshot_pred_proba: TabularModelPredictions = class_map[prediction_format].from_data_dir(
-            data_dir=path_pred_proba, datasets=datasets, metadata_by_dir=metadata_by_dir
+            data_dir=path_pred_proba,
+            datasets=datasets,
+            metadata_by_dir=metadata_by_dir,
+            metadata_files=metadata_files,
+            metadata_dict=metadata_dict,
         )
         all_datasets = self.get_datasets()
         valid_datasets = [d for d in zeroshot_pred_proba.datasets if d in all_datasets]
@@ -711,7 +930,7 @@ class ZeroshotSimulatorContext:
 
         # Remove datasets from internal dataframes
         self.df_configs = self.df_configs[self.df_configs["dataset"].isin(datasets)]
-        self.df_configs_ranked = self.df_configs_ranked[self.df_configs_ranked["dataset"].isin(datasets)]
+        self._df_configs_ranked = None
         if only_configs:
             datasets_baselines = list(set(self.df_baselines["dataset"]))
             datasets = [d for d in self.unique_datasets if d in datasets or d in datasets_baselines]
@@ -736,7 +955,6 @@ class ZeroshotSimulatorContext:
     def subset_configs(self, configs: list[str]):
         """Only keep the provided configs, drop all others."""
         self.df_configs = self.df_configs[self.df_configs["framework"].isin(configs)]
-        self.df_configs_ranked = self.df_configs_ranked[self.df_configs_ranked["framework"].isin(configs)]
         self._update_all()
 
     def subset_baselines(self, baselines: list[str]):
@@ -1042,3 +1260,48 @@ class ZeroshotSimulatorContext:
             pct=pct,
             score_against_only_baselines=score_against_only_baselines,
         )
+
+
+class PredictOnlyZeroshotSimulatorContext(ZeroshotSimulatorContext):
+    """The part of a context that a repository needs to serve predictions.
+
+    A collection ships its sub-repositories to worker processes only to route prediction
+    reads through them, and that path consults ``df_metrics`` (metric and problem type per
+    dataset) and nothing else. This copy keeps the small per-dataset tables and dictionaries
+    and drops the result frames and the rank scorer, which are the bulk of a context; reading
+    one of them raises instead of returning stale or partial data. Built by
+    :func:`from_context` inside :func:`tabarena.utils.shipping.shipping_context`; never for
+    pickles that have to round-trip.
+    """
+
+    _DROPPED = ("df_configs", "df_baselines", "_df_configs_ranked", "rank_scorer")
+
+    @classmethod
+    def from_context(cls, context: ZeroshotSimulatorContext) -> PredictOnlyZeroshotSimulatorContext:
+        light = cls.__new__(cls)
+        light.__dict__.update({k: v for k, v in context.__dict__.items() if k not in cls._DROPPED})
+        return light
+
+    @staticmethod
+    def _unavailable(name: str):
+        raise RuntimeError(
+            f"'{name}' is not available: this repository was shipped to a worker as a predict-only "
+            f"copy (it serves predictions and dataset info, not result frames). Use the collection "
+            f"it belongs to, or ship the full repository outside `shipping_context`."
+        )
+
+    @property
+    def df_configs(self) -> pd.DataFrame:
+        self._unavailable("df_configs")
+
+    @property
+    def df_baselines(self) -> pd.DataFrame:
+        self._unavailable("df_baselines")
+
+    @property
+    def df_configs_ranked(self) -> pd.DataFrame:
+        self._unavailable("df_configs_ranked")
+
+    @property
+    def rank_scorer(self) -> RankScorer:
+        self._unavailable("rank_scorer")
