@@ -217,6 +217,8 @@ __BASE_CSS__
     padding: 3px 5px; border-radius: 6px; cursor: pointer; font-size: 12px;
   }
   .pd-rankrow:hover { background: color-mix(in srgb, var(--accent) 9%, transparent); }
+  .pd-rankrow.no-traj { cursor: default; }
+  .pd-rankrow.no-traj .nm { opacity: 0.75; }
   .pd-rankrow.is-contender {
     background: color-mix(in srgb, var(--contender) 20%, transparent); font-weight: 650;
   }
@@ -938,12 +940,17 @@ __BASE_JS__
     rows.forEach((p, i) => {
       const m = METHODS[p.m];
       const li = document.createElement("li");
+      // A row whose method has no published tuning trajectory (a system, or a method whose
+      // artifact lacks one) cannot be drawn in the chart, so the row says so rather than
+      // swallowing the click.
+      const hasTraj = trajIndexOf(p.m) >= 0;
       li.className = "pd-rankrow" + (p.m === state.contender ? " is-contender" : "") +
-        (p.b === 1 && STATS[d].tiedKnown ? " is-tied" : "");
+        (p.b === 1 && STATS[d].tiedKnown ? " is-tied" : "") + (hasTraj ? "" : " no-traj");
       li.style.setProperty("--fam", FAM_VAR[m.family]);
       const verdict = tiedText(p, STATS[d]);
       li.title = `${m.name} — ${errWithStd(p, DATASETS[d])} ${metricName(DATASETS[d])}, ${fmtNum(p.i, 1)}% behind the best` +
-        (p.t != null ? `, ${fmtTime(p.t)} to fit` : "") + (verdict ? `. ${verdict}` : "");
+        (p.t != null ? `, ${fmtTime(p.t)} to fit` : "") + (verdict ? `. ${verdict}` : "") +
+        (hasTraj ? "" : ". No tuning trajectory was published for this method, so the chart cannot show it");
       const frac = Math.min(1, Math.max(0, 1 - (p.i || 0) / cap));
       li.innerHTML =
         `<span class="pos">${i + 1}</span>` +

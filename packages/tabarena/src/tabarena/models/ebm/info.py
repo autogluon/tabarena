@@ -45,5 +45,6 @@ ebm_info = ModelInfo(
     model_cls=EBMModel,
     search_space=gen_ebm,
     method_metadata=ebm_new_method_metadata,
-    pip_extra=("autogluon.tabular[interpret]>=1.5,<1.6",),
+    # Matches the `ebm` extra in packages/tabarena/pyproject.toml.
+    pip_extra=("autogluon.tabular[interpret]>=1.6,<1.7",),
 )
