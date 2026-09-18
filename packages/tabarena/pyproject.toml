@@ -130,6 +130,15 @@ limix = [
   "einops",
   "kditransform",
 ]
+# LimiX-2's inference package is not on PyPI (pinned to a commit; keep in sync with `pip_extra` in
+# models/limix_2/info.py; empty extra on PyPI, see the note at the top of this table) and pins
+# torch==2.9.1, which would replace the torch every other model runs on. The extra is therefore left
+# out of `extended` and `all`; install it without its dependency tree next to the existing torch:
+#   uv pip install --no-deps "LimiX @ git+https://github.com/limix-ldm-ai/LimiX.git@774aa3e1a994cbe38f33758e3d663e9951855554" nvtx
+limix_2 = [
+  "LimiX @ git+https://github.com/limix-ldm-ai/LimiX.git@774aa3e1a994cbe38f33758e3d663e9951855554",
+  "nvtx",
+]
 tabpfnwide = ["tabpfnwide>=0.3.0"]
 iltm = ["iltm>=0.1.1"]
 chimeraboost = ["chimeraboost>=0.30.0"]

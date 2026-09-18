@@ -64,6 +64,7 @@ from tabarena.models.iltm.info import iltm_method_metadata
 from tabarena.models.knn.info import knn_method_metadata as knn_metadata
 from tabarena.models.lightgbm.info import lightgbm_method_metadata
 from tabarena.models.limix.info import limix_method_metadata as limix_metadata
+from tabarena.models.limix_2.info import limix_2_method_metadata
 from tabarena.models.lr.info import lr_method_metadata as lr_metadata
 from tabarena.models.mitra.info import mitra_method_metadata as mitra_metadata
 from tabarena.models.mitra_v2.info import mitra_v2_method_metadata, mitra_v2_new_method_metadata
@@ -227,6 +228,7 @@ tabarena_method_metadata_collection = MethodMetadataCollection(
         tabldm_new_method_metadata,
         tabpfn_3_5_method_metadata,
         tabpfn_3_5_fast_method_metadata,
+        limix_2_method_metadata,
     ],
 )
 
