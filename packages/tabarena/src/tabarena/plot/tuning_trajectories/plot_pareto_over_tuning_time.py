@@ -860,6 +860,11 @@ def compute_tuning_trajectories_leaderboard(
         subset=subset,
         folds=folds,
     )
+    # A subset can select no task at all (the extreme-imbalance datasets are all classification,
+    # so its regression cell is empty). There is nothing to rank then; the caller skips the cell,
+    # as the evaluation step does for the same combination.
+    if combined_data.empty:
+        return None
 
     tabarena_init_kwargs = dict(
         task_col="dataset",
@@ -1505,6 +1510,9 @@ def _plot_tuning_trajectories_from_prepared(
             name_col=name_col,
             folds=folds,
         )
+        if leaderboard is None:
+            print(f"\tNo tasks in subset {subset!r}, skipping its tuning trajectories...")
+            continue
         leaderboard["name"] = leaderboard["name"].map(method_rename_map).fillna(leaderboard["name"])
 
         if ban_bad_methods:

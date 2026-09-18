@@ -332,6 +332,41 @@ class TestScanAndFilePaths:
         assert set(method_results.model_results["method"]) == {"Dummy_c1", "Dummy_c2"}
         assert set(method_results.model_results["dataset"]) == {"d1", "d2"}
 
+    def test_name_prefix_raw_selects_the_method_folder_not_a_sibling_prefix(self, tmp_path):
+        """``name_prefix_raw="Dummy"`` must not pick up ``Dummy-Fast``, whose name extends it."""
+        path_raw = tmp_path / "raw_in"
+        results = _config_results()
+        for i, task in enumerate(_TASKS):
+            sibling = _make_result_config(
+                dataset=task["dataset"], tid=task["tid"], config="Dummy-Fast_c1", seed=100 + i
+            )
+            sibling["method_metadata"].update(name_prefix="Dummy-Fast", ag_key="DUMMY-FAST")
+            results.append(sibling)
+        _write_raw(results, path_raw)
+        assert (path_raw / "Dummy-Fast_c1").is_dir()  # the sibling's folder starts with "Dummy"
+
+        end_to_end = EndToEnd.from_path_raw(
+            path_raw=path_raw,
+            name_prefix_raw="Dummy",
+            method="Dummy",
+            task_metadata=_task_metadata(),
+            cache=False,
+            backend="native",
+            verbose=False,
+        )
+        (method_results,) = end_to_end.method_results_lst
+        assert set(method_results.model_results["method"]) == {"Dummy_c1", "Dummy_c2"}
+
+        with pytest.raises(ValueError, match="No raw results of method 'Dummy_c'"):
+            EndToEnd.from_path_raw(
+                path_raw=path_raw,
+                name_prefix_raw="Dummy_c",
+                task_metadata=_task_metadata(),
+                cache=False,
+                backend="native",
+                verbose=False,
+            )
+
     def test_file_paths_and_name_prefix_raw_are_exclusive(self, tmp_path):
         path_raw = tmp_path / "raw_in"
         _write_raw(_config_results(), path_raw)

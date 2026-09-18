@@ -98,6 +98,7 @@ def _config(local_storage, tmp_path, stub_runner, queue_uri, *, worker_id="job-1
         python=sys.executable,
         run_script=str(stub_runner),
         work_dir=tmp_path / "work",
+        scratch_root=tmp_path / "scratch",
         stagger_seconds=0,
         stop_ray_on_failure=False,
         storage=local_storage,
@@ -124,6 +125,7 @@ class TestFromEnv:
             "MODELS": "TabPFN-3,Linear",
             "SKY_WORKER_PYTHON": "/venv/bin/python",
             "SKY_WORKER_HOME": str(tmp_path / "w"),
+            "SKY_WORKER_SCRATCH_ROOT": str(tmp_path / "s"),
             "SKY_WORKER_STAGGER_SECONDS": "0",
             "SKY_WORKER_STOP_RAY_ON_FAILURE": "false",
         }
@@ -134,6 +136,7 @@ class TestFromEnv:
         assert cfg.models == ("TabPFN-3", "Linear")
         assert cfg.python == "/venv/bin/python"
         assert cfg.work_dir == tmp_path / "w"
+        assert cfg.scratch_root == tmp_path / "s"
         assert cfg.stagger_seconds == 0
         assert cfg.stop_ray_on_failure is False
         assert cfg.run_script.endswith("run_tabarena_experiment.py")
@@ -173,7 +176,9 @@ class TestWorkerRun:
         assert argv[argv.index("--output_dir") + 1].startswith(str(tmp_path / "work" / "L" / "items"))
         assert record["env"]["HF_HOME"] == str(tmp_path / "cache" / "huggingface")
         assert record["env"]["TABARENA_CACHE"] == str(tmp_path / "cache" / "tabarena")
-        assert record["env"]["TMPDIR"].startswith(str(tmp_path / "work" / "L" / "items"))
+        # The scratch (TMPDIR) lives under the short scratch root, not under the launch directory.
+        assert record["env"]["TMPDIR"].startswith(str(tmp_path / "scratch"))
+        assert "/work/" not in record["env"]["TMPDIR"]
         assert record["env"]["OMP_NUM_THREADS"] is None
         # The batch copy was downloaded once.
         assert (tmp_path / "work" / "L" / "job_batch" / "task_source.json").exists()

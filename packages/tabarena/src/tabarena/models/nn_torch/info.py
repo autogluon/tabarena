@@ -18,6 +18,7 @@ nn_torch_method_metadata = MethodMetadata.config(
     date="2025-06-12",
     date_introduced="2019-12",
     reference_url="https://arxiv.org/abs/2003.06505",
+    license="Apache-2.0",
     display_name="TorchMLP",
 )
 

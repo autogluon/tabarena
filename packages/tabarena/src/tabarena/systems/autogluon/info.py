@@ -23,6 +23,9 @@ _system_kwargs = dict(
     method_class="system",
     reference_url=_AUTOGLUON_PAPER,
     validation_protocol="system",
+    # The 1.4 / 1.5 `extreme` presets bundle TabPFN-v2, whose Prior Labs License is Apache-2.0
+    # with an attribution clause, so every run here stays free for commercial use.
+    license="Apache-2.0",
 )
 
 # -- tabarena-2025-06-12 -------------------------------------------------------------------
@@ -170,14 +173,17 @@ _common_kwargs_2026_08_05 = dict(
 ag_160_eq_4h_metadata = MethodMetadata.system(
     method="AutoGluon_16_extreme",
     name="AutoGluon 1.6 (extreme, 4h)",
+    license="Apache-2.0",
     **_common_kwargs_2026_08_05,
 )
 
-# The `noncommercial` preset is `extreme` plus TabPFN-3, whose license is not commercially
-# permissive. `MethodMetadata` carries no license field, so the display name says it.
+# The `noncommercial` preset is `extreme` plus TabPFN-3, whose weights are licensed for
+# non-commercial use only; the preset inherits that restriction.
 ag_160_noncomm_4h_metadata = MethodMetadata.system(
     method="AutoGluon_16_noncommercial",
     name="AutoGluon 1.6 (noncommercial, 4h)",
+    commercial_use=False,
+    license="Apache-2.0 (bundles TabPFN-3, non-commercial)",
     **_common_kwargs_2026_08_05,
 )
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from autogluon.common.utils.pandas_utils import get_approximate_df_mem_usage
@@ -227,9 +228,29 @@ class TabPFN3Model(AbstractTorchModel):
         return int(baseline_mem_est + dataset_mem_est)
 
 
-def prefetch_weights() -> None:
-    """Pre-download all TabPFN checkpoints via the tabpfn loader (warms the cache)."""
-    from tabpfn.model_loading import download_all_models, resolve_model_path
+def prefetch_weights() -> list[Path]:
+    """Download the TabPFN-3 checkpoints missing from the tabpfn cache; return the paths of all of them.
+
+    Only the v3 classifier and regressor checkpoints the wrapper can load: the ``default_*_model``
+    files and the named variants a ``checkpoint_per_problem_type`` config may pick. Each file is
+    fetched on its own, so a missing license token or a failed download raises instead of being
+    logged and skipped, and the returned paths let the node staging and the SkyPilot seeding copy the
+    files without enumerating the cache.
+    """
+    from tabpfn.model_loading import ModelSource, ModelVersion, download_model, resolve_model_path
 
     _, model_dir, _, _ = resolve_model_path(model_path=None, which="classifier")
-    download_all_models(to=model_dir[0])
+    cache_dir = Path(model_dir[0])
+    paths: list[Path] = []
+    for which, source in (
+        ("classifier", ModelSource.get_classifier_v3()),
+        ("regressor", ModelSource.get_regressor_v3()),
+    ):
+        for name in source.filenames:
+            path = cache_dir / name
+            if not path.exists():
+                result = download_model(to=path, version=ModelVersion.V3, which=which, model_name=name)
+                if result != "ok":
+                    raise RuntimeError(f"Could not download the TabPFN-3 checkpoint {name}: {result}")
+            paths.append(path)
+    return paths

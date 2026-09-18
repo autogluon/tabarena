@@ -11,6 +11,7 @@ extra_trees_descriptor = ModelDescriptor(
     compute="cpu",
     is_bag=True,
     reference_url="https://link.springer.com/article/10.1007/s10994-006-6226-1",
+    license="BSD-3-Clause",
     date_introduced="2006",
 )
 

@@ -3,7 +3,9 @@
 #   - network-tests: `@pytest.mark.network` tests that hit the network (e.g.
 #     download a model from Hugging Face) and are flaky on transient failures.
 #   - model-tests:   `@pytest.mark.models` tests that fit real models via
-#     AutoGluon's FitHelper (need the model extras; slow).
+#     AutoGluon's FitHelper (need the model extras; slow), followed by the
+#     default test selection in the same full environment, so tests that
+#     importorskip an optional dependency run for real once a day.
 #
 # The schedule is read from this file on the default branch only. Times are
 # UTC and best-effort (scheduled runs can be delayed under load), so we avoid
@@ -98,3 +100,8 @@ jobs:
       - name: Run model-fit tests
         # No retry: a model-fit failure is a real failure, not transient.
         run: pytest -m models
+      - name: Run the default test selection with every extra installed
+        # The per-PR job installs a slim environment, so tests gated on an optional
+        # dependency (`pytest.importorskip`) skip there. Here, with [benchmark]
+        # installed, they run for real once a day.
+        run: pytest

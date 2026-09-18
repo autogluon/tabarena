@@ -18,6 +18,8 @@ sap_rpt_oss_method_metadata = MethodMetadata.config(
     date="2025-11-25",
     date_introduced="2025-06",
     reference_url="https://arxiv.org/abs/2506.10707",
+    commercial_use=False,
+    license="Apache-2.0 (weights stated research-only)",
     display_name="SAP-RPT-OSS",
     verified=False,
 )

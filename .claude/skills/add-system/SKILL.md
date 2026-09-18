@@ -74,6 +74,8 @@ Each config becomes one benchmarked variant. Prefer a small set of meaningful pr
     date="<YYYY-MM-DD>",
     date_introduced="<YYYY-MM>",
     reference_url="...",
+    license="Apache-2.0",            # what governs using the system, incl. every bundled model's weights
+    commercial_use=True,             # False when any bundled component is non-commercial (e.g. TabPFN-3)
     tags=(),                         # see below
     verified=False,                  # until signed off
 )

@@ -64,3 +64,13 @@ def test_names_paint_above_the_column_hairlines(tmp_path):
     html = out.read_text(encoding="utf-8")
     assert html.index("const xLines =") < html.index("const xLabels =")
     assert '"paint-order": "stroke", stroke: "var(--paper)"' in html
+
+
+def test_host_metric_echo_does_not_undo_a_local_pick(tmp_path):
+    """The host repeats its metric on every height report; only a change of the host's choice applies."""
+    out = build_leaderboard_explorer_html(
+        _website_leaderboard(), save_path=tmp_path / "leaderboard_overview_explorer.html"
+    )
+    html = out.read_text(encoding="utf-8")
+    assert "let lastHostMetric = null;" in html
+    assert "if (d.metric === lastHostMetric) return;" in html

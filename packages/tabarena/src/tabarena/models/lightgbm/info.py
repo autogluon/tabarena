@@ -11,6 +11,7 @@ lightgbm_descriptor = ModelDescriptor(
     compute="cpu",
     is_bag=True,
     reference_url="https://papers.nips.cc/paper_files/paper/2017/hash/6449f44a102fde848669bdd9eb6b76fa-Abstract.html",
+    license="MIT",
     date_introduced="2016-09",
 )
 

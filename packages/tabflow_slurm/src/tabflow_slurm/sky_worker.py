@@ -35,6 +35,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import tempfile
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -94,6 +95,11 @@ class WorkerConfig:
     python: str = sys.executable
     run_script: str = field(default_factory=lambda: str(get_run_script_path()))
     work_dir: Path = field(default_factory=lambda: Path.home() / "tabarena_sky" / "work")
+    scratch_root: Path = field(default_factory=lambda: Path(tempfile.gettempdir()) / "tabarena_sky")
+    """Parent of the per-item scratch directories (``<scratch_root>/<bundle>_<item>/{tmp,ag}``), kept
+    apart from ``work_dir`` and short on purpose: an item's ``TMPDIR`` hosts the Unix sockets of
+    multiprocessing managers (EBM's fit starts one) whose paths are limited to 108 bytes, and the
+    launch directory under ``work_dir`` carries the launch id."""
     stagger_seconds: float = 3.0
     """Delay of ``rank * stagger_seconds`` before the first download, so fresh workers do not hit
     OpenML or the Hub at the same instant."""
@@ -106,7 +112,8 @@ class WorkerConfig:
     def from_env(cls, environ: dict[str, str] | None = None, *, storage: Storage | None = None) -> WorkerConfig:
         """Read ``QUEUE_URI``, ``RUN_URI``, ``LAUNCH_ID``, ``CACHE_ROOT``, ``SKYPILOT_TASK_ID`` (required),
         ``SKYPILOT_JOB_RANK`` / ``SKYPILOT_NUM_JOBS`` / ``MODELS`` (optional) and the test overrides
-        ``SKY_WORKER_PYTHON``, ``SKY_WORKER_RUN_SCRIPT``, ``SKY_WORKER_HOME``, ``SKY_WORKER_STAGGER_SECONDS``.
+        ``SKY_WORKER_PYTHON``, ``SKY_WORKER_RUN_SCRIPT``, ``SKY_WORKER_HOME``, ``SKY_WORKER_SCRATCH_ROOT``,
+        ``SKY_WORKER_STAGGER_SECONDS``.
         """
         env = os.environ if environ is None else environ
         missing = [
@@ -132,6 +139,8 @@ class WorkerConfig:
             kwargs["run_script"] = env["SKY_WORKER_RUN_SCRIPT"]
         if env.get("SKY_WORKER_HOME"):
             kwargs["work_dir"] = Path(env["SKY_WORKER_HOME"])
+        if env.get("SKY_WORKER_SCRATCH_ROOT"):
+            kwargs["scratch_root"] = Path(env["SKY_WORKER_SCRATCH_ROOT"])
         if env.get("SKY_WORKER_STAGGER_SECONDS"):
             kwargs["stagger_seconds"] = float(env["SKY_WORKER_STAGGER_SECONDS"])
         if env.get("SKY_WORKER_STOP_RAY_ON_FAILURE"):
@@ -349,7 +358,8 @@ class Worker:
         item_dir = self.launch_dir / "items" / f"{idx}_{k}"
         shutil.rmtree(item_dir, ignore_errors=True)
         output_dir = item_dir / "out"
-        scratch = item_dir / "scratch"
+        scratch = self.cfg.scratch_root / f"{idx}_{k}"  # short: see WorkerConfig.scratch_root
+        shutil.rmtree(scratch, ignore_errors=True)
         ray_logs = item_dir / "ray_logs"
         output_dir.mkdir(parents=True)
         env = self.item_env(scratch)

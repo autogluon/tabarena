@@ -61,6 +61,16 @@ SMOKE_OVERRIDES: dict[str, ModelSmokeTest] = {
     "TabPFN-v2.6": ModelSmokeTest({"n_estimators": 1}),
     "RealTabPFN-v2.5": ModelSmokeTest({"n_estimators": 1}),
     "TabPFN-3": ModelSmokeTest({"n_estimators": 1, "device": "cpu"}),
+    # tabpfn 9.0.0 runs `inference_precision="auto"` under bf16 autocast, on CPUs with AVX512-BF16/AMX
+    # as well as on CUDA, so a row predicted alone vs. inside a batch drifts ~1e-3 for both 3.5
+    # checkpoints (the tolerance is 1e-5). The drift is numerical, not batch-dependent preprocessing:
+    # `inference_precision=torch.float32` brings it to ~1e-7 and float64 to 0 on the same fit.
+    "TabPFN-3.5": ModelSmokeTest(
+        {"n_estimators": 1, "device": "cpu"}, verify_single_prediction_equivalent_to_multi=False
+    ),
+    "TabPFN-3.5-Fast": ModelSmokeTest(
+        {"n_estimators": 1, "device": "cpu"}, verify_single_prediction_equivalent_to_multi=False
+    ),
     "TabPFN-Wide": ModelSmokeTest({"device": "cpu"}),
     "TabICL_GPU": ModelSmokeTest({"n_estimators": 1}),
     "TabICLv2": ModelSmokeTest({"n_estimators": 1}),
@@ -69,6 +79,11 @@ SMOKE_OVERRIDES: dict[str, ModelSmokeTest] = {
     # than batch-dependent preprocessing. Verified by running `FitHelper.verify_model` with
     # CUDA_VISIBLE_DEVICES="" — it passes with the check on.
     "TabSwift": ModelSmokeTest({"n_estimators": 1}, verify_single_prediction_equivalent_to_multi=False),
+    # LimiX-2 attends over the training context, so a row predicted alone and inside a batch drift
+    # ~2.6e-3 on CUDA (the tolerance is 1e-5), the GPU non-determinism TabSwift shows too. 17 members
+    # (over the class's cheap single member) reach the first `power` member of the classification
+    # config (the fifth of the regression config), whose lambdas the wrapper's pickle has to survive.
+    "LimiX-2": ModelSmokeTest({"n_estimators": 17}, verify_single_prediction_equivalent_to_multi=False),
     "TabSTAR": ModelSmokeTest({"max_epochs": 1}),
     "TabFM": ModelSmokeTest({"n_estimators": 1}),
     "Nori": ModelSmokeTest(problem_types=("regression",)),

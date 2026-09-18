@@ -188,11 +188,20 @@ __BASE_JS__
   }
 
   // ---------- data ----------
+  // `POINTS` is everything the cell published; `SHOWN` is what the host lets the page keep
+  // (see `onExcludeMessage`). Every computation below reads `SHOWN`, so an excluded method is
+  // absent from the front, the axes and the chips alike.
+  const ALL_POINTS = POINTS.slice();
+  let SHOWN = ALL_POINTS;
   const byMethod = new Map();
-  for (const p of POINTS) {
-    if (!byMethod.has(p.method)) byMethod.set(p.method, []);
-    byMethod.get(p.method).push(p); // insertion order = builder's point order
+  function indexPoints() {
+    byMethod.clear();
+    for (const p of SHOWN) {
+      if (!byMethod.has(p.method)) byMethod.set(p.method, []);
+      byMethod.get(p.method).push(p); // insertion order = builder's point order
+    }
   }
+  indexPoints();
 
   const METRICS = CONFIG.metrics;
   let metricKey = METRICS[0].key;
@@ -208,7 +217,7 @@ __BASE_JS__
 
   function computeFront(metric) {
     const xk = xKey;
-    const pts = [...POINTS].sort((a, b) =>
+    const pts = [...SHOWN].sort((a, b) =>
       a[xk] - b[xk] || (metric.lowerBetter ? mval(a, metric) - mval(b, metric) : mval(b, metric) - mval(a, metric)));
     const verts = [];
     const methods = new Set();
@@ -256,12 +265,12 @@ __BASE_JS__
     chipsBox.style.maxHeight = Math.max(170, H - controlsBox.offsetHeight + 20) + "px";
 
     // x scale (log)
-    const xsAll = POINTS.map(p => p[xKey]);
+    const xsAll = SHOWN.map(p => p[xKey]);
     const xmin = Math.min(...xsAll) * 0.65, xmax = Math.max(...xsAll) * 1.6;
     const lx0 = Math.log10(xmin), lx1 = Math.log10(xmax);
     const X = v => M.l + (Math.log10(v) - lx0) / (lx1 - lx0) * (W - M.l - M.r);
 
-    const vals = POINTS.map(p => mval(p, metric));
+    const vals = SHOWN.map(p => mval(p, metric));
     let y0, y1;
     if (metric.fromZero) {
       y0 = 0; y1 = Math.max(...vals) * 1.07;
@@ -496,11 +505,28 @@ __BASE_JS__
     }
   }
   function syncChips() {
-    for (const [m, b] of chipByMethod) b.setAttribute("aria-pressed", String(state.active.has(m)));
+    for (const [m, b] of chipByMethod) {
+      b.setAttribute("aria-pressed", String(state.active.has(m)));
+      b.hidden = !byMethod.has(m);
+    }
     for (const [fam, b] of famChips) {
-      b.setAttribute("aria-pressed", String(familyMethods(fam).every(m => state.active.has(m))));
+      const methods = familyMethods(fam);
+      b.hidden = !methods.length;
+      b.setAttribute("aria-pressed", String(methods.every(m => state.active.has(m))));
+      b.innerHTML = famChipLabel(fam, methods.length);
     }
   }
+  // The host's exclusion list (see `onExcludeMessage` in the shared script). Re-indexes the
+  // points and drops the excluded methods from the active set; a chart that was following
+  // the front recomputes it over what is left.
+  onExcludeMessage(excluded => {
+    SHOWN = ALL_POINTS.filter(p => !excluded.has(p.method));
+    indexPoints();
+    for (const m of [...state.active]) if (!byMethod.has(m)) state.active.delete(m);
+    if (state.followFront) state.active = new Set(computeFront(metricByKey[metricKey]).methods);
+    syncChips();
+    render();
+  });
   function toggle(m) {
     if (state.active.has(m)) state.active.delete(m); else state.active.add(m);
     state.followFront = false;
@@ -552,9 +578,16 @@ __BASE_JS__
   // Embedded, the host can pick the metric for us: the leaderboard's "I care about" control
   // decides whether the page leads with Elo or Improvability, and every panel follows without
   // regenerating an artifact per metric. Ignored when the metric is not one this chart offers.
+  // The host re-sends its choice every time the frame reports a height, and a metric picked in
+  // here (or a paper-view toggle) changes the height. So a repeat of the host's last message is
+  // ignored outright, rather than compared with the metric on screen: otherwise the reader's
+  // own pick would be undone by the echo of a choice the host had already made.
+  let lastHostMetric = null;
   window.addEventListener("message", ev => {
     const d = ev.data;
     if (!d || d.type !== "tabarena-explorer-metric") return;
+    if (d.metric === lastHostMetric) return;
+    lastHostMetric = d.metric;
     if (!METRICS.some(m => m.key === d.metric) || d.metric === metricKey) return;
     if (metricSelect) metricSelect.value = d.metric;
     setMetric(d.metric);

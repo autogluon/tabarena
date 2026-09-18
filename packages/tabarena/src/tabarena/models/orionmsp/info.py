@@ -18,6 +18,7 @@ orionmsp_method_metadata = MethodMetadata.config(
     date="2026-05-13",
     date_introduced="2025-11",
     reference_url="https://arxiv.org/abs/2511.02818",
+    license="MIT",
     display_name="OrionMSP",
     verified=False,
 )

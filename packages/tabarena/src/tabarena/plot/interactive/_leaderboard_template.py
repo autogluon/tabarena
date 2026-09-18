@@ -160,19 +160,26 @@ __BASE_JS__
   // the tuning progression the other three bars encode; its name on the axis carries the System
   // family colour, like every other method's does.
   const byMethod = new Map();
-  for (const p of POINTS) {
-    let entry = byMethod.get(p.method);
-    if (!entry) {
-      entry = { method: p.method, family: p.family, url: p.url, points: [] };
-      byMethod.set(p.method, entry);
+  // Rebuilt when the host excludes methods (see `onExcludeMessage`): an excluded method leaves
+  // the map entirely, so the bars, the chips and the "all" / "top 15" buttons all forget it.
+  function indexPoints(excluded) {
+    byMethod.clear();
+    for (const p of POINTS) {
+      if (excluded && excluded.has(p.method)) continue;
+      let entry = byMethod.get(p.method);
+      if (!entry) {
+        entry = { method: p.method, family: p.family, url: p.url, points: [] };
+        byMethod.set(p.method, entry);
+      }
+      entry.points.push(p);
     }
-    entry.points.push(p);
+    for (const e of byMethod.values()) {
+      e.points.sort((a, b) => VARIANT_ORDER.indexOf(a.variant) - VARIANT_ORDER.indexOf(b.variant));
+      e.imputed = e.points.some(p => p.imputed);
+      e.imputed_pct = Math.max(...e.points.map(p => p.imputed_pct || 0));
+    }
   }
-  for (const e of byMethod.values()) {
-    e.points.sort((a, b) => VARIANT_ORDER.indexOf(a.variant) - VARIANT_ORDER.indexOf(b.variant));
-    e.imputed = e.points.some(p => p.imputed);
-    e.imputed_pct = Math.max(...e.points.map(p => p.imputed_pct || 0));
-  }
+  indexPoints(null);
 
   const state = {
     metric: METRICS[0].key,
@@ -544,9 +551,23 @@ __BASE_JS__
     return entry ? rankVal(entry, m) : Infinity;
   }
   function syncChips() {
-    for (const [name, b] of chipByMethod) b.setAttribute("aria-pressed", String(isOn(name)));
-    for (const [fam, b] of famChips) b.setAttribute("aria-pressed", String(familyMembers(fam).every(isOn)));
+    for (const [name, b] of chipByMethod) {
+      b.setAttribute("aria-pressed", String(isOn(name)));
+      b.hidden = !byMethod.has(name);
+    }
+    for (const [fam, b] of famChips) {
+      const members = familyMembers(fam);
+      b.hidden = !members.length;
+      b.setAttribute("aria-pressed", String(members.every(isOn)));
+      b.innerHTML = famChipLabel(fam, members.length);
+    }
   }
+  onExcludeMessage(excluded => {
+    indexPoints(excluded);
+    for (const name of [...state.methods]) if (!byMethod.has(name)) state.methods.delete(name);
+    syncChips();
+    render();
+  });
 
   function toggleMethod(name) {
     const set = state.methods;
@@ -610,9 +631,17 @@ __BASE_JS__
   // Embedded, the host can pick the metric for us: the leaderboard's "I care about" control
   // decides whether the page leads with Elo or Improvability, and every panel follows without
   // regenerating an artifact per metric. Ignored when the metric is not one this chart offers.
+  // The host re-sends its choice every time the frame reports a height, and a metric picked in
+  // here (or a paper-view toggle) changes the height. So a repeat of the host's last message is
+  // ignored outright, rather than compared with the metric on screen: otherwise the reader's
+  // own pick would be undone by the echo of a choice the host had already made.
+  let lastHostMetric = null;
   window.addEventListener("message", ev => {
     const d = ev.data;
-    if (d && d.type === "tabarena-explorer-metric") setMetric(d.metric);
+    if (!d || d.type !== "tabarena-explorer-metric") return;
+    if (d.metric === lastHostMetric) return;
+    lastHostMetric = d.metric;
+    setMetric(d.metric);
   });
 
   const sortSelect = document.getElementById("sort-select");

@@ -12,6 +12,7 @@ from tabarena.plot.interactive.per_dataset_explorer import (
     imputed_counts,
     method_records,
     per_dataset_points,
+    tied_with_best,
 )
 
 _METHOD_INFO = pd.DataFrame(
@@ -251,3 +252,87 @@ def test_build_per_dataset_explorer_without_trajectories(tmp_path):
     config = _config(out.read_text(encoding="utf-8"))
     assert config["trajectoryMethods"] == []
     assert config["trajectory"]["rows"] == []
+
+
+def _paired_splits(errors_by_method: dict[str, list[float]], dataset: str = "gamma") -> pd.DataFrame:
+    rows = []
+    for method, errors in errors_by_method.items():
+        for fold, error in enumerate(errors):
+            rows.append(
+                {
+                    "dataset": dataset,
+                    "fold": fold,
+                    "method": method,
+                    "metric_error": error,
+                    "time_train_s": 1.0,
+                    "problem_type": "binary",
+                    "metric": "roc_auc",
+                    "imputed": False,
+                },
+            )
+    return pd.DataFrame(rows)
+
+
+def test_tied_with_best_separates_a_clear_loser_from_a_near_tie():
+    """Six paired splits: a method worse on every split is significantly worse (one-sided
+    Wilcoxon, p = 1/64), one that trades wins with the best is tied, and the best is tied with
+    itself.
+    """
+    frame = _paired_splits(
+        {
+            "best": [0.10, 0.11, 0.12, 0.10, 0.11, 0.12],
+            "loser": [0.20, 0.21, 0.22, 0.20, 0.21, 0.22],
+            "close": [0.11, 0.10, 0.13, 0.09, 0.12, 0.11],
+        },
+    )
+    tied = tied_with_best(frame).set_index("method")
+    assert tied.loc["best", "tied"] is True
+    assert tied.loc["best", "p"] is None
+    assert tied.loc["loser", "tied"] is False
+    assert tied.loc["loser", "p"] == pytest.approx(1 / 64)
+    assert tied.loc["close", "tied"] is True
+
+
+def test_tied_with_best_is_unknown_with_too_few_splits():
+    """Below five paired splits the one-sided test cannot reject at 0.05, so no verdict."""
+    tied = tied_with_best(_paired_splits({"best": [0.1] * 4, "other": [0.2] * 4})).set_index("method")
+    assert tied.loc["best", "tied"] is True
+    assert tied.loc["other", "tied"] is None
+    tied = tied_with_best(_paired_splits({"best": [0.1] * 5, "other": [0.2] * 5})).set_index("method")
+    assert tied.loc["other", "tied"] is False
+
+
+def test_per_dataset_points_carry_std_and_the_tie_flag():
+    points = per_dataset_points(_results_per_split()).set_index(["dataset", "method"])
+    assert points.loc[("alpha", "CAT (default)"), "std"] == pytest.approx(pd.Series([0.30, 0.32]).std())
+    # Two splits are too few for the test, so the flag is unknown, except for the best method,
+    # which is tied with itself.
+    assert points.loc[("alpha", "CAT (tuned)"), "tied"] is True
+    assert points.loc[("alpha", "CAT (default)"), "tied"] is None
+
+
+def test_explorer_points_carry_spread_and_tie_fields(tmp_path):
+    frame = _paired_splits(
+        {
+            "CAT (tuned)": [0.10, 0.11, 0.12, 0.10, 0.11, 0.12],
+            "CAT (default)": [0.20, 0.21, 0.22, 0.20, 0.21, 0.22],
+        },
+    )
+    method_info = _METHOD_INFO
+    path = build_per_dataset_explorer_html(
+        results_per_split=frame,
+        method_info=method_info,
+        dataset_metadata=None,
+        save_path=tmp_path / "explorer.html",
+    )
+    html = path.read_text(encoding="utf-8")
+    points = json.loads(re.search(r"const POINTS = (\[.*?\]);\n", html, re.S).group(1))
+    by_method = {p["m"]: p for p in points}
+    names = list(method_info["method"])
+    tuned = by_method[names.index("CAT (tuned)")] if "CAT (tuned)" in names else None
+    assert tuned is not None
+    assert tuned["b"] == 1
+    assert tuned["s"] == pytest.approx(pd.Series([0.10, 0.11, 0.12, 0.10, 0.11, 0.12]).std(), rel=1e-2)
+    default = by_method[names.index("CAT (default)")]
+    assert default["b"] == 0
+    assert '"significance"' in html

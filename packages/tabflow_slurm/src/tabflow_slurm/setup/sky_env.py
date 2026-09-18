@@ -327,8 +327,10 @@ def render_env_setup_script() -> str:
     """The shell that builds ``$HOME/tabarena_sky/venv`` from the manifest at ``$ENV_SPEC``.
 
     Reads the manifest with the system ``python3`` (no ``jq``), unpacks each repository archive,
-    creates the venv with ``uv`` and installs the pins, then the editable and local installs with
-    ``--no-deps`` (their dependencies are among the pins). It is idempotent: a worker that already
+    creates the venv with ``uv`` and installs the pins, then the editable and local installs, all
+    with ``--no-deps``: a ``uv pip freeze`` is a closed set, and resolving it again can fail on
+    metadata the head venv tolerates (a test-only package whose declared bound the installed
+    version of a shared dependency does not meet). It is idempotent: a worker that already
     built this exact manifest (``env.done``) exits early, which is what a pool worker or a recovered
     job hits on its second run. ``build-essential`` is installed when ``g++`` is missing, for local
     sdists with C++ extensions. ``$CACHE_ROOT`` (the worker's cache directory) is created here too.
@@ -366,7 +368,7 @@ for ((i = 0; i < ${#REPOS[@]}; i += 2)); do
     gcloud storage cat "${REPOS[i + 1]}" | tar -xz -C "$ROOT/src/${REPOS[i]}"
 done
 uv venv --python "$PYTHON_VERSION" "$ROOT/venv"
-uv pip install --python "$ROOT/venv/bin/python" -r "$ROOT/requirements.txt"
+uv pip install --python "$ROOT/venv/bin/python" --no-deps -r "$ROOT/requirements.txt"
 for rel in ${EDITABLE[@]+"${EDITABLE[@]}"}; do
     uv pip install --python "$ROOT/venv/bin/python" --no-deps -e "$ROOT/src/$rel"
 done

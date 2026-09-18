@@ -4,9 +4,10 @@ Heavy libraries are never warmed for real: ``warmup_torch`` and the best-effort 
 monkeypatched where they would matter, so these exercise the dispatch order (declared ``warmup``
 classmethod, torch layer, ``warmup_modules`` over the MRO, ``WARMUP_STEPS_BY_AG_KEY``, shared
 weights, dummy fit), the per-step failure isolation, the CUDA gating and the report contents. The
-dummy-fit tests use a tiny ``AbstractModel`` that stores the label mean and stay on the CPU; torch is
-optional (the default CI job runs without it): the fake draws from torch's generator only when torch
-is installed, and the tests that inspect torch itself skip without it.
+dummy-fit tests use a tiny ``AbstractModel`` that stores the label mean and stay on the CPU. torch is
+optional for them (an install without the benchmark extra has none): the model draws from torch's
+generator only when torch is importable, and the tests that check the torch RNG and thread
+restoration skip without it. CI installs the CPU build of torch, so all of them run there.
 """
 
 from __future__ import annotations
@@ -24,15 +25,6 @@ import tabarena.models.warmup as wu
 from tabarena.utils import ray_utils
 
 # --- fakes ------------------------------------------------------------------------------------
-
-
-def _optional_torch():
-    """The torch module when installed, else ``None``."""
-    try:
-        import torch
-    except ImportError:
-        return None
-    return torch
 
 
 class _DeclaredWarmupModel:
@@ -96,6 +88,15 @@ class _EBMLike:
     warmup_dummy_fit = False
 
 
+def _torch_or_none():
+    """The torch module when it is installed, else ``None`` (an install without the benchmark extra)."""
+    try:
+        import torch
+    except ImportError:
+        return None
+    return torch
+
+
 class _MeanModel(AbstractModel):
     """Stores the label mean; predicts constants. Draws from every global RNG to test the guard."""
 
@@ -107,7 +108,7 @@ class _MeanModel(AbstractModel):
         X = self.preprocess(X, is_train=True)
         np.random.random()
         random.random()  # noqa: S311
-        torch = _optional_torch()
+        torch = _torch_or_none()
         if torch is not None:
             torch.rand(1)
         self._mean = float(y.mean())
@@ -522,23 +523,24 @@ def test_warmup_ag_stack_without_ray(monkeypatch, recorded_imports):
 
 
 def _rng_states():
-    torch = _optional_torch()
-    torch_state = torch.get_rng_state().clone() if torch is not None else None
-    return random.getstate(), np.random.get_state(), torch_state
+    import torch
+
+    return random.getstate(), np.random.get_state(), torch.get_rng_state().clone()
 
 
 def _assert_rng_states_equal(before, after):
-    torch = _optional_torch()
+    import torch
+
     assert before[0] == after[0]
     assert before[1][0] == after[1][0] and np.array_equal(before[1][1], after[1][1]) and before[1][2:] == after[1][2:]
-    if torch is not None:
-        assert torch.equal(before[2], after[2])
+    assert torch.equal(before[2], after[2])
 
 
 def test_dummy_fit_runs_with_synthetic_shapes_and_cleans_up(tmp_path):
+    torch = pytest.importorskip("torch")
     _MeanModel.fits.clear()
-    torch = _optional_torch()
-    threads = torch.get_num_threads() if torch is not None else None
+
+    threads = torch.get_num_threads()
     before = _rng_states()
     report = wu.warmup_model_cls(_MeanModel, problem_type="binary", num_cpus=2, num_gpus=0, hyperparameters={"lr": 1})
     after = _rng_states()
@@ -559,8 +561,7 @@ def test_dummy_fit_runs_with_synthetic_shapes_and_cleans_up(tmp_path):
     assert record["torch_globals_changed"] == {}
     assert "dummy_fit:_MeanModel" in report.steps and report.failed_steps == []
     _assert_rng_states_equal(before, after)
-    if torch is not None:
-        assert torch.get_num_threads() == threads
+    assert torch.get_num_threads() == threads
 
 
 def test_cpu_dummy_fit_never_forks_cuda_generators_on_a_cuda_host(monkeypatch):
@@ -695,11 +696,12 @@ def test_warmup_feature_generator_cls_dispatches_classvar_and_classmethod(record
 
 
 def test_run_warmup_fn_records_imports_and_status(throwaway_package, monkeypatch):
+    # an earlier test in the session may have created the CUDA context on a GPU host
+    monkeypatch.setattr(wu, "cuda_initialized", lambda: False)
+
     def fn():
         __import__(throwaway_package)
 
-    # an earlier test in the session may have created the CUDA context on a GPU host
-    monkeypatch.setattr(wu, "cuda_initialized", lambda: False)
     report = wu.run_warmup_fn(fn, label="M")
     assert report.status == "ok" and report.label == "M"
     assert report.duration_s is not None and report.duration_s >= 0

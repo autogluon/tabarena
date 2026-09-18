@@ -45,7 +45,11 @@ dependencies = [
   # `autogluon.timeseries` (torch, transformers, ...). `autogluon.tabular` transitively
   # provides `autogluon.{common,core,features}`, which is everything the code uses.
   # To use `uv`, you need to do `uv pip install --prerelease=allow .` so it recognizes pre-release AutoGluon.
-  "autogluon.tabular>=1.6,<1.7",
+  # The shared-weights API (autogluon.core.models.abstract.SharedWeights) that the foundation-model
+  # wrappers import landed on AutoGluon's master on 2026-09-16 and ships in the nightlies from
+  # 1.6.3b20260917 on. The 1.6.3 release of 2026-09-18 was cut without it, so it is excluded; a pin
+  # that names a pre-release also lets pip consider the nightlies without `--pre`.
+  "autogluon.tabular>=1.6.3b20260917,!=1.6.3,<1.7",
   # core's [ray] extra is exactly ray[default] at the range autogluon.core pins, so the
   # two cannot drift apart. (Not autogluon.tabular[ray]: that maps to core[all], which
   # additionally drags in raytune's hyperopt/stevedore/ray[tune].) autogluon.core is
@@ -130,6 +134,15 @@ limix = [
   "einops",
   "kditransform",
 ]
+# LimiX-2's inference package is not on PyPI (pinned to a commit; keep in sync with `pip_extra` in
+# models/limix_2/info.py; empty extra on PyPI, see the note at the top of this table) and pins
+# torch==2.9.1, which would replace the torch every other model runs on. The extra is therefore left
+# out of `extended` and `all`; install it without its dependency tree next to the existing torch:
+#   uv pip install --no-deps "LimiX @ git+https://github.com/limix-ldm-ai/LimiX.git@774aa3e1a994cbe38f33758e3d663e9951855554" nvtx
+limix_2 = [
+  "LimiX @ git+https://github.com/limix-ldm-ai/LimiX.git@774aa3e1a994cbe38f33758e3d663e9951855554",
+  "nvtx",
+]
 tabpfnwide = ["tabpfnwide>=0.3.0"]
 iltm = ["iltm>=0.1.1"]
 chimeraboost = ["chimeraboost>=0.30.0"]
@@ -153,6 +166,9 @@ tabldm = ["Xiaomi-TabLDM @ git+https://github.com/xiaomi-research/xiaomi-tabldm.
 # flash-attn is optional (faster attention, same results) and needs a prebuilt wheel:
 # `pip install flash-attn --no-build-isolation`.
 mitra_v2 = ["autogluon.tabular[mitra]>=1.6,<1.7"]
+# TabPFN-3.5 / TabPFN-3.5-Fast need the release that ships the v3.5 checkpoints; the shared
+# `tabpfn` extra above stays at the floor the earlier TabPFN versions were benchmarked with.
+tabpfn_3_5 = ["tabpfn>=9.0.0"]
 
 # Core benchmark set: the always-on models for benchmarking, plus the plotting and
 # preprocessing capabilities split out of the core install. Self-references avoid
@@ -193,6 +209,7 @@ extended = [
   "tabarena[exaone_tabular]",
   "tabarena[tabldm]",
   "tabarena[mitra_v2]",
+  "tabarena[tabpfn_3_5]",
 ]
 
 # Convenience: everything (core + extended + probmetrics).

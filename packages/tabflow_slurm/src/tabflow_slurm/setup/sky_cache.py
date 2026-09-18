@@ -24,11 +24,14 @@ the shared cache meanwhile sees one complete file or the other.
 
 Model weights go the same way (:func:`seed_model_weights`): the run's models are prefetched on the
 head node into a scratch cache root with ``HF_HOME``, ``XDG_CACHE_HOME`` (tabpfn's cache) and
-``TORCH_HOME`` redirected, whatever lands there is uploaded under ``huggingface/``, ``xdg/`` and
-``torch/`` (Hugging Face repos as their ``snapshots`` and ``refs``, so no blob is stored twice), and a
-per-model manifest ``weights/<model>.json`` makes the next setup skip the prefetch. Workers pull the
-entries at start and, when every model's weights are present, load them with ``HF_HUB_OFFLINE=1``, so
-no token is needed on the VMs.
+``TORCH_HOME`` redirected. The files the model's prefetcher resolves in this node's own caches are
+mirrored into that root first (hardlinks where possible), so the prefetch downloads only what the
+node does not have, and a checkpoint that needs a license token the node no longer has (tabpfn's
+gated versions) is still seeded from the warm cache. Whatever lands in the root is uploaded under
+``huggingface/``, ``xdg/`` and ``torch/`` (Hugging Face repos as their ``snapshots``, ``refs`` and ``trees``,
+so no blob is stored twice), and a per-model manifest ``weights/<model>.json`` makes the next setup skip
+the prefetch. Workers pull the entries at start and, when every model's weights are present, load
+them with ``HF_HUB_OFFLINE=1``, so no token is needed on the VMs.
 """
 
 from __future__ import annotations
@@ -313,23 +316,114 @@ def head_hf_token() -> str | None:
         return None
 
 
-def prefetch_weights_into(model_names: Iterable[str], *, python: str, cache_root: Path) -> None:
+_WEIGHT_PLAN_MARKER = "TABARENA_WEIGHT_PLAN="
+
+
+def resolve_local_weights(model_names: Iterable[str], *, python: str) -> dict:
+    """The weight files of ``model_names`` as this node's caches hold them, via a subprocess.
+
+    Runs ``tabarena.models.staging.collect_weight_paths`` in ``python`` with the ambient caches (the
+    prefetchers resolve local-first, so on a node that ran these models before this is a cache
+    lookup) and returns its plan: ``hf_repo_dirs`` and ``tabpfn_files`` are what
+    :func:`mirror_local_weights` copies. A failure returns an empty plan; the scratch prefetch then
+    downloads everything as before.
+    """
+    from tabarena.models.staging import empty_plan
+
+    names = list(model_names)
+    code = (
+        "import json; from tabarena.models.staging import collect_weight_paths; "
+        f"print({_WEIGHT_PLAN_MARKER!r} + json.dumps(collect_weight_paths({names!r})))"
+    )
+    result = subprocess.run([python, "-P", "-c", code], check=False, capture_output=True, text=True)  # noqa: S603
+    lines = [line for line in result.stdout.splitlines() if line.startswith(_WEIGHT_PLAN_MARKER)]
+    if result.returncode != 0 or not lines:
+        print(f"[seed] {', '.join(names)}: could not resolve this node's cached weights; the prefetch downloads them")
+        return empty_plan()
+    return json.loads(lines[-1][len(_WEIGHT_PLAN_MARKER) :])
+
+
+def _link_or_copy(src: Path, dst: Path) -> None:
+    """Hardlink ``src`` at ``dst`` (same filesystem), else copy it; an existing ``dst`` is kept."""
+    if dst.exists():
+        return
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        os.link(src, dst)
+    except OSError:
+        shutil.copyfile(src, dst)
+
+
+def _mirror_tree(src: Path, dst: Path) -> None:
+    """Recreate ``src`` under ``dst``: symlinks with the same target, files hardlinked or copied; existing entries are kept."""
+    for path in sorted(src.rglob("*")):
+        target = dst / path.relative_to(src)
+        if path.is_symlink():
+            if not os.path.lexists(target):
+                target.parent.mkdir(parents=True, exist_ok=True)
+                os.symlink(os.readlink(path), target)
+        elif path.is_dir():
+            target.mkdir(parents=True, exist_ok=True)
+        elif path.is_file():
+            _link_or_copy(path, target)
+
+
+def mirror_local_weights(plan: dict, cache_root: Path) -> int:
+    """Copy the weights of ``plan`` (see :func:`resolve_local_weights`) into ``cache_root``; return the file count.
+
+    A Hugging Face repository directory contributes its ``snapshots``, ``refs`` and ``trees`` directories
+    with their symlinks intact and its ``blobs`` as hardlinks, so the snapshot links resolve inside the root and
+    :func:`collect_weight_entries` sees the usual layout. TabPFN checkpoints go to ``xdg/tabpfn/``,
+    where the redirected ``XDG_CACHE_HOME`` makes the tabpfn loader look for them.
+    """
+    cache_root = Path(cache_root)
+    count = 0
+    for repo in plan.get("hf_repo_dirs", []):
+        src = Path(repo)
+        dst = cache_root / "huggingface" / "hub" / src.name
+        for sub in ("snapshots", "refs", "trees"):
+            if (src / sub).is_dir():
+                _mirror_tree(src / sub, dst / sub)
+        blobs = src / "blobs"
+        if blobs.is_dir():
+            for blob in sorted(blobs.iterdir()):
+                if blob.is_file():
+                    _link_or_copy(blob, dst / "blobs" / blob.name)
+                    count += 1
+    for file in plan.get("tabpfn_files", []):
+        src = Path(file)
+        if src.is_file():
+            _link_or_copy(src, cache_root / "xdg" / "tabpfn" / src.name)
+            count += 1
+    return count
+
+
+def prefetch_weights_into(
+    model_names: Iterable[str],
+    *,
+    python: str,
+    cache_root: Path,
+    resolve: Callable[..., dict] = resolve_local_weights,
+) -> None:
     """Run tabarena's weight prefetch for ``model_names`` in a subprocess whose caches live under ``cache_root``.
 
-    The head node's own token is passed as ``HF_TOKEN`` so gated repositories download; the redirected
+    The files the prefetchers resolve in this node's own caches are mirrored into ``cache_root`` first
+    (``resolve`` + :func:`mirror_local_weights`), so the prefetch downloads only what the node lacks;
+    the head node's own token is passed as ``HF_TOKEN`` so gated repositories download. The redirected
     caches never see the node's other weights, so what lands under ``cache_root`` is exactly this run's.
     """
+    names = list(model_names)
+    for path in weight_cache_env(cache_root).values():
+        Path(path).mkdir(parents=True, exist_ok=True)
+    mirrored = mirror_local_weights(resolve(names, python=python), cache_root)
+    if mirrored:
+        print(f"[seed] {', '.join(names)}: {mirrored} file(s) mirrored from this node's caches")
     env = {k: v for k, v in os.environ.items() if k not in ("HF_HUB_CACHE", "HUGGINGFACE_HUB_CACHE", "HF_HUB_OFFLINE")}
     env.update(weight_cache_env(cache_root))
     token = head_hf_token()
     if token:
         env["HF_TOKEN"] = token
-    for path in weight_cache_env(cache_root).values():
-        Path(path).mkdir(parents=True, exist_ok=True)
-    code = (
-        "from tabarena.models.prefetch import prefetch_weights; "
-        f"prefetch_weights({list(model_names)!r}, raise_on_error=True)"
-    )
+    code = f"from tabarena.models.prefetch import prefetch_weights; prefetch_weights({names!r}, raise_on_error=True)"
     subprocess.run([python, "-P", "-c", code], env=env, check=True)  # noqa: S603
 
 
@@ -340,8 +434,10 @@ def _is_hidden(path: Path, root: Path) -> bool:
 def collect_weight_entries(cache_root: Path) -> list[CacheEntry]:
     """The seedable files a prefetch left under ``cache_root``.
 
-    Hugging Face repositories contribute their ``snapshots`` and ``refs`` directories (the snapshot files
-    are symlinks into ``blobs``; the upload follows them, so the blobs are not stored twice). Everything
+    Hugging Face repositories contribute their ``snapshots``, ``refs`` and ``trees`` directories (the
+    snapshot files are symlinks into ``blobs``; the upload follows them, so the blobs are not stored twice;
+    ``trees`` holds the hub's cached tree listing per commit, which ``snapshot_download`` of a pinned commit
+    needs offline, or it asks the Hub for the listing). Everything
     else (``xdg/tabpfn/*.ckpt``, torch hub checkpoints) is taken file by file; lock files and hidden
     directories are skipped.
     """
@@ -352,7 +448,7 @@ def collect_weight_entries(cache_root: Path) -> list[CacheEntry]:
         for repo in sorted(hub.iterdir()):
             if not repo.is_dir() or not repo.name.startswith("models--"):
                 continue
-            for sub in ("snapshots", "refs"):
+            for sub in ("snapshots", "refs", "trees"):
                 if (repo / sub).is_dir():
                     entries.append(CacheEntry(rel=f"huggingface/hub/{repo.name}/{sub}", local=repo / sub, is_dir=True))
     for top in ("xdg", "torch"):
@@ -388,9 +484,9 @@ def seed_model_weights(
 ) -> tuple[dict, CacheSeedReport]:
     """Make the weights of ``model_names`` available under ``cache_uri``; return ``(manifest, report)``.
 
-    A model whose ``weights/<model>.json`` exists remotely is taken from there. Otherwise (and only when
-    ``upload``) it is prefetched into a fresh scratch root, its entries are seeded and verified, and the
-    remote manifest is written. The returned manifest is
+    A model whose ``weights/<model>.json`` exists remotely with entries is taken from there. Otherwise
+    (and only when ``upload``) it is prefetched into a fresh scratch root, its entries are seeded and
+    verified, and the remote manifest is written. The returned manifest is
     ``{"weights": {"<model>": [rels]}, "offline_weights": bool}``; ``offline_weights`` is True when every
     model that declares weights has verified entries, which lets the workers load with ``HF_HUB_OFFLINE=1``.
     """
@@ -402,8 +498,11 @@ def seed_model_weights(
     for model in dict.fromkeys(model_names):
         remote_manifest = f"{cache_uri}/weights/{model}.json"
         if storage.exists(remote_manifest):
-            weights[model] = list(json.loads(storage.read_text(remote_manifest))["entries"])
-            continue
+            rels = list(json.loads(storage.read_text(remote_manifest))["entries"])
+            if rels:
+                weights[model] = rels
+                continue
+            # An empty manifest records a seeding whose prefetch produced nothing; seed again.
         if not has_prefetcher(model):
             weights[model] = []
             continue

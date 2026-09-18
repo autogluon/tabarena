@@ -51,11 +51,17 @@ jobs:
           # (un-skips the data_foundry-gated task/validation tests) and [search_spaces]
           # (ConfigSpace, so bundle tests can sample random configs), plus the
           # tabflow_slurm package so its tests run instead of importorskip-ing. We
-          # intentionally do NOT install [text]/[benchmark]: those pull torch + model
+          # intentionally do NOT install [text]/[benchmark]: those pull the model
           # libs; model-fitting tests run in the nightly workflow, keeping this job fast.
           uv pip install --system --prerelease=allow \
             -e "./packages/tabarena[plot,preprocessing,data-foundry,search_spaces]" \
             -e "./packages/tabflow_slurm"
+
+          # The CPU build of torch (about 200 MB, no CUDA libraries) so the torch-gated
+          # unit tests (warm-up RNG and thread guards, temperature scaling) run on every
+          # PR instead of importorskip-ing. The "minimal core" install check still
+          # guards against a top-level torch import in the package.
+          uv pip install --system torch --index-url https://download.pytorch.org/whl/cpu
 
           # Optional tools
           uv pip install --system pytest

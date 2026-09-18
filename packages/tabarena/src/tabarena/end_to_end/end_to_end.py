@@ -189,9 +189,11 @@ class EndToEnd:
             Directory (or directories) containing the raw ``results.pkl`` files, searched
             recursively.
         name_prefix_raw : str or None = None
-            If specified, only results in subdirectories starting with this prefix are used.
-            Useful when ``path_raw`` contains results for multiple methods; this should be the
-            ``ag_name`` of the method's AbstractModel class.
+            If specified, only the results of this one method are used: the top-level folders
+            named ``<name_prefix_raw>`` or ``<name_prefix_raw>_<config>``. Useful when ``path_raw``
+            contains results for multiple methods; this should be the ``ag_name`` of the method's
+            AbstractModel class. A sibling method whose name merely extends it (``TA-TabPFN-3.5``
+            vs ``TA-TabPFN-3.5-Fast``) is left out.
         file_paths : list[str | Path] or None = None
             Pre-discovered ``results.pkl`` paths under ``path_raw``. Skips the recursive
             directory walk (useful when a preceding inspect step already discovered them);

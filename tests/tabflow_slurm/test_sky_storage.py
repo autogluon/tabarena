@@ -91,6 +91,17 @@ def test_copy_tree_copies_each_directory_with_explicit_object_names(recorder, tm
     ]
 
 
+def test_upload_dir_rsyncs_the_content_behind_symlinks(recorder, tmp_path):
+    GcsStorage().upload_dir(tmp_path / "snapshots", "gs://b/c/snapshots")
+    assert recorder.calls[0][2:] == [
+        "rsync",
+        "-r",
+        "--no-ignore-symlinks",
+        str(tmp_path / "snapshots"),
+        "gs://b/c/snapshots",
+    ]
+
+
 def test_download_dir_creates_the_target_and_rsyncs(recorder, tmp_path):
     GcsStorage().download_dir("gs://b/runs/x/output/data", tmp_path / "out" / "data")
     assert (tmp_path / "out" / "data").is_dir()

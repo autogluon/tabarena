@@ -19,6 +19,7 @@ if TYPE_CHECKING:
     from tabarena.models.iltm.model import ILTMModel
     from tabarena.models.knn.model import KNNNewModel
     from tabarena.models.limix.model import LimiXModel
+    from tabarena.models.limix_2.model import LimiX2Model
     from tabarena.models.mitra_v2.model import MitraV2Model
     from tabarena.models.modernnca.model import ModernNCAModel
     from tabarena.models.nori.model import Nori30MModel, NoriModel
@@ -32,6 +33,7 @@ if TYPE_CHECKING:
     from tabarena.models.tabldm.model import TabLDMModel
     from tabarena.models.tabm.model import TabMModel
     from tabarena.models.tabpfn_3.model import TabPFN3Model
+    from tabarena.models.tabpfn_3_5.model import TabPFN35FastModel, TabPFN35Model
     from tabarena.models.tabpfnv2_5.model import RealTabPFNv25Model, TabPFNv26Model
     from tabarena.models.tabpfnwide.model import TabPFNWideModel
     from tabarena.models.tabstar.model import TabSTARModel
@@ -53,6 +55,7 @@ _LAZY_CLASSES: dict[str, str] = {
     "ILTMModel": "tabarena.models.iltm.model",
     "KNNNewModel": "tabarena.models.knn.model",
     "LimiXModel": "tabarena.models.limix.model",
+    "LimiX2Model": "tabarena.models.limix_2.model",
     "MitraV2Model": "tabarena.models.mitra_v2.model",
     "ModernNCAModel": "tabarena.models.modernnca.model",
     "NoriModel": "tabarena.models.nori.model",
@@ -69,6 +72,8 @@ _LAZY_CLASSES: dict[str, str] = {
     "TabICLv2Model": "tabarena.models.tabicl.model",
     "TabLDMModel": "tabarena.models.tabldm.model",
     "TabMModel": "tabarena.models.tabm.model",
+    "TabPFN35FastModel": "tabarena.models.tabpfn_3_5.model",
+    "TabPFN35Model": "tabarena.models.tabpfn_3_5.model",
     "TabPFN3Model": "tabarena.models.tabpfn_3.model",
     "TabPFNWideModel": "tabarena.models.tabpfnwide.model",
     "TabPFNv26Model": "tabarena.models.tabpfnv2_5.model",

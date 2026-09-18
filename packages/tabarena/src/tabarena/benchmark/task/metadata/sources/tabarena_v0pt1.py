@@ -76,6 +76,12 @@ def load_tabarena_v0_1_task_metadata(curated_metadata: pd.DataFrame) -> list[Tab
         year = getattr(row, "year", None)
         data_source = getattr(row, "data_source", None)
         dataset_year = None if year is None or pd.isna(year) else str(year)
+        # Target statistics, computed once from the OpenML data and kept in the curated table
+        # (the conversion here never loads a dataset). Absent from older curated tables.
+        target_stats = {
+            name: None if pd.isna(value := getattr(row, name, None)) else float(value)
+            for name in ("target_minority_fraction", "target_imbalance_ratio", "target_skewness")
+        }
 
         for repeat_i in range(n_repeats):
             for fold_i in range(n_folds):
@@ -127,6 +133,7 @@ def load_tabarena_v0_1_task_metadata(curated_metadata: pd.DataFrame) -> list[Tab
                         domain=domain,
                         dataset_year=dataset_year,
                         source=data_source,
+                        **target_stats,
                     ),
                 )
     return task_metadata

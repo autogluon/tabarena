@@ -132,3 +132,23 @@ def test_empty_input_returns_the_expected_columns():
     )
     assert out.empty
     assert list(out.columns) == ["dataset", "method", "n_configs", "x_train", "x_infer", "err", "imp", "imputed"]
+
+
+def test_leaderboard_is_none_when_the_subset_selects_no_task():
+    """A cell whose subset holds no task (the extreme-imbalance datasets are all classification,
+    so its regression cell is empty) yields no leaderboard rather than an Elo error, and the
+    caller skips it.
+    """
+    from tabarena.plot.tuning_trajectories.plot_pareto_over_tuning_time import (
+        compute_tuning_trajectories_leaderboard,
+    )
+
+    leaderboard = compute_tuning_trajectories_leaderboard(
+        combined_data=_combined_data().iloc[0:0],
+        tabarena_context=_StubContext(),
+        methods_map=_methods_map(),
+        calibration_framework="CatBoost",
+        fillna_method=None,
+        exclude_imputed=False,
+    )
+    assert leaderboard is None

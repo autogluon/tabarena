@@ -158,6 +158,9 @@ __BASE_JS__
   const state = {
     methods: new Set(POINTS.map(p => p.method)),
     variants: new Set(VARIANTS),
+    // Methods the host took out of the page (see `onExcludeMessage`): no row, no chip, and
+    // left out of the CSV export, which is built from `visibleRows`.
+    excluded: new Set(),
     columns: new Set(COLUMNS.filter(c => c.on !== false).map(c => c.key)),
     imputed: true,
     search: "",
@@ -236,7 +239,7 @@ __BASE_JS__
   function visibleRows() {
     const term = state.search.trim().toLowerCase();
     return POINTS.filter(p => {
-      if (!state.methods.has(p.method)) return false;
+      if (!state.methods.has(p.method) || state.excluded.has(p.method)) return false;
       if (p.variant && !state.variants.has(p.variant)) return false;
       if (!state.imputed && p.imputed) return false;
       if (term && !(p.method + " " + (p.variant || "") + " " + p.family).toLowerCase().includes(term)) return false;
@@ -349,7 +352,7 @@ __BASE_JS__
 
   // ---------- chips (families and their methods) ----------
   function familyMembers(fam) {
-    return [...new Set(POINTS.filter(p => p.family === fam).map(p => p.method))];
+    return [...new Set(POINTS.filter(p => p.family === fam && !state.excluded.has(p.method)).map(p => p.method))];
   }
   function methodRank(name) {
     const col = colByKey.get(RANK_KEY);
@@ -395,11 +398,22 @@ __BASE_JS__
     }
   }
   function syncChips() {
-    for (const [name, b] of chipByMethod) b.setAttribute("aria-pressed", String(state.methods.has(name)));
+    for (const [name, b] of chipByMethod) {
+      b.setAttribute("aria-pressed", String(state.methods.has(name)));
+      b.hidden = state.excluded.has(name);
+    }
     for (const [fam, b] of famChips) {
-      b.setAttribute("aria-pressed", String(familyMembers(fam).every(m => state.methods.has(m))));
+      const members = familyMembers(fam);
+      b.hidden = !members.length;
+      b.setAttribute("aria-pressed", String(members.every(m => state.methods.has(m))));
+      b.innerHTML = famChipLabel(fam, members.length);
     }
   }
+  onExcludeMessage(excluded => {
+    state.excluded = excluded;
+    syncChips();
+    render();
+  });
   function toggleMethod(name) {
     if (state.methods.has(name)) state.methods.delete(name); else state.methods.add(name);
     syncChips();
