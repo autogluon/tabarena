@@ -10,17 +10,24 @@ limix_2_descriptor = ModelDescriptor(
     compute="gpu",
     is_bag=False,
     reference_url="https://arxiv.org/abs/2609.17488",
+    commercial_use=False,
+    license="StableAI LimiX Non-Commercial License v1.0",
     date_introduced="2026-09-15",
 )
 
-# Not benchmarked yet: no suite and no hosted artifacts until a run exists (the upload step fills
-# them in and confirms the config name).
+# Run limix2_17092026 (SkyPilot pool, 64 RTX PRO 6000, BENCHMARK_LOG.md): time limits of 2 h, and 8 h on the
+# nine large or wide datasets, instead of the 1 h default (a recorded protocol deviation).
 limix_2_method_metadata = limix_2_descriptor.method_metadata(
     method="LimiX-2",
     ag_key="TA-LIMIX-2",
+    config_default="LimiX-2_c1_default_BAG_L1",
     can_hpo=False,
     date="2026-09-17",
     verified=False,
+    cache_type="r2",
+    validation_protocol="8x1",
+    suite="tabarena-2026-09-17",
+    cache_kwargs={"bucket": "tabarena", "prefix": "cache"},
 )
 
 
