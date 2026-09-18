@@ -42,7 +42,7 @@ from tabarena.models._method_metadata_collection import MethodMetadataCollection
 # below references these directly. (Some keep their historical alias, used by the per-suite full
 # lists / downstream collections.)
 from tabarena.models.aplr.info import aplr_method_metadata
-from tabarena.models.catboost.info import catboost_new_method_metadata
+from tabarena.models.catboost.info import catboost_2026_09_method_metadata, catboost_new_method_metadata
 from tabarena.models.causilo.info import causilo_method_metadata, causilo_new_method_metadata
 from tabarena.models.chimeraboost.info import (
     chimeraboost_method_metadata,
@@ -184,7 +184,7 @@ tabarena_method_metadata_collection = MethodMetadataCollection(
         tabfm_plus_method_metadata,
         # Default tabular models (CPU)
         aplr_method_metadata,
-        catboost_new_method_metadata,
+        catboost_2026_09_method_metadata,
         chimeraboost_v030_method_metadata,
         ctboost_method_metadata,
         ebm_new_method_metadata,
@@ -236,6 +236,7 @@ tabarena_method_metadata_collection = MethodMetadataCollection(
 # so they are named here to keep their hosted artifacts reachable through the complete collection.
 # Append a method here whenever a rerun takes over its slot in the collection.
 methods_superseded: list[MethodMetadata] = [
+    catboost_new_method_metadata,  # rerun tabarena-2026-09-16 replaced it
     chimeraboost_method_metadata,  # 0.14.1 before the untimed warm-up (suite tabarena-2026-06-30)
     chimeraboost_new_method_metadata,  # 0.14.1 with the warm-up (suite tabarena-2026-07-13)
     nori_method_metadata,
