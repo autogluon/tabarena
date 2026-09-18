@@ -9,9 +9,11 @@ worker job of a launch runs this module and shares the queue through three marke
 * ``done/<idx>.<k>`` records item ``k`` of bundle ``idx`` (``<status> <rc> <seconds> <coords>``),
   ``done/<idx>`` the finished bundle. ``failed/<idx>.<k>`` duplicates the non-ok item records so
   progress needs only listings.
-* A recovered job (``SKYPILOT_TASK_ID`` survives a preemption) first resumes the bundles it owns,
-  skipping items that already have a marker, then claims new ones. When nothing is claimable the
-  worker exits; orphaned claims of a cancelled job are re-enumerated by the next ``setup``.
+* A recovered job first resumes the bundles it owns, skipping items that already have a marker,
+  then claims new ones. Its ``SKYPILOT_TASK_ID`` gets a new launch timestamp on every recovery
+  while the ``<job name>_<job id>-<task id>`` tail stays, so a claim is matched on that tail
+  (:func:`same_job`). When nothing is claimable the worker exits; orphaned claims of a cancelled
+  job are re-enumerated by the next ``setup``.
 
 Before an item runs, the dataset's cache entries listed in the queue's ``cache_manifest.json`` (seeded
 by the setup, see :mod:`tabflow_slurm.setup.sky_cache`) are pulled into ``CACHE_ROOT``, so the runner
@@ -61,6 +63,19 @@ TIMEOUT_EXIT_CODE = 124
 CLAIM_REFRESH_EVERY = 5
 
 
+def same_job(owner: str, worker_id: str) -> bool:
+    """Whether the claim written by ``owner`` belongs to the managed job running as ``worker_id``.
+
+    A managed job's ``SKYPILOT_TASK_ID`` reads ``sky-managed-<timestamp>_<job name>_<job id>-<task id>``.
+    SkyPilot stamps a new timestamp when it recovers the job after a preemption, so the id of the
+    recovered worker differs from the one it wrote into its claims before; everything after the first
+    underscore is the same job. Ids without that prefix (tests, other schedulers) compare whole.
+    """
+    if owner == worker_id:
+        return True
+    return "_" in owner and "_" in worker_id and owner.split("_", 1)[1] == worker_id.split("_", 1)[1]
+
+
 @dataclass
 class WorkerConfig:
     """What one worker job needs to know; :meth:`from_env` reads it from the job's environment."""
@@ -70,7 +85,8 @@ class WorkerConfig:
     launch_id: str
     cache_root: Path
     worker_id: str
-    """The managed job's ``SKYPILOT_TASK_ID``; stable across recoveries, written into claims."""
+    """The managed job's ``SKYPILOT_TASK_ID``, written into claims; a recovery changes its timestamp
+    prefix, so claims are compared with :func:`same_job`."""
     rank: int = 0
     num_jobs: int = 1
     models: tuple[str, ...] = ()
@@ -214,8 +230,8 @@ class Worker:
             except Exception as exc:
                 _log(f"could not read claim {idx}: {exc!r}")
                 continue
-            if owner == self.cfg.worker_id:
-                _log(f"resuming own claim {idx}")
+            if same_job(owner, self.cfg.worker_id):
+                _log(f"resuming own claim {idx} (claimed as {owner})")
                 self.run_bundle(idx)
 
     def claim_loop(self) -> None:

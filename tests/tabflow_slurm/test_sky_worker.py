@@ -12,7 +12,7 @@ import pytest
 pytest.importorskip("tabflow_slurm.setup", reason="tabflow_slurm is not installed")
 
 from tabflow_slurm.setup.skypilot import SkyPilotSetup
-from tabflow_slurm.sky_worker import TIMEOUT_EXIT_CODE, Worker, WorkerConfig
+from tabflow_slurm.sky_worker import TIMEOUT_EXIT_CODE, Worker, WorkerConfig, same_job
 
 _STUB_RUNNER = """
 import argparse, json, os, sys, time
@@ -218,6 +218,29 @@ class TestWorkerRun:
         summary = local_storage.read_text(f"{queue_uri}/done/000000")
         assert "000000.0 fail:1" in summary and "000000.1 ok" in summary
 
+    def test_recovery_resumes_a_claim_written_under_the_previous_task_id(self, local_storage, tmp_path, stub_runner):
+        """SkyPilot stamps a new timestamp into ``SKYPILOT_TASK_ID`` when it recovers a job; the claim still counts."""
+        queue_uri = _stage_queue(local_storage, tmp_path, [[_item("cfg_0", fold=0), _item("cfg_0", fold=1)]])
+        before = "sky-managed-2026-09-17-15-26-33-635402_bench_gpu-20260917-151805-d1cb_3985-0"
+        after = "sky-managed-2026-09-17-17-25-23-295277_bench_gpu-20260917-151805-d1cb_3985-0"
+        local_storage.write_text(f"{queue_uri}/claims/000000", before)
+        local_storage.write_text(f"{queue_uri}/done/000000.0", "ok 0 1 cfg_0 d 0 0\n")
+        Worker(_config(local_storage, tmp_path, stub_runner, queue_uri, worker_id=after)).run()
+        records = _records(tmp_path)
+        assert list(records) == ["cfg_0"]
+        assert records["cfg_0"]["argv"][records["cfg_0"]["argv"].index("--fold") + 1] == "1"
+        assert local_storage.exists(f"{queue_uri}/done/000000")
+
+    def test_another_jobs_claim_is_left_alone(self, local_storage, tmp_path, stub_runner):
+        queue_uri = _stage_queue(local_storage, tmp_path, [[_item("cfg_0")]])
+        other = "sky-managed-2026-09-17-15-26-33-635402_bench_gpu-20260917-151805-d1cb_3985-0"
+        mine = "sky-managed-2026-09-17-15-26-34-261311_bench_gpu-20260917-151805-d1cb_3987-0"
+        local_storage.write_text(f"{queue_uri}/claims/000000", other)
+        Worker(_config(local_storage, tmp_path, stub_runner, queue_uri, worker_id=mine)).run()
+        assert _records(tmp_path) == {}
+        assert local_storage.read_text(f"{queue_uri}/claims/000000") == other
+        assert not local_storage.exists(f"{queue_uri}/done/000000")
+
     def test_rank_rotation_starts_a_worker_at_its_own_shard(self, local_storage, tmp_path, stub_runner):
         queue_uri = _stage_queue(local_storage, tmp_path, [[_item(f"cfg_{i}")] for i in range(4)])
         Worker(_config(local_storage, tmp_path, stub_runner, queue_uri, worker_id="job-2", rank=1, num_jobs=2)).run()
@@ -328,3 +351,30 @@ def test_worker_prefetches_only_models_without_seeded_weights(local_storage, tmp
     worker.run()
     assert asked == [["TabPFN-3", "Linear"]]
     assert _records(tmp_path)["cfg_0"]["env"]["HF_HUB_OFFLINE"] is None
+
+
+@pytest.mark.parametrize(
+    ("owner", "worker_id", "expected"),
+    [
+        (
+            "sky-managed-2026-09-17-15-26-33-635402_bench_gpu_3985-0",
+            "sky-managed-2026-09-17-17-25-23-295277_bench_gpu_3985-0",
+            True,
+        ),
+        (
+            "sky-managed-2026-09-17-15-26-33-635402_bench_gpu_3985-0",
+            "sky-managed-2026-09-17-15-26-33-635402_bench_gpu_3986-0",
+            False,
+        ),
+        (
+            "sky-managed-2026-09-17-15-26-33-635402_bench_gpu_3985-0",
+            "sky-managed-2026-09-17-15-26-33-635402_bench_gpu_3985-1",
+            False,
+        ),
+        ("job-1", "job-1", True),
+        ("job-1", "job-2", False),
+        ("job-1", "sky-managed-2026-09-17-15-26-33-635402_bench_gpu_3985-0", False),
+    ],
+)
+def test_same_job_matches_the_job_tail_of_the_task_id(owner: str, worker_id: str, expected: bool):
+    assert same_job(owner, worker_id) is expected
