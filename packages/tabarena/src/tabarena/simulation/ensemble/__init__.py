@@ -11,6 +11,8 @@ from tabarena.simulation.ensemble.autogluon_stacker import (
 )
 from tabarena.simulation.ensemble.basic_ensemblers import (
     FixedWeightsEnsembler,
+    HardVotingEnsembler,
+    MedianEnsembler,
     SingleBestEnsembler,
     TopKAverageEnsembler,
 )
@@ -24,8 +26,10 @@ __all__ = [
     "AutoGluonStackerRegressor",
     "FixedWeightsEnsembler",
     "GreedyEnsembler",
+    "HardVotingEnsembler",
     "HillClimbingEnsembler",
     "LegacyEnsemblerAdapter",
+    "MedianEnsembler",
     "SingleBestEnsembler",
     "StackingEnsembler",
     "TopKAverageEnsembler",
