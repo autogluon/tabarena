@@ -288,7 +288,7 @@ class LimiXModel(AbstractTorchModel):
             )
 
         hps = self._get_model_params()
-        many_class_threshold = hps.pop("many_class_threshold", 10)
+        many_class_threshold = self.params_aux.get("many_class_threshold", 10)
         self._use_many_class = (
             self.problem_type in [BINARY, MULTICLASS]
             and self.num_classes is not None
