@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from importlib import resources
 from pathlib import Path
 from typing import ClassVar
@@ -11,6 +12,8 @@ from autogluon.common.utils.pandas_utils import get_approximate_df_mem_usage
 from autogluon.core.constants import BINARY, MULTICLASS
 from autogluon.core.models.abstract import SharedWeights
 from autogluon.tabular.models.abstract.abstract_torch_model import AbstractTorchModel
+
+logger = logging.getLogger(__name__)
 
 _HF_REPO = "stable-ai/LimiX-2"
 _HF_FILENAME = "LimiX-2.ckpt"
@@ -65,6 +68,88 @@ def _patch_predictor(predictor_cls: type) -> None:
     predictor_cls._tabarena_patched = True
 
 
+def _build_limix2_predictor(*, device_str, model_path, inference_config, preprocess_num_jobs, hps):
+    """Construct one ``LimiXPredictor`` instance (LimiX-2 is stateless per ``predict()`` call, so
+    this is the whole "fit"). Factored out of ``LimiX2Model._fit`` so the exact same construction
+    logic is reused per cloned sub-estimator when ``ManyClassClassifier`` (ECOC) wraps this model
+    for many-class datasets -- each sub-estimator gets its own independently-built predictor,
+    matching the identical fix already applied to LimiX-16M (``tabarena.models.limix.model``).
+    """
+    import torch
+    from inference.v2_0.predictor import LimiXPredictor
+
+    _patch_predictor(LimiXPredictor)
+    return LimiXPredictor(
+        device=torch.device(device_str),
+        model_path=str(model_path),
+        inference_config=inference_config,
+        preprocess_num_jobs=preprocess_num_jobs,
+        **hps,
+    )
+
+
+def _predict_proba_limix2(predictor, X_train, y_train, X_test, *, task_type: str) -> np.ndarray:
+    """One in-context forward pass, factored out of ``LimiX2Model._predict_proba`` so both the
+    plain and ECOC-wrapped paths share it."""
+    import torch
+
+    preds = predictor.predict(X_train, y_train, X_test, task_type=task_type)
+    if isinstance(preds, torch.Tensor):
+        preds = preds.detach().float().cpu().numpy()
+    return np.asarray(preds, dtype=np.float32)
+
+
+class _LimiX2SklearnWrapper:
+    """Sklearn-compatible ``fit``/``predict_proba`` wrapper for one ECOC sub-task.
+
+    LimiX-2 has no sklearn fit API of its own -- ``LimiXPredictor.predict()`` takes the training
+    table and query rows together, in-context, same as LimiX-16M -- so ``ManyClassClassifier``
+    (which clones a base estimator per one-vs-rest-style sub-task and expects standard
+    ``fit(X, y)``/``predict_proba(X)``/``classes_``) needs this wrapper. Mirrors LimiX-16M's own
+    ``_LimiXSklearnWrapper`` and AutoGluon core's ``_MitraSklearnWrapper`` for the identical
+    problem.
+    """
+
+    def __init__(self, *, device_str, model_path, inference_config, preprocess_num_jobs, hps):
+        self._device_str = device_str
+        self._model_path = model_path
+        self._inference_config = inference_config
+        self._preprocess_num_jobs = preprocess_num_jobs
+        self._hps = hps
+
+    def fit(self, X, y):
+        self._model = _build_limix2_predictor(
+            device_str=self._device_str,
+            model_path=self._model_path,
+            inference_config=self._inference_config,
+            preprocess_num_jobs=self._preprocess_num_jobs,
+            hps=self._hps,
+        )
+        self._X_train = X
+        self._y_train = np.asarray(y)
+        self.classes_ = np.unique(self._y_train)
+        return self
+
+    def predict_proba(self, X):
+        return _predict_proba_limix2(
+            self._model, self._X_train, self._y_train, X, task_type="Classification"
+        )
+
+    def get_params(self, deep=True):  # sklearn clone() compatibility
+        return {
+            "device_str": self._device_str,
+            "model_path": self._model_path,
+            "inference_config": self._inference_config,
+            "preprocess_num_jobs": self._preprocess_num_jobs,
+            "hps": self._hps,
+        }
+
+    def set_params(self, **params):
+        for key, value in params.items():
+            setattr(self, f"_{key}", value)
+        return self
+
+
 class LimiX2Model(AbstractTorchModel):
     """LimiX-2 TabArena integration.
 
@@ -91,6 +176,11 @@ class LimiX2Model(AbstractTorchModel):
     default, keeps all), ``inference_config`` replaces the packaged config with a dict of the same
     shape, ``model_path`` points at another checkpoint, and every other key is forwarded to
     ``LimiXPredictor`` (``seed``, ``softmax_temperature``, ``test_batch_size``, ``deterministic``, ...).
+
+    The checkpoint's classification head is fixed-width (``many_class_threshold``, 10 classes); above
+    that, ``_fit`` wraps a :class:`_LimiX2SklearnWrapper` in
+    ``tabpfn_extensions.many_class.ManyClassClassifier`` (ECOC), matching Mitra/RealTabPFN/LimiX-16M's
+    own native pattern, instead of failing outright.
     """
 
     ag_key = "TA-LIMIX-2"
@@ -105,7 +195,9 @@ class LimiX2Model(AbstractTorchModel):
     gpu_strongly_recommended = True  # in-context inference over the training table is far slower on a CPU
 
     _supported_problem_types = ["binary", "multiclass", "regression"]
-    _default_auxiliary_params_extra = {"max_classes": 10}  # the checkpoint's classification head
+    # max_classes moves from a hard 10 to None + many_class_threshold: 10, matching Mitra/RealTabPFN/
+    # LimiX-16M's own config exactly -- see the ManyClassClassifier (ECOC) branch in _fit below.
+    _default_auxiliary_params_extra = {"max_classes": None, "many_class_threshold": 10}
     #: One fold at a time, and a refit on the full data instead of the bag: same quality for an
     #: in-context model, one network at inference.
     _default_ag_args_ensemble_extra = {"fold_fitting_strategy": "sequential_local", "refit_folds": True}
@@ -127,6 +219,7 @@ class LimiX2Model(AbstractTorchModel):
         super().__init__(**kwargs)
         self._X_train: pd.DataFrame | None = None
         self._y_train: np.ndarray | None = None
+        self._use_many_class = False  # True when ManyClassClassifier (ECOC) is active
 
     def _preprocess(self, X: pd.DataFrame, **kwargs) -> pd.DataFrame:
         """Hand LimiX the frame it encodes itself, with pandas ``category`` and ``string`` columns as
@@ -158,52 +251,102 @@ class LimiX2Model(AbstractTorchModel):
         num_gpus: int = 0,
         **kwargs,
     ):
-        import torch
-
         try:
-            from inference.v2_0.predictor import LimiXPredictor
+            import inference.v2_0.predictor  # noqa: F401  -- fail fast with the friendly hint below
         except ImportError as err:
             raise ImportError(_INSTALL_HINT) from err
 
-        _patch_predictor(LimiXPredictor)
         self.device = self._resolve_fit_device(num_gpus)  # keys the shared network; the loader names no device
         hps = self._get_model_params()
+        many_class_threshold = self.params_aux.get("many_class_threshold", 10)
         model_path = hps.pop("model_path", None) or self.prefetch_weights()
         inference_config = hps.pop("inference_config", None) or self._default_inference_config()
         n_estimators = hps.pop("n_estimators", None)
         if n_estimators is not None:
             inference_config = {**inference_config, "pipelines": inference_config["pipelines"][:n_estimators]}
-        # The ``limix.LimiXPredictor`` factory reads the checkpoint itself and hands the dict to this
-        # constructor; constructed directly, the v2 class reads it through ``load_model``, the call the
-        # shared-weights declaration names.
-        self.model = LimiXPredictor(
-            device=torch.device(self.device),
-            model_path=str(model_path),
-            inference_config=inference_config,
-            preprocess_num_jobs=num_cpus,
-            **hps,
-        )
+
         self._X_train = self.preprocess(X)
         self._y_train = y.to_numpy()
+        self._use_many_class = (
+            self.problem_type in [BINARY, MULTICLASS]
+            and self.num_classes is not None
+            and self.num_classes > many_class_threshold
+        )
+
+        if self._use_many_class:
+            try:
+                from tabpfn_extensions.many_class import ManyClassClassifier
+            except ImportError as err:
+                logger.log(
+                    40,
+                    "LimiX-2: many-class (ECOC) support requires tabpfn_extensions "
+                    "(install with the `models` extra).",
+                )
+                raise
+            logger.log(
+                20,
+                f"\tLimiX-2: {self.num_classes} classes exceeds native limit ({many_class_threshold}). "
+                "Using ManyClassClassifier (ECOC wrapper).",
+            )
+            base_model = _LimiX2SklearnWrapper(
+                device_str=self.device,
+                model_path=model_path,
+                inference_config=inference_config,
+                preprocess_num_jobs=num_cpus,
+                hps=hps,
+            )
+            self.model = ManyClassClassifier(estimator=base_model, alphabet_size=many_class_threshold).fit(
+                self._X_train, self._y_train
+            )
+        else:
+            # The ``limix.LimiXPredictor`` factory reads the checkpoint itself and hands the dict to
+            # this constructor; constructed directly, the v2 class reads it through ``load_model``,
+            # the call the shared-weights declaration names.
+            self.model = _build_limix2_predictor(
+                device_str=self.device,
+                model_path=model_path,
+                inference_config=inference_config,
+                preprocess_num_jobs=num_cpus,
+                hps=hps,
+            )
 
     def _predict_proba(self, X: pd.DataFrame, **kwargs) -> np.ndarray:
         """One in-context pass over the stored training table and the query rows (LimiX has no
         sklearn fit API). The regression decoder can return a tensor; both come back as float32.
         """
-        import torch
+        X_test = self.preprocess(X, **kwargs)
+        if self._use_many_class:
+            # ManyClassClassifier (ECOC) exposes its own predict_proba, which internally
+            # dispatches to each sub-estimator's predict_proba (i.e.
+            # _LimiX2SklearnWrapper.predict_proba, the same in-context forward pass below).
+            return self._convert_proba_to_unified_form(self.model.predict_proba(X_test))
 
         task_type = "Classification" if self.problem_type in [BINARY, MULTICLASS] else "Regression"
-        preds = self.model.predict(self._X_train, self._y_train, self.preprocess(X, **kwargs), task_type=task_type)
-        if isinstance(preds, torch.Tensor):
-            preds = preds.detach().float().cpu().numpy()
-        return self._convert_proba_to_unified_form(np.asarray(preds, dtype=np.float32))
+        preds = _predict_proba_limix2(self.model, self._X_train, self._y_train, X_test, task_type=task_type)
+        return self._convert_proba_to_unified_form(preds)
 
     def get_device(self) -> str:
-        return self.model.device.type
+        # `self.device` (set in `_fit`) is authoritative regardless of which branch ran -- unlike
+        # `self.model`, which is a `ManyClassClassifier` (no `.device` attribute of its own) rather
+        # than a raw `LimiXPredictor` when `self._use_many_class` (confirmed the hard way on
+        # LimiX-16M's identical fix: AttributeError: 'ManyClassClassifier' object has no attribute
+        # 'device').
+        return self.device
 
     def _set_device(self, device: str):
-        self.model.device = self.to_torch_device(device)
-        self.model.model.to(self.model.device)
+        torch_device = self.to_torch_device(device)
+
+        def _move(predictor) -> None:
+            predictor.device = torch_device
+            predictor.model.to(torch_device)
+
+        if self._use_many_class:
+            # `self.model` is a `ManyClassClassifier`; move each fitted ECOC sub-estimator's own
+            # raw `LimiXPredictor` (`_LimiX2SklearnWrapper._model`).
+            for estimator in self.model.estimators_:
+                _move(estimator._model)
+        else:
+            _move(self.model)
 
     def _more_tags(self) -> dict:
         return {"can_refit_full": True}  # no validation data is consumed by the fit
