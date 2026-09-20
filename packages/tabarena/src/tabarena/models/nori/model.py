@@ -186,7 +186,7 @@ class NoriModel(AbstractTorchModel):
         """
         from synthefy_nori.hf import download_checkpoint
 
-        download_checkpoint()
+        download_checkpoint(model="nori-30m")
 
 
 class Nori30MModel(NoriModel):
