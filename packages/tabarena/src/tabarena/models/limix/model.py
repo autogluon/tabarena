@@ -410,15 +410,28 @@ class LimiXModel(AbstractTorchModel):
         return self._convert_proba_to_unified_form(y_pred_proba)
 
     def get_device(self) -> str:
-        return self.model.device.type if self.model is not None else "cpu"
+        # `self.device` (set in `_fit`) is authoritative regardless of which branch ran --
+        # unlike `self.model`, which is a `ManyClassClassifier` (no `.device` attribute of
+        # its own) rather than a raw `LimiXPredictor` when `self._use_many_class`.
+        return self.device
 
     def _set_device(self, device: str):
         import torch
 
         device = torch.device(device)
-        self.model.device = device
-        if self.model.model is not None:
-            self.model.model.to(device)
+
+        def _move(predictor) -> None:
+            predictor.device = device
+            if predictor.model is not None:
+                predictor.model.to(device)
+
+        if self._use_many_class:
+            # `self.model` is a `ManyClassClassifier`; move each fitted ECOC
+            # sub-estimator's own raw `LimiXPredictor` (`_LimiXSklearnWrapper._model`).
+            for estimator in self.model.estimators_:
+                _move(estimator._model)
+        else:
+            _move(self.model)
 
     def _more_tags(self) -> dict:
         return {"can_refit_full": True}
