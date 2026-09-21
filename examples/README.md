@@ -44,7 +44,7 @@ details and the subset reference.
 - **Use Cases:**
   - `run_quickstart_beyondarena_model.py` - Benchmark your own custom *model* on BeyondArena and compare to the cached baselines.
   - `run_quickstart_beyondarena_system.py` - Benchmark a *system* (the shipped AutoGluon wrapper) on BeyondArena via `system_experiments=True`.
-  - `run_generate_beyondarena_leaderboard.py` - Generate the official BeyondArena leaderboard.
+  - `run_generate_beyondarena_leaderboard.py` - Generate the official BeyondArena leaderboard. Its output folder also holds `results_per_split.csv`, the per-dataset, per-split numbers behind it.
   - `beyondarena/advanced/` - No-bagging runs, custom (Data Foundry) datasets.
 
 ### 📊 Benchmarking Predictive Machine Learning Models and Systems
@@ -103,7 +103,8 @@ We share code to generate these visualizations from the raw benchmark results.
 - **Folder:** `plots/`
 - **Use Cases:**
   - `run_generate_custom_leaderboard.py` - Compute a leaderboard (ranks, Elo, win-rates) from your own results table with `bencheval` - a no-download starting point for the evaluation API.
-  - `run_generate_main_leaderboard.py` - Generate the main (living) leaderboard from the latest TabArena results.
+  - `run_generate_main_leaderboard.py` - Generate the main (living) leaderboard from the latest TabArena results. Its output folder also holds `results_per_split.csv`, the per-dataset, per-split numbers behind the leaderboard.
+  - `run_export_results_per_split.py` - Write only the CSVs behind the leaderboard, no figures: `results_per_split.csv` (one row per dataset, split and method with test and validation error, train and inference time, and an imputed flag) and `tabarena_leaderboard.csv`. The per-split results are not hosted; this is how to get them.
   - `run_plot_pareto_over_tuning_time.py` - Plot the predictive-performance vs. tuning-time Pareto trade-offs.
   - `run_end_to_end_from_raw.py` - Run the full raw -> processed -> results pipeline on a method's raw artifacts and compare it to the leaderboard (demoed on TabPFN-3's public raw artifacts).
 
@@ -121,4 +122,5 @@ To locally reproduce individual configurations and compare with the TabArena res
 those configurations, refer to `benchmarking/run_quickstart_tabarena_model.py`.
 
 To locally generate the latest (living) results leaderboard, run 
-`plots/run_generate_main_leaderboard.py`.
+`plots/run_generate_main_leaderboard.py`. The per-dataset, per-split results behind it are not
+hosted anywhere; `plots/run_export_results_per_split.py` writes them as `results_per_split.csv`.

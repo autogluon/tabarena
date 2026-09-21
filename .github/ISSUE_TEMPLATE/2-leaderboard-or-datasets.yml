@@ -9,6 +9,7 @@ body:
         Most leaderboard and dataset questions have a better home:
         - Leaderboard results, rankings, a method's numbers, or the leaderboard page itself: the [Community tab of the leaderboard Space](https://huggingface.co/spaces/TabArena/leaderboard/discussions).
         - Datasets, their curation, data errors, and new dataset suggestions: [Data Foundry](https://github.com/TabArena/data-foundry) ([docs](https://tabarena.github.io/data-foundry/)). The BeyondArena data lives at [TabArena/BeyondArena](https://huggingface.co/datasets/TabArena/BeyondArena).
+        - Per-dataset or per-split results behind the leaderboard: they are not hosted. [`examples/plots/run_export_results_per_split.py`](https://github.com/autogluon/tabarena/blob/main/examples/plots/run_export_results_per_split.py) writes them as `results_per_split.csv` (one row per dataset, split and method); no issue needed.
 
         Use this form only when the question is about code in this repository (the evaluation and leaderboard-generation code, dataset loading through `TabArenaContext` / `BeyondArenaContext`, subsets such as `lite` and `core`) or spans the leaderboard and this code base. Requests to re-run or bump the version of a method that is already on the leaderboard also go here.
   - type: dropdown

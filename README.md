@@ -71,6 +71,7 @@ We share more details on various use cases of TabArena in our [examples](example
 * 🧪 **Advanced and Specialized Usage** (incl. using a TabArena model directly on your own data): please refer to [examples/advanced](examples/advanced).
 * 🗃️ **Analysing Metadata and Meta-Learning**: please refer to [examples/meta](examples/meta).
 * 📈 **Generating Plots and Leaderboards**: please refer to [examples/plots](examples/plots).
+* 🔢 **Per-dataset and per-split results**: not hosted. Every leaderboard script in [examples/plots](examples/plots) writes them as `results_per_split.csv` (one row per dataset, split and method) next to its figures; [`run_export_results_per_split.py`](examples/plots/run_export_results_per_split.py) writes the CSVs without the figures.
 * 🔁 **Reproducibility**: we share instructions for reproducibility in [examples](examples).
 
 ### Datasets
@@ -281,6 +282,7 @@ TabArena caches predictions, results, and leaderboards as downloadable artifacts
 | **Processed data** | Minimal data for HPO simulation, portfolios, leaderboards | ~10 GB | [`inspect_processed_data.py`](examples/meta/inspect_processed_data.py) |
 | **Results** | Per-config / HPO DataFrames (test error, val error, train time, inference time) | <1 MB | [`run_generate_main_leaderboard.py`](examples/plots/run_generate_main_leaderboard.py) |
 | **Leaderboards** | Aggregated ELO, win-rate, average rank, improvability | <1 MB | — |
+| **Per-split results** | One row per dataset, split and method: test and validation error, train and inference time, imputed flag. Generated locally from the results tier, not hosted | — | [`run_export_results_per_split.py`](examples/plots/run_export_results_per_split.py) |
 | **Figures & Plots** | Generated from results and leaderboards | — | — |
 
 </details>

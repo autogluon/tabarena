@@ -13,7 +13,7 @@ This repo is a **uv workspace** (root `pyproject.toml`). Its installable package
 - `packages/tabarena/` — Core package. Repository pattern for benchmark data, model wrappers (`src/tabarena/models/`), system wrappers (`src/tabarena/systems/`), simulation, evaluation, plotting. Depends on AutoGluon and `bencheval`.
 - `packages/bencheval/` — Standalone lightweight metrics/leaderboard package (ELO, win-rates, ranks, improvability). Computes leaderboards from results DataFrames. No dependency on `tabarena`.
 - `packages/tabflow_slurm/` — Package (own `pyproject.toml`, a uv-workspace member) for running experiments on SLURM clusters. Depends on `tabarena`. See `packages/tabflow_slurm/README.md` and `packages/tabflow_slurm/AGENTS.md`.
-- `examples/` — Usage examples: the model and system quick starts (`benchmarking/`, `beyondarena/`), plotting, meta-learning, custom datasets.
+- `examples/` — Usage examples: the model and system quick starts (`benchmarking/`, `beyondarena/`), leaderboard generation and the per-split result export (`plots/`), meta-learning, custom datasets.
 - `tests/` — All tests, grouped by package (`tests/tabarena/`, `tests/bencheval/`, `tests/tabflow_slurm/`, mirroring each package's `src/` layout) plus `tests/integration/` for cross-package tests.
 
 ## Setup Commands
@@ -119,6 +119,7 @@ Raw predictions → EvaluationRepository → Simulation/Portfolio → Results Da
 - **`ExperimentRunner` / `ExperimentBatchRunner`** (`packages/tabarena/src/tabarena/benchmark/experiment/`) — Execute model fitting across tasks. Configured via YAML (`experiment_constructor.py`).
 - **`ZeroshotSimulatorContext`** (`packages/tabarena/src/tabarena/simulation/`) — Manages config rankings for HPO simulation and portfolio generation.
 - **`BenchmarkEvaluator`** (`packages/bencheval/src/bencheval/evaluator.py`) — Leaderboard computation from results DataFrames. Independent of the core `tabarena` package.
+- **`AbstractArenaContext.compare`** (`packages/tabarena/src/tabarena/contexts/abstract_arena_context.py`) — Scores an arena's results (plus any registered new method) into the leaderboard and, given an `output_dir`, writes it there through `LeaderboardReporter.eval` (`packages/tabarena/src/tabarena/evaluation/leaderboard_reporter.py`): `tabarena_leaderboard.csv`, `results_per_split.csv`, `method_info.csv`, `winrate_matrix.csv`, `pareto_front_points.csv`, `leaderboard.tex` and the figures. `results_per_split.csv` is the frame the leaderboard is scored from: one row per dataset, split and method (`metric_error`, `metric_error_val`, `time_train_s`, `time_infer_s`, `imputed`, ...), with leaderboard display names and imputed rows flagged; `return_results=True` returns the input frame instead (registered method names, before imputation). `plot=False` writes the CSVs and skips the figures; `output_dir=None` (`context.leaderboard()`) writes nothing. The per-split results are not hosted anywhere (the leaderboard Space only embeds them in its per-dataset browser), so a request for per-dataset or per-split numbers is answered with `examples/plots/run_export_results_per_split.py` (issues #262 and #595 were that request).
 - **`EntrantPool`** (`packages/tabarena/src/tabarena/evaluation/entrants.py`) — One field of competitors, evaluated together. The leaderboard publishes one artifact tree per pool. See "Entrant pools" below.
 
 ### Systems
