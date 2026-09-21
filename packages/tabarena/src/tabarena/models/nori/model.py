@@ -178,7 +178,8 @@ class NoriModel(AbstractTorchModel):
 
     @classmethod
     def prefetch_weights(cls) -> None:
-        """Pre-download the default Nori checkpoint from the Hugging Face Hub.
+        """Pre-download the default Nori checkpoint (the base, no-suffix ``Synthefy/Nori``
+        repo, i.e. ``model="nori-6m"``) from the Hugging Face Hub.
 
         Used by the foundation-model pre-download scripts to warm the cache before
         parallel fit runs. The Hub repo is gated, so this requires a Hugging Face
@@ -186,7 +187,7 @@ class NoriModel(AbstractTorchModel):
         """
         from synthefy_nori.hf import download_checkpoint
 
-        download_checkpoint()
+        download_checkpoint(model="nori-6m")
 
 
 class Nori30MModel(NoriModel):
