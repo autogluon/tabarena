@@ -747,7 +747,13 @@ class AGWrapper(AbstractExecModel):
         }
 
     def get_metric_error_val(self) -> float:
-        """Return the best model's validation metric error from the predictor leaderboard."""
+        """Return the best model's validation metric error from the predictor leaderboard.
+
+        A no-validation fit has no validation rows, so it has no error (None, as the leaderboard reports it) and the
+        leaderboard is not built.
+        """
+        if getattr(self, "no_validation", False):
+            return None
         # FIXME: this shouldn't be calculating its own val score, that should be external. This should simply give val pred and val pred proba
         leaderboard = self.predictor.leaderboard(score_format="error", set_refit_score_to_parent=True)
         metric_error_val = leaderboard.set_index("model").loc[self.predictor.model_best]["metric_error_val"]
