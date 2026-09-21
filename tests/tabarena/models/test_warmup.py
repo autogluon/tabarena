@@ -209,6 +209,14 @@ def throwaway_package(tmp_path, monkeypatch):
     sys.modules.pop(name, None)
 
 
+@pytest.fixture(autouse=True)
+def fresh_warm_memo():
+    """Every test starts in a process that has warmed nothing (the memo is process-wide)."""
+    wu.reset_warm_memo()
+    yield
+    wu.reset_warm_memo()
+
+
 # --- imports and steps ---------------------------------------------------------------------------
 
 
@@ -562,6 +570,54 @@ def test_dummy_fit_runs_with_synthetic_shapes_and_cleans_up(tmp_path):
     assert "dummy_fit:_MeanModel" in report.steps and report.failed_steps == []
     _assert_rng_states_equal(before, after)
     assert torch.get_num_threads() == threads
+
+
+def test_dummy_fit_is_skipped_once_the_process_is_warm():
+    """The second warm-up of the same class, problem type, device kind and config skips the dummy fit."""
+    _MeanModel.fits.clear()
+    first = wu.warmup_model_cls(_MeanModel, problem_type="binary", num_cpus=1, num_gpus=0, hyperparameters={"lr": 1})
+    second = wu.warmup_model_cls(_MeanModel, problem_type="binary", num_cpus=1, num_gpus=0, hyperparameters={"lr": 1})
+    assert len(_MeanModel.fits) == 1
+    assert first.dummy_fit["ran"] is True and first.dummy_fit["skipped_reason"] is None
+    assert second.dummy_fit["ran"] is False and second.dummy_fit["skipped_reason"] == wu.ALREADY_WARM_REASON
+    assert "dummy_fit:_MeanModel:skipped" in second.steps and second.failed_steps == []
+    assert wu.already_warm(_MeanModel, problem_type="binary", num_gpus=0, hyperparameters={"lr": 1})
+
+
+def test_warm_memo_is_keyed_on_problem_type_device_and_config():
+    """A different problem type, GPU flag or model configuration warms again; AutoGluon's ag_args do not count."""
+    _MeanModel.fits.clear()
+    wu.warmup_model_cls(_MeanModel, problem_type="binary", num_cpus=1, num_gpus=0, hyperparameters={"lr": 1})
+    wu.warmup_model_cls(_MeanModel, problem_type="regression", num_cpus=1, num_gpus=0, hyperparameters={"lr": 1})
+    wu.warmup_model_cls(_MeanModel, problem_type="binary", num_cpus=1, num_gpus=0, hyperparameters={"lr": 2})
+    assert len(_MeanModel.fits) == 3
+    wu.warmup_model_cls(
+        _MeanModel,
+        problem_type="binary",
+        num_cpus=1,
+        num_gpus=0,
+        hyperparameters={"lr": 1, "ag_args": {"name_suffix": "_x"}},
+    )
+    assert len(_MeanModel.fits) == 3
+    assert wu.warm_key(_MeanModel, problem_type="binary", num_gpus=0, hyperparameters={"lr": 1}) != wu.warm_key(
+        _MeanModel, problem_type="binary", num_gpus=1, hyperparameters={"lr": 1}
+    )
+
+
+def test_failed_dummy_fit_is_not_remembered_as_warm(caplog):
+    with caplog.at_level(logging.WARNING):
+        wu.warmup_model_cls(_BoomModel, problem_type="binary", num_cpus=1, num_gpus=0)
+        second = wu.warmup_model_cls(_BoomModel, problem_type="binary", num_cpus=1, num_gpus=0)
+    assert second.dummy_fit["skipped_reason"] is None and second.dummy_fit["error"] is not None
+    assert not wu.already_warm(_BoomModel, problem_type="binary", num_gpus=0, hyperparameters=None)
+
+
+def test_warmup_always_env_disables_the_skip(monkeypatch):
+    _MeanModel.fits.clear()
+    monkeypatch.setenv(wu.WARMUP_ALWAYS_ENV, "1")
+    wu.warmup_model_cls(_MeanModel, problem_type="binary", num_cpus=1, num_gpus=0)
+    wu.warmup_model_cls(_MeanModel, problem_type="binary", num_cpus=1, num_gpus=0)
+    assert len(_MeanModel.fits) == 2
 
 
 def test_cpu_dummy_fit_never_forks_cuda_generators_on_a_cuda_host(monkeypatch):

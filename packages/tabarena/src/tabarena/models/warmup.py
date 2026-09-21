@@ -94,9 +94,55 @@ RAY_WORKER_WARMUP_MODULES: tuple[str, ...] = (
 PARALLEL_FOLD_FITTING_STRATEGIES = frozenset({"parallel_local", "parallel_distributed"})
 #: Default ``time_limit`` of the dummy fit in seconds.
 DUMMY_FIT_TIME_LIMIT_S: float = 120.0
+#: Set to ``1`` to run the dummy fit on every call even when this process already warmed the same
+#: model class, problem type and configuration (see :func:`already_warm`).
+WARMUP_ALWAYS_ENV = "TABARENA_WARMUP_ALWAYS"
+#: Reason recorded on a dummy-fit record skipped because the process is already warm.
+ALREADY_WARM_REASON = "already warmed in this process"
+#: ``(model class, problem type, GPU or not, configuration)`` keys whose dummy fit completed in this process.
+_WARMED: set[tuple] = set()
 #: Keys a model class may override through ``warmup_dummy_fit_kwargs``.
 DUMMY_FIT_KWARGS_KEYS = frozenset({"n_rows", "n_features", "n_categorical", "time_limit"})
 _TORCH_GLOBALS = ("num_threads", "default_dtype", "cudnn_benchmark", "cudnn_deterministic", "matmul_allow_tf32")
+
+
+def warmup_always() -> bool:
+    """Whether ``TABARENA_WARMUP_ALWAYS`` disables the already-warm skip of the dummy fit."""
+    return os.environ.get(WARMUP_ALWAYS_ENV, "0").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def warm_key(
+    model_cls: type, *, problem_type: str | None, num_gpus: float | None, hyperparameters: dict | None
+) -> tuple:
+    """What one dummy fit warms: the class, the problem type, GPU or CPU, and the configuration.
+
+    The configuration is the model's own hyperparameters (AutoGluon's ``ag_args*`` stripped), since
+    they select the checkpoint a shared-weights class loads; two configs of one class warm separately.
+    """
+    hps = strip_ag_args(hyperparameters) if hyperparameters else {}
+    config = tuple(sorted((str(k), repr(v)) for k, v in hps.items()))
+    return (f"{model_cls.__module__}.{model_cls.__qualname__}", problem_type, bool(num_gpus), config)
+
+
+def already_warm(
+    model_cls: type, *, problem_type: str | None, num_gpus: float | None, hyperparameters: dict | None
+) -> bool:
+    """Whether a dummy fit for this key completed in this process (and the skip is not disabled).
+
+    The warm-up runs before every experiment. In a process that runs several items (an in-process
+    bundle, a local sweep) everything the dummy fit exists to trigger, imports, the CUDA context, the
+    shared network in the weights registry, kernel and library caches, is still in place after the
+    first item, so repeating the dummy fit only costs time. A key is recorded only after a dummy fit
+    ran without error, so a failed warm-up is retried on the next item.
+    """
+    if warmup_always():
+        return False
+    return warm_key(model_cls, problem_type=problem_type, num_gpus=num_gpus, hyperparameters=hyperparameters) in _WARMED
+
+
+def reset_warm_memo() -> None:
+    """Forget which dummy fits completed in this process (tests, or after releasing shared weights)."""
+    _WARMED.clear()
 
 
 def kernel_probe_enabled() -> bool:
@@ -621,6 +667,10 @@ def warmup_dummy_fit(
         The record appended to ``report.dummy_fits``: ``model_cls``, ``ran``, ``duration_s``,
         ``n_rows``, ``problem_type``, ``num_gpus``, ``skipped_reason``, ``error``,
         ``torch_globals_changed``.
+
+    A dummy fit that completed in this process for the same class, problem type, device kind and
+    configuration is not repeated: the record carries ``skipped_reason`` :data:`ALREADY_WARM_REASON`
+    (``TABARENA_WARMUP_ALWAYS=1`` restores the unconditional fit; see :func:`already_warm`).
     """
     record: dict[str, Any] = {
         "model_cls": model_cls.__name__,
@@ -653,6 +703,8 @@ def warmup_dummy_fit(
     needs_gpu = (getattr(model_cls, "minimum_num_gpus", 0) or 0) > 0
     if resolved_gpus == 0 and needs_gpu and (getattr(model_cls, "gpu_required", False) or _cuda_available()):
         return skip("model needs a GPU and none is allocated")
+    if already_warm(model_cls, problem_type=problem_type, num_gpus=num_gpus, hyperparameters=hyperparameters):
+        return skip(ALREADY_WARM_REASON)
 
     fit_kwargs = dict((getattr(model_cls, "warmup_dummy_fit_kwargs", None) or {}).items())
     unknown = set(fit_kwargs) - DUMMY_FIT_KWARGS_KEYS
@@ -707,6 +759,7 @@ def warmup_dummy_fit(
                 model.predict_proba(X_predict)
         record["ran"] = True
         report.step(name)
+        _WARMED.add(warm_key(model_cls, problem_type=problem_type, num_gpus=num_gpus, hyperparameters=hyperparameters))
     except Exception as exc:
         record["error"] = f"{type(exc).__name__}: {exc}"
         logger.warning("Warm-up dummy fit of %s failed: %r", model_cls.__name__, exc)
