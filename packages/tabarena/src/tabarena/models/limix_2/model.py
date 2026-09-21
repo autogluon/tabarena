@@ -90,7 +90,8 @@ def _build_limix2_predictor(*, device_str, model_path, inference_config, preproc
 
 def _predict_proba_limix2(predictor, X_train, y_train, X_test, *, task_type: str) -> np.ndarray:
     """One in-context forward pass, factored out of ``LimiX2Model._predict_proba`` so both the
-    plain and ECOC-wrapped paths share it."""
+    plain and ECOC-wrapped paths share it.
+    """
     import torch
 
     preds = predictor.predict(X_train, y_train, X_test, task_type=task_type)
@@ -131,9 +132,7 @@ class _LimiX2SklearnWrapper:
         return self
 
     def predict_proba(self, X):
-        return _predict_proba_limix2(
-            self._model, self._X_train, self._y_train, X, task_type="Classification"
-        )
+        return _predict_proba_limix2(self._model, self._X_train, self._y_train, X, task_type="Classification")
 
     def get_params(self, deep=True):  # sklearn clone() compatibility
         return {
@@ -276,11 +275,10 @@ class LimiX2Model(AbstractTorchModel):
         if self._use_many_class:
             try:
                 from tabpfn_extensions.many_class import ManyClassClassifier
-            except ImportError as err:
+            except ImportError:
                 logger.log(
                     40,
-                    "LimiX-2: many-class (ECOC) support requires tabpfn_extensions "
-                    "(install with the `models` extra).",
+                    "LimiX-2: many-class (ECOC) support requires tabpfn_extensions (install with the `models` extra).",
                 )
                 raise
             logger.log(
