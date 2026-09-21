@@ -857,3 +857,54 @@ class TestBagArtifactReuseNumerics:
             assert np.array_equal(a, b)
         for a, b in zip(reused["val_idx_per_child"], forward["val_idx_per_child"], strict=True):
             assert np.array_equal(a, b)
+
+
+class TestNoValidation:
+    def test_wrapper_flag_sets_autogluon_validation_mode_none(self):
+        wrapper = AGSingleWrapper(
+            model_cls=_DummyModel,
+            model_hyperparameters={},
+            problem_type="binary",
+            eval_metric=get_metric("log_loss", problem_type="binary"),
+            no_validation=True,
+        )
+        assert wrapper.no_validation is True
+        assert wrapper.fit_kwargs["validation_mode"] == "none"
+        assert wrapper.fit_kwargs["fit_weighted_ensemble"] is False
+        assert "validation_mode" not in wrapper.fit_kwargs_extra  # set by the wrapper, not recorded as a user extra
+
+    def test_default_wrapper_keeps_validation(self):
+        wrapper = AGSingleWrapper(
+            model_cls=_DummyModel,
+            model_hyperparameters={},
+            problem_type="binary",
+            eval_metric=get_metric("log_loss", problem_type="binary"),
+        )
+        assert wrapper.no_validation is False
+        assert "validation_mode" not in wrapper.fit_kwargs
+
+    def test_bagged_wrapper_rejects_the_flag(self):
+        from tabarena.benchmark.exec_models.autogluon import AGSingleBagWrapper
+
+        with pytest.raises(ValueError, match="bagged"):
+            AGSingleBagWrapper(
+                model_cls=_DummyModel,
+                model_hyperparameters={},
+                problem_type="binary",
+                eval_metric=get_metric("log_loss", problem_type="binary"),
+                no_validation=True,
+            )
+
+    def test_experiment_is_flavour_none_and_forces_the_flag(self):
+        from tabarena.benchmark.experiment import AGModelNoValidationExperiment
+
+        experiment = AGModelNoValidationExperiment(name="dummy_noval", model_cls=_DummyModel, model_hyperparameters={})
+        assert experiment.VALIDATION_FLAVOUR == "none"
+        assert experiment.method_kwargs["no_validation"] is True
+        with pytest.raises(ValueError, match="always fits without validation"):
+            AGModelNoValidationExperiment(
+                name="dummy_noval",
+                model_cls=_DummyModel,
+                model_hyperparameters={},
+                method_kwargs={"no_validation": False},
+            )

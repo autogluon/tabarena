@@ -373,7 +373,7 @@ class AGWrapper(AbstractExecModel):
         init_kwargs["label"] = label
 
         num_folds = self._apply_validation_splits(fit_kwargs, X=X, y=y)
-        if X_val is None:
+        if X_val is None and not getattr(self, "no_validation", False):
             X, y, X_val, y_val = self._apply_task_specific_holdout(X=X, y=y, num_folds=num_folds)
         if fit_kwargs.get("validation_structure") is not None:
             # The learner's random_state also seeds AutoGluon's default splitter, so it is set only
@@ -711,11 +711,40 @@ class AGWrapper(AbstractExecModel):
     def get_oof(self) -> dict:
         """Return the predictor's simulation artifact, narrowed to the best model's val proba."""
         # TODO: Rename method
+        if getattr(self, "no_validation", False):
+            return self._simulation_artifact_without_validation()
         simulation_artifact = self.predictor.simulation_artifact()
         simulation_artifact["pred_proba_dict_val"] = simulation_artifact["pred_proba_dict_val"][
             self.predictor.model_best
         ]
         return simulation_artifact
+
+    def _simulation_artifact_without_validation(self) -> dict:
+        """The simulation artifact of a fit without validation rows: metadata plus an empty validation slot.
+
+        ``pred_proba_dict_val`` holds a zero-row frame (multiclass) or series (binary, regression) in the
+        predictor's internal label space, already narrowed to the one model as :meth:`get_oof` returns it,
+        and ``y_val`` an empty series, so every consumer that indexes the validation slot sees the usual
+        types with no rows; the runner fills the test predictions.
+        """
+        label_cleaner = self.predictor._learner.label_cleaner
+        num_classes = label_cleaner.num_classes
+        if self.problem_type == "multiclass" and num_classes is not None and num_classes > 2:
+            pred_val = pd.DataFrame(np.empty((0, num_classes), dtype=np.float32), columns=list(range(num_classes)))
+        else:
+            pred_val = pd.Series(np.empty(0, dtype=np.float32), dtype=np.float32)
+        y_val = pd.Series(np.empty(0, dtype=np.float64 if self.problem_type == "regression" else np.int64))
+        return {
+            "pred_proba_dict_val": pred_val,  # narrowed to the one model, as ``get_oof`` returns it
+            "y_val": y_val,
+            "eval_metric": self.predictor.eval_metric.name,
+            "problem_type": self.predictor.problem_type,
+            "problem_type_transform": label_cleaner.problem_type_transform,
+            "ordered_class_labels": label_cleaner.ordered_class_labels,
+            "ordered_class_labels_transformed": label_cleaner.ordered_class_labels_transformed,
+            "num_classes": num_classes,
+            "label": self.predictor.label,
+        }
 
     def get_metric_error_val(self) -> float:
         """Return the best model's validation metric error from the predictor leaderboard."""
@@ -856,6 +885,12 @@ class AGSingleWrapper(AGWrapper):
         to size it -- buys nothing.
     calibrate: bool | str, default False
         Forwarded to ``TabularPredictor.fit(calibrate=...)``.
+    no_validation: bool, default False
+        Fit the one model on every training row with no validation split at all (AutoGluon's
+        ``validation_mode="none"``): no bag, no holdout, one fit, the same predictions as an outer fit
+        of the model. The simulation artifact still carries the test predictions (an empty validation
+        slot), so the run's predictions can be cached and combined afterwards by methods that need no
+        validation estimate. Incompatible with a bagged wrapper.
     init_kwargs, fit_kwargs:
         Extra predictor constructor / fit kwargs (the "extra" kwargs recorded in metadata).
     """
@@ -880,6 +915,7 @@ class AGSingleWrapper(AGWrapper):
         calibrate: bool | str = False,
         init_kwargs: dict | None = None,
         fit_kwargs: dict | None = None,
+        no_validation: bool = False,
         **kwargs,
     ):
         assert isinstance(model_cls, str) or issubclass(model_cls, AbstractModel)
@@ -891,6 +927,9 @@ class AGSingleWrapper(AGWrapper):
             init_kwargs = {}
         self._validate_fit_kwargs(fit_kwargs)
         self._validate_init_kwargs(init_kwargs)
+        if no_validation and self.bagged_fit:
+            raise ValueError("`no_validation` fits one model on all rows; it cannot be combined with a bagged wrapper.")
+        self.no_validation = no_validation
 
         # Record the user-provided "extra" kwargs (used for metadata), then derive the
         # effective fit kwargs by forcing the single-model contract on top of them.
@@ -902,6 +941,8 @@ class AGSingleWrapper(AGWrapper):
 
         fit_kwargs = copy.deepcopy(fit_kwargs)
         fit_kwargs["fit_weighted_ensemble"] = False
+        if no_validation:
+            fit_kwargs["validation_mode"] = "none"
         fit_kwargs["hyperparameters"] = {model_cls: model_hyperparameters}
 
         self._model_cls = model_cls

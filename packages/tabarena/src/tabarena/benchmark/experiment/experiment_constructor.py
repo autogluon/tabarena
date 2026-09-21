@@ -599,12 +599,13 @@ class Experiment:
         is non-finite, the result's cache file is deleted and a ``RuntimeError`` is raised.
         Whether that propagates or is swallowed (the run returning ``None``) is decided by
         the ``raise_on_failure`` handling in ``run``, which wraps this call. A finite (or
-        absent) metric is a no-op.
+        absent) metric is a no-op, and so is ``None``: a fit without validation rows has no
+        validation error to check.
         """
         if out is None:
             return
         for metric_error_key in ("metric_error", "metric_error_val"):
-            if metric_error_key not in out:
+            if metric_error_key not in out or out[metric_error_key] is None:
                 continue
             if not np.isfinite(out[metric_error_key]):
                 print(f"Non-finite final metric error detected: \t{metric_error_key}={out[metric_error_key]}. ")
@@ -1065,6 +1066,44 @@ class AGModelExperiment(Experiment):
             )
             model_hyperparameters["ag.max_time_limit"] = time_limit
         return model_hyperparameters
+
+
+class AGModelNoValidationExperiment(AGModelExperiment):
+    """Fit a single AutoGluon model on every training row with no validation split.
+
+    The predictor path of :class:`AGModelExperiment` with AutoGluon's ``validation_mode="none"``: no
+    bag and no holdout, one fit on all rows, so the predictions equal those of an
+    :class:`AGModelOuterExperiment` of the same model and hyperparameters. Unlike the outer fit it runs
+    through the ``TabularPredictor`` and records a simulation artifact: the test predictions are cached
+    with an empty validation slot, so combiners that need no validation estimate can be simulated from
+    the cached predictions. There is no inner validation, so the run sits outside the arena's
+    validation protocol (flavour ``none``) and its validation error is undefined.
+
+    Parameters
+    ----------
+    name, model_cls, model_hyperparameters, time_limit, time_limit_with_preprocessing,
+    raise_on_model_failure, method_kwargs, **kwargs:
+        As for :class:`AGModelExperiment`.
+    """
+
+    VALIDATION_FLAVOUR: ClassVar[ValidationFlavour | None] = "none"
+
+    def __init__(
+        self,
+        name: str,
+        model_cls: type[AbstractModel],
+        model_hyperparameters: dict,
+        *,
+        method_kwargs: dict | None = None,
+        **kwargs,
+    ):
+        method_kwargs = copy.deepcopy(method_kwargs) if method_kwargs else {}
+        if method_kwargs.get("no_validation") is False:
+            raise ValueError(
+                "AGModelNoValidationExperiment always fits without validation; drop `no_validation` from `method_kwargs`."
+            )
+        method_kwargs["no_validation"] = True
+        super().__init__(name, model_cls, model_hyperparameters, method_kwargs=method_kwargs, **kwargs)
 
 
 class AGModelBagExperiment(AGModelExperiment):

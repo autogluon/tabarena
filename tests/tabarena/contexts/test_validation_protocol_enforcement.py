@@ -19,6 +19,7 @@ from tabarena.benchmark.experiment import (
     AGExperiment,
     AGModelBagExperiment,
     AGModelExperiment,
+    AGModelNoValidationExperiment,
     AGModelOuterExperiment,
     ExternalSystemExperiment,
     Job,
@@ -70,6 +71,10 @@ def _holdout(**kwargs) -> AGModelExperiment:
 
 def _outer() -> AGModelOuterExperiment:
     return AGModelOuterExperiment(name="lgb", model_cls=LGBModel, model_hyperparameters={})
+
+
+def _no_validation() -> AGModelNoValidationExperiment:
+    return AGModelNoValidationExperiment(name="lgb_noval", model_cls=LGBModel, model_hyperparameters={})
 
 
 def _predictor() -> AGExperiment:
@@ -147,6 +152,12 @@ class TestBuildJobsStamping:
         _ctx().build_jobs([outer, system], subset="lite")
         assert outer.validation_protocol is None
         assert system.validation_protocol is None
+
+    def test_no_validation_experiments_are_untouched(self):
+        """A fit without validation rows has no inner validation to run the protocol on."""
+        experiment = _no_validation()
+        _ctx().build_jobs([experiment], subset="lite")
+        assert experiment.validation_protocol is None
 
     def test_a_matching_explicit_protocol_is_relabelled_not_refused(self):
         exp = _bag(validation_protocol=ValidationProtocol(name="my-8x1"))
