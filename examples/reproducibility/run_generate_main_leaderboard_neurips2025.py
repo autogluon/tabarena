@@ -5,9 +5,11 @@ results for every method), this pins the method collection to
 ``tabarena_method_metadata_2025_06_12_collection_main`` -- the camera-ready set of
 methods/results as of the paper -- so the leaderboard matches what was published.
 
-Results download to ``~/.cache/tabarena/`` on first run. ``compare()`` writes all
-figures/tables under ``output_dir``; ``leaderboard_to_website_format()`` reshapes
-the returned DataFrame into the columns shown on the website.
+Results download to ``~/.cache/tabarena/`` on first run. ``compare()`` writes the
+leaderboard CSVs and figures under ``output_dir``, among them ``results_per_split.csv``:
+the per-split numbers behind the paper's per-dataset tables, one row per dataset, split
+and method. ``leaderboard_to_website_format()`` reshapes the returned DataFrame into the
+columns shown on the website.
 """
 
 from __future__ import annotations

@@ -303,7 +303,8 @@ Pass the same `--scheduler` as the launch: for SkyPilot the eval first mirrors t
 SkyPilot results of one `benchmark_name` merge), then proceeds as usual.
 
 Outputs land in `tmp_scripts/eval_output/<benchmark_name>/`: `leaderboards/<subset>.csv` and, per
-subset under `subsets/<subset>/`, `tabarena_leaderboard.csv`, the `tuning-impact-elo*` bar plots,
+subset under `subsets/<subset>/`, `tabarena_leaderboard.csv`, `results_per_split.csv` (one row per dataset,
+split and method), the `tuning-impact-elo*` bar plots,
 `winrate_matrix.*` plus `winrate_explorer.html`, the four `pareto_front_*` figures (Elo and
 improvability against train and inference time; the new model carries a boxed label in each) and the
 two `pareto_front_explorer*.html` pages. The log ends with `Position of this run's methods`.

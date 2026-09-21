@@ -64,7 +64,8 @@ tunes under its shared protocol, a *system* owns its whole pipeline inside the f
   tuning and ensembling. The public BeyondArena leaderboard lists models only for now, so the system
   is compared against the cached model baselines.
 - `run_generate_beyondarena_leaderboard.py` — Generate the official BeyondArena leaderboard from the
-  cached results, in the website format.
+  cached results, in the website format. Its output folder also holds `results_per_split.csv`, the
+  per-dataset, per-split numbers behind the leaderboard, which are not hosted anywhere else.
 
 ### 🧪 Advanced and Specialized Usage
 
