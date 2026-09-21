@@ -630,11 +630,11 @@ def test_heap_is_frozen_once_per_process_after_a_completed_warmup():
     )
     assert first.status == "ok"
     assert isinstance(first.heap_frozen, int) and first.heap_frozen > 0
-    assert gc.get_freeze_count() == first.heap_frozen
+    assert gc.get_freeze_count() > 0  # objects freed by reference counting leave the frozen count, so no equality
     second = wu.run_warmup_fn(
         lambda: wu.warmup_model_cls(_MeanModel, problem_type="binary", num_cpus=1, num_gpus=0), label="m"
     )
-    assert second.heap_frozen is None and gc.get_freeze_count() == first.heap_frozen
+    assert second.heap_frozen is None and gc.get_freeze_count() > 0
     assert wu.freeze_warm_heap() is None
 
 
