@@ -211,10 +211,12 @@ def throwaway_package(tmp_path, monkeypatch):
 
 @pytest.fixture(autouse=True)
 def fresh_warm_memo():
-    """Every test starts in a process that has warmed nothing (the memo is process-wide)."""
+    """Every test starts in a process that has warmed nothing and frozen nothing (both are process-wide)."""
     wu.reset_warm_memo()
+    wu.unfreeze_warm_heap()
     yield
     wu.reset_warm_memo()
+    wu.unfreeze_warm_heap()
 
 
 # --- imports and steps ---------------------------------------------------------------------------
@@ -618,6 +620,43 @@ def test_warmup_always_env_disables_the_skip(monkeypatch):
     wu.warmup_model_cls(_MeanModel, problem_type="binary", num_cpus=1, num_gpus=0)
     wu.warmup_model_cls(_MeanModel, problem_type="binary", num_cpus=1, num_gpus=0)
     assert len(_MeanModel.fits) == 2
+
+
+def test_heap_is_frozen_once_per_process_after_a_completed_warmup():
+    import gc
+
+    first = wu.run_warmup_fn(
+        lambda: wu.warmup_model_cls(_MeanModel, problem_type="binary", num_cpus=1, num_gpus=0), label="m"
+    )
+    assert first.status == "ok"
+    assert isinstance(first.heap_frozen, int) and first.heap_frozen > 0
+    assert gc.get_freeze_count() == first.heap_frozen
+    second = wu.run_warmup_fn(
+        lambda: wu.warmup_model_cls(_MeanModel, problem_type="binary", num_cpus=1, num_gpus=0), label="m"
+    )
+    assert second.heap_frozen is None and gc.get_freeze_count() == first.heap_frozen
+    assert wu.freeze_warm_heap() is None
+
+
+def test_failed_warmup_does_not_freeze_the_heap():
+    import gc
+
+    def boom():
+        raise RuntimeError("no")
+
+    report = wu.run_warmup_fn(boom, label="m")
+    assert report.status == "failed" and report.heap_frozen is None
+    assert gc.get_freeze_count() == 0
+
+
+def test_freeze_env_disables_the_heap_freeze(monkeypatch):
+    import gc
+
+    monkeypatch.setenv(wu.FREEZE_ENV, "0")
+    report = wu.run_warmup_fn(
+        lambda: wu.warmup_model_cls(_MeanModel, problem_type="binary", num_cpus=1, num_gpus=0), label="m"
+    )
+    assert report.status == "ok" and report.heap_frozen is None and gc.get_freeze_count() == 0
 
 
 def test_cpu_dummy_fit_never_forks_cuda_generators_on_a_cuda_host(monkeypatch):

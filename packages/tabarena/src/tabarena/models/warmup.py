@@ -99,6 +99,10 @@ DUMMY_FIT_TIME_LIMIT_S: float = 120.0
 WARMUP_ALWAYS_ENV = "TABARENA_WARMUP_ALWAYS"
 #: Reason recorded on a dummy-fit record skipped because the process is already warm.
 ALREADY_WARM_REASON = "already warmed in this process"
+#: Set to ``0`` to keep the warmed heap in the collector's normal generations (see :func:`freeze_warm_heap`).
+FREEZE_ENV = "TABARENA_WARMUP_FREEZE"
+#: Whether :func:`freeze_warm_heap` already moved the warmed heap to the permanent generation in this process.
+_HEAP_FROZEN = False
 #: ``(model class, problem type, GPU or not, configuration)`` keys whose dummy fit completed in this process.
 _WARMED: set[tuple] = set()
 #: Keys a model class may override through ``warmup_dummy_fit_kwargs``.
@@ -143,6 +147,40 @@ def already_warm(
 def reset_warm_memo() -> None:
     """Forget which dummy fits completed in this process (tests, or after releasing shared weights)."""
     _WARMED.clear()
+
+
+def freeze_enabled() -> bool:
+    """Whether the warmed heap is frozen after the first warm-up (``TABARENA_WARMUP_FREEZE``, on by default)."""
+    return os.environ.get(FREEZE_ENV, "1").strip().lower() not in {"0", "false", "no", "off"}
+
+
+def freeze_warm_heap() -> int | None:
+    """Once per process, collect garbage and move every surviving object to the collector's permanent generation.
+
+    After a warm-up the heap holds the imported libraries, the CUDA state and the shared networks: a few hundred
+    thousand objects that live until the process exits. Every later full collection (the exec model's cleanup runs
+    one after each experiment, the dummy fit another) still traverses them, at about 0.1 s per call on a warmed
+    process. ``gc.freeze`` takes them out of the collector's generations, so those collections only look at what
+    the experiment itself created. The collection right before the freeze makes sure the warm-up's own garbage is
+    not frozen alive.
+
+    Returns the number of frozen objects when the freeze happened in this call, ``None`` when it was already done
+    in this process or is disabled through ``TABARENA_WARMUP_FREEZE=0``.
+    """
+    global _HEAP_FROZEN
+    if _HEAP_FROZEN or not freeze_enabled():
+        return None
+    gc.collect()
+    gc.freeze()
+    _HEAP_FROZEN = True
+    return gc.get_freeze_count()
+
+
+def unfreeze_warm_heap() -> None:
+    """Return the frozen objects to the collector and allow :func:`freeze_warm_heap` to run again (tests)."""
+    global _HEAP_FROZEN
+    gc.unfreeze()
+    _HEAP_FROZEN = False
 
 
 def kernel_probe_enabled() -> bool:
@@ -212,6 +250,9 @@ class WarmupReport:
             is ``None`` only when torch is not installed or neither of those layers ran.
         torch_globals_after: The same globals when the warm-up returned, so the artifact shows the
             state the fit ran under even when nothing changed.
+        heap_frozen: Number of objects :func:`freeze_warm_heap` moved to the permanent generation right
+            after this warm-up; ``None`` when the heap was frozen by an earlier warm-up of the process,
+            when the freeze is disabled, or when the warm-up did not complete.
         gpu_memory_allocated_after_probe_bytes: ``torch.cuda.memory_allocated()`` after the torch
             probe; cuBLAS workspaces owned by the handle stay allocated and raise the GPU memory
             baselines by this amount.
@@ -221,6 +262,7 @@ class WarmupReport:
         error: ``"<ExceptionType>: <message>"`` when the ``warmup_fn`` raised.
     """
 
+    heap_frozen: int | None = None
     status: WarmupStatus = "ok"
     label: str | None = None
     model_classes: list[str] = field(default_factory=list)
@@ -942,7 +984,9 @@ def run_warmup_fn(fn: Callable[[], WarmupReport | None], *, label: str) -> Warmu
     (non-stdlib top-level packages that appeared in ``sys.modules``), ``cuda_initialized``,
     ``torch_globals_after`` and ``label``. ``status`` is ``"failed"`` when ``fn`` raised (the
     header line naming ``label`` and the traceback are printed, ``duration_s`` stays ``None``),
-    ``"partial"`` when it returned with at least one failed step, ``"ok"`` otherwise.
+    ``"partial"`` when it returned with at least one failed step, ``"ok"`` otherwise. After a warm-up
+    that returned, the first call in the process freezes the warmed heap (:func:`freeze_warm_heap`,
+    recorded as ``heap_frozen``); the freeze runs after ``duration_s`` is taken.
     """
     before: EnvironmentSnapshot | None = take_snapshot()
     start = time.perf_counter()
@@ -956,6 +1000,7 @@ def run_warmup_fn(fn: Callable[[], WarmupReport | None], *, label: str) -> Warmu
         report = result if isinstance(result, WarmupReport) else WarmupReport()
         report.duration_s = time.perf_counter() - start
         report.status = "partial" if report.failed_steps else "ok"
+        report.heap_frozen = freeze_warm_heap()
     report.label = label
     if before is not None:
         with contextlib.suppress(Exception):
