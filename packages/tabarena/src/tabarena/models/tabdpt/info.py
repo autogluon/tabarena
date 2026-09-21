@@ -28,6 +28,7 @@ tabdpt_v13_descriptor = ModelDescriptor(
     compute="gpu",
     is_bag=False,
     reference_url="https://github.com/layer6ai-labs/TabDPT-inference/releases/tag/v1.3.0",
+    license="Apache-2.0",
     date_introduced="2026-09-08",  # tabdpt 1.3.0 on PyPI and tabdpt1_3.safetensors upload to Layer6/TabDPT
 )
 
@@ -56,15 +57,20 @@ tabdpt_turbo_method_metadata = tabdpt_turbo_descriptor.method_metadata(
     cache_kwargs={"bucket": "tabarena", "prefix": "cache"},
 )
 
-# Not benchmarked yet: no suite and no hosted artifacts until a run exists (the upload step fills
-# them in and confirms the config name).
+# A distinct `model_key`/`ag_key` keeps TabDPT-1.3 a separate leaderboard method from the two above.
+# Run `tabdpt13_21092026` (BENCHMARK_LOG.md), hosted as suite `tabarena-2026-09-21`.
 tabdpt_v13_method_metadata = tabdpt_v13_descriptor.method_metadata(
     method="TabDPT-1.3",
+    suite="tabarena-2026-09-21",
     ag_key="TA-TABDPT-1.3",
     model_key="TABDPT-1.3",
+    config_default="TabDPT-1.3_c1_default_BAG_L1",
     can_hpo=False,
-    date="2026-09-16",
+    validation_protocol="8x1",
+    date="2026-09-21",
     verified=False,
+    cache_type="r2",
+    cache_kwargs={"bucket": "tabarena", "prefix": "cache"},
 )
 
 

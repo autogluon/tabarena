@@ -62,7 +62,8 @@ run against `main`. To reproduce an entry, check out its recorded **git SHA**.
   +71/-57), multiclass #21/95 (1505, +199/-107), regression #21/94 (1643, +192/-121); median time per 1K rows: train
   0.57 s, inference 0.176 s. TabDPT-Turbo (v1.2) sits at #22 (Elo 1431; 2.07 s / 0.182 s per 1K) and TabDPT v1.1
   tuned + ensembled at #23 (1430); in regression alone v1.1 tuned + ensembled (1706) and tuned (1655) stay ahead of
-  1.3 (1643).
+  1.3 (1643). Processed and hosted on r2 as suite `tabarena-2026-09-21` (`tabdpt_v13_method_metadata` in
+  `models/tabdpt/info.py`, `validation_protocol="8x1"`, `config_default="TabDPT-1.3_c1_default_BAG_L1"`).
 
 ```python
 from tabarena.benchmark.experiment import TabArenaV0pt1ExperimentBundle
