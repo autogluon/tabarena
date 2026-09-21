@@ -10,9 +10,10 @@ copy of each package under a temporary directory, so the checkout itself is neve
    extras because PyPI rejects distributions that carry them. The extra itself stays, empty. The
    model's ``pip_extra`` in its ``info.py`` still names the exact git dependency, so the install
    hint users see is unchanged.
-3. The root ``README.md`` (relative links rewritten to absolute GitHub URLs) and ``LICENSE`` are
-   copied next to ``tabarena``'s pyproject, and ``LICENSE`` next to ``bencheval``'s, so the wheels
-   carry a description and a license file without duplicating either file in git.
+3. The root ``README.md`` (relative links rewritten to absolute GitHub URLs), ``LICENSE`` and
+   ``NOTICE`` are copied next to ``tabarena``'s pyproject, and ``LICENSE`` and ``NOTICE`` next to
+   ``bencheval``'s, so the wheels carry a description, the license and the Apache attribution
+   notice without duplicating any of the files in git.
 
 After building, every wheel is checked: no direct URLs, a non-empty description, a license file,
 matching versions, the ``bencheval`` pin, and every git-tracked non-Python file under ``src/``
@@ -154,7 +155,8 @@ def stage_package(package: str, stage_root: Path, version: str) -> Path:
     pyproject.write_text(text)
     for req in removed:
         print(f"  [{package}] stripped direct-URL requirement: {req}")
-    shutil.copy(REPO_ROOT / "LICENSE", pkg_dir / "LICENSE")
+    for legal_file in ("LICENSE", "NOTICE"):
+        shutil.copy(REPO_ROOT / legal_file, pkg_dir / legal_file)
     if package == "tabarena":
         (pkg_dir / "README.md").write_text(rewrite_readme_for_pypi((REPO_ROOT / "README.md").read_text()))
     return pkg_dir
