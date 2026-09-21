@@ -49,8 +49,9 @@ Repository = "https://github.com/autogluon/tabarena"
 Issues = "https://github.com/autogluon/tabarena/issues"
 "TabArena Leaderboard" = "https://tabarena.ai/"
 
-# LICENSE is not in this directory: scripts/release/build_pypi_dists.py copies the repository's
-# LICENSE next to this file when building for PyPI (setuptools picks up LICENSE* automatically).
+# LICENSE and NOTICE are not in this directory: scripts/release/build_pypi_dists.py copies the
+# repository's LICENSE and NOTICE next to this file when building for PyPI (setuptools picks up
+# LICENSE* and NOTICE* automatically).
 [tool.setuptools.packages.find]
 where = ["src"]
 include = ["bencheval*"]

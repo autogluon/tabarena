@@ -6,8 +6,9 @@ build-backend = "setuptools.build_meta"
 name = "tabarena"
 version = "0.1.0"  # keep equal to packages/bencheval/pyproject.toml; PyPI releases ship both at one version
 description = "A Living Benchmark for Machine Learning on Tabular Data"
-# README.md and LICENSE are not in this directory: scripts/release/build_pypi_dists.py copies the
-# repository's README.md (links made absolute) and LICENSE next to this file when building for PyPI.
+# README.md, LICENSE and NOTICE are not in this directory: scripts/release/build_pypi_dists.py copies
+# the repository's README.md (links made absolute), LICENSE and NOTICE next to this file when
+# building for PyPI (setuptools picks up LICENSE* and NOTICE* automatically).
 readme = "README.md"
 license = "Apache-2.0"
 authors = [{ name = "TabArena Community" }]
