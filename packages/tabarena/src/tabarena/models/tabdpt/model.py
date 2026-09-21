@@ -126,15 +126,7 @@ class TabDPTModelBase(AbstractTorchModel):
         }
         for param, default in self._constructor_defaults.items():
             kwargs[param] = hps.get(param, default)
-        if self.shared_weights is None or kwargs.get("compile"):
-            # No sharing declared (v1.1), or torch.compile writes into the module: the library builds its own.
-            return model_cls(**kwargs)
-        from tabarena.models.tabdpt._estimators import load_network, make_estimator
-
-        network = load_network(
-            kwargs["model_weight_path"], device, use_flash=kwargs["use_flash"], clip_sigma=kwargs["clip_sigma"]
-        )
-        return make_estimator(network, mode="cls" if model_cls.__name__ == "TabDPTClassifier" else "reg", **kwargs)
+        return model_cls(**kwargs)
 
     @classmethod
     def _download_checkpoint(cls) -> str:
@@ -314,21 +306,13 @@ class TabDPTTurboModel(TabDPTModelBase):
     Needs ``tabdpt>=1.2.0,<1.3``: the 1.3 release renamed the network's label encoders
     (``y_encoders`` became ``cls_y_encoders`` and ``reg_y_encoders``), so neither package version
     loads the other's checkpoint. :class:`TabDPTv13Model` is the installable entry and this one is
-    ``superseded`` in ``info.py``.
+    ``superseded`` in ``info.py``. The 1.2 release builds its network inside the estimator
+    constructor with no separable call, so this version declares no ``shared_weights`` and reads
+    its checkpoint per fit, like v1.1; the 1.3 line shares (see :class:`TabDPTv13Model`).
     """
 
     ag_key = "TA-TABDPT-TURBO"
     ag_name = "TA-TabDPT-Turbo"
-    #: tabdpt reads the checkpoint and builds the network inside the estimator constructor, so the
-    #: loading half is replicated in ``_estimators.load_network`` and the constructor in
-    #: ``_estimators.make_estimator`` (developer fixes, see that module); one build per checkpoint,
-    #: flash-attention setting, clipping value and device per process. ``compile=True`` writes into
-    #: the module and builds its own.
-    shared_weights: ClassVar[SharedWeights] = SharedWeights(
-        loader="tabarena.models.tabdpt._estimators:load_network", key=("model_weight_path", "use_flash", "clip_sigma")
-    )
-    #: TabDPT-Turbo and TabDPT-1.3 are registered separately; each owns its ``share_weights`` class setting.
-    class_settings_per_subclass = True
     #: Knobs that make the warm-up's dummy fit cheap without touching the network.
     cheap_hyperparameters: ClassVar[dict] = {"n_ensembles": 1}
 
@@ -368,13 +352,35 @@ class TabDPTv13Model(TabDPTTurboModel):
 
     Release notes: https://github.com/layer6ai-labs/TabDPT-inference/releases/tag/v1.3.0
 
-    Needs ``tabdpt>=1.3.0``; :class:`TabDPTTurboModel` explains why the 1.2 and 1.3 packages cannot
-    load each other's checkpoint.
+    Needs the ``tabdpt`` commit pinned in ``info.py``, the merge of layer6ai-labs/TabDPT-inference#79:
+    it gives ``TabDPTEstimator`` a separable ``_load_model`` that the constructor calls once, which is
+    this version's shared-weights loader. The 1.3.0 release predates it. :class:`TabDPTTurboModel`
+    explains why the 1.2 and 1.3 packages cannot load each other's checkpoint.
     """
 
     ag_key = "TA-TABDPT-1.3"
     ag_name = "TA-TabDPT-1.3"
+    #: The library's own loader is memoized: one build per checkpoint, flash-attention setting,
+    #: clipping value and device per process. The constructor resolves ``use_flash`` and stores
+    #: ``model_weight_path`` and ``clip_sigma`` before it calls ``_load_model``, so they key the entry.
+    shared_weights: ClassVar[SharedWeights] = SharedWeights(
+        loader="tabdpt.estimator:TabDPTEstimator._load_model",
+        key=("model_weight_path", "use_flash", "clip_sigma"),
+    )
+    #: A later TabDPT version registered as a subclass owns its ``share_weights`` class setting.
+    class_settings_per_subclass = True
 
     #: The commit that uploaded ``tabdpt1_3.safetensors`` (2026-09-08); the base pin predates it.
     _hf_revision: ClassVar[str] = "a5ca6e01c0fa09ec68c73e958e5199d1932abb3a"
     _checkpoint_filename: ClassVar[str] = "tabdpt1_3.safetensors"
+
+    def _shares_weights(self) -> bool:
+        """Whether this fit takes its network from the registry; a compiling configuration builds its own.
+
+        ``TabDPTEstimator.fit`` runs ``self.model.compile()`` in place when ``compile`` is set, which
+        would write into the module every other fit holds. ``disabled_by`` cannot carry the rule: the
+        constructor resolves ``compile`` after ``_load_model`` ran, so the loader's inputs never
+        include it.
+        """
+        compiles = self._get_model_params().get("compile", self._constructor_defaults["compile"])
+        return super()._shares_weights() and not compiles

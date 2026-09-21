@@ -71,7 +71,7 @@ Choose the most similar existing model to read for detailed inspiration:
 
 | Model type | Base class | Read this reference model |
 |---|---|---|
-| Torch-based foundation / pre-trained GPU (e.g. TabPFN, TabICL) | `AbstractTorchModel` with a `shared_weights` declaration | `packages/tabarena/src/tabarena/models/tabicl/model.py` (the declaration of Step 3g); `tabdpt/` for a library that loads inside its constructor |
+| Torch-based foundation / pre-trained GPU (e.g. TabPFN, TabICL) | `AbstractTorchModel` with a `shared_weights` declaration | `packages/tabarena/src/tabarena/models/tabicl/model.py` (the declaration of Step 3g); `exaone_tabular/` for a library that loads inside its constructor, `tabdpt/` for a loader the constructor calls |
 | Torch NN trained from scratch (e.g. TabM, RealMLP) | `AbstractTorchModel` | `packages/tabarena/src/tabarena/models/tabm/model.py` |
 | Non-torch GPU model (e.g. JAX/Flax like TabFM, or any lib that manages its own device) | `AbstractModel` | `packages/tabarena/src/tabarena/models/tabstar/model.py` |
 | CPU / sklearn-like (e.g. KNN) | `AbstractModel` | `packages/tabarena/src/tabarena/models/knn/model.py` |
@@ -209,16 +209,18 @@ found and removed later. The four shapes seen so far, with the in-tree reference
 |---|---|---|
 | flips a global torch flag or the root logger when imported or fitted (TF32, cuDNN, `logging.basicConfig`) | pin the flag explicitly in `_fit` right after the import (one policy for every fit, whatever imported first) and save/restore the rest in a context manager around the fit | `iltm/model.py` (`_isolate_iltm_global_state`, `allow_tf32 = False`) |
 | builds its network only at the first predict | build it at the end of `_fit`, so the load is shared and the timed predict starts warm | `nori/model.py` (the eager `_get_predictor()` call) |
-| loads the checkpoint inside `__init__`, with no `_load_model` and no `network=` argument | a `load_network(...)` function in `<model>/_estimators.py` replicating the loading half of the constructor (declared as the `shared_weights` loader), plus a constructor replica when the constructor cannot take a prebuilt network, guarded against library bumps | `tabdpt/_estimators.py`, `exaone_tabular/_estimators.py` |
+| loads the checkpoint inside `__init__`, with no `_load_model` and no `network=` argument | a `load_network(...)` function in `<model>/_estimators.py` replicating the loading half of the constructor (declared as the `shared_weights` loader), plus a constructor replica when the constructor cannot take a prebuilt network, guarded against library bumps | `exaone_tabular/_estimators.py` (TabDPT had one until layer6ai-labs/TabDPT-inference#79 merged) |
 | declares no `logger` until `__init__` ran, breaks after an unpickle, or has another bug the fit path hits | the narrowest patch at the call site, idempotent, applied where the code path enters the library | `iltm/model.py` (`_ensure_iltm_logger_patched`) |
 
 The header is the contract: the module docstring, function docstring or comment opens with
 `Developer fix` (or `Developer fix:` inline), then says what the library does, what it should offer
-instead, the version the fix was written against, and the upstream issue or PR once filed
-(`tabdpt/_estimators.py` links layer6ai-labs/TabDPT-inference#79). Before writing one, ask the
-library's maintainers for the seam (a separable loader, a `network=` argument, an import without
-side effects); file the issue or PR, link it from the header, and remove the fix when a release ships
-it. `grep -rn "Developer fix" packages/tabarena/src/tabarena/models` lists what is outstanding.
+instead, the version the fix was written against, and the upstream issue or PR once filed. Before
+writing one, ask the library's maintainers for the seam (a separable loader, a `network=` argument,
+an import without side effects); file the issue or PR, link it from the header, and remove the fix
+when the library ships it. TabDPT is the precedent: its constructor replica linked
+layer6ai-labs/TabDPT-inference#79, and once that merged `tabdpt/model.py` declared the upstream
+`_load_model` like TabICL, pinned to the merge commit until a release carries it.
+`grep -rn "Developer fix" packages/tabarena/src/tabarena/models` lists what is outstanding.
 Report every developer fix you add in Step 8.
 
 **Foundation models share one network.** A bagged fit of an in-context model would otherwise build
@@ -259,20 +261,24 @@ the network and takes it back on load, `set_device` swaps registry entries, and
 **The library contract.** What a library has to offer is one loader call whose inputs are estimator
 parameters (checkpoint name or path, device, and any flag that shapes the network) and whose effect
 is to produce the network, as a return value or as attributes it sets. Check this before integrating:
-if the library loads inside `__init__` (TabDPT, EXAONE Tabular), ask the maintainers for a separable
-loader or a `network=` constructor argument first, and only then fall back to an adapter in
-`<model>/_estimators.py`: a `load_network(...)` function that replicates the loading half of the
-constructor (the declared loader) and, when the constructor cannot take a prebuilt network, a
-constructor replica. Mark the module as a developer fix in its docstring, say what the library should
-offer instead, and guard the replica against library bumps (`tabdpt/_estimators.py`,
-`exaone_tabular/_estimators.py`). A library whose `__setstate__` re-runs its loader (tabicl) reloads
-shared for free; one that pickles its network (tabpfn) is covered by the generic weightless pickle.
-Wrappers that do not care about sharing simply declare nothing (TabDPT v1.1, TabPFN-Wide, SAP-RPT-OSS,
-iLTM whose library caches for itself).
+if the library loads inside `__init__` (EXAONE Tabular; TabDPT until its maintainers merged a
+separable `_load_model`), ask the maintainers for a separable loader or a `network=` constructor
+argument first, and only then fall back to an adapter in `<model>/_estimators.py`: a
+`load_network(...)` function that replicates the loading half of the constructor (the declared
+loader) and, when the constructor cannot take a prebuilt network, a constructor replica. Mark the
+module as a developer fix in its docstring, say what the library should offer instead, and guard the
+replica against library bumps (`exaone_tabular/_estimators.py`). A library whose `__setstate__`
+re-runs its loader (tabicl) reloads shared for free; one that pickles its network (tabpfn) is covered
+by the generic weightless pickle. A loader the constructor calls (tabdpt `_load_model`) works too, as
+long as the keyed attributes are set before the call; an input the constructor resolves after it
+(tabdpt `compile`) cannot go in `disabled_by`, so the wrapper overrides `_shares_weights` for it.
+Wrappers that do not care about sharing simply declare nothing (TabDPT v1.1 and TabDPT-Turbo, whose
+releases have no separable loader, TabPFN-Wide, SAP-RPT-OSS, iLTM whose library caches for itself).
 
 `references/model_patterns.md` under "Shared pretrained weights" has the field-by-field reference;
 `tabicl/model.py` is the plain in-tree case, `causilo/model.py` a function loader without a device
-input, `mitra_v2/model.py` a fine-tuning model, `tabdpt/` and `exaone_tabular/` the adapters.
+input, `mitra_v2/model.py` a fine-tuning model, `tabdpt/model.py` a loader the constructor calls and
+`exaone_tabular/` the adapter.
 
 Tests: `tests/tabarena/models/test_shared_weights_models.py` discovers every registered class that
 declares `shared_weights` and checks the declaration (well-formed, the loader resolves when the library

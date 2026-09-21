@@ -108,7 +108,9 @@ tabicl = ["tabicl>=2.0.0"]
 ebm = ["autogluon.tabular[interpret]>=1.6,<1.7"]
 search_spaces = ["configspace>=1.2,<2.0"]
 realmlp = ["pytabkit>=1.5.0,<2.0"]
-tabdpt = ["tabdpt>=1.3.0"]
+# TabDPT-1.3's shared-weights loader (`TabDPTEstimator._load_model`, layer6ai-labs/TabDPT-inference#79)
+# merged after the 1.3.0 release; pinned to that merge until a release ships it.
+tabdpt = ["tabdpt @ git+https://github.com/layer6ai-labs/TabDPT-inference.git@336ed08fd38ebdd63fbe5b345734f7df287aa5d6"]
 tabm = ["torch", "tabm>=0.0.3", "rtdl_num_embeddings>=0.0.12"]
 
 # Extended model extras — opt-in individually or together via the `extended` union below.

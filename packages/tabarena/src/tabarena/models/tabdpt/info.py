@@ -84,7 +84,7 @@ tabdpt_info = ModelInfo(
 
 # Pinned below 1.3: the 1.3 release renamed the network's label encoders, so the 1.3 loader cannot
 # read `tabdpt1_2.safetensors` (nor the 1.2 loader `tabdpt1_3.safetensors`). TabDPT-1.3 below is
-# the installable entry and needs >=1.3.0.
+# the installable entry.
 tabdpt_turbo_info = ModelInfo(
     model_cls=TabDPTTurboModel,
     search_space=gen_tabdpt_turbo,
@@ -95,10 +95,16 @@ tabdpt_turbo_info = ModelInfo(
 )
 
 
+# Pinned to the merge of layer6ai-labs/TabDPT-inference#79 (2026-09-21), which added
+# `TabDPTEstimator._load_model`, the shared-weights loader `TabDPTv13Model` declares, after the 1.3.0
+# release. Move to `tabdpt>=<version>` once a release ships it. Keep in sync with the `tabdpt` extra
+# in pyproject.toml.
 tabdpt_v13_info = ModelInfo(
     model_cls=TabDPTv13Model,
     search_space=gen_tabdpt_v13,
     method_metadata=tabdpt_v13_method_metadata,
-    pip_extra=("tabdpt>=1.3.0",),
+    pip_extra=(
+        "tabdpt @ git+https://github.com/layer6ai-labs/TabDPT-inference.git@336ed08fd38ebdd63fbe5b345734f7df287aa5d6",
+    ),
     prefetch_weights=TabDPTv13Model.prefetch_weights,
 )

@@ -497,13 +497,15 @@ write an adapter in `<model>/_estimators.py`: a `load_network(...)` function rep
 half of the constructor (declared as the loader; its parameters are the key) and, when the
 constructor cannot take a prebuilt network, a constructor replica around it. The module docstring
 opens with "Developer fix", names what the library should offer instead, links the upstream ask, and
-the replica is guarded against library bumps (a signature check the convention test runs). In-tree:
-`tabdpt/_estimators.py` (loader plus replica; only TabDPT-Turbo declares it, `compile=True` falls back
-to the library's own class; the separable loader is proposed upstream in
-layer6ai-labs/TabDPT-inference#79, after which the module goes) and `exaone_tabular/_estimators.py`
-(loader only; the constructor accepts `model=`). Nori's predictor loads lazily at the first predict,
-so `_fit` builds it eagerly (one private call, noted as a library ask). Wrappers that do not care
-about sharing declare nothing. "Developer fixes" below is the general form of this pattern.
+the replica is guarded against library bumps (a signature check, or a re-diff note against the
+pinned commit). In-tree: `exaone_tabular/_estimators.py` (loader only; the constructor accepts
+`model=`). TabDPT had a loader plus a constructor replica until its maintainers merged the separable
+`_load_model` (layer6ai-labs/TabDPT-inference#79); `tabdpt/model.py` now declares it like TabICL,
+pinned to the merge commit until a release ships it. Its constructor calls the loader before it
+resolves `compile`, so that flag cannot go in `disabled_by`: the wrapper overrides `_shares_weights`
+to keep a compiling fit on its own network. Nori's predictor loads lazily at the first predict, so
+`_fit` builds it eagerly (one private call, noted as a library ask). Wrappers that do not care about
+sharing declare nothing. "Developer fixes" below is the general form of this pattern.
 
 References: `tabicl/model.py` (the example above), `tabpfn_3/model.py` (a predicate in
 `disabled_by`; TabPFN-2.5 keeps its own copy in `tabpfnv2_5/model.py`), `causilo/model.py` and
@@ -553,7 +555,7 @@ Shapes seen so far, each with its in-tree reference:
 |---|---|---|
 | sets a global torch flag when imported (`allow_tf32`), or cuDNN flags and the root logger when it fits | pin the flag in `_fit` right after the import, so every fit computes the same way whichever fit imported the library first; save and restore the rest around the fit in a context manager | `iltm/model.py`: `torch.backends.cuda.matmul.allow_tf32 = False` after `from iltm import ...`, `_isolate_iltm_global_state` |
 | builds its network at the first predict, not in `fit` | call the build at the end of `_fit` (the load is then shared and the timed predict starts warm) | `nori/model.py`: `self.model._get_predictor()` |
-| loads the checkpoint inside `__init__` | `load_network(...)` in `<model>/_estimators.py`, the loading half of the constructor, declared as the `shared_weights` loader; a constructor replica when the constructor cannot take a prebuilt network, guarded by a signature check | `tabdpt/_estimators.py`, `exaone_tabular/_estimators.py` |
+| loads the checkpoint inside `__init__` | `load_network(...)` in `<model>/_estimators.py`, the loading half of the constructor, declared as the `shared_weights` loader; a constructor replica when the constructor cannot take a prebuilt network, guarded by a signature check | `exaone_tabular/_estimators.py` |
 | a bug on the fit or predict path (a module-level `logger` that only `__init__` defines, so an unpickled child crashes) | the narrowest idempotent patch, applied where the code path enters the library | `iltm/model.py`: `_ensure_iltm_logger_patched` |
 
 Before writing one: ask the maintainers for the seam (an import without side effects, a
