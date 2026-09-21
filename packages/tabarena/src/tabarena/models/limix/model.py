@@ -373,9 +373,7 @@ class LimiXModel(AbstractTorchModel):
                 hps=hps,
                 batch_test_n_rows=self.batch_test_n_rows,
             )
-            self.model = ManyClassClassifier(estimator=base_model, alphabet_size=many_class_threshold).fit(
-                X_np, y_fit
-            )
+            self.model = ManyClassClassifier(estimator=base_model, alphabet_size=many_class_threshold).fit(X_np, y_fit)
         else:
             self.model = _build_and_fit_limix(
                 X_np=X_np,
