@@ -219,7 +219,7 @@ writing one, ask the library's maintainers for the seam (a separable loader, a `
 an import without side effects); file the issue or PR, link it from the header, and remove the fix
 when the library ships it. TabDPT is the precedent: its constructor replica linked
 layer6ai-labs/TabDPT-inference#79, and once that merged `tabdpt/model.py` declared the upstream
-`_load_model` like TabICL, pinned to the merge commit until a release carries it.
+`_load_model` like TabICL, with the extra moved to the first release that carries it (`tabdpt>=1.3.1`).
 `grep -rn "Developer fix" packages/tabarena/src/tabarena/models` lists what is outstanding.
 Report every developer fix you add in Step 8.
 

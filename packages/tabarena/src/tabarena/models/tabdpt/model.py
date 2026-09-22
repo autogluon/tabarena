@@ -352,10 +352,10 @@ class TabDPTv13Model(TabDPTTurboModel):
 
     Release notes: https://github.com/layer6ai-labs/TabDPT-inference/releases/tag/v1.3.0
 
-    Needs the ``tabdpt`` commit pinned in ``info.py``, the merge of layer6ai-labs/TabDPT-inference#79:
-    it gives ``TabDPTEstimator`` a separable ``_load_model`` that the constructor calls once, which is
-    this version's shared-weights loader. The 1.3.0 release predates it. :class:`TabDPTTurboModel`
-    explains why the 1.2 and 1.3 packages cannot load each other's checkpoint.
+    Needs ``tabdpt>=1.3.1``: that release gives ``TabDPTEstimator`` a separable ``_load_model`` that the
+    constructor calls once (layer6ai-labs/TabDPT-inference#79), which is this version's shared-weights
+    loader; 1.3.0 loads inside the constructor. :class:`TabDPTTurboModel` explains why the 1.2 and 1.3
+    packages cannot load each other's checkpoint.
     """
 
     ag_key = "TA-TABDPT-1.3"

@@ -500,8 +500,8 @@ opens with "Developer fix", names what the library should offer instead, links t
 the replica is guarded against library bumps (a signature check, or a re-diff note against the
 pinned commit). In-tree: `exaone_tabular/_estimators.py` (loader only; the constructor accepts
 `model=`). TabDPT had a loader plus a constructor replica until its maintainers merged the separable
-`_load_model` (layer6ai-labs/TabDPT-inference#79); `tabdpt/model.py` now declares it like TabICL,
-pinned to the merge commit until a release ships it. Its constructor calls the loader before it
+`_load_model` (layer6ai-labs/TabDPT-inference#79); `tabdpt/model.py` now declares it like TabICL and
+the extra requires the first release that ships it (1.3.1). Its constructor calls the loader before it
 resolves `compile`, so that flag cannot go in `disabled_by`: the wrapper overrides `_shares_weights`
 to keep a compiling fit on its own network. Nori's predictor loads lazily at the first predict, so
 `_fit` builds it eagerly (one private call, noted as a library ask). Wrappers that do not care about
