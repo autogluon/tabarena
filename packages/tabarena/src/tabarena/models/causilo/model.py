@@ -12,6 +12,10 @@ class CausiloModel(AbstractTorchModel):
     Code and documentation: https://github.com/nums-ai/causilo
     Code license: Apache-2.0. Weights have a separate research license:
     https://huggingface.co/nums-ai/causilo/blob/main/LICENSE
+
+    Pinned to causilo 1.0.2: from that release on, a label set wider than the ten-class head is fit
+    through the library's own error-correcting output codes (one context per code row over the same
+    checkpoint), so the wrapper declares no ``max_classes`` cap. 1.0.0 rejected such datasets.
     """
 
     ag_key = "TA-CAUSILO"
@@ -91,18 +95,26 @@ class CausiloModel(AbstractTorchModel):
         engine = self.model._engine
         target = resolve_device(str(device))
         engine.model.to(target)
-        if engine.state.caches is not None:
+        state = engine.state
+        if state.caches is not None or state.code_caches is not None:
             column_dtype = stage_dtype(engine.task, Stage.COLUMN, target)
             prediction_dtype = stage_dtype(engine.task, Stage.PREDICTION, target)
-            caches = tuple(
-                replace(
-                    cache,
-                    columns=tuple(transfer_state(c, target, dtype=column_dtype) for c in cache.columns),
-                    prediction=transfer_state(cache.prediction, target, dtype=prediction_dtype),
+
+            def moved(caches):
+                return tuple(
+                    replace(
+                        cache,
+                        columns=tuple(transfer_state(c, target, dtype=column_dtype) for c in cache.columns),
+                        prediction=transfer_state(cache.prediction, target, dtype=prediction_dtype),
+                    )
+                    for cache in caches
                 )
-                for cache in engine.state.caches
-            )
-            engine.state = replace(engine.state, caches=caches)
+
+            if state.caches is not None:
+                state = replace(state, caches=moved(state.caches))
+            if state.code_caches is not None:  # one cache tuple per output-code row of a many-class fit
+                state = replace(state, code_caches=tuple(moved(caches) for caches in state.code_caches))
+            engine.state = state
         engine.device = target
         engine.device_request = str(target)
         self.model.device = str(target)
