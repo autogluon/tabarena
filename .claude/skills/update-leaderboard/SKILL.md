@@ -112,11 +112,16 @@ Monitor until the process exits, then verify outputs — **don't trust "exited" 
     print(df.loc[df["Model"].str.contains("TabSwift", case=False), ["Type","TypeName","Model"]].to_string(index=False))
     PY
     ```
-  - Structural sanity in `website_data/`: **8** `entrants_*` roots (one per combination of the system
-    categories), **480** `website_leaderboard.csv` (60 subsets x 8 entrant pools), **480**
-    `n_datasets_*` markers, **0** `*.png` and **0** `*.png.zip` (TabArena publishes no static figures),
-    and **2400** interactive `*_explorer.html` (5 per subset: leaderboard overview, table, two Pareto
-    axes, trajectories).
+  - Structural sanity, counted **inside the `entrants_*` roots** (a stale top-level `imputation_*`
+    layout may sit next to them, see Step 3): **8** roots (one per combination of the system
+    categories) and, per root, one `website_leaderboard.csv`, one `n_datasets_*` marker and one
+    `leaderboard_table.html` per subset plus the interactive `*_explorer.html` pages, and **0** `*.png`
+    / `*.png.zip` (TabArena publishes no static figures). The subset count grows with the site
+    (60 subsets per pool in v0.1.8, 116 since the balanced / imbalanced / extreme subsets of v0.1.9:
+    928 CSVs and 3744 explorers over the 8 pools), so compare the counts and the file list against
+    the Space's current `data/` (`diff <(cd $SRC && find entrants_* -type f | sort) <(cd $DST && find
+    entrants_* -type f | sort)` is empty when no subset was added or removed) rather than against
+    fixed numbers.
   - Pool sanity: `entrants_models` must contain **no** AutoGluon row, and a model's Elo must differ
     between `entrants_models` and `entrants_open_llm_api` (a wider field re-rates everyone). If they
     match, the pool filter did not apply.
@@ -136,14 +141,17 @@ DST=<lb_code_dir>/data
 #    still has imputation_* at the top level; those are the old layout and go too.
 find "$DST" -mindepth 1 -maxdepth 1 ! -name 'entrants_*' ! -name 'imputation_*'   # expect: no output
 
-# 2. Delete the old subtree, then copy the fresh one in:
+# 2. Delete the old subtree, then copy the fresh one in. Copy the entrant pools ONLY: the generator wipes
+#    neither raw_website_artifacts/ nor website_data/, so the pre-pool imputation_no/ + imputation_yes/
+#    layout (static PNGs) from before v0.1.8 survives at the top level, is re-converted every run and
+#    sits in clean_website_artifacts.zip too, while the Space tracks nothing but entrants_*.
 rm -rf "$DST"/entrants_* "$DST"/imputation_*
-cp -r "$SRC"/. "$DST"/
+cp -r "$SRC"/entrants_* "$DST"/
 
 # 3. Verify the swap:
 echo "any .png (MUST be 0): $(find "$DST" -name '*.png*' | wc -l)"
 echo "entrant pools:        $(find "$DST" -mindepth 1 -maxdepth 1 -name 'entrants_*' | wc -l)"  # 8
-echo "csv:                  $(find "$DST" -name 'website_leaderboard.csv' | wc -l)"  # 480
+echo "csv:                  $(find "$DST" -name 'website_leaderboard.csv' | wc -l)"  # same as before the swap unless a subset changed
 ```
 
 Then confirm the diff is clean — **all modifications, no adds/deletes/untracked** (a new or removed
