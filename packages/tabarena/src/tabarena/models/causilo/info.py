@@ -60,6 +60,6 @@ causilo_info = ModelInfo(
     model_cls=CausiloModel,
     search_space=gen_causilo,
     method_metadata=causilo_new_method_metadata,
-    pip_extra=("causilo==1.0.0",),
+    pip_extra=("causilo==1.0.2",),
     prefetch_weights=prefetch_weights,
 )
