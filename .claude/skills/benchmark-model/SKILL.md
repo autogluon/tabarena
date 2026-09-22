@@ -321,6 +321,10 @@ Report to the maintainer, in this order:
 4. Anything the numbers hide: imputed tasks, failed splits that were left out, time-limit hits,
    the `flash-attn` kind of "installed without X" caveat.
 
+The report goes to the chat. Never comment on the PR or edit its description on your own initiative,
+not even for the stage-2 results comment the PR template describes: draft the text, show it to the
+maintainer, and post it only after they say so.
+
 ### CPU models: check the fit times before they replace hosted results
 
 A re-run of a CPU model reproduces its Elo but not necessarily its fit times: CatBoost and EBM re-run on
