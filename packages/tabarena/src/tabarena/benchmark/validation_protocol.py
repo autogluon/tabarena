@@ -32,7 +32,7 @@ import dataclasses
 from dataclasses import dataclass, field, replace
 from typing import Any, Literal
 
-ValidationFlavour = Literal["bagged", "holdout", "outer", "system", "predictor", "bag-child-holdout"]
+ValidationFlavour = Literal["bagged", "holdout", "none", "outer", "system", "predictor", "bag-child-holdout"]
 """How an experiment validates: ``bagged`` (k-fold bag, the protocol applies in full), ``holdout`` (one
 task-aware train/validation split sized like one bagging fold), ``outer`` (no inner validation),
 ``system`` (the system carves its own validation), ``predictor`` (a full ``TabularPredictor`` whose presets

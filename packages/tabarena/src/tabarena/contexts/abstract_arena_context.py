@@ -585,7 +585,12 @@ class AbstractArenaContext:
         segments = [f"Validation protocol: {label} {mode} {counts.get('bagged', 0)} bagged experiment(s)"]
         if counts.get("system"):
             segments.append(f"{counts['system']} system experiment(s) own their validation")
-        for flavour, label_flavour in (("holdout", "holdout"), ("predictor", "full-predictor"), ("outer", "outer")):
+        for flavour, label_flavour in (
+            ("holdout", "holdout"),
+            ("predictor", "full-predictor"),
+            ("outer", "outer"),
+            ("none", "no-validation"),
+        ):
             if counts.get(flavour):
                 segments.append(
                     f"{counts[flavour]} {label_flavour} experiment(s) run outside the official protocol "

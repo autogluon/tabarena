@@ -382,6 +382,24 @@ class ConfigResult(BaselineResult):
         y_pred_proba_val = self.simulation_artifacts["pred_val"]
         y_pred_proba_test = self.simulation_artifacts["pred_test"]
 
+        if len(y_val) == 0:
+            # A fit without validation rows (flavour ``none``): the test error is defined, the validation error is not.
+            if calibrate:
+                raise ValueError("Cannot calibrate a result that has no validation predictions.")
+            if ag_metric.needs_class:
+                y_pred_test = get_pred_from_proba(
+                    y_pred_proba=y_pred_proba_test, problem_type=self.problem_type, decision_threshold=0.5
+                )
+                metric_error_test = ag_metric.error(y_test, y_pred_test)
+            else:
+                metric_error_test = ag_metric.error(y_test, y_pred_proba_test)
+            if as_sklearn:
+                score_test = ag_metric.convert_score_to_original(
+                    score=ag_metric.convert_error_to_score(error=metric_error_test)
+                )
+                return score_test, float("nan")
+            return metric_error_test, float("nan")
+
         if ag_metric.needs_class:
             # y_pred_val = get_pred_from_proba(y_pred_proba=y_pred_proba_val, problem_type=self.problem_type, decision_threshold=decision_threshold)
             # y_pred_test = get_pred_from_proba(y_pred_proba=y_pred_proba_test, problem_type=self.problem_type, decision_threshold=decision_threshold)

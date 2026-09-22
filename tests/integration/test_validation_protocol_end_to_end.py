@@ -24,6 +24,7 @@ from sklearn.model_selection import StratifiedKFold, train_test_split
 
 from tabarena.benchmark.experiment import (
     AGModelBagExperiment,
+    AGModelNoValidationExperiment,
     BeyondArenaExperimentBundle,
     ExperimentBatchRunner,
     TabArenaV0pt1ExperimentBundle,
@@ -209,6 +210,29 @@ def test_outer_fits_run_without_a_flag_and_register_as_outer(toy, tmp_path):
         assert result["validation_protocol"] == {"flavour": "outer", "protocol": None, "key": "outer"}
     (method,) = _registered(context)
     assert method.validation_protocol == "outer"
+
+
+def test_no_validation_fits_cache_the_test_predictions_and_register_as_none(toy, tmp_path):
+    """One fit on all rows, no validation split: the artifact keeps the test predictions with an empty validation slot."""
+    import numpy as np
+
+    context = _context(toy, validation_protocol=TABARENA_V0PT1_VALIDATION_PROTOCOL)
+    experiments = [AGModelNoValidationExperiment(name="dummy_noval", model_cls=DummyModel, model_hyperparameters={})]
+
+    with pytest.warns(UserWarning, match="outside the official validation protocol"):
+        results = _run(context, experiments, toy=toy, expname=tmp_path / "noval")
+
+    assert results
+    for result in results:
+        assert result["validation_protocol"]["flavour"] == "none" and result["validation_protocol"]["key"] == "none"
+        assert result["validation_protocol"]["num_bag_folds_fitted"] == 0
+        assert result["metric_error_val"] is None and np.isfinite(result["metric_error"])
+        artifact = result["simulation_artifacts"]
+        assert len(artifact["y_val"]) == 0 and len(artifact["y_val_idx"]) == 0
+        assert len(artifact["pred_proba_dict_val"][result["framework"]]) == 0
+        assert len(artifact["pred_proba_dict_test"][result["framework"]]) == len(artifact["y_test"]) > 0
+    (method,) = _registered(context)
+    assert method.validation_protocol == "none"
 
 
 def test_a_rerun_under_another_protocol_is_refused_by_the_cache(toy, tmp_path):

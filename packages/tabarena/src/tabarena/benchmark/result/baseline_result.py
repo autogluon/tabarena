@@ -173,7 +173,9 @@ class BaselineResult(AbstractResult):
 
         """
         if "metric_error_val" in self.result:
-            self.result["metric_error_val"] = float(self.result["metric_error_val"])
+            # ``None`` is a fit without validation rows (an undefined validation error), kept as NaN.
+            value = self.result["metric_error_val"]
+            self.result["metric_error_val"] = float("nan") if value is None else float(value)
         # Canonicalize metric-name aliases for every result (e.g. AutoGluon's
         # ``root_mean_squared_error`` == TabArena's ``rmse``), so downstream comparisons join
         # on one name regardless of whether the result carries simulation artifacts.
