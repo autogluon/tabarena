@@ -43,6 +43,143 @@ def _load_bundled_config(filename: str) -> list:
         return json.load(f)
 
 
+def _build_and_fit_limix(
+    *,
+    X_np: np.ndarray,
+    y_fit: np.ndarray,
+    device_str: str,
+    model_path: str,
+    inference_config: list,
+    cat_indices: list[int] | None,
+    seed: int,
+    hps: dict,
+):
+    """Construct, NaN-encoder-patch, and "fit" (store train data on) one
+    ``LimiXPredictor`` instance. Factored out of ``LimiXModel._fit`` so the
+    exact same construction logic can be reused per cloned sub-estimator when
+    ``ManyClassClassifier`` (ECOC) wraps this model for many-class datasets --
+    each ECOC sub-estimator needs its own independently NaN-patched instance,
+    not a shared one.
+    """
+    import torch
+
+    from tabarena.models.limix._vendor.inference.inference_method import InferenceAttentionMap
+    from tabarena.models.limix._vendor.inference.predictor import LimiXPredictor
+
+    model = LimiXPredictor(
+        device=torch.device(device_str),
+        model_path=str(model_path),
+        inference_config=inference_config,
+        categorical_features_indices=cat_indices,
+        seed=int(seed),
+        **hps,
+    )
+    # See `_NaNCleanEncoder` docstring for why this wrap is needed. We have to wrap
+    # every loaded copy of the FeaturesTransformer, not just `LimiXPredictor.model`:
+    # each `InferenceAttentionMap` step in `preprocess_pipelines` calls
+    # `load_model(self.model_path)` in its own `__init__` and holds its own model
+    # instance, used to compute sample-attention scores for retrieval. Without
+    # wrapping those too, the very first attention-map pass at
+    # `_vendor/inference/inference_method.py:309` still hits the NaN guard.
+    nan_clean_encoder_cls = _nan_clean_encoder_cls()
+    model.model.encoder_x = nan_clean_encoder_cls(model.model.encoder_x)
+    for pipeline in model.preprocess_pipelines:
+        for step in pipeline:
+            if isinstance(step, InferenceAttentionMap):
+                step.model.encoder_x = nan_clean_encoder_cls(step.model.encoder_x)
+    # Save into model so pickling works better
+    model._X_train = X_np
+    model._y_train = y_fit
+    return model
+
+
+def _predict_proba_limix(model, X: np.ndarray, *, task_type: str, batch_test_n_rows: int) -> np.ndarray:
+    """Chunked forward pass shared by the single-instance path and every
+    ``ManyClassClassifier`` (ECOC) sub-estimator -- factored out of
+    ``LimiXModel._predict_proba`` for the same reason as
+    ``_build_and_fit_limix`` above. Classification only (ECOC never wraps
+    regression), so there is no y-rescaling here -- that stays in
+    ``LimiXModel._predict_proba`` for the non-ECOC path.
+    """
+    import torch
+
+    chunk_size = batch_test_n_rows
+    n_test = X.shape[0]
+    chunks = []
+    for start in range(0, n_test, chunk_size):
+        chunk_out = model.predict(
+            model._X_train,
+            model._y_train,
+            X[start : start + chunk_size],
+            task_type=task_type,
+        )
+        # LimiX runs under autocast, so outputs can come back in fp16. Promote to
+        # fp32 here so downstream math cannot overflow fp16's ~65504 max.
+        if isinstance(chunk_out, torch.Tensor):
+            chunk_out = chunk_out.detach().to(torch.float32).cpu().numpy()
+        else:
+            chunk_out = np.asarray(chunk_out, dtype=np.float32)
+        chunks.append(chunk_out)
+    return np.concatenate(chunks, axis=0) if len(chunks) > 1 else chunks[0]
+
+
+class _LimiXSklearnWrapper:
+    """Thin sklearn-compatible wrapper around one LimiX predictor instance.
+
+    ``ManyClassClassifier`` (tabpfn-extensions) clones this per ECOC
+    sub-problem and requires each fitted sub-estimator to expose
+    ``classes_`` and a standard ``fit(X, y)``/``predict_proba(X)`` interface
+    -- LimiX's own ``LimiXPredictor`` does neither (it takes train data as
+    arguments to ``predict()`` instead of storing it via ``fit()``). Mirrors
+    ``autogluon.tabular.models.mitra.mitra_model._MitraSklearnWrapper``,
+    which solves the identical problem for Mitra.
+    """
+
+    def __init__(self, *, device_str, model_path, inference_config, cat_indices, seed, hps, batch_test_n_rows):
+        self._device_str = device_str
+        self._model_path = model_path
+        self._inference_config = inference_config
+        self._cat_indices = cat_indices
+        self._seed = seed
+        self._hps = hps
+        self._batch_test_n_rows = batch_test_n_rows
+
+    def fit(self, X, y):
+        self._model = _build_and_fit_limix(
+            X_np=X,
+            y_fit=y,
+            device_str=self._device_str,
+            model_path=self._model_path,
+            inference_config=self._inference_config,
+            cat_indices=self._cat_indices,
+            seed=self._seed,
+            hps=self._hps,
+        )
+        self.classes_ = np.unique(y)
+        return self
+
+    def predict_proba(self, X):
+        return _predict_proba_limix(
+            self._model, X, task_type="Classification", batch_test_n_rows=self._batch_test_n_rows
+        )
+
+    def get_params(self, deep=True):  # sklearn clone() compatibility
+        return {
+            "device_str": self._device_str,
+            "model_path": self._model_path,
+            "inference_config": self._inference_config,
+            "cat_indices": self._cat_indices,
+            "seed": self._seed,
+            "hps": self._hps,
+            "batch_test_n_rows": self._batch_test_n_rows,
+        }
+
+    def set_params(self, **params):
+        for k, v in params.items():
+            setattr(self, f"_{k}", v)
+        return self
+
+
 class LimiXModel(AbstractTorchModel):
     """LimiX: Unleashing Structured-Data Modeling Capability for Generalist Intelligence.
 
@@ -98,7 +235,8 @@ class LimiXModel(AbstractTorchModel):
     # Note, all examples of LimiX code itself says one should skip above 50k.
     _default_auxiliary_params_extra = {
         # "max_rows": 50_000, # Technically from LimiX
-        "max_classes": 10,
+        "max_classes": None,
+        "many_class_threshold": 10,  # Use ManyClassClassifier (ECOC) above this class count
     }
 
     def __init__(self, **kwargs):
@@ -109,6 +247,7 @@ class LimiXModel(AbstractTorchModel):
         self._y_train: np.ndarray | None = None
         self._y_mean: float | None = None
         self._y_std: float | None = None
+        self._use_many_class = False  # True when ManyClassClassifier ECOC wrapper is active
 
     def _preprocess(self, X: pd.DataFrame, *, is_train: bool = False, **kwargs) -> np.ndarray:
         """We preprocess for LimiX to ensure categorical features are passed as correct dtypes to LimiX."""
@@ -148,9 +287,13 @@ class LimiXModel(AbstractTorchModel):
                 "Please switch to CPU usage instead.",
             )
 
-        from tabarena.models.limix._vendor.inference.predictor import LimiXPredictor
-
         hps = self._get_model_params()
+        many_class_threshold = self.params_aux.get("many_class_threshold", 10)
+        self._use_many_class = (
+            self.problem_type in [BINARY, MULTICLASS]
+            and self.num_classes is not None
+            and self.num_classes > many_class_threshold
+        )
         random_state = hps.pop(self.seed_name, 0)
         model_path = hps.pop("model_path", None) or _download_default_checkpoint()
         inference_config = hps.pop("inference_config", None)
@@ -205,63 +348,58 @@ class LimiXModel(AbstractTorchModel):
             )
 
         self.device = device_str  # keys the shared network; the vendored loader names no device
-        self.model = LimiXPredictor(
-            device=torch.device(device_str),
-            model_path=str(model_path),
-            inference_config=inference_config,
-            categorical_features_indices=self._cat_indices or None,
-            seed=int(random_state),
-            **hps,
-        )
-        # See `_NaNCleanEncoder` docstring for why this wrap is needed. We have to wrap
-        # every loaded copy of the FeaturesTransformer, not just `LimiXPredictor.model`:
-        # each `InferenceAttentionMap` step in `preprocess_pipelines` calls
-        # `load_model(self.model_path)` in its own `__init__` and holds its own model
-        # instance, used to compute sample-attention scores for retrieval. Without
-        # wrapping those too, the very first attention-map pass at
-        # `_vendor/inference/inference_method.py:309` still hits the NaN guard.
-        from tabarena.models.limix._vendor.inference.inference_method import InferenceAttentionMap
-
-        nan_clean_encoder_cls = _nan_clean_encoder_cls()
-        self.model.model.encoder_x = nan_clean_encoder_cls(self.model.model.encoder_x)
-        for pipeline in self.model.preprocess_pipelines:
-            for step in pipeline:
-                if isinstance(step, InferenceAttentionMap):
-                    step.model.encoder_x = nan_clean_encoder_cls(step.model.encoder_x)
-        # Save into model so pickling works better
-        self.model._X_train = X_np
-        self.model._y_train = y_fit
+        if self._use_many_class:
+            try:
+                from tabpfn_extensions.many_class import ManyClassClassifier
+            except ImportError:
+                logger.log(
+                    40,
+                    "\tLimiX: tabpfn-extensions not installed; cannot use ManyClassClassifier "
+                    f"for {self.num_classes} classes (limit: {many_class_threshold}). "
+                    "Install with: pip install tabpfn-extensions",
+                )
+                raise
+            logger.log(
+                20,
+                f"\tLimiX: {self.num_classes} classes exceeds native limit ({many_class_threshold}). "
+                "Using ManyClassClassifier (ECOC wrapper).",
+            )
+            base_model = _LimiXSklearnWrapper(
+                device_str=device_str,
+                model_path=model_path,
+                inference_config=inference_config,
+                cat_indices=self._cat_indices or None,
+                seed=int(random_state),
+                hps=hps,
+                batch_test_n_rows=self.batch_test_n_rows,
+            )
+            self.model = ManyClassClassifier(estimator=base_model, alphabet_size=many_class_threshold).fit(X_np, y_fit)
+        else:
+            self.model = _build_and_fit_limix(
+                X_np=X_np,
+                y_fit=y_fit,
+                device_str=device_str,
+                model_path=model_path,
+                inference_config=inference_config,
+                cat_indices=self._cat_indices or None,
+                seed=int(random_state),
+                hps=hps,
+            )
 
     def _predict_proba(self, X: pd.DataFrame, **kwargs) -> np.ndarray:
         """LimiX does not support a sklearn API, thus, we have to call the forward pass this way."""
-        import torch
-
         X = self.preprocess(X, **kwargs)
+
+        if self._use_many_class:
+            # ManyClassClassifier (ECOC) exposes its own predict_proba, which
+            # internally dispatches to each sub-estimator's predict_proba
+            # (i.e. _LimiXSklearnWrapper.predict_proba, the same chunked
+            # forward pass as the non-ECOC branch below).
+            return self._convert_proba_to_unified_form(self.model.predict_proba(X))
 
         # Forward pass call via LimiX code
         task_type = "Classification" if self.problem_type in [BINARY, MULTICLASS] else "Regression"
-
-        # Chunk the test set: a single forward pass over (n_train + n_test) rows can blow
-        # past available VRAM on large datasets and surface as cudaErrorInvalidConfiguration.
-        chunk_size = self.batch_test_n_rows
-        n_test = X.shape[0]
-        chunks = []
-        for start in range(0, n_test, chunk_size):
-            chunk_out = self.model.predict(
-                self.model._X_train,
-                self.model._y_train,
-                X[start : start + chunk_size],
-                task_type=task_type,
-            )
-            # LimiX runs under autocast, so outputs can come back in fp16. Promote to
-            # fp32 here so downstream math (e.g. regression `out * self._y_std`) cannot
-            # overflow fp16's ~65504 max on large-target regression problems.
-            if isinstance(chunk_out, torch.Tensor):
-                chunk_out = chunk_out.detach().to(torch.float32).cpu().numpy()
-            else:
-                chunk_out = np.asarray(chunk_out, dtype=np.float32)
-            chunks.append(chunk_out)
-        out = np.concatenate(chunks, axis=0) if len(chunks) > 1 else chunks[0]
+        out = _predict_proba_limix(self.model, X, task_type=task_type, batch_test_n_rows=self.batch_test_n_rows)
 
         if task_type == "Regression":
             out = out * self._y_std + self._y_mean
@@ -270,15 +408,28 @@ class LimiXModel(AbstractTorchModel):
         return self._convert_proba_to_unified_form(y_pred_proba)
 
     def get_device(self) -> str:
-        return self.model.device.type if self.model is not None else "cpu"
+        # `self.device` (set in `_fit`) is authoritative regardless of which branch ran --
+        # unlike `self.model`, which is a `ManyClassClassifier` (no `.device` attribute of
+        # its own) rather than a raw `LimiXPredictor` when `self._use_many_class`.
+        return self.device
 
     def _set_device(self, device: str):
         import torch
 
         device = torch.device(device)
-        self.model.device = device
-        if self.model.model is not None:
-            self.model.model.to(device)
+
+        def _move(predictor) -> None:
+            predictor.device = device
+            if predictor.model is not None:
+                predictor.model.to(device)
+
+        if self._use_many_class:
+            # `self.model` is a `ManyClassClassifier`; move each fitted ECOC
+            # sub-estimator's own raw `LimiXPredictor` (`_LimiXSklearnWrapper._model`).
+            for estimator in self.model.estimators_:
+                _move(estimator._model)
+        else:
+            _move(self.model)
 
     def _more_tags(self) -> dict:
         return {"can_refit_full": True}
