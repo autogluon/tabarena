@@ -1647,7 +1647,12 @@ class AGModelWrapper(AbstractExecModel):
         )
 
     def _fit(self, X: pd.DataFrame, y: pd.Series, **kwargs):
-        """Instantiate ``model_cls`` and fit it directly on the (preprocessed) data."""
+        """Instantiate ``model_cls`` and fit it directly on the (preprocessed) data.
+
+        The fitted model-agnostic generator's feature metadata goes along, so the special types it
+        assigned (text embeddings, an exposed group key, ...) reach the model instead of being
+        re-inferred from the frame's dtypes; the ``TabularPredictor`` path passes them the same way.
+        """
         self.model = self.model_cls(
             path="",
             name=self.model_cls.__name__,
@@ -1655,11 +1660,10 @@ class AGModelWrapper(AbstractExecModel):
             eval_metric=self.eval_metric,
             hyperparameters=self.hyperparameters,
         )
-        self.model.fit(
-            X=X,
-            y=y,
-            **self.fit_kwargs,
-        )
+        fit_kwargs = dict(self.fit_kwargs)
+        if self.preprocess_data and self._feature_generator is not None and "feature_metadata" not in fit_kwargs:
+            fit_kwargs["feature_metadata"] = self._feature_generator.feature_metadata
+        self.model.fit(X=X, y=y, **fit_kwargs)
         return self
 
     @classmethod

@@ -6,6 +6,8 @@ from autogluon.common.utils.pandas_utils import get_approximate_df_mem_usage
 from autogluon.core.models.abstract import SharedWeights
 from autogluon.tabular.models.abstract.abstract_torch_model import AbstractTorchModel
 
+from tabarena.benchmark.preprocessing.group_feature_generators import S_GROUP_ID
+
 if TYPE_CHECKING:
     from collections.abc import Mapping
     from pathlib import Path
@@ -103,7 +105,16 @@ class TabPFN35Model(AbstractTorchModel):
     """The indices of the categorical features, detected during training preprocessing."""
 
     def _preprocess(self, X: pd.DataFrame, *, is_train=False, **kwargs) -> pd.DataFrame:
-        """Minimal model-specific preprocessing to detect the indices of categorical features."""
+        """Minimal model-specific preprocessing to detect the indices of categorical features.
+
+        A group key the model-agnostic pipeline exposed (float codes tagged ``S_GROUP_ID`` in the
+        feature metadata) is declared categorical here, after the model-specific category filter
+        has run, so tabpfn treats the codes as levels rather than as a number.
+        """
+        group_id_features = self._group_id_features(X)
+        if group_id_features:
+            X = X.copy()
+            X[group_id_features] = X[group_id_features].astype("category")
         X = super()._preprocess(X, **kwargs)
 
         if is_train:
@@ -111,6 +122,13 @@ class TabPFN35Model(AbstractTorchModel):
             self._categorical_indices = [X.columns.get_loc(col) for col in categorical_cols] or None
 
         return X
+
+    def _group_id_features(self, X: pd.DataFrame) -> list[str]:
+        """The columns of ``X`` the feature metadata tags as an exposed group key."""
+        metadata = self._feature_metadata
+        if metadata is None:
+            return []
+        return [f for f in metadata.get_features(required_special_types=[S_GROUP_ID]) if f in X.columns]
 
     def _get_model_class(self):
         from tabpfn import TabPFNClassifier, TabPFNRegressor

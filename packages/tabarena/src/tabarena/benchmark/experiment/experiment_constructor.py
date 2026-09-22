@@ -500,7 +500,7 @@ class Experiment:
         if pipeline is None or pipeline == "default":
             return method_kwargs
 
-        if pipeline == "tabarena_default":
+        if pipeline in ("tabarena_default", "tabarena_default_group_id"):
             from tabarena.benchmark.preprocessing import (
                 TabArenaModelAgnosticPreprocessing,
                 TabArenaModelSpecificPreprocessing,
@@ -509,8 +509,11 @@ class Experiment:
             # Model-agnostic step: a feature generator AutoGluon applies to all data. Set the same
             # way for every flavour; ``AGWrapper`` builds it from these keys (forwarding the task's
             # group/time split columns) for both the single-model wrappers and the full predictor.
+            # The group-id variant exposes a label-per-sample task's group key as a feature.
             method_kwargs["fit_kwargs"]["feature_generator_cls"] = TabArenaModelAgnosticPreprocessing
-            method_kwargs["fit_kwargs"]["feature_generator_kwargs"] = {}
+            method_kwargs["fit_kwargs"]["feature_generator_kwargs"] = (
+                {"expose_group_id": True} if pipeline == "tabarena_default_group_id" else {}
+            )
             # Model-specific step: augments each model's hyperparameters. The shape differs by
             # experiment type (single ``model_hyperparameters`` vs a full predictor's per-model
             # ``hyperparameters`` dict), so it is delegated to an overridable hook.
