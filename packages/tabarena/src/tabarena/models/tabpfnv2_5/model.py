@@ -545,9 +545,36 @@ class TabPFNv26Model(TabPFNModel):
         ]
 
 
-def prefetch_weights() -> None:
-    """Pre-download all TabPFN checkpoints (shared by the v2.5 / v2.6 wrappers)."""
-    from tabpfn.model_loading import download_all_models, resolve_model_path
+def prefetch_weights() -> list[Path]:
+    """Download the v2.5 and v2.6 checkpoints missing from the tabpfn cache; return the paths of all of them.
+
+    Only the files the two wrappers can load: each class's ``default_*_model`` and, for RealTabPFN-v2.5,
+    the named variants its ``extra_checkpoints_for_tuning`` may pick (TabPFN-v2.6 has none). Each file is
+    fetched on its own, so a missing license token or a failed download raises instead of being logged
+    and skipped, and the returned paths let the node staging and the SkyPilot seeding copy the files
+    without enumerating the cache.
+    """
+    from tabpfn.model_loading import ModelVersion, download_model, resolve_model_path
 
     _, model_dir, _, _ = resolve_model_path(model_path=None, which="classifier")
-    download_all_models(to=model_dir[0])
+    cache_dir = Path(model_dir[0])
+    names_by_version = {
+        ModelVersion.V2_5: [
+            RealTabPFNv25Model.default_classification_model,
+            RealTabPFNv25Model.default_regression_model,
+            *RealTabPFNv25Model.extra_checkpoints_for_tuning("classification"),
+            *RealTabPFNv25Model.extra_checkpoints_for_tuning("regression"),
+        ],
+        ModelVersion.V2_6: [TabPFNv26Model.default_classification_model, TabPFNv26Model.default_regression_model],
+    }
+    paths: list[Path] = []
+    for version, names in names_by_version.items():
+        for name in names:
+            which = "classifier" if "classifier" in name else "regressor"
+            path = cache_dir / name
+            if not path.exists():
+                result = download_model(to=path, version=version, which=which, model_name=name)
+                if result != "ok":
+                    raise RuntimeError(f"Could not download the TabPFN checkpoint {name}: {result}")
+            paths.append(path)
+    return paths
