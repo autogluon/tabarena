@@ -34,6 +34,76 @@ run against `main`. To reproduce an entry, check out its recorded **git SHA**.
 
 ---
 
+## 2026-09-21 — tabdpt13_21092026
+
+- **Model(s):** TabDPT-1.3 (default config only, `NUM_CONFIGS=0`, all 816 splits)
+- **Git SHA:** `003f2a4d` (branch `add-tabdpt-1.3`, PR #576, rebased on main `83036084`); editable AutoGluon
+  `../autogluon` at `eeab9f95`
+- **Validation protocol:** `8x1` (TabArena default, asserted by the context)
+- **Purpose:** First TabArena-v0.1 benchmark of TabDPT v1.3 (Layer6, `TabDPTv13Model`, a subclass of
+  `TabDPTTurboModel` that pins `tabdpt1_3.safetensors` at `Layer6/TabDPT` revision `a5ca6e01`), the release that
+  replaces TabDPT-Turbo as the installable TabDPT entry.
+- **Notes:** SkyPilot job pool `tabarena-tabdpt13-21092026` (`--scheduler skypilot-pool`), 8 spot `g4-standard-48`
+  workers (RTX PRO 6000, 96 GB; `fake_memory_for_estimates=96`), bundle size 1, shared API server, bucket prefix
+  `gs://p2or-sky-cache-eu-dev/lennart_priorlabs_ai/tabarena`, env manifest `d80639a72f41`, run venv
+  `~/.venvs/tabarena_10082026` (Python 3.12, torch 2.13.0+cu130). Extra dep: `tabdpt @ git+https://github.com/
+  layer6ai-labs/TabDPT-inference.git@336ed08f`, the 1.3.0 release plus the separable `TabDPTEstimator._load_model`
+  (layer6ai-labs/TabDPT-inference#79, merged 2026-09-21, no release yet) that the wrapper declares as its
+  shared-weights loader; the install replaces tabdpt 1.2.0 (TabDPT-Turbo, superseded). The checkpoint (252 MB, public)
+  was seeded into the bucket cache and loaded offline. Default 1 h time limit per config,
+  `context_reduction="subsample"`, `clip_sigma=8`, `compile=False` (as Turbo). Launch `tabdpt13_21092026_gpu-20260921-154715-c613` (816 bundles,
+  managed jobs 4800-4807) submitted 15:53 UTC once the first workers were READY; the 816 items ran from 15:54 to
+  16:22 UTC (28 min on 8 workers), all eight jobs SUCCEEDED, 0 failed items, 0 recoveries; pool taken down 16:25 UTC.
+  Warm-up audit `ok` for all 816 items (mean warm-up 1.8 s), no cold imports and no CUDA initialisation inside the
+  timed fit or predict. The leaderboard labels the run by its config type (`TA-TABDPT-1.3 (default)`) until the
+  method is hosted.
+  Result (full task set, 97 entrants): TabDPT-1.3 #18, Elo 1517 (+55/-39), normalized score 0.409, improvability
+  14.2%, between RealTabPFN-v2.5 (tuned, 1526) and RealTabPFN-v2.5 (default, 1499); subsets: binary #17/95 (1526,
+  +71/-57), multiclass #21/95 (1505, +199/-107), regression #21/94 (1643, +192/-121); median time per 1K rows: train
+  0.57 s, inference 0.176 s. TabDPT-Turbo (v1.2) sits at #22 (Elo 1431; 2.07 s / 0.182 s per 1K) and TabDPT v1.1
+  tuned + ensembled at #23 (1430); in regression alone v1.1 tuned + ensembled (1706) and tuned (1655) stay ahead of
+  1.3 (1643). Processed and hosted on r2 as suite `tabarena-2026-09-21` (`tabdpt_v13_method_metadata` in
+  `models/tabdpt/info.py`, `validation_protocol="8x1"`, `config_default="TabDPT-1.3_c1_default_BAG_L1"`).
+
+```python
+from tabarena.benchmark.experiment import TabArenaV0pt1ExperimentBundle
+from tabarena.benchmark.task.metadata import TaskSubset
+from tabflow_slurm import (
+    ModelJob,
+    PathSetup,
+    SkyPilotSetup,
+    TabArenaV0pt1BenchmarkPlan,
+    TabArenaV0pt1ResourcesSetup,
+)
+
+plan = TabArenaV0pt1BenchmarkPlan(
+    benchmark_name="tabdpt13_21092026",
+    model_jobs=[
+        ModelJob(
+            models=("TabDPT-1.3", 0),
+            name="gpu",
+            resources={"num_gpus": 1, "fake_memory_for_estimates": 96},
+        ),
+    ],
+    task_subset=TaskSubset(),  # the full task set, all splits
+    path_setup=PathSetup(
+        workspace="/home/lennart_priorlabs_ai/workspace/benchmarking/tabarena_workspace",
+        python_path="/home/lennart_priorlabs_ai/.venvs/tabarena_10082026/bin/python",
+    ),
+    experiment_bundle=TabArenaV0pt1ExperimentBundle(model_verbosity=2),
+    resources_setup=TabArenaV0pt1ResourcesSetup(num_cpus=None, memory_limit=None),
+    scheduler_setup=SkyPilotSetup(
+        bundle_size=1,
+        workers=8,
+        use_pool=True,
+        pool_name="tabarena-tabdpt13-21092026",
+    ),
+)
+plan.setup_jobs()
+```
+
+---
+
 ## 2026-09-16 — rerun_ebm_catboost_16092026
 
 - **Model(s):** ExplainableBM (EBM) and CatBoost, default plus 200 random configs (`NUM_CONFIGS="all"`, 201 configs

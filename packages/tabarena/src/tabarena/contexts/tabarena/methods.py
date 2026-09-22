@@ -88,6 +88,7 @@ from tabarena.models.sap_rpt_oss.info import (
 from tabarena.models.tabdpt.info import (
     tabdpt_method_metadata as tabdpt_metadata,
     tabdpt_turbo_method_metadata,
+    tabdpt_v13_method_metadata,
 )
 from tabarena.models.tabfm.info import (
     tabfm_2026_09_method_metadata,
@@ -229,6 +230,7 @@ tabarena_method_metadata_collection = MethodMetadataCollection(
         tabpfn_3_5_method_metadata,
         tabpfn_3_5_fast_method_metadata,
         limix_2_method_metadata,
+        tabdpt_v13_method_metadata,
     ],
 )
 

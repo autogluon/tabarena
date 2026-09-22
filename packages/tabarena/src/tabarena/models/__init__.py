@@ -27,7 +27,7 @@ if TYPE_CHECKING:
     from tabarena.models.perpetual_booster.model import PerpetualBoosterModel
     from tabarena.models.realmlp.model import RealMLPModel
     from tabarena.models.sap_rpt_oss.model import SAPRPTOSSModel
-    from tabarena.models.tabdpt.model import TabDPTModel, TabDPTTurboModel
+    from tabarena.models.tabdpt.model import TabDPTModel, TabDPTTurboModel, TabDPTv13Model
     from tabarena.models.tabfm.model import TabFMModel
     from tabarena.models.tabicl.model import TabICLModel, TabICLv2Model
     from tabarena.models.tabldm.model import TabLDMModel
@@ -67,6 +67,7 @@ _LAZY_CLASSES: dict[str, str] = {
     "SAPRPTOSSModel": "tabarena.models.sap_rpt_oss.model",
     "TabDPTModel": "tabarena.models.tabdpt.model",
     "TabDPTTurboModel": "tabarena.models.tabdpt.model",
+    "TabDPTv13Model": "tabarena.models.tabdpt.model",
     "TabFMModel": "tabarena.models.tabfm.model",
     "TabICLModel": "tabarena.models.tabicl.model",
     "TabICLv2Model": "tabarena.models.tabicl.model",

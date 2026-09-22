@@ -31,8 +31,9 @@ Measured as shipped. Entrants whose wrapper declares no ``shared_weights`` read 
 per fit as their libraries ship: Mitra v1 (the TabArena ``mitra`` entry uses AutoGluon's
 ``MitraModel`` directly), the AutoGluon system's own foundation-model children (resolved through
 ``ag_model_registry``), TabPFN-3-API (no local weights), iLTM (the library caches the network
-itself), TabDPT v1.1, TabPFN-Wide and SAP-RPT-OSS. Time comparisons between them and the declaring
-wrappers must be read with that in mind.
+itself), TabDPT v1.1 and TabDPT-Turbo (their ``tabdpt`` releases load inside the constructor),
+TabPFN-Wide and SAP-RPT-OSS. Time comparisons between them and the declaring wrappers must be read
+with that in mind.
 
 Scope. Warm-up runs once, in the job's main process, before the timed fit. It warms that process,
 anything disk-backed (numba's on-disk kernel cache, the Hugging Face cache), the Ray runtime, and,
