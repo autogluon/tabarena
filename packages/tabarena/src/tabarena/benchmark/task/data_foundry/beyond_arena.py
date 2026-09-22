@@ -187,6 +187,7 @@ def materialize_task(
     cache_dir: str | None = None,
     force_download: bool = False,
     verbose: bool = False,
+    has_text: bool | None = None,
 ) -> str:
     """Ensure one task's local OpenML pickle exists; return its local ``task_id_str``.
 
@@ -208,6 +209,10 @@ def materialize_task(
         cache_dir: Optional data_foundry cache override.
         force_download: Re-fetch + reconvert even if the pickle already exists.
         verbose: Forwarded to the text-cache import for per-task ``debug`` logging.
+        has_text: Whether the dataset has text columns. ``False`` skips the text-cache import of an
+            already-local pickle, which would otherwise fetch the container just to find no cache in
+            it (a node without the container and without network cannot). ``None`` (unknown) and
+            ``True`` import as before.
 
     Returns:
         The ``task_id_str`` whose resolved pickle path now exists on disk.
@@ -223,16 +228,18 @@ def materialize_task(
     task = UserTask.from_task_id_str(task_id_str)
     if (not force_download) and task.openml_task_path.exists():
         # Dataset already local (no re-download). Still ensure its text cache was imported from the
-        # (already-downloaded) container — handles tasks materialized before text-cache import.
-        from tabarena.benchmark.task.data_foundry.text_cache import ensure_text_cache_for_task
+        # (already-downloaded) container — handles tasks materialized before text-cache import. A
+        # dataset without text columns has no cache to import, so its container is not touched.
+        if has_text is not False:
+            from tabarena.benchmark.task.data_foundry.text_cache import ensure_text_cache_for_task
 
-        ensure_text_cache_for_task(
-            collection=collection,
-            data_foundry_uri=data_foundry_uri,
-            task_key=task.slug,
-            cache_dir=cache_dir,
-            verbose=verbose,
-        )
+            ensure_text_cache_for_task(
+                collection=collection,
+                data_foundry_uri=data_foundry_uri,
+                task_key=task.slug,
+                cache_dir=cache_dir,
+                verbose=verbose,
+            )
         return task.task_id_str
 
     if evaluation_metrics is None:

@@ -22,6 +22,16 @@ if TYPE_CHECKING:
     from data_foundry.collections import DatasetCollection
 
 
+def _has_text_columns(ttm: TabArenaTaskMetadata) -> bool | None:
+    """Whether ``ttm``'s dataset has text columns; ``None`` when its metadata does not say."""
+    import pandas as pd
+
+    for value in (ttm.num_text_cols, ttm.has_text):
+        if value is not None and not pd.isna(value):
+            return bool(value)
+    return None
+
+
 class DataFoundryTaskMetadataSource(TaskMetadataSource):
     """Load + materialize tasks from a Data Foundry collection.
 
@@ -175,6 +185,7 @@ class DataFoundryTaskMetadataSource(TaskMetadataSource):
                     cache_dir=self.cache_dir,
                     force_download=self.force_download,
                     verbose=self.verbose,
+                    has_text=_has_text_columns(first),
                 )
                 # Propagate the resolved local id to every split of this dataset.
                 for ttm in splits:
