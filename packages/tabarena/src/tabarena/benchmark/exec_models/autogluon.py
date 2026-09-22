@@ -180,6 +180,8 @@ class AGWrapper(AbstractExecModel):
         self.temporal_forward_only = temporal_forward_only
         self.split_random_state = split_random_state
         self.persist = persist
+        #: A single fit on all rows with no validation split; only ``AGSingleWrapper`` turns it on.
+        self.no_validation: bool = False
         self._persisted_models: list[str] | None = None
         self._validation_resolution: ValidationResolution | None = None
         self._prepared_models: list[str] | None = None
@@ -373,7 +375,7 @@ class AGWrapper(AbstractExecModel):
         init_kwargs["label"] = label
 
         num_folds = self._apply_validation_splits(fit_kwargs, X=X, y=y)
-        if X_val is None and not getattr(self, "no_validation", False):
+        if X_val is None and not self.no_validation:
             X, y, X_val, y_val = self._apply_task_specific_holdout(X=X, y=y, num_folds=num_folds)
         if fit_kwargs.get("validation_structure") is not None:
             # The learner's random_state also seeds AutoGluon's default splitter, so it is set only
@@ -711,7 +713,7 @@ class AGWrapper(AbstractExecModel):
     def get_oof(self) -> dict:
         """Return the predictor's simulation artifact, narrowed to the best model's val proba."""
         # TODO: Rename method
-        if getattr(self, "no_validation", False):
+        if self.no_validation:
             return self._simulation_artifact_without_validation()
         simulation_artifact = self.predictor.simulation_artifact()
         simulation_artifact["pred_proba_dict_val"] = simulation_artifact["pred_proba_dict_val"][
@@ -752,7 +754,7 @@ class AGWrapper(AbstractExecModel):
         A no-validation fit has no validation rows, so it has no error (None, as the leaderboard reports it) and the
         leaderboard is not built.
         """
-        if getattr(self, "no_validation", False):
+        if self.no_validation:
             return None
         # FIXME: this shouldn't be calculating its own val score, that should be external. This should simply give val pred and val pred proba
         leaderboard = self.predictor.leaderboard(score_format="error", set_refit_score_to_parent=True)
@@ -935,7 +937,6 @@ class AGSingleWrapper(AGWrapper):
         self._validate_init_kwargs(init_kwargs)
         if no_validation and self.bagged_fit:
             raise ValueError("`no_validation` fits one model on all rows; it cannot be combined with a bagged wrapper.")
-        self.no_validation = no_validation
 
         # Record the user-provided "extra" kwargs (used for metadata), then derive the
         # effective fit kwargs by forcing the single-model contract on top of them.
@@ -963,6 +964,7 @@ class AGSingleWrapper(AGWrapper):
             fit_kwargs=fit_kwargs,
             **kwargs,
         )
+        self.no_validation = no_validation
 
     @staticmethod
     def _validate_fit_kwargs(fit_kwargs: dict) -> None:
