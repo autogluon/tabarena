@@ -66,6 +66,10 @@ class TabPFNModel(AbstractTorchModel):
     default_num_gpus = 1
     default_resources_physical_cores_only = True
     minimum_num_gpus = 1
+    #: The v2 checkpoints' classification head is ten classes wide. Above ``many_class_threshold`` the fit
+    #: wraps the estimator in the ``ManyClassClassifier`` of tabpfn-extensions (output coding over that many
+    #: symbols, one estimator per code row), so there is no ``max_classes`` cap.
+    _default_auxiliary_params_extra = {"max_classes": None, "many_class_threshold": 10}
     #: tabpfn builds its network inside ``_initialize_model_variables``, which ``fit`` calls; one
     #: build per checkpoint and device per process. A fit whose configuration writes into the
     #: network (a differentiable input, another fit mode, a forced dtype) builds its own.
@@ -234,13 +238,14 @@ class TabPFNModel(AbstractTorchModel):
             model_base = TabPFNClassifier if is_classification else TabPFNRegressor
             self.model = model_base(**hps)
 
-            # Wrap with ManyClassClassifier for datasets with >10 classes
-            if is_classification and self.num_classes is not None and self.num_classes > 10:
+            # Wrap with ManyClassClassifier for datasets with more classes than the head
+            many_class_threshold = self.params_aux.get("many_class_threshold", 10)
+            if is_classification and self.num_classes is not None and self.num_classes > many_class_threshold:
                 from tabpfn_extensions.many_class import ManyClassClassifier
 
                 self.model = ManyClassClassifier(
                     estimator=self.model,
-                    alphabet_size=10,
+                    alphabet_size=many_class_threshold,
                     random_state=hps.get(self.seed_name, 0),
                     **many_class_config,
                 )
@@ -304,6 +309,9 @@ class TabPFNModel(AbstractTorchModel):
         }
         for param, val in default_params.items():
             self._set_default_param_value(param, val)
+
+    def _ag_params(self) -> set[str]:
+        return super()._ag_params() | {"many_class_threshold"}
 
     def _get_base_tabpfn_model(self):
         """Unwrap ManyClassClassifier to get the underlying TabPFN estimator."""
@@ -392,6 +400,9 @@ class RealTabPFNv25Model(TabPFNModel):
     We name this model RealTabPFN-v2.5 as its default checkpoints were trained on
     real-world datasets, following the naming conventions of Prior Labs.
     The extra checkpoints include models trained on only synthetic datasets as well.
+
+    Datasets with more than ten classes run through the ``ManyClassClassifier`` output coding of the
+    base class, as TabPFN-2.6 does; only the row and feature caps remain.
     """
 
     ag_key = "TA-REALTABPFN-V2.5"
@@ -402,7 +413,6 @@ class RealTabPFNv25Model(TabPFNModel):
     _default_auxiliary_params_extra = {
         "max_rows": 100_000,
         "max_features": 2000,
-        "max_classes": 10,
     }
 
     @staticmethod
