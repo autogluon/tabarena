@@ -407,6 +407,9 @@ class LimiXModel(AbstractTorchModel):
 
         return self._convert_proba_to_unified_form(y_pred_proba)
 
+    def _ag_params(self) -> set[str]:
+        return super()._ag_params() | {"many_class_threshold"}
+
     def get_device(self) -> str:
         # `self.device` (set in `_fit`) is authoritative regardless of which branch ran --
         # unlike `self.model`, which is a `ManyClassClassifier` (no `.device` attribute of
@@ -424,9 +427,11 @@ class LimiXModel(AbstractTorchModel):
                 predictor.model.to(device)
 
         if self._use_many_class:
-            # `self.model` is a `ManyClassClassifier`; move each fitted ECOC
-            # sub-estimator's own raw `LimiXPredictor` (`_LimiXSklearnWrapper._model`).
-            for estimator in self.model.estimators_:
+            # Output coding keeps no fitted rows: `ManyClassClassifier` refits every code row at predict
+            # time from its base wrapper (`estimators_` is None), so the device to record is the base
+            # wrapper's. The single-fit shortcut, taken when no codebook was needed, holds one fitted row.
+            self.model.estimator._device_str = str(device)
+            for estimator in self.model.estimators_ or ():
                 _move(estimator._model)
         else:
             _move(self.model)
