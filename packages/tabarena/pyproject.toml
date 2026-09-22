@@ -123,7 +123,7 @@ sap-rpt-oss = ["sap_rpt_oss @ git+https://github.com/SAP-samples/sap-rpt-1-oss.g
 # Pinned to the same commit as tabfm/info.py's ModelInfo.pip_extra, so `pip install`
 # and the model registry's own metadata agree on which estimator was tuned.
 tabfm = [
-  "tabfm[pytorch] @ git+https://github.com/google-research/tabfm.git@633cd265f498e1d20c9625be0639f6305d8e2541",
+  "tabfm[pytorch] @ git+https://github.com/google-research/tabfm.git@fbb665569425fd2f490c6576b3af967876fe11ff",
   "tabpfn-extensions[many_class]>=0.6.1",  # the output coding of datasets with more than ten classes
 ]
 tabstar = ["tabstar==1.1.15"]
@@ -157,7 +157,7 @@ aplr = ["aplr>=10.26.0"]
 # EXAONE Tabular is not published on PyPI; pinned to a commit so the benchmarked code is fixed
 # (empty extra on PyPI). Keep in sync with `pip_extra` in models/exaone_tabular/info.py.
 exaone_tabular = [
-  "exaonetabular @ git+https://github.com/LGAI-Research/EXAONE-Tabular.git@cf55bd2d74aeb9c0b5d5d4f509d05831251a827e",
+  "exaonetabular @ git+https://github.com/LGAI-Research/EXAONE-Tabular.git@8638e07d09fad154249bd75ba4786181491f7025",
 ]
 # TabSwift is vendored under models/tabswift/_vendor/ (not pip-installable). All of its
 # runtime deps (torch, numpy, scikit-learn, scipy, psutil, tqdm, huggingface_hub, packaging)

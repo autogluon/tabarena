@@ -75,7 +75,7 @@ tabfm_info = ModelInfo(
     search_space=gen_tabfm,
     method_metadata=tabfm_2026_09_method_metadata,
     pip_extra=(
-        "tabfm[pytorch] @ git+https://github.com/google-research/tabfm.git@633cd265f498e1d20c9625be0639f6305d8e2541",
+        "tabfm[pytorch] @ git+https://github.com/google-research/tabfm.git@fbb665569425fd2f490c6576b3af967876fe11ff",
         "tabpfn-extensions[many_class]>=0.6.1",
     ),
     prefetch_weights=prefetch_weights,
