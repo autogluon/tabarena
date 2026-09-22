@@ -16,6 +16,8 @@ from autogluon.core.models.abstract import SharedWeights
 from autogluon.features.generators import LabelEncoderFeatureGenerator
 from autogluon.tabular.models.abstract.abstract_torch_model import AbstractTorchModel
 
+from tabarena.utils.logging_utils import import_many_class_classifier
+
 if TYPE_CHECKING:
     import pandas as pd
 
@@ -350,7 +352,7 @@ class LimiXModel(AbstractTorchModel):
         self.device = device_str  # keys the shared network; the vendored loader names no device
         if self._use_many_class:
             try:
-                from tabpfn_extensions.many_class import ManyClassClassifier
+                ManyClassClassifier = import_many_class_classifier()
             except ImportError:
                 logger.log(
                     40,

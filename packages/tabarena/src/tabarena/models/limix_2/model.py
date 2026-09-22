@@ -13,6 +13,8 @@ from autogluon.core.constants import BINARY, MULTICLASS
 from autogluon.core.models.abstract import SharedWeights
 from autogluon.tabular.models.abstract.abstract_torch_model import AbstractTorchModel
 
+from tabarena.utils.logging_utils import import_many_class_classifier
+
 logger = logging.getLogger(__name__)
 
 _HF_REPO = "stable-ai/LimiX-2"
@@ -274,7 +276,7 @@ class LimiX2Model(AbstractTorchModel):
 
         if self._use_many_class:
             try:
-                from tabpfn_extensions.many_class import ManyClassClassifier
+                ManyClassClassifier = import_many_class_classifier()
             except ImportError:
                 logger.log(
                     40,

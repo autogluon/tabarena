@@ -9,6 +9,8 @@ from autogluon.core.constants import BINARY, MULTICLASS
 from autogluon.core.models.abstract import SharedWeights
 from autogluon.tabular.models.abstract.abstract_torch_model import AbstractTorchModel
 
+from tabarena.utils.logging_utils import import_many_class_classifier, root_handlers_preserved
+
 if TYPE_CHECKING:
     import torch
 
@@ -57,10 +59,15 @@ def _load_tabfm_network(*, problem_type: str, device: str) -> torch.nn.Module:
     :func:`prefetch_weights`); a no-op once cached. An estimator runs where its network lives. The
     network bounds its own peak activation memory via always-on internal chunking, so large tasks
     need no wrapper-side handling.
+
+    ``load`` reports the download through the root ``logging`` functions, which install a
+    ``StreamHandler`` on a root logger that has none; the call runs under
+    :func:`~tabarena.utils.logging_utils.root_handlers_preserved`.
     """
     from tabfm import tabfm_v1_0_0_pytorch
 
-    return tabfm_v1_0_0_pytorch.load(model_type=_model_type(problem_type), device=device)
+    with root_handlers_preserved():
+        return tabfm_v1_0_0_pytorch.load(model_type=_model_type(problem_type), device=device)
 
 
 def _build_tabfm_estimator(*, problem_type: str, device: str, interface: str, network=None, **hps):
@@ -229,7 +236,7 @@ class TabFMModel(AbstractTorchModel):
             and self.num_classes > many_class_threshold
         )
         if self._use_many_class:
-            from tabpfn_extensions.many_class import ManyClassClassifier
+            ManyClassClassifier = import_many_class_classifier()
 
             logger.log(
                 20,

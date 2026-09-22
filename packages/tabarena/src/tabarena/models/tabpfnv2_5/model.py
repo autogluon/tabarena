@@ -10,6 +10,8 @@ from autogluon.core.models.abstract import SharedWeights
 from autogluon.features.generators import LabelEncoderFeatureGenerator
 from autogluon.tabular.models.abstract.abstract_torch_model import AbstractTorchModel
 
+from tabarena.utils.logging_utils import import_many_class_classifier
+
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
@@ -241,7 +243,7 @@ class TabPFNModel(AbstractTorchModel):
             # Wrap with ManyClassClassifier for datasets with more classes than the head
             many_class_threshold = self.params_aux.get("many_class_threshold", 10)
             if is_classification and self.num_classes is not None and self.num_classes > many_class_threshold:
-                from tabpfn_extensions.many_class import ManyClassClassifier
+                ManyClassClassifier = import_many_class_classifier()
 
                 self.model = ManyClassClassifier(
                     estimator=self.model,
@@ -316,7 +318,7 @@ class TabPFNModel(AbstractTorchModel):
     def _get_base_tabpfn_model(self):
         """Unwrap ManyClassClassifier to get the underlying TabPFN estimator."""
         try:
-            from tabpfn_extensions.many_class import ManyClassClassifier
+            ManyClassClassifier = import_many_class_classifier()
         except ImportError:
             return self.model
         if isinstance(self.model, ManyClassClassifier):
