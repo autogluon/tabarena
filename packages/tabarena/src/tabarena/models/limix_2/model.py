@@ -12,6 +12,8 @@ from autogluon.common.utils.pandas_utils import get_approximate_df_mem_usage
 from autogluon.core.constants import BINARY, MULTICLASS
 from autogluon.core.models.abstract import SharedWeights
 from autogluon.tabular.models.abstract.abstract_torch_model import AbstractTorchModel
+from scipy.sparse.linalg import ArpackError
+from sklearn.decomposition import TruncatedSVD
 
 from tabarena.utils.logging_utils import import_many_class_classifier
 
@@ -70,6 +72,44 @@ def _patch_predictor(predictor_cls: type) -> None:
     predictor_cls._tabarena_patched = True
 
 
+class _TruncatedSVDWithArpackFallback(TruncatedSVD):
+    """``TruncatedSVD`` that retries with the randomized solver when ARPACK fails.
+
+    Module-level so the fitted preprocessing pipelines that hold it pickle with the model.
+    """
+
+    _tabarena_arpack_fallback = True
+
+    def fit_transform(self, X, y=None):
+        try:
+            return super().fit_transform(X, y)
+        except ArpackError as exc:
+            logger.log(
+                20,
+                f"\tLimiX-2: ARPACK failed on a {X.shape[0]} x {X.shape[1]} fold ({exc}); "
+                "retrying the SVD member with the randomized solver.",
+            )
+            self.algorithm = "randomized"
+            return super().fit_transform(X, y)
+
+
+def _patch_svd_fallback() -> None:
+    """Let LimiX's SVD preprocessing survive an ARPACK failure on a tiny or degenerate training fold.
+
+    ``inference.v2_0.preprocess`` builds ``TruncatedSVD(algorithm="arpack", ...)`` for its SVD-augmented
+    members. On a fold with few rows and near-duplicate columns ARPACK can raise ``ArpackError`` ("No
+    shifts could be applied during a cycle of the Implicitly restarted Arnoldi iteration"), which failed a
+    134-row BeyondArena split. The name the module looks up at construction time is replaced by
+    :class:`_TruncatedSVDWithArpackFallback`; the member is otherwise unchanged. Idempotent. The
+    library-side fix is the same fallback (or ``algorithm="randomized"``) in LimiX itself.
+    """
+    from inference.v2_0 import preprocess
+
+    if getattr(preprocess.TruncatedSVD, "_tabarena_arpack_fallback", False):
+        return
+    preprocess.TruncatedSVD = _TruncatedSVDWithArpackFallback
+
+
 def _build_limix2_predictor(*, device_str, model_path, inference_config, preprocess_num_jobs, hps):
     """Construct one ``LimiXPredictor`` instance (LimiX-2 is stateless per ``predict()`` call, so
     this is the whole "fit"). Factored out of ``LimiX2Model._fit`` so the exact same construction
@@ -81,6 +121,7 @@ def _build_limix2_predictor(*, device_str, model_path, inference_config, preproc
     from inference.v2_0.predictor import LimiXPredictor
 
     _patch_predictor(LimiXPredictor)
+    _patch_svd_fallback()
     return LimiXPredictor(
         device=torch.device(device_str),
         model_path=str(model_path),

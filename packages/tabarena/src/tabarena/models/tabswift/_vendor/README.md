@@ -87,3 +87,15 @@ dropped). In `preprocessing.py` a small module-level `_validate_data(estimator, 
 **kwargs)` shim dispatches the same way, and all 10 `self._validate_data(...)` transformer
 calls were rewritten to `_validate_data(self, ...)`. TabArena always feeds these estimators a
 dense NumPy array, so no DataFrame-preservation behavior is lost.
+
+### 5. Finite-range guard around the normalizers — `preprocessing.py`
+
+`PreprocessingPipeline` standardizes, then normalizes (`PowerTransformer` by default) and hands the
+result to `OutlierRemover`, whose sklearn validation rejects non-finite values. On a heavy-tailed column
+the Yeo-Johnson transform of a large z-score overflows float32 to `inf` (four of nine BeyondArena splits
+of `clock_protein_toxicity`, 114 x 1117, failed with `ValueError: Input X contains infinity or a value too
+large for dtype('float32')` inside the bagged fit). The pipeline now clips the scaler's and the
+normalizer's outputs to a large finite bound (`_clip_to_finite_range`, a quarter of the float32 maximum;
+NaNs pass through) in both `fit` and `transform`, and the outlier remover's own clipping takes it from
+there. Upstream `TALENT/model/lib/tabswift/preprocessing.py` has the same code path; the fix applies
+there unchanged.

@@ -358,31 +358,14 @@ class TabPFNModel(AbstractTorchModel):
         hyperparameters: dict | None = None,
         **kwargs,
     ) -> int:
-        """Heuristic memory estimate based on TabPFN's memory estimate logic in:
-        https://github.com/PriorLabs/TabPFN/blob/57a2efd3ebdb3886245e4d097cefa73a5261a969/src/tabpfn/model/memory.py#L147.
+        """Host-memory estimate: a 10 GB baseline plus five copies of the training frame.
 
-        This is based on GPU memory usage, but hopefully with overheads it also approximates CPU memory usage.
+        tabpfn batches its inference to the memory it finds (``memory_saving_mode="auto"``) and its 2.5
+        checkpoints sub-sample the features per estimator, so GPU activations are not proportional to
+        rows x columns; TabPFN-v2's activation formula used here before refused a 96k x 1799 BeyondArena
+        table that the model fits. Same frame term as the TabPFN-3.5 and LimiX-2 wrappers.
         """
-        # TODO: update, this is not correct anymore, consider using internal TabPFN functions directly.
-        features_per_group = 3  # Based on TabPFNv2 default (unused)
-        n_layers = 12  # Based on TabPFNv2 default
-        embedding_size = 192  # Based on TabPFNv2 default
-        dtype_byte_size = 2  # Based on TabPFNv2 default
-
-        model_mem = 14489108  # Based on TabPFNv2 default
-
-        n_samples, n_features = X.shape[0], min(X.shape[1], 500)
-        n_feature_groups = (n_features) / features_per_group + 1  # TODO: Unsure how to calculate this
-
-        X_mem = n_samples * n_feature_groups * dtype_byte_size
-        activation_mem = n_samples * n_feature_groups * embedding_size * n_layers * dtype_byte_size
-
-        baseline_overhead_mem_est = 1e9  # 1 GB generic overhead
-
-        # Add some buffer to each term + 1 GB overhead to be safe
-        return int(
-            model_mem + 4 * X_mem + 2 * activation_mem + baseline_overhead_mem_est,
-        )
+        return int(10 * 1e9 + 5 * get_approximate_df_mem_usage(X).sum())
 
     def _more_tags(self) -> dict:
         return {"can_refit_full": True}
@@ -404,7 +387,9 @@ class RealTabPFNv25Model(TabPFNModel):
     The extra checkpoints include models trained on only synthetic datasets as well.
 
     Datasets with more than ten classes run through the ``ManyClassClassifier`` output coding of the
-    base class, as TabPFN-2.6 does; only the row and feature caps remain.
+    base class, as TabPFN-2.6 does; only the row cap remains. Tables wider than the 2000 features the
+    checkpoint was trained for run as well (``ignore_pretraining_limits`` is set): tabpfn sub-samples the
+    features per estimator.
     """
 
     ag_key = "TA-REALTABPFN-V2.5"
@@ -414,7 +399,6 @@ class RealTabPFNv25Model(TabPFNModel):
     default_regression_model: str | None = "tabpfn-v2.5-regressor-v2.5_default.ckpt"
     _default_auxiliary_params_extra = {
         "max_rows": 100_000,
-        "max_features": 2000,
     }
 
     @staticmethod

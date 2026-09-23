@@ -38,6 +38,18 @@ def _validate_data(estimator, *args, **kwargs):
     return estimator._validate_data(*args, **kwargs)
 
 
+# NOTE (tabarena vendor): the normalizers can overflow float32 on a heavy-tailed column (the Yeo-Johnson
+# transform of a large z-score turns into inf) and sklearn's validation in the outlier remover then
+# rejects the whole array. Values beyond the finite float32 range are pulled back to a large finite
+# bound; the outlier remover's clipping brings them into the learned range like any other extreme value.
+# NaNs pass through unchanged.
+_FINITE_BOUND = float(np.finfo(np.float32).max) / 4
+
+
+def _clip_to_finite_range(X):
+    return np.clip(X, -_FINITE_BOUND, _FINITE_BOUND)
+
+
 class TransformToNumerical(TransformerMixin, BaseEstimator):
     """Transforms non-numerical data in a DataFrame to numerical representations.
 
@@ -441,7 +453,7 @@ class PreprocessingPipeline(TransformerMixin, BaseEstimator):
 
         # 1. Apply standard scaling
         self.standard_scaler_ = CustomStandardScaler()
-        X_scaled = self.standard_scaler_.fit_transform(X)
+        X_scaled = _clip_to_finite_range(self.standard_scaler_.fit_transform(X))  # NOTE (tabarena vendor)
 
         # 2. Apply normalization
         if self.normalization_method != "none":
@@ -456,7 +468,7 @@ class PreprocessingPipeline(TransformerMixin, BaseEstimator):
 
             self.X_min_ = np.min(X_scaled, axis=0, keepdims=True)
             self.X_max_ = np.max(X_scaled, axis=0, keepdims=True)
-            X_normalized = self.normalizer_.fit_transform(X_scaled)
+            X_normalized = _clip_to_finite_range(self.normalizer_.fit_transform(X_scaled))  # NOTE (tabarena vendor)
         else:
             self.normalizer_ = None
             X_normalized = X_scaled
@@ -483,7 +495,7 @@ class PreprocessingPipeline(TransformerMixin, BaseEstimator):
         check_is_fitted(self)
         X = _validate_data(self,X, reset=False, copy=True)
         # Standard scaling
-        X = self.standard_scaler_.transform(X)
+        X = _clip_to_finite_range(self.standard_scaler_.transform(X))  # NOTE (tabarena vendor)
         # Normalization
         if self.normalizer_ is not None:
             try:
@@ -494,6 +506,7 @@ class PreprocessingPipeline(TransformerMixin, BaseEstimator):
                 X = np.clip(X, self.X_min_, self.X_max_)
                 X = self.normalizer_.transform(X)
         # Outlier removal
+        X = _clip_to_finite_range(X)  # NOTE (tabarena vendor)
         X = self.outlier_remover_.transform(X)
 
         return X
