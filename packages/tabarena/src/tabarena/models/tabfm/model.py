@@ -9,8 +9,12 @@ from autogluon.core.constants import BINARY, MULTICLASS
 from autogluon.core.models.abstract import SharedWeights
 from autogluon.tabular.models.abstract.abstract_torch_model import AbstractTorchModel
 
-from tabarena.models.cell_budget import gpu_cell_budget, rows_within_budget
-from tabarena.utils.logging_utils import import_many_class_classifier, root_handlers_preserved
+from tabarena.utils.wrapper_utils import (
+    gpu_cell_budget,
+    import_many_class_classifier,
+    root_handlers_preserved,
+    rows_within_budget,
+)
 
 if TYPE_CHECKING:
     import torch
@@ -70,7 +74,7 @@ def _load_tabfm_network(*, problem_type: str, device: str) -> torch.nn.Module:
 
     ``load`` reports the download through the root ``logging`` functions, which install a
     ``StreamHandler`` on a root logger that has none; the call runs under
-    :func:`~tabarena.utils.logging_utils.root_handlers_preserved`.
+    :func:`~tabarena.utils.wrapper_utils.root_handlers_preserved`.
     """
     from tabfm import tabfm_v1_0_0_pytorch
 
@@ -172,7 +176,7 @@ class TabFMModel(AbstractTorchModel):
     estimator per code row on the same network.
 
     Above a cell budget derived from the GPU (``rows x columns`` of the training table, about 14M cells on a
-    96 GB card; :mod:`tabarena.models.cell_budget`) the fit sets TabFM's ``max_num_rows`` so every ensemble
+    96 GB card; :mod:`tabarena.utils.wrapper_utils`) the fit sets TabFM's ``max_num_rows`` so every ensemble
     member sub-samples its rows: the network embeds every training cell and ran out of memory at about 21M
     cells. The ``cell_budget`` hyperparameter overrides the derived budget.
 

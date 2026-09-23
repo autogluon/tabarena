@@ -1,9 +1,38 @@
 from __future__ import annotations
 
+import logging
+
 import numpy as np
 import pytest
 
-from tabarena.models.cell_budget import gpu_cell_budget, rows_within_budget, stratified_row_subsample
+from tabarena.utils.wrapper_utils import (
+    gpu_cell_budget,
+    root_handlers_preserved,
+    rows_within_budget,
+    stratified_row_subsample,
+)
+
+
+def test_root_handlers_preserved_removes_added_handler():
+    root = logging.getLogger()
+    before = list(root.handlers)
+    added = logging.StreamHandler()
+    with root_handlers_preserved():
+        root.addHandler(added)
+        assert added in root.handlers
+    assert root.handlers == before
+
+
+def test_root_handlers_preserved_keeps_existing_handlers():
+    root = logging.getLogger()
+    existing = logging.NullHandler()
+    root.addHandler(existing)
+    try:
+        with root_handlers_preserved():
+            logging.info("module-level logging installs a root handler when none exists")
+        assert existing in root.handlers
+    finally:
+        root.removeHandler(existing)
 
 
 def test_rows_within_budget_keeps_small_tables_and_caps_large_ones():

@@ -10,7 +10,7 @@ from autogluon.core.models.abstract import SharedWeights
 from autogluon.features.generators import LabelEncoderFeatureGenerator
 from autogluon.tabular.models.abstract.abstract_torch_model import AbstractTorchModel
 
-from tabarena.utils.logging_utils import import_many_class_classifier
+from tabarena.utils.wrapper_utils import import_many_class_classifier
 
 if TYPE_CHECKING:
     from collections.abc import Mapping

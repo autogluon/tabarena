@@ -15,8 +15,12 @@ from autogluon.tabular.models.abstract.abstract_torch_model import AbstractTorch
 from scipy.sparse.linalg import ArpackError
 from sklearn.decomposition import TruncatedSVD
 
-from tabarena.models.cell_budget import gpu_cell_budget, rows_within_budget, stratified_row_subsample
-from tabarena.utils.logging_utils import import_many_class_classifier
+from tabarena.utils.wrapper_utils import (
+    gpu_cell_budget,
+    import_many_class_classifier,
+    rows_within_budget,
+    stratified_row_subsample,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -202,7 +206,7 @@ class LimiX2Model(AbstractTorchModel):
     """LimiX-2 TabArena integration.
 
     Above a cell budget derived from the GPU (``rows x columns`` of the training table, about 12M cells on a
-    96 GB card; :mod:`tabarena.models.cell_budget`) the fit sub-samples the stored in-context training table,
+    96 GB card; :mod:`tabarena.utils.wrapper_utils`) the fit sub-samples the stored in-context training table,
     stratified by class: LimiX has no row cap of its own and, at about 21M cells, spent hours in its
     smaller-batch fallback before AutoGluon's fold scheduler gave up. The ``cell_budget`` hyperparameter
     overrides the derived budget.

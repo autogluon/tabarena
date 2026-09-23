@@ -1,15 +1,48 @@
-"""Cell budgets for in-context models: sub-sample the training rows when rows x columns exceed what the GPU holds.
+"""Small helpers shared by the model wrappers.
 
-An in-context model embeds every training cell, so its peak GPU memory grows with ``rows x columns``. The
-BeyondArena run of 2026-09-22 (``tmp_scripts/beyondarena_tfms_22092026_failures.md``) put the edge for TabFM and
-LimiX-2 at about 21M cells on a 96 GB card, roughly 4.7 kB per cell. A wrapper turns that into a budget derived
-from the card (:func:`gpu_cell_budget`), keeps the row count within it (:func:`rows_within_budget`) and, when the
-library offers no row cap of its own, sub-samples its stored context (:func:`stratified_row_subsample`).
+``root_handlers_preserved`` and ``import_many_class_classifier`` keep a library import or call from changing
+the process's logging configuration. The cell-budget helpers are an intermediate placeholder: they sub-sample
+the training rows of an in-context model above what the GPU holds (about 4.7 kB per training cell for TabFM
+and LimiX-2 on the BeyondArena run) until the libraries cap rows or batch to memory themselves.
 """
 
 from __future__ import annotations
 
+import logging
+from contextlib import contextmanager
+from typing import TYPE_CHECKING
+
 import numpy as np
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
+
+
+@contextmanager
+def root_handlers_preserved() -> Iterator[None]:
+    """Remove the root-logger handlers the block adds.
+
+    A library that logs through the module-level ``logging.info`` / ``logging.warning`` functions
+    (tabpfn-extensions at import, TabFM's checkpoint loader) installs a ``StreamHandler`` on a root
+    logger that has none, which duplicates every later log line on stderr and fails the global-state
+    check of AutoGluon's model tests. Wrap such imports and calls in this context to leave the root
+    logger as it was.
+    """
+    root = logging.getLogger()
+    before = list(root.handlers)
+    try:
+        yield
+    finally:
+        for handler in list(root.handlers):
+            if handler not in before:
+                root.removeHandler(handler)
+
+
+def import_many_class_classifier() -> type:
+    """Return ``tabpfn_extensions.many_class.ManyClassClassifier``, imported under :func:`root_handlers_preserved`."""
+    with root_handlers_preserved():
+        from tabpfn_extensions.many_class import ManyClassClassifier
+    return ManyClassClassifier
 
 
 def gpu_cell_budget(*, bytes_per_cell: float, safety: float) -> int | None:
