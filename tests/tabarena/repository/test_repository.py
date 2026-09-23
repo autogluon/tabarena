@@ -142,7 +142,7 @@ def test_repository():
     assert len(result_ensemble_weights) == 3
 
     dataset_info = repo.dataset_info(dataset=dataset)
-    assert dataset_info["metric"] == "root_mean_squared_error"
+    assert dataset_info["metric"] == "rmse"
     assert dataset_info["problem_type"] == "regression"
 
     # Test ensemble weights are as expected

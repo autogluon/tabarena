@@ -276,7 +276,9 @@ class TabPFNModel(AbstractTorchModel):
                 "log_loss": "log_loss",
                 "rmse": "mse",
             }
-            eval_metric = metric_map.get(self.stopping_metric.name)
+            from tabarena.benchmark.task.metrics import normalize_eval_metric
+
+            eval_metric = metric_map.get(normalize_eval_metric(self.stopping_metric.name))
             model_base = FinetunedTabPFNClassifier if is_classification else FinetunedTabPFNRegressor
             # Large default number to avoid stopping on it.
             epochs = finetuning_config.pop("epochs", 10_000)

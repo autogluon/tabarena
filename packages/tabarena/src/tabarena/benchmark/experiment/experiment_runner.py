@@ -18,7 +18,7 @@ from autogluon.core.data.label_cleaner import LabelCleaner, LabelCleanerDummy
 from autogluon.core.metrics import Scorer, get_metric
 from pandas.api.types import is_integer_dtype
 
-from tabarena.benchmark.task.metrics import default_eval_metric
+from tabarena.benchmark.task.metrics import default_eval_metric, normalize_eval_metric
 from tabarena.utils.cache import AbstractCacheFunction, CacheFunctionDF, CacheFunctionDummy
 
 if TYPE_CHECKING:
@@ -122,7 +122,8 @@ class ExperimentRunner:
         self.method = method
         self.fit_args = fit_args or {}
         self.cleanup = cleanup
-        self.eval_metric_name = eval_metric_name
+        # The canonical name, whatever alias the caller passed: it is recorded as the result's ``metric``.
+        self.eval_metric_name = normalize_eval_metric(eval_metric_name)
         self.eval_metric: Scorer = get_metric(metric=self.eval_metric_name, problem_type=self.task.problem_type)
         self.model: AbstractExecModel | None = None
         self.task_split_idx = self.task.get_split_idx(fold=self.fold, repeat=self.repeat, sample=self.sample)
