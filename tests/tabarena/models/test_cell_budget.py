@@ -1,0 +1,39 @@
+from __future__ import annotations
+
+import numpy as np
+import pytest
+
+from tabarena.models.cell_budget import gpu_cell_budget, rows_within_budget, stratified_row_subsample
+
+
+def test_rows_within_budget_keeps_small_tables_and_caps_large_ones():
+    assert rows_within_budget(1_000, 10, cell_budget=100_000) == 1_000
+    assert rows_within_budget(42_423, 500, cell_budget=14_300_000) == 28_600
+    assert rows_within_budget(96_064, 1_799, cell_budget=14_300_000, min_rows=5_000) == 7_948
+    # the minimum wins over the budget but never exceeds the table
+    assert rows_within_budget(3_000, 10_000, cell_budget=1_000, min_rows=5_000) == 3_000
+    assert rows_within_budget(20_000, 10_000, cell_budget=1_000, min_rows=5_000) == 5_000
+
+
+def test_stratified_subsample_keeps_every_class_in_proportion():
+    y = np.array([0] * 900 + [1] * 90 + [2] * 10)
+    keep = stratified_row_subsample(y, 100, classification=True, seed=0)
+    assert len(keep) == 100 and len(set(keep)) == 100
+    assert np.all(np.diff(keep) > 0)  # sorted
+    counts = np.bincount(y[keep], minlength=3)
+    assert counts[2] >= 1 and 85 <= counts[0] <= 91 and 8 <= counts[1] <= 10
+
+
+def test_subsample_is_identity_when_enough_rows_and_uniform_for_regression():
+    y = np.arange(50, dtype=float)
+    assert list(stratified_row_subsample(y, 50, classification=False, seed=0)) == list(range(50))
+    keep = stratified_row_subsample(y, 20, classification=False, seed=1)
+    assert len(keep) == 20 and np.all(np.diff(keep) > 0)
+
+
+def test_gpu_cell_budget_without_cuda_is_none():
+    torch = pytest.importorskip("torch")
+    if torch.cuda.is_available():
+        assert gpu_cell_budget(bytes_per_cell=4700, safety=0.7) > 0
+    else:
+        assert gpu_cell_budget(bytes_per_cell=4700, safety=0.7) is None

@@ -15,6 +15,7 @@ from autogluon.tabular.models.abstract.abstract_torch_model import AbstractTorch
 from scipy.sparse.linalg import ArpackError
 from sklearn.decomposition import TruncatedSVD
 
+from tabarena.models.cell_budget import gpu_cell_budget, rows_within_budget, stratified_row_subsample
 from tabarena.utils.logging_utils import import_many_class_classifier
 
 logger = logging.getLogger(__name__)
@@ -30,6 +31,11 @@ _DEFAULT_CONFIGS = {
     "classification": "cls_default_noretrieval_v2.json",
     "regression": "reg_default_noretrieval_v2.json",
 }
+#: Peak GPU memory per training cell measured on BeyondArena (about 21M cells on 96 GB) and a safety margin
+#: below TabFM's: LimiX degrades into hours-long batch fallbacks before it raises.
+LIMIX2_BYTES_PER_CELL = 4700
+LIMIX2_CELL_SAFETY = 0.6
+
 _INSTALL_HINT = (
     "LimiX-2 needs the LimiX inference package, installed without its dependency tree "
     "(it pins torch==2.9.1): see the LimiX2Model docstring."
@@ -195,6 +201,12 @@ class _LimiX2SklearnWrapper:
 class LimiX2Model(AbstractTorchModel):
     """LimiX-2 TabArena integration.
 
+    Above a cell budget derived from the GPU (``rows x columns`` of the training table, about 12M cells on a
+    96 GB card; :mod:`tabarena.models.cell_budget`) the fit sub-samples the stored in-context training table,
+    stratified by class: LimiX has no row cap of its own and, at about 21M cells, spent hours in its
+    smaller-batch fallback before AutoGluon's fold scheduler gave up. The ``cell_budget`` hyperparameter
+    overrides the derived budget.
+
     LimiX-2 is Stable AI's 400M-parameter tabular foundation model, a Contextual Mechanism Network
     pretrained with context-conditional masked modeling on synthetic data from structural causal
     models. Prediction is in context: the fit stores the training table, and every predict passes it
@@ -309,6 +321,28 @@ class LimiX2Model(AbstractTorchModel):
 
         self._X_train = self.preprocess(X)
         self._y_train = y.to_numpy()
+        # Cell budget: LimiX has no row cap of its own, so the context every predict sees is sub-sampled
+        # (stratified for classification). `cell_budget` overrides the GPU-derived budget (tests).
+        cell_budget = hps.pop("cell_budget", None)
+        if cell_budget is None:
+            cell_budget = gpu_cell_budget(bytes_per_cell=LIMIX2_BYTES_PER_CELL, safety=LIMIX2_CELL_SAFETY)
+        if cell_budget is not None:
+            n_rows, n_cols = self._X_train.shape
+            n_keep = rows_within_budget(n_rows, n_cols, cell_budget)
+            if n_keep < n_rows:
+                keep = stratified_row_subsample(
+                    self._y_train,
+                    n_keep,
+                    classification=self.problem_type in [BINARY, MULTICLASS],
+                    seed=self.random_seed if isinstance(getattr(self, "random_seed", None), int) else 0,
+                )
+                self._X_train = self._X_train.iloc[keep]
+                self._y_train = self._y_train[keep]
+                logger.log(
+                    20,
+                    f"\tLimiX-2: {n_rows} x {n_cols} training cells exceed the budget of {cell_budget} cells on this "
+                    f"GPU; the in-context training table is sub-sampled to {n_keep} rows.",
+                )
         self._use_many_class = (
             self.problem_type in [BINARY, MULTICLASS]
             and self.num_classes is not None
