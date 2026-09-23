@@ -1,18 +1,21 @@
 """Small helpers shared by the model wrappers.
 
 ``root_handlers_preserved`` and ``import_many_class_classifier`` keep a library import or call from changing
-the process's logging configuration. The cell-budget helpers are an intermediate placeholder: they sub-sample
+the process's logging configuration. The size-cap helpers are an intermediate placeholder: they sub-sample
 the training rows of an in-context model above what the GPU holds (about 4.7 kB per training cell for TabFM
-and LimiX-2 on the BeyondArena run) until the libraries cap rows or batch to memory themselves.
+on the BeyondArena run) and rank the columns LimiX-2 keeps, until the libraries cap rows and columns or
+batch to memory themselves.
 """
 
 from __future__ import annotations
 
 import logging
+import warnings
 from contextlib import contextmanager
 from typing import TYPE_CHECKING
 
 import numpy as np
+import pandas as pd
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -95,3 +98,31 @@ def stratified_row_subsample(y: np.ndarray, n_keep: int, *, classification: bool
         [rng.choice(np.flatnonzero(inverse == k), size=int(q), replace=False) for k, q in enumerate(quota)]
     )
     return np.sort(keep)
+
+
+def univariate_top_columns(X: pd.DataFrame, y: np.ndarray, n_keep: int, *, classification: bool) -> list:
+    """The ``n_keep`` columns of ``X`` with the highest univariate F-score against ``y``, in their original order.
+
+    Non-numeric columns are factorized and missing values take the column median (a constant column scores
+    0), so the ranking runs on any frame a wrapper stores. All columns when there is nothing to drop.
+    """
+    if X.shape[1] <= n_keep:
+        return list(X.columns)
+    from sklearn.feature_selection import f_classif, f_regression
+
+    encoded = np.empty(X.shape, dtype=np.float64)
+    for j in range(X.shape[1]):
+        column = X.iloc[:, j]
+        if isinstance(column.dtype, pd.CategoricalDtype) or not pd.api.types.is_numeric_dtype(column.dtype):
+            codes = pd.factorize(column, use_na_sentinel=True)[0].astype(np.float64)
+            values = np.where(codes < 0, np.nan, codes)
+        else:
+            values = column.to_numpy(dtype=np.float64, na_value=np.nan)
+        finite = np.isfinite(values)
+        encoded[:, j] = np.where(finite, values, np.median(values[finite]) if finite.any() else 0.0)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")  # a constant column warns and scores nan, a perfect one scores inf
+        scores = (f_classif if classification else f_regression)(encoded, np.asarray(y))[0]
+    scores = np.nan_to_num(scores, nan=0.0, posinf=np.finfo(np.float64).max, neginf=0.0)
+    keep = np.sort(np.argsort(-scores, kind="stable")[:n_keep])
+    return [X.columns[i] for i in keep]

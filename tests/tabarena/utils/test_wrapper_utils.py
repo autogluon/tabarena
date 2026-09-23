@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 
 import numpy as np
+import pandas as pd
 import pytest
 
 from tabarena.utils.wrapper_utils import (
@@ -10,6 +11,7 @@ from tabarena.utils.wrapper_utils import (
     root_handlers_preserved,
     rows_within_budget,
     stratified_row_subsample,
+    univariate_top_columns,
 )
 
 
@@ -58,6 +60,26 @@ def test_subsample_is_identity_when_enough_rows_and_uniform_for_regression():
     assert list(stratified_row_subsample(y, 50, classification=False, seed=0)) == list(range(50))
     keep = stratified_row_subsample(y, 20, classification=False, seed=1)
     assert len(keep) == 20 and np.all(np.diff(keep) > 0)
+
+
+def test_univariate_top_columns_keeps_informative_columns_in_frame_order():
+    rng = np.random.default_rng(0)
+    n = 400
+    y = rng.integers(0, 2, size=n)
+    X = pd.DataFrame(
+        {
+            "noise_a": rng.normal(size=n),
+            "signal": y + rng.normal(scale=0.1, size=n),
+            "constant": np.ones(n),
+            "cat": pd.Categorical(np.where(y == 1, "yes", "no")),
+            "noise_b": rng.normal(size=n),
+        }
+    )
+    X.loc[X.index[::7], "signal"] = np.nan  # missing values take the median, the ranking still runs
+    assert univariate_top_columns(X, y, 5, classification=True) == list(X.columns)
+    assert univariate_top_columns(X, y, 2, classification=True) == ["signal", "cat"]
+    y_reg = 3 * X["noise_b"].to_numpy() + rng.normal(scale=0.1, size=n)
+    assert univariate_top_columns(X, y_reg, 1, classification=False) == ["noise_b"]
 
 
 def test_gpu_cell_budget_without_cuda_is_none():
