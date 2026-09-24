@@ -1,9 +1,20 @@
 from __future__ import annotations
 
-from tabarena.models._method_metadata import MethodMetadata
+from tabarena.models._method_metadata import MethodMetadata, ModelDescriptor
 from tabarena.models._model_info import ModelInfo
 from tabarena.models.tabfm.hpo import gen_tabfm
 from tabarena.models.tabfm.model import TabFMModel, prefetch_weights
+
+#: Intrinsic facts shared by every run of the model (the BeyondArena entries build on it).
+tabfm_descriptor = ModelDescriptor(
+    display_name="TabFM",
+    compute="gpu",
+    is_bag=False,
+    reference_url="https://github.com/google-research/tabfm",
+    commercial_use=False,
+    license="TabFM Non-Commercial License v1.0",
+    date_introduced="2026-06-30",
+)
 
 # Superseded by the rerun below; kept so the hosted artifacts stay loadable.
 tabfm_method_metadata = MethodMetadata.config(

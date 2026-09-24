@@ -1,9 +1,20 @@
 from __future__ import annotations
 
-from tabarena.models._method_metadata import MethodMetadata
+from tabarena.models._method_metadata import MethodMetadata, ModelDescriptor
 from tabarena.models._model_info import ModelInfo
 from tabarena.models.causilo.hpo import gen_causilo
 from tabarena.models.causilo.model import CausiloModel, prefetch_weights
+
+#: Intrinsic facts shared by every run of the model (the BeyondArena entries build on it).
+causilo_descriptor = ModelDescriptor(
+    display_name="Causilo",
+    compute="gpu",
+    is_bag=False,
+    reference_url="https://github.com/nums-ai/causilo",
+    commercial_use=False,
+    license="Causilo License v1.0 (non-commercial weights)",
+    date_introduced="2026-09-13",
+)
 
 # Superseded by the rerun below; kept so the hosted artifacts stay loadable.
 causilo_method_metadata = MethodMetadata.config(

@@ -1,9 +1,19 @@
 from __future__ import annotations
 
-from tabarena.models._method_metadata import MethodMetadata
+from tabarena.models._method_metadata import MethodMetadata, ModelDescriptor
 from tabarena.models._model_info import ModelInfo
 from tabarena.models.tabswift.hpo import gen_tabswift
 from tabarena.models.tabswift.model import TabSwiftModel
+
+#: Intrinsic facts shared by every run of the model (the BeyondArena entries build on it).
+tabswift_descriptor = ModelDescriptor(
+    display_name="TabSwift",
+    compute="gpu",
+    is_bag=False,
+    reference_url="https://github.com/LAMDA-Tabular/TabSwift",
+    license="Apache-2.0 (weights); MIT (code)",
+    date_introduced="2026-06-05",
+)
 
 # Superseded by the rerun below; kept so the hosted artifacts stay loadable.
 tabswift_method_metadata = MethodMetadata.config(

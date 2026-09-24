@@ -27,6 +27,10 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+#: The :meth:`TaskMetadataCollection.task_grid` columns that identify a split rather than describe its
+#: dataset; a subset predicate reading only these is split-level (``"core"``, ``"lite"``).
+_TASK_IDENTITY_COLUMNS = frozenset({"dataset", "fold", "repeat", "split"})
+
 
 def _beyond_arena_subset_predicates() -> dict[str, SubsetPredicate]:
     from tabarena.contexts import BeyondArenaContext
@@ -494,29 +498,62 @@ class TaskMetadataCollection:
         list containing any inner list is a union of views — each view's surviving set is
         computed independently, then OR-ed together.
 
+        Within a view, the split-level expressions (every atom reads only the task-identity
+        columns ``dataset`` / ``fold`` / ``repeat`` / ``split``, e.g. ``"core"`` or ``"lite"``)
+        run first, whatever their position, and the dataset-level columns are rebuilt over the
+        surviving splits before the other expressions run. ``max_train_rows`` is the per-dataset
+        maximum over the splits in the frame, so a dataset whose non-core splits train on more
+        rows than its core splits (a temporal dataset with growing training windows) gets the
+        size bucket of the splits actually kept: the same bucket an evaluation restricted to
+        those splits computes, so a run set up with ``["core", "!large"]`` covers exactly the
+        tasks the ``!large`` leaderboard later expects.
+
         When ``predicates`` is ``None``, the collection's default provider (set by
         :meth:`from_preset`) is consulted lazily; if there is none either, the evaluator
         falls back to ``TabArenaContext.SUBSET_PREDICATES``.
         """
-        from tabarena.nips2025_utils.compare import _evaluate_subset_expression
+        from tabarena.benchmark.task.subset_predicate import SubsetPredicate
+        from tabarena.nips2025_utils.compare import _evaluate_subset_expression, _resolve_predicates
 
         if predicates is None and self._default_predicates_provider is not None:
             predicates = self._default_predicates_provider()
+        resolved = _resolve_predicates(predicates)
         grid = self.task_grid()
 
-        def _surviving_for_view(view: str | list[str]) -> set[tuple[str, int, int]]:
-            """The splits surviving one view: a string expression, or string-list AND-ed."""
-            expressions = [view] if isinstance(view, str) else list(view)
-            view_grid = grid
-            for expression in expressions:
-                mask = _evaluate_subset_expression(expression, view_grid, predicates=predicates)
-                view_grid = view_grid[mask.values]
+        def _is_split_level(expression: str) -> bool:
+            """Whether every atom of ``expression`` reads only task-identity columns."""
+            for atom in (part.strip().lstrip("!").strip() for part in expression.split("|")):
+                predicate = resolved.get(atom)
+                if not isinstance(predicate, SubsetPredicate) or not predicate.required_columns:
+                    return False
+                if not set(predicate.required_columns) <= _TASK_IDENTITY_COLUMNS:
+                    return False
+            return True
+
+        def _triplets(view_grid: pd.DataFrame) -> set[tuple[str, int, int]]:
             return {
                 (dataset, int(fold), int(repeat))
                 for dataset, fold, repeat in zip(
                     view_grid["dataset"], view_grid["fold"], view_grid["repeat"], strict=False
                 )
             }
+
+        def _surviving_for_view(view: str | list[str]) -> set[tuple[str, int, int]]:
+            """The splits surviving one view: a string expression, or string-list AND-ed."""
+            expressions = [view] if isinstance(view, str) else list(view)
+            split_level = [e for e in expressions if _is_split_level(e)]
+            dataset_level = [e for e in expressions if not _is_split_level(e)]
+            view_grid = grid
+            for expression in split_level:
+                mask = _evaluate_subset_expression(expression, view_grid, predicates=predicates)
+                view_grid = view_grid[mask.values]
+            if split_level and dataset_level:
+                # Rebuild the dataset-level columns (max_train_rows) over the surviving splits.
+                view_grid = self.subset(sorted(_triplets(view_grid))).task_grid()
+            for expression in dataset_level:
+                mask = _evaluate_subset_expression(expression, view_grid, predicates=predicates)
+                view_grid = view_grid[mask.values]
+            return _triplets(view_grid)
 
         if isinstance(subset, list) and any(isinstance(view, list) for view in subset):
             surviving: set[tuple[str, int, int]] = set()
