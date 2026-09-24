@@ -209,6 +209,13 @@ a command block instead of `sbatch`: an endpoint guard, `sky check gcp` (once pe
 for READY) and `sky jobs launch -y -d --pool <pool> ...` (pool mode). Run them as printed and record
 the job ids from `sky jobs queue`. The block ends with the eval reminder and, in pool mode, with
 `sky jobs pool down -y <pool>`, which must run when the benchmark is finished (a pool bills while idle).
+Do not re-apply the pool YAML with a smaller `workers:` while items still run on the pool: on this
+cluster's fork the apply bumps the pool version and replaces every worker, and a managed job recovered
+onto a new worker resumes its claim but restarts the item from scratch with a fresh budget
+(`#RECOVERIES` in `sky jobs queue --all` increments, `sky jobs logs <id>` shows `resuming own claim`;
+the `beyondarena_tfms_22092026` run lost 11.5 h and 6 h of two TabPFN-3.5 fits that way). Leave the
+idle workers until the last item ends, or scale only a pool with nothing running; a changed
+environment always needs a fresh pool for the same reason.
 The block's first line names the launch id, the bucket queue and the bundle count.
 
 ## Step 6: Monitor the run (end-to-end mode)
@@ -258,6 +265,8 @@ and classify:
 | `PENDING` with reason `launch failed requeued held` | the spot node failed to boot; SLURM requeued the task but holds it until someone releases it | `scontrol release <job>_<task>`; a loop over `squeue -r -o "%i %r"` every few minutes when the partition keeps losing nodes |
 | `LocalEntryNotFoundError`, `PretrainedWeightsUnavailableError`, `WeightsUnavailableError` | the job ran with `offline_weights` and a checkpoint was not in the shared cache | re-run `setup` (its head-node prefetch fills the cache) or set `offline_weights=False` on the plan for that run |
 | `##### item FAILED` lines with `##### bundle summary: ok=N failed=M` | one item of the bundle failed; the array task continues with its siblings and exits non-zero at the end | count the `results.pkl` files, not the task state: a `FAILED` task may have completed most of its items, and only the failed ones are missing |
+| an item running far past a finished sibling's time, `#RECOVERIES > 0` for its job in `sky jobs queue --all`, `resuming own claim` in `sky jobs logs <id>` | the worker was replaced (a spot preemption, or a pool re-apply, see Step 5) and the item restarted from scratch; not a stall | nothing, apart from noting the restart in the log entry; compare the fit times of finished siblings before calling an item stuck |
+| `TimeLimitExceeded` from `_get_fold_time_limit` after thousands of `CUDACachingAllocator ... memory allocation failed` or `auto batch skip` lines, one to three children fitted in hours | a library that survives GPU out-of-memory by shrinking its batches and crawls until AutoGluon projects the remaining folds past the limit: a memory failure that never raises | treat it as out-of-memory and cap the in-context table in the wrapper. Measure rows and columns separately before choosing the cap: LimiX-2 passed 38k x 318 in 4 h but not 53.6k x 243 or 7.9k x 1652 (the same 13M cells), so a rows x columns budget is the wrong proxy; prefer the library's own knobs (`test_batch_size`, `max_num_rows`), engage the cap only above a shape that fails, and rerun every affected table with the final code |
 
 A `FAILED` array task is a bundle with at least one failed item. The log carries one `##### item
 FAILED (exit N)` line per failed item and a final `##### bundle summary` line; three consecutive
