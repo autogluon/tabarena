@@ -27,10 +27,6 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-#: The :meth:`TaskMetadataCollection.task_grid` columns that identify a split rather than describe its
-#: dataset; a subset predicate reading only these is split-level (``"core"``, ``"lite"``).
-_TASK_IDENTITY_COLUMNS = frozenset({"dataset", "fold", "repeat", "split"})
-
 
 def _beyond_arena_subset_predicates() -> dict[str, SubsetPredicate]:
     from tabarena.contexts import BeyondArenaContext
@@ -126,9 +122,16 @@ class TaskMetadataCollection:
         source: TaskMetadataSource | None = None,
         default_predicates_provider: Callable[[], dict[str, SubsetPredicate]] | None = None,
         preset: str | None = None,
+        max_train_rows: dict[str, int] | None = None,
     ):
         self._tasks = list(tasks)
         self._source = source
+        # Per-dataset largest training split of the collection this one was subset from. The size
+        # buckets are a property of the dataset, so a collection cut down to some splits (the core
+        # splits, the splits a run covered) keeps its datasets in the bucket the full collection
+        # puts them in: a temporal dataset whose later splits train on more rows stays "large"
+        # after an evaluation drops those splits. See `_max_train_rows_by_dataset`.
+        self._inherited_max_train_rows = dict(max_train_rows or {})
         # The registered suite this collection was loaded from (`from_preset`), or None. Recorded
         # so an artifact built from the collection (e.g. a `JobBatch`) can rebind the suite's source
         # on another machine with `with_preset` and materialize the tasks there.
@@ -223,6 +226,7 @@ class TaskMetadataCollection:
             source=resolve_source(preset),
             default_predicates_provider=_preset_subset_predicates_provider(preset),
             preset=preset,
+            max_train_rows=self._max_train_rows_by_dataset(),
         )
 
     # ------------------------------------------------------------------ list-like
@@ -435,12 +439,28 @@ class TaskMetadataCollection:
         """A new collection over ``tasks``, preserving this collection's source ref and
         default subset-predicate provider.
         """
+        kept = {t.tabarena_task_name for t in tasks}
         return TaskMetadataCollection(
             tasks,
             source=self._source,
             default_predicates_provider=self._default_predicates_provider,
             preset=self._preset,
+            max_train_rows={ds: n for ds, n in self._max_train_rows_by_dataset().items() if ds in kept},
         )
+
+    def _max_train_rows_by_dataset(self) -> dict[str, int]:
+        """The largest training split per dataset, over this collection's splits and the collection it came from.
+
+        This is the ``max_train_rows`` the size predicates key on: a dataset-level value, fixed by the
+        full collection and carried through every subset, so dropping splits never moves a dataset
+        into a smaller bucket.
+        """
+        max_train = dict(self._inherited_max_train_rows)
+        for t in self._tasks:
+            ds = t.tabarena_task_name
+            for split in t.splits_metadata.values():
+                max_train[ds] = max(max_train.get(ds, 0), split.num_instances_train)
+        return max_train
 
     def _filter_split_indices(self, split_indices: list[str] | Literal["lite"]) -> TaskMetadataCollection:
         """Keep only the splits whose ``split_index`` is listed; drop tasks left empty."""
@@ -498,62 +518,29 @@ class TaskMetadataCollection:
         list containing any inner list is a union of views — each view's surviving set is
         computed independently, then OR-ed together.
 
-        Within a view, the split-level expressions (every atom reads only the task-identity
-        columns ``dataset`` / ``fold`` / ``repeat`` / ``split``, e.g. ``"core"`` or ``"lite"``)
-        run first, whatever their position, and the dataset-level columns are rebuilt over the
-        surviving splits before the other expressions run. ``max_train_rows`` is the per-dataset
-        maximum over the splits in the frame, so a dataset whose non-core splits train on more
-        rows than its core splits (a temporal dataset with growing training windows) gets the
-        size bucket of the splits actually kept: the same bucket an evaluation restricted to
-        those splits computes, so a run set up with ``["core", "!large"]`` covers exactly the
-        tasks the ``!large`` leaderboard later expects.
-
         When ``predicates`` is ``None``, the collection's default provider (set by
         :meth:`from_preset`) is consulted lazily; if there is none either, the evaluator
         falls back to ``TabArenaContext.SUBSET_PREDICATES``.
         """
-        from tabarena.benchmark.task.subset_predicate import SubsetPredicate
-        from tabarena.nips2025_utils.compare import _evaluate_subset_expression, _resolve_predicates
+        from tabarena.nips2025_utils.compare import _evaluate_subset_expression
 
         if predicates is None and self._default_predicates_provider is not None:
             predicates = self._default_predicates_provider()
-        resolved = _resolve_predicates(predicates)
         grid = self.task_grid()
 
-        def _is_split_level(expression: str) -> bool:
-            """Whether every atom of ``expression`` reads only task-identity columns."""
-            for atom in (part.strip().lstrip("!").strip() for part in expression.split("|")):
-                predicate = resolved.get(atom)
-                if not isinstance(predicate, SubsetPredicate) or not predicate.required_columns:
-                    return False
-                if not set(predicate.required_columns) <= _TASK_IDENTITY_COLUMNS:
-                    return False
-            return True
-
-        def _triplets(view_grid: pd.DataFrame) -> set[tuple[str, int, int]]:
+        def _surviving_for_view(view: str | list[str]) -> set[tuple[str, int, int]]:
+            """The splits surviving one view: a string expression, or string-list AND-ed."""
+            expressions = [view] if isinstance(view, str) else list(view)
+            view_grid = grid
+            for expression in expressions:
+                mask = _evaluate_subset_expression(expression, view_grid, predicates=predicates)
+                view_grid = view_grid[mask.values]
             return {
                 (dataset, int(fold), int(repeat))
                 for dataset, fold, repeat in zip(
                     view_grid["dataset"], view_grid["fold"], view_grid["repeat"], strict=False
                 )
             }
-
-        def _surviving_for_view(view: str | list[str]) -> set[tuple[str, int, int]]:
-            """The splits surviving one view: a string expression, or string-list AND-ed."""
-            expressions = [view] if isinstance(view, str) else list(view)
-            split_level = [e for e in expressions if _is_split_level(e)]
-            dataset_level = [e for e in expressions if not _is_split_level(e)]
-            view_grid = grid
-            for expression in split_level:
-                mask = _evaluate_subset_expression(expression, view_grid, predicates=predicates)
-                view_grid = view_grid[mask.values]
-            if split_level and dataset_level:
-                # Rebuild the dataset-level columns (max_train_rows) over the surviving splits.
-                view_grid = self.subset(sorted(_triplets(view_grid))).task_grid()
-            for expression in dataset_level:
-                mask = _evaluate_subset_expression(expression, view_grid, predicates=predicates)
-                view_grid = view_grid[mask.values]
-            return _triplets(view_grid)
 
         if isinstance(subset, list) and any(isinstance(view, list) for view in subset):
             surviving: set[tuple[str, int, int]] = set()
@@ -608,8 +595,9 @@ class TaskMetadataCollection:
 
         Uses native column names (``problem_type``, ``num_features``, ``num_classes``, ...)
         plus a ``dataset`` key column, ``max_train_rows`` — the per-dataset *maximum*
-        training-fold size over splits, which the size predicates key on (the same value
-        :meth:`task_grid` carries) — and ``n_splits``, the total split count per dataset.
+        training-fold size over splits, including the splits of the collection this one was subset
+        from, which the size predicates key on (the same value :meth:`task_grid` carries) — and
+        ``n_splits``, the total split count per dataset.
 
         ``n_splits`` is summed across every task for a dataset because it is the
         :class:`~tabarena.benchmark.task.metadata.schema.TabArenaTaskMetadata.n_splits`
@@ -618,7 +606,7 @@ class TaskMetadataCollection:
         """
         rows: dict[str, dict] = {}
         first_tasks: dict[str, TabArenaTaskMetadata] = {}
-        max_train_rows: dict[str, int] = {}
+        max_train_rows = self._max_train_rows_by_dataset()
         n_splits: dict[str, int] = {}
         for t in self._tasks:
             ds = t.tabarena_task_name
@@ -627,8 +615,6 @@ class TaskMetadataCollection:
             first_tasks.setdefault(ds, t)
             # TODO: key into task metadata in the future?
             n_splits[ds] = n_splits.get(ds, 0) + len(t.splits_metadata)
-            for split in t.splits_metadata.values():
-                max_train_rows[ds] = max(max_train_rows.get(ds, 0), split.num_instances_train)
         frame = pd.DataFrame(list(rows.values()))
         if not frame.empty:
             frame["dataset"] = list(rows.keys())
@@ -657,7 +643,8 @@ class TaskMetadataCollection:
         * predicate columns, using the predicate-facing names: ``max_train_rows`` (the per-dataset
           *maximum* training-fold size over the dataset's splits, same as
           :meth:`per_dataset_frame`; for temporal and grouped splits the training size varies per
-          split, and the size buckets are defined on the largest one), ``n_features``
+          split, and the size buckets are defined on the largest one, including splits a subset
+          dropped), ``n_features``
           (``num_features``), ``n_classes``
           (``num_classes``), ``problem_type``, and the warehouse fields ``task_type``,
           ``num_cols_after_preprocessing``, ``num_text_cols``, ``num_high_cardinality_cats``,
@@ -696,7 +683,6 @@ class TaskMetadataCollection:
             "target_extreme",
         ]
         n_folds_by_dataset: dict[str, int] = {}
-        train_sizes: dict[str, list[int]] = {}
         meta: dict[str, dict] = {}
         for t in self._tasks:
             ds = t.tabarena_task_name
@@ -706,8 +692,7 @@ class TaskMetadataCollection:
                 meta[ds]["target_extreme"] = _target_extreme(t)
             for split in t.splits_metadata.values():
                 n_folds_by_dataset[ds] = max(n_folds_by_dataset.get(ds, 0), split.fold + 1)
-                train_sizes.setdefault(ds, []).append(split.num_instances_train)
-        max_train = {ds: max(sizes) for ds, sizes in train_sizes.items()}
+        max_train = self._max_train_rows_by_dataset()
         rows = [
             {
                 "dataset": ds,

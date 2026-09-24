@@ -310,34 +310,6 @@ class TestSubsetPredicateFilter:
         with pytest.raises(ValueError, match="Invalid subset name"):
             self._coll().subset_tasks(subset="nope", predicates=self._custom_predicates())
 
-    def test_split_level_predicates_run_first_and_rebuild_the_size_bucket(self):
-        # A temporal dataset whose later split trains on more rows than the first two: over all
-        # splits it is "big", over the first two it is not. The split-level "first_two" predicate
-        # must decide the bucket, whichever position it takes in the expression list, so a run
-        # scoped with ["first_two", "!big"] covers exactly what a "!big" evaluation of the first
-        # two splits expects.
-        from dataclasses import replace
-
-        from tabarena.benchmark.task.subset_predicate import SubsetPredicate, tasks_in_frame
-
-        task = _task_meta(dataset_name="grows", n_splits=3, n_train=500)
-        splits = dict(task.splits_metadata)
-        splits["r0f2"] = replace(splits["r0f2"], num_instances_train=5_000)
-        coll = _collection([replace(task, splits_metadata=splits)])
-        first_two = tasks_in_frame(pd.DataFrame({"dataset": ["grows", "grows"], "split": [0, 1]}))
-        preds = {
-            "first_two": first_two,
-            "big": SubsetPredicate(lambda df: df["max_train_rows"] > 1_000, ("max_train_rows",)),
-        }
-        assert coll.task_grid()["max_train_rows"].iloc[0] == 5_000  # all splits: big
-        for order in (["first_two", "big"], ["big", "first_two"]):
-            assert len(coll.subset_tasks(subset=order, predicates=preds)) == 0
-        kept = coll.subset_tasks(subset=["first_two", "!big"], predicates=preds)
-        assert sorted((t.dataset_name, t.split_index) for t in kept) == [("grows", "r0f0"), ("grows", "r0f1")]
-        # Without a split-level expression the bucket is still the maximum over every split.
-        big_only = coll.subset_tasks(subset="big", predicates=preds)
-        assert sorted(t.split_index for t in big_only) == ["r0f0", "r0f1", "r0f2"]
-
     def test_beyond_arena_predicates_shorthand(self):
         from tabarena.contexts import BeyondArenaContext
 
