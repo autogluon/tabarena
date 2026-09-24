@@ -87,6 +87,12 @@ class TabArenaModelSpecificPreprocessing:
             ],
             "init_kwargs": {"verbosity": verbosity},
         }
+        # That wrapper passes through every input feature missing from its output. This keeps
+        # features no inner generator consumes (e.g. raw text or image paths), but would also
+        # re-add the text embeddings replaced by PCA, so `passthrough_types` excludes those.
+        passthrough_types = TabArenaModelSpecificPreprocessing.get_passthrough_types()
+        if passthrough_types is not None:
+            preprocessor_params["passthrough_types"] = passthrough_types
 
         if hp_key_kwargs not in hyperparameters:
             hyperparameters[hp_key_kwargs] = preprocessor_params
@@ -100,6 +106,18 @@ class TabArenaModelSpecificPreprocessing:
                 hyperparameters[hp_key_kwargs] = [hyperparameters[hp_key_kwargs]]
             hyperparameters[hp_key_kwargs] = [preprocessor_params, *hyperparameters[hp_key_kwargs]]
         return hyperparameters
+
+    @staticmethod
+    def get_passthrough_types() -> dict | None:
+        """Return the ``passthrough_types`` for AutoGluon's wrapper around the model-specific generator.
+
+        ``None`` passes through all input features missing from the output. With PCA, the text
+        embeddings it consumes are excluded, as otherwise the raw embeddings would be kept next to
+        their PCA components.
+        """
+        if TabArenaModelSpecificPreprocessing.use_pca:
+            return TextEmbeddingDimensionalityReductionFeatureGenerator.get_infer_features_in_args_to_drop()
+        return None
 
     @staticmethod
     def get_model_specific_generator(verbosity: int = 2) -> list:

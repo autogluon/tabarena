@@ -193,6 +193,50 @@ class TestTabArenaModelSpecificPreprocessing:
         assert "generators" in kwargs
         assert len(kwargs["generators"]) > 0
 
+    @pytest.mark.parametrize("use_pca", [False, True])
+    def test_model_specific_output_columns(self, tmp_path, monkeypatch, use_pca):
+        """With PCA, the raw text embeddings are replaced by their components, not kept next to them.
+
+        AutoGluon wraps the model-specific generator in a BulkFeatureGenerator that passes through input
+        features missing from its output. That must keep unconsumed features (raw text, image paths) but
+        not re-add the embeddings consumed by PCA.
+        """
+        from autogluon.common.features.feature_metadata import FeatureMetadata
+        from autogluon.common.features.types import S_IMAGE_PATH, S_TEXT, S_TEXT_EMBEDDING, S_TEXT_SPECIAL
+        from autogluon.core.models.dummy.dummy_model import DummyModel
+
+        monkeypatch.setattr(TabArenaModelSpecificPreprocessing, "use_pca", use_pca)
+        rng = np.random.default_rng(0)
+        n = 100
+        emb = [f"desc.emb_{i}" for i in range(4)]
+        X = pd.DataFrame(rng.normal(size=(n, len(emb))), columns=emb)
+        X["desc.char_count"] = rng.integers(0, 100, n).astype(float)
+        X["num"] = rng.normal(size=n)
+        X["cat"] = pd.Categorical(rng.choice(list("abc"), n))
+        X["raw_text"] = rng.choice(["hello world foo", "bar baz qux", "lorem ipsum"], n).astype(object)
+        X["img"] = rng.choice(["a.png", "b.png"], n).astype(object)
+        feature_metadata = FeatureMetadata.from_df(X).add_special_types(
+            {
+                **{c: [S_TEXT_EMBEDDING] for c in emb},
+                "desc.char_count": [S_TEXT_SPECIAL],
+                "raw_text": [S_TEXT],
+                "img": [S_IMAGE_PATH],
+            }
+        )
+
+        hyperparameters = TabArenaModelSpecificPreprocessing.add_to_hyperparameters({}, verbosity=0)
+        model = DummyModel(path=str(tmp_path), name="Dummy", problem_type="regression", hyperparameters=hyperparameters)
+        model.initialize(X=X, y=pd.Series(rng.normal(size=n)), feature_metadata=feature_metadata)
+        columns = list(model.get_preprocessor().fit_transform(X, feature_metadata_in=feature_metadata).columns)
+
+        consumed_by_pca = [*emb, "desc.char_count"]
+        assert {"num", "cat", "raw_text", "img"}.issubset(columns)
+        if use_pca:
+            assert not set(consumed_by_pca).intersection(columns)
+            assert any(c.startswith("desc.dr") for c in columns)
+        else:
+            assert set(consumed_by_pca).issubset(columns)
+
 
 # ===========================================================================
 # TabArenaModelAgnosticPreprocessing  (init + fit/transform)
