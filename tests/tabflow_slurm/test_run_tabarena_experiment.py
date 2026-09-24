@@ -534,3 +534,19 @@ class TestRunExperimentWorkerFlags:
         )
         with pytest.raises(ValueError, match="embeds a cache path"):
             self._run("x", tmp_path, materialize_tasks=True)
+
+
+def test_runner_entry_point_leaves_the_thread_variables_to_ray(monkeypatch):
+    """The runner must not export thread counts: fold workers would inherit them instead of Ray's per-worker value."""
+    import runpy
+    import sys
+
+    from tabarena.utils.thread_utils import THREAD_ENV_VARS
+    from tabflow_slurm import run_tabarena_experiment
+
+    for name in THREAD_ENV_VARS:
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setattr(sys, "argv", ["run_tabarena_experiment.py", "--help"])
+    with pytest.raises(SystemExit):
+        runpy.run_path(run_tabarena_experiment.__file__, run_name="__main__")
+    assert {name: os.environ.get(name) for name in THREAD_ENV_VARS} == dict.fromkeys(THREAD_ENV_VARS)
