@@ -3,9 +3,8 @@
 The protocol reports a ``num_cpus`` budget per fit but never forces the thread pools to it. These
 helpers make the environment observable and consistent instead: :func:`usable_cpu_count` reads
 the CPUs this process may actually run on (the affinity mask), :func:`check_cpu_budget` compares
-that with the budget and complains when they differ, :func:`align_thread_env_to_affinity` seeds
-the OMP-style thread variables from the affinity count on shared infrastructure, and
-:func:`cpu_thread_info` snapshots the effective thread configuration for the result metadata.
+that with the budget and complains when they differ, and :func:`cpu_thread_info` snapshots the
+effective thread configuration for the result metadata.
 None of them imports torch or any other heavy library.
 """
 
@@ -19,7 +18,6 @@ from typing import Literal
 
 __all__ = [
     "THREAD_ENV_VARS",
-    "align_thread_env_to_affinity",
     "check_cpu_budget",
     "cpu_thread_info",
     "usable_cpu_count",
@@ -74,22 +72,6 @@ def cpu_thread_info() -> dict:
         for pool in threadpool_info()
     ]
     return info
-
-
-def align_thread_env_to_affinity() -> dict[str, str]:
-    """Set the unset :data:`THREAD_ENV_VARS` to the affinity count and return what was set.
-
-    Libraries size their pools from these variables when they are created, so call this before
-    the first heavy import (and before ``ray.init``, so Ray daemons inherit the values). Variables
-    that are already set are left alone.
-    """
-    value = str(usable_cpu_count())
-    set_vars: dict[str, str] = {}
-    for name in THREAD_ENV_VARS:
-        if name not in os.environ:
-            os.environ[name] = value
-            set_vars[name] = value
-    return set_vars
 
 
 def check_cpu_budget(

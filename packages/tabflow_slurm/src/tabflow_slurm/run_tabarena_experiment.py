@@ -476,12 +476,9 @@ if __name__ == "__main__":
     # Every print reaches the SLURM log as soon as it is written, also from Ray-less processes.
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(line_buffering=True)
-    # Seed the OMP-style thread variables from the affinity mask before any library creates its
-    # pools and before Ray starts, so daemons and fold workers inherit them.
-    from tabarena.utils.thread_utils import align_thread_env_to_affinity
-
-    align_thread_env_to_affinity()
-
+    # The OMP-style thread variables stay unset: Ray sets OMP_NUM_THREADS in each fold worker to the
+    # CPUs it assigned, which OpenBLAS and MKL also read, and a value set here would be inherited
+    # by every worker instead (8 folds x 16 BLAS threads on 16 cores slowed Lasso fits ~1000x).
     args = _build_parser().parse_args()
     # Before the first huggingface_hub import (see apply_offline_weights_env).
     apply_offline_weights_env(args.offline_weights)

@@ -308,10 +308,11 @@ validation_protocol.json, which the compute node re-checks before fitting) → b
 
 ### Runtime (what runs on the node)
 - **`run_tabarena_experiment.py`** — the runner a single array task invokes per item (with
-  `python -P`). Aligns the thread variables to the CPU affinity, applies the offline-weights
-  environment, loads the shipped `JobBatch`, looks the item's `(experiment, dataset, fold, repeat)`
-  coordinates up in the batch's serialized job list (stale coordinates fail loudly), then calls
-  `setup_slurm_job()` (Ray is started only when the experiment's fit can reach it) and runs the job
+  `python -P`). Leaves the OMP-style thread variables unset so Ray sizes each fold worker's pools to
+  its CPUs, applies the offline-weights environment, loads the shipped `JobBatch`, looks the item's
+  `(experiment, dataset, fold, repeat)` coordinates up in the batch's serialized job list (stale
+  coordinates fail loudly), then calls `setup_slurm_job()` (Ray is started only when the
+  experiment's fit can reach it) and runs the job
   through `ExperimentBatchRunner.run_jobs` — the exact same execution path (task resolution,
   results naming, cache layout) as a local benchmark run. Results cache under
   `output/<benchmark_name>/`. A failed item is cleaned up and its Ray worker logs are copied next to

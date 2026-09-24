@@ -13,7 +13,6 @@ from tabarena.utils import thread_utils
 from tabarena.utils.resources import detect_num_cpus
 from tabarena.utils.thread_utils import (
     THREAD_ENV_VARS,
-    align_thread_env_to_affinity,
     check_cpu_budget,
     cpu_thread_info,
     usable_cpu_count,
@@ -45,17 +44,6 @@ def test_check_cpu_budget_reports_a_mismatch_per_mode(monkeypatch, mode):
     # A matching budget is silent in every mode; ``None`` resolves to the detected count.
     assert check_cpu_budget(16, on_mismatch=mode) == {"num_cpus": 16, "usable_cpus": 16, "matches": True}
     assert check_cpu_budget(None, on_mismatch=mode)["matches"] is True
-
-
-def test_align_thread_env_sets_only_the_unset_variables(monkeypatch):
-    monkeypatch.setattr(thread_utils, "usable_cpu_count", lambda: 6)
-    for name in THREAD_ENV_VARS:
-        monkeypatch.delenv(name, raising=False)
-    monkeypatch.setenv("MKL_NUM_THREADS", "2")
-
-    assert align_thread_env_to_affinity() == {"OMP_NUM_THREADS": "6", "OPENBLAS_NUM_THREADS": "6"}
-    assert os.environ["MKL_NUM_THREADS"] == "2"
-    assert align_thread_env_to_affinity() == {}
 
 
 def test_cpu_thread_info_snapshots_without_importing_torch(monkeypatch):
