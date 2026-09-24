@@ -21,8 +21,10 @@ def default_eval_metric(problem_type: str) -> str:
 
 
 #: Alias -> canonical TabArena metric name. AutoGluon registers several names per
-#: metric (e.g. ``root_mean_squared_error`` == ``rmse``); results ingestion
-#: canonicalizes so downstream comparisons join on one name.
+#: metric (e.g. ``root_mean_squared_error`` == ``rmse``, and a scorer's ``name`` is the
+#: long form). Task metadata, task wrappers, the experiment runner and the recorded
+#: simulation artifacts all emit the canonical name, so every task and result joins on
+#: one name; results ingestion canonicalizes as well, for results written before that.
 EVAL_METRIC_ALIASES: dict[str, str] = {
     "root_mean_squared_error": "rmse",
 }

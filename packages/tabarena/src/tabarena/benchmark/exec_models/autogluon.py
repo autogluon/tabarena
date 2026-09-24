@@ -30,6 +30,7 @@ from tabarena.benchmark.exec_models.persist_inference import (
 )
 from tabarena.benchmark.exec_models.utils import _apply_inv_perm, _make_perm
 from tabarena.benchmark.preprocessing.pipeline import build_feature_generator, resolve_preprocessing_pipeline
+from tabarena.benchmark.task.metrics import normalize_eval_metric
 from tabarena.benchmark.validation_protocol import (
     ValidationProtocol,
     ValidationProtocolError,
@@ -739,7 +740,7 @@ class AGWrapper(AbstractExecModel):
         return {
             "pred_proba_dict_val": pred_val,  # narrowed to the one model, as ``get_oof`` returns it
             "y_val": y_val,
-            "eval_metric": self.predictor.eval_metric.name,
+            "eval_metric": normalize_eval_metric(self.predictor.eval_metric.name),  # scorer names are the long form
             "problem_type": self.predictor.problem_type,
             "problem_type_transform": label_cleaner.problem_type_transform,
             "ordered_class_labels": label_cleaner.ordered_class_labels,

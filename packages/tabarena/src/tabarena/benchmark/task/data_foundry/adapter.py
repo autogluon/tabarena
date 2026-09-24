@@ -23,6 +23,7 @@ import pandas as pd
 from loguru import logger
 from tqdm import tqdm
 
+from tabarena.benchmark.task.metrics import normalize_eval_metric
 from tabarena.benchmark.task.user_task import UserTask
 
 if TYPE_CHECKING:
@@ -32,12 +33,14 @@ if TYPE_CHECKING:
 DEFAULT_EVAL_METRICS: dict[str, list[str]] = {
     "binary_classification": ["roc_auc"],
     "multiclass_classification": ["log_loss"],
-    "regression": ["root_mean_squared_error"],
+    "regression": ["rmse"],
 }
 """Allowed TabArena eval metrics per Data Foundry ``problem_type``.
 
-If a curated container's ``objective_metric_name`` is not in the allowed list for its
-problem type, the first metric in the list is used as a fallback. Override by passing
+Metric names are canonical TabArena names (``tabarena.benchmark.task.metrics``); a curated
+container's ``objective_metric_name`` is canonicalized before the check (Data Foundry names
+RMSE ``root_mean_squared_error``). If it is not in the allowed list for its problem type,
+the first metric in the list is used as a fallback. Override by passing
 ``evaluation_metrics=...`` to the adapter or converter.
 """
 
@@ -227,7 +230,7 @@ def convert_curated_container_to_user_task(
         raise ValueError(f"Unknown problem type {df_problem_type!r}")
 
     # Eval-metric fallback against TabArena's allowed set.
-    eval_metric = container.task_metadata.objective_metric_name
+    eval_metric = normalize_eval_metric(container.task_metadata.objective_metric_name)
     if evaluation_metrics is not None:
         allowed = evaluation_metrics[df_problem_type]
         if eval_metric not in allowed:

@@ -142,8 +142,8 @@ def compute_task_metadata(
         The outer evaluation splits as ``{repeat: {fold: (train_idx, test_idx)}}``,
         with positional (0-based) row indices into ``dataset``.
     dataset_name, eval_metric:
-        Recorded verbatim on the metadata (``eval_metric=None`` means the TabArena
-        per-problem-type default applies downstream).
+        Recorded on the metadata, the metric under its canonical TabArena name
+        (``eval_metric=None`` means the TabArena per-problem-type default applies downstream).
     stratify_on, group_on, time_on, group_time_on, group_labels:
         The split-configuration columns (see ``TabArenaTaskMetadata``).
     split_time_horizon, split_time_horizon_unit:

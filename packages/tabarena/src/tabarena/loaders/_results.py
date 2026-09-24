@@ -83,12 +83,15 @@ def load_results(
 
 
 def get_metric_name(metric: str) -> str:
+    """The canonical TabArena name of ``metric``: legacy result-frame names and AutoGluon aliases."""
+    from tabarena.benchmark.task.metrics import normalize_eval_metric
+
     metric_map = {
         "auc": "roc_auc",
         "neg_rmse": "rmse",
         "neg_logloss": "log_loss",
     }
-    return metric_map.get(metric, metric)
+    return normalize_eval_metric(metric_map.get(metric, metric))
 
 
 def get_metric_error_from_score(score: float, metric: str) -> float:

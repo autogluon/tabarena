@@ -75,7 +75,7 @@ def load_context_artificial(
             "fold": fold,
             "framework": baseline,
             "problem_type": problem_type,
-            "metric": "root_mean_squared_error",
+            "metric": "rmse",
             **make_random_metric(baseline),
         }
         for fold in range(n_folds)
@@ -94,7 +94,7 @@ def load_context_artificial(
                 "fold": fold,
                 "framework": baseline,
                 "problem_type": problem_type,
-                "metric": "root_mean_squared_error",
+                "metric": "rmse",
                 **make_random_metric(baseline),
             }
             for fold in [0]
@@ -120,7 +120,7 @@ def load_context_artificial(
             "fold": fold,
             "framework": model,
             "problem_type": problem_type,
-            "metric": "root_mean_squared_error",
+            "metric": "rmse",
             **make_random_metric(model),
         }
         for fold in range(n_folds)

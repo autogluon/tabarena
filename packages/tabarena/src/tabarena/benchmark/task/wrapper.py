@@ -155,10 +155,15 @@ class TaskWrapper(ABC):
 
     @property
     def eval_metric(self) -> str:
-        if self._eval_metric is not None:
-            return self._eval_metric
-        from tabarena.benchmark.task.metrics import default_eval_metric
+        """The task's evaluation metric under its canonical TabArena name.
 
+        An OpenML task's ``evaluation_measure`` or a stored metadata may carry an AutoGluon alias
+        (``root_mean_squared_error``); it is reported as the canonical name (``rmse``).
+        """
+        from tabarena.benchmark.task.metrics import default_eval_metric, normalize_eval_metric
+
+        if self._eval_metric is not None:
+            return normalize_eval_metric(self._eval_metric)
         return default_eval_metric(self.problem_type)
 
     def compute_error(self, y_true, y_pred) -> float:

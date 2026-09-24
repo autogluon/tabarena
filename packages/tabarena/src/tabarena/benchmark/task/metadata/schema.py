@@ -61,7 +61,8 @@ class TabArenaTaskMetadata:
     target_name: str
     """The name of the target variable in the dataset."""
     eval_metric: str
-    """The evaluation metric used for the task."""
+    """The evaluation metric used for the task, as its canonical TabArena name (an AutoGluon alias such as
+    ``root_mean_squared_error`` is stored as ``rmse``; see ``tabarena.benchmark.task.metrics``)."""
 
     """The number of splits in the task."""
     splits_metadata: dict[SplitIndex, SplitMetadata]
@@ -171,6 +172,12 @@ class TabArenaTaskMetadata:
     """Samples in the largest class divided by samples in the smallest one. Classification only."""
     target_skewness: float | None = None
     """Fisher skewness of the target values. Regression only, ``None`` for classification."""
+
+    def __post_init__(self) -> None:
+        from tabarena.benchmark.task.metrics import normalize_eval_metric
+
+        if self.eval_metric is not None:
+            self.eval_metric = normalize_eval_metric(self.eval_metric)
 
     def to_validation_metadata(self) -> ValidationMetadata:
         """Project this task metadata onto a ``ValidationMetadata`` (the split-config subset).
