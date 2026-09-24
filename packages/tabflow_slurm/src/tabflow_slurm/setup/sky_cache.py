@@ -138,14 +138,19 @@ def user_task_entries(task_id_str: str, *, openml_root: Path, tabarena_root: Pat
 def upgrade_legacy_user_task(collection: TaskMetadataCollection, dataset: str, *, openml_root: Path) -> bool:
     """Replace ``dataset``'s legacy task pickle by the portable format; ``True`` when it was upgraded.
 
-    Re-materializes the dataset through the collection's source (its recorded suite) into a scratch
-    OpenML root next to the real one, then moves the new ``tabarena_tasks/<slug>.pkl`` over the legacy
-    file with ``os.replace`` (atomic on one filesystem). The text cache lands in the TabArena cache as
-    usual. Nothing changes when the collection has no materializing source or the conversion fails.
+    ``dataset`` is the ``tabarena_task_name`` (a data-foundry task's slug, the pickle's file name), so
+    the collection is scoped by that task's ``task_id_str``. Re-materializes the dataset through the
+    collection's source (its recorded suite) into a scratch OpenML root next to the real one, then
+    moves the new ``tabarena_tasks/<slug>.pkl`` over the legacy file with ``os.replace`` (atomic on one
+    filesystem). The text cache lands in the TabArena cache as usual. Nothing changes when the
+    collection has no materializing source or the conversion fails.
     """
     import openml
 
-    scoped = collection.subset_tasks(dataset_names=[dataset])
+    task_ids = [str(t.task_id_str) for t in collection if t.tabarena_task_name == dataset and t.task_id_str is not None]
+    if not task_ids:
+        return False
+    scoped = collection.subset_tasks(task_ids=task_ids)
     if scoped.preset is None or len(scoped) == 0:
         return False
     slug = dataset  # a data-foundry task's tabarena_task_name is its slug

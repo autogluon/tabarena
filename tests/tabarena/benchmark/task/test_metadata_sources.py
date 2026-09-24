@@ -262,6 +262,25 @@ def test_data_foundry_source_materialize_skips_tasks_without_uri(patched_data_fo
     assert by_name["ds_b"].task_id_str == "UserTask|1|ds_b"  # untouched
 
 
+def test_data_foundry_source_materialize_passes_whether_the_dataset_has_text(monkeypatch):
+    """The text flag lets ``materialize_task`` skip the container of a text-free dataset that is already local."""
+    import tabarena.benchmark.task.data_foundry as df_pkg
+
+    seen: dict[str, bool | None] = {}
+
+    def _fake_materialize(*, data_foundry_uri, has_text=None, **_):
+        seen[data_foundry_uri] = has_text
+        return f"materialized::{data_foundry_uri}"
+
+    monkeypatch.setattr(df_pkg, "materialize_task", _fake_materialize)
+    tasks = [_task(dataset_name=f"ds_{i}", uri=f"ds_{i}/uuid") for i in range(3)]
+    tasks[0].num_text_cols = 0
+    tasks[1].num_text_cols = 2
+    tasks[2].num_text_cols = None  # unknown: the import runs as before
+    DataFoundryTaskMetadataSource(_DummyCollection()).materialize(tasks)
+    assert seen == {"ds_0/uuid": False, "ds_1/uuid": True, "ds_2/uuid": None}
+
+
 def test_data_foundry_source_materialize_dedups_splits_of_same_dataset(patched_data_foundry):
     """A dataset unrolled into N splits is downloaded once, but every split is updated."""
     src = DataFoundryTaskMetadataSource(_DummyCollection())

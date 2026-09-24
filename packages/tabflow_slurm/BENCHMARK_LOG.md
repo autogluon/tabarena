@@ -34,6 +34,103 @@ run against `main`. To reproduce an entry, check out its recorded **git SHA**.
 
 ---
 
+## 2026-09-22 — beyondarena_tfms_22092026
+
+- **Model(s):** TabPFN-3.5, TabPFN-3.5-Fast, Causilo, LimiX-2, TabFM, EXAONE-Tabular, RealTabPFN-v2.5, TabDPT-1.3,
+  TabSwift (default config only, `NUM_CONFIGS=0`)
+- **Git SHA:** `1bbb525a` (branch `beyondarena-tfms-22092026`, PR #610, on main `277a14a7`); editable AutoGluon
+  `../autogluon` at `eeab9f95`
+- **Validation protocol:** BeyondArena's official protocol (8x1, 5x5 at or below 500 training groups, task-specific
+  inner splits), asserted by `BeyondArenaContext`
+- **Purpose:** First BeyondArena-Core run of the current tabular foundation models in one shared environment, to find
+  where each one fails on the larger and wider tables (VRAM, wrapper caps, time limits) and to add the sub-sampling
+  guards the wrappers need.
+- **Notes:** SkyPilot job pool `tabarena-beyondarena-tfms-22092026` (`--scheduler skypilot-pool`), 64 spot
+  `g4-standard-48` workers (RTX PRO 6000, 96 GB; `fake_memory_for_estimates=96`), bundle size 1, shared API server
+  `http://skypilot-api:46580`, bucket prefix `gs://p2or-sky-cache-eu-dev/lennart_priorlabs_ai/tabarena`, run venv
+  `~/.venvs/tabarena_10082026` (Python 3.12, torch 2.13.0+cu130, tabpfn 9.0.0, tabpfn-extensions 0.6.3, causilo 1.0.2,
+  tabdpt 1.3.1, LimiX 774aa3e1 with `--no-deps` plus nvtx, tabfm fbb66556, exaonetabular 8638e07d). Scope: the `core`
+  protocol (507 items over 142 datasets); TabPFN-3.5, TabPFN-3.5-Fast and Causilo on every dataset, the other six on
+  `["core", "!large"]` (at most 100k training rows, 475 items); 4371 items in total, all with a result.
+  **Protocol deviation:** fit time limits of 16 h on the medium and large datasets (more than 10k training rows) and
+  the BeyondArena default of 4 h on the tiny and small ones, following the LimiX-2 TabArena precedent
+  (`limix2_17092026`). Three launches on one pool: `gpu_16h` (234 items), `gpu_16h_le100k` (276), `gpu` (3861);
+  launch ids `beyondarena_tfms_22092026_gpu_16h-20260922-201401-b6d6`, `..._gpu_16h_le100k-20260922-201521-8e61`,
+  `..._gpu-20260922-201628-548b`. TabFM and EXAONE-Tabular run at their upstream heads (same checkpoints; TabFM 1.0.1
+  computes in bfloat16 by default and exposes `max_num_rows`; EXAONE's regression preset gained `feature_limit=1024`).
+  Xiaomi-TabLDM was dropped before launch (a new release is expected). Fixes and relaunches during the run, each on
+  a pool of its own because a pool's workers keep the environment they were built with: `setup-fix` (2026-09-23,
+  pool `-fix`, 42 items: frame-based memory estimates for TabDPT-1.3 and RealTabPFN-v2.5, RealTabPFN's 2000-feature
+  cap lifted, TabSwift float32 clip, LimiX-2 ARPACK fallback), `setup-fix2` (pool `-fix2`, 11 items: TabFM
+  `max_num_rows` cell budget, LimiX-2 row-only cell budget; LimiX-2 still lost `wids` and `pva` to the 16 h limit),
+  `setup-fix3` (pool `-fix3`, 7 items: LimiX-2 size caps, a table above 10M training cells cut to 500 columns, 30k
+  rows and the cell cap, fixed 4096-row query batches; all passed, labour 5.1 h, wids 7.8 h, pva 9.1 h). Two pool
+  re-applies with a smaller `workers:` count replaced every worker and restarted the running items from scratch
+  (TabPFN-3.5 on maps_router and amex, RealTabPFN-v2.5 on pva). TabPFN-3.5 on the 1M-row tables took 6.7 to 9.6 h,
+  3.1x to 4.6x the Fast checkpoint in every phase. Failures per model and dataset, cell counts and the guard analysis
+  are in the PR body and in `tmp_scripts/beyondarena_tfms_22092026_failures.md` (not committed). Final eval (2026-09-24 05:20 CEST, `eval --scheduler skypilot-pool`, `BeyondArenaContext(only_valid_tasks=True)`, results imputed for the six models that skipped the large tables): on `core` TabPFN-3.5 Elo 1391 (rank 1 of 37), Causilo 1335 (2), TabPFN-3.5-Fast 1333 (3), LimiX-2 1278 (4), TabFM 1274 (5), EXAONE-Tabular 1253 (6), ahead of the hosted TabPFN-3 (1247); RealTabPFN-v2.5 1148 (17), TabDPT-1.3 1130 (18), TabSwift 1048 (24). On the `!large` slice every model ran (120 datasets, 475 tasks, no imputation): TabPFN-3.5 1457, Causilo 1416, LimiX-2 1408, TabPFN-3.5-Fast 1407, TabFM 1402, EXAONE-Tabular 1372, RealTabPFN-v2.5 1233, TabDPT-1.3 1211, TabSwift 1109. Elo is anchored at XGBoost (default) = 1000; imputation uses RandomForest (default). Uploaded as suite `beyondarena-2026-09-22` (`tabarena.contexts.beyondarena.methods`, `beyond_<model>_metadata`, unverified). Figures and per-split results for 16 subsets under `tmp_scripts/eval_output/beyondarena_tfms_22092026/subsets/`.
+
+```python
+BENCHMARK_NAME = "beyondarena_tfms_22092026"
+WORKSPACE = "/home/lennart_priorlabs_ai/workspace/benchmarking/tabarena_workspace"
+PYTHON_PATH = "/home/lennart_priorlabs_ai/.venvs/tabarena_10082026/bin/python"
+POOL_NAME = "tabarena-beyondarena-tfms-22092026"
+WORKERS = 64
+API_SERVER_ENDPOINT = "http://skypilot-api:46580"
+
+MODELS_ALL_SIZES = ("TabPFN-3.5", "TabPFN-3.5-Fast", "Causilo")
+MODELS_UP_TO_100K = ("LimiX-2", "TabFM", "EXAONE-Tabular", "RealTabPFN-v2.5", "TabDPT-1.3", "TabSwift")
+MODELS = MODELS_ALL_SIZES + MODELS_UP_TO_100K
+NUM_CONFIGS = 0
+
+TIME_LIMIT_DEFAULT = 4 * 3600  # BeyondArena's default, for the tiny and small datasets
+TIME_LIMIT_LONG = 16 * 3600  # medium and large datasets
+
+SMALL_DATA = ["core", "!medium", "!large"]  # 90 datasets, 429 splits
+MEDIUM_DATA = ["core", "medium"]  # 30 datasets, 46 splits
+MEDIUM_AND_LARGE_DATA = ["core", "medium|large"]  # 52 datasets, 78 splits
+
+scheduler_setup = SkyPilotSetup(
+    bundle_size=1,
+    workers=WORKERS,
+    secrets=("HF_TOKEN",),
+    use_pool=True,
+    pool_name=POOL_NAME,
+    api_server_endpoint=API_SERVER_ENDPOINT,
+)
+gpu = {"num_gpus": 1, "fake_memory_for_estimates": 96}
+
+
+def job(models: tuple[str, ...], name: str, tasks: list[str], time_limit: int) -> ModelJob:
+    return ModelJob(
+        models=[(model, NUM_CONFIGS) for model in models],
+        name=name,
+        resources={**gpu, "time_limit": time_limit},
+        tasks=TaskSubset(subset=tasks),
+    )
+
+
+plan = TabArenaBenchmarkPlan(
+    benchmark_name=BENCHMARK_NAME,
+    model_jobs=[
+        job(MODELS_ALL_SIZES, "gpu_16h", MEDIUM_AND_LARGE_DATA, TIME_LIMIT_LONG),
+        job(MODELS_UP_TO_100K, "gpu_16h_le100k", MEDIUM_DATA, TIME_LIMIT_LONG),
+        job(MODELS, "gpu", SMALL_DATA, TIME_LIMIT_DEFAULT),
+    ],
+    task_subset=TaskSubset(subset=["core"]),
+    context=BeyondArenaContext(),
+    experiment_bundle=BeyondArenaExperimentBundle(model_verbosity=2),
+    path_setup=PathSetup(workspace=WORKSPACE, python_path=PYTHON_PATH),
+    resources_setup=BeyondArenaResourcesSetup(),
+    scheduler_setup=scheduler_setup,
+)
+plan.setup_jobs()
+
+# Relaunches (setup-fix / -fix2 / -fix3): the same plan restricted to the affected (model, dataset) pairs via
+# ModelJob(tasks=TaskSubset(subset=["core"], dataset_names=[...]), ignore_cache=True for the guarded reruns),
+# each on a fresh pool (POOL_NAME + "-fix", "-fix2", "-fix3").
+```
+
 ## 2026-09-21 — tabdpt13_21092026
 
 - **Model(s):** TabDPT-1.3 (default config only, `NUM_CONFIGS=0`, all 816 splits)

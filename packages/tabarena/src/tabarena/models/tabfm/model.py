@@ -9,11 +9,25 @@ from autogluon.core.constants import BINARY, MULTICLASS
 from autogluon.core.models.abstract import SharedWeights
 from autogluon.tabular.models.abstract.abstract_torch_model import AbstractTorchModel
 
+from tabarena.utils.wrapper_utils import (
+    gpu_cell_budget,
+    import_many_class_classifier,
+    root_handlers_preserved,
+    rows_within_budget,
+)
+
 if TYPE_CHECKING:
     import torch
 
 
 logger = logging.getLogger(__name__)
+
+#: Peak GPU memory per training cell measured on BeyondArena (about 21M cells on 96 GB), the safety margin that
+#: keeps the refit's fragmented reserved memory and the test batches out of trouble, and the library's
+#: recommended minimum rows per ensemble member.
+TABFM_BYTES_PER_CELL = 4700
+TABFM_CELL_SAFETY = 0.7
+TABFM_MIN_ROWS_PER_MEMBER = 5000
 
 
 def _resolve_device(device: str | None, num_gpus: int, *, cuda_available: bool) -> str:
@@ -57,10 +71,15 @@ def _load_tabfm_network(*, problem_type: str, device: str) -> torch.nn.Module:
     :func:`prefetch_weights`); a no-op once cached. An estimator runs where its network lives. The
     network bounds its own peak activation memory via always-on internal chunking, so large tasks
     need no wrapper-side handling.
+
+    ``load`` reports the download through the root ``logging`` functions, which install a
+    ``StreamHandler`` on a root logger that has none; the call runs under
+    :func:`~tabarena.utils.wrapper_utils.root_handlers_preserved`.
     """
     from tabfm import tabfm_v1_0_0_pytorch
 
-    return tabfm_v1_0_0_pytorch.load(model_type=_model_type(problem_type), device=device)
+    with root_handlers_preserved():
+        return tabfm_v1_0_0_pytorch.load(model_type=_model_type(problem_type), device=device)
 
 
 def _build_tabfm_estimator(*, problem_type: str, device: str, interface: str, network=None, **hps):
@@ -156,6 +175,11 @@ class TabFMModel(AbstractTorchModel):
     of tabpfn-extensions, which codes the labels over that many symbols and fits one TabFM
     estimator per code row on the same network.
 
+    Above a cell budget derived from the GPU (``rows x columns`` of the training table, about 14M cells on a
+    96 GB card; :mod:`tabarena.utils.wrapper_utils`) the fit sets TabFM's ``max_num_rows`` so every ensemble
+    member sub-samples its rows: the network embeds every training cell and ran out of memory at about 21M
+    cells. The ``cell_budget`` hyperparameter overrides the derived budget.
+
     Paper: TabFM (Tabular Foundation Model)
     Authors: Google Research
     Codebase: https://github.com/google-research/tabfm
@@ -223,13 +247,27 @@ class TabFMModel(AbstractTorchModel):
         # Does nothing (TabFM handles categoricals/missing natively); kept for
         # future preprocessing extensions and parity with the other wrappers.
         X = self.preprocess(X, y=y)
+        # Cell budget: above it every ensemble member sub-samples its rows (`max_num_rows`, TabFM 1.0.1).
+        # `cell_budget` is a wrapper-only hyperparameter that overrides the GPU-derived budget (tests).
+        cell_budget = hps.pop("cell_budget", None)
+        if cell_budget is None:
+            cell_budget = gpu_cell_budget(bytes_per_cell=TABFM_BYTES_PER_CELL, safety=TABFM_CELL_SAFETY)
+        if cell_budget is not None and "max_num_rows" not in hps:
+            n_rows = rows_within_budget(X.shape[0], X.shape[1], cell_budget, min_rows=TABFM_MIN_ROWS_PER_MEMBER)
+            if n_rows < X.shape[0]:
+                hps["max_num_rows"] = n_rows
+                logger.log(
+                    20,
+                    f"\tTabFM: {X.shape[0]} x {X.shape[1]} training cells exceed the budget of {cell_budget} cells "
+                    f"on this GPU; each ensemble member sub-samples {n_rows} rows (max_num_rows).",
+                )
         self._use_many_class = (
             self.problem_type in [BINARY, MULTICLASS]
             and self.num_classes is not None
             and self.num_classes > many_class_threshold
         )
         if self._use_many_class:
-            from tabpfn_extensions.many_class import ManyClassClassifier
+            ManyClassClassifier = import_many_class_classifier()
 
             logger.log(
                 20,

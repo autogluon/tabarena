@@ -196,8 +196,9 @@ class _UpgradableCollection:
     def __len__(self):
         return 1
 
-    def subset_tasks(self, *, dataset_names):
-        assert dataset_names == [self._ttm.tabarena_task_name]
+    def subset_tasks(self, *, task_ids):
+        # The real collection filters by ``task_id_str``; a dataset-name filter would not know the slug.
+        assert task_ids == [self._ttm.task_id_str]
         return self
 
     def materialize(self):

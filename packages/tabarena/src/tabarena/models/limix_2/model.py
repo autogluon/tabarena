@@ -12,6 +12,15 @@ from autogluon.common.utils.pandas_utils import get_approximate_df_mem_usage
 from autogluon.core.constants import BINARY, MULTICLASS
 from autogluon.core.models.abstract import SharedWeights
 from autogluon.tabular.models.abstract.abstract_torch_model import AbstractTorchModel
+from scipy.sparse.linalg import ArpackError
+from sklearn.decomposition import TruncatedSVD
+
+from tabarena.utils.wrapper_utils import (
+    import_many_class_classifier,
+    rows_within_budget,
+    stratified_row_subsample,
+    univariate_top_columns,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +35,19 @@ _DEFAULT_CONFIGS = {
     "classification": "cls_default_noretrieval_v2.json",
     "regression": "reg_default_noretrieval_v2.json",
 }
+#: Size caps for the stored in-context training table, an intermediate placeholder measured on the 96 GB RTX
+#: PRO 6000 under BeyondArena's bagged protocol (32 pipeline members for classification): 38k x 318 passed in
+#: 4 h, while 53.6k x 243 and 7.9k x 1652 ran into the 16 h limit on LimiX's own smaller-batch fallback, which
+#: slows a fit to hours per fold instead of raising. A table above ``LIMIX2_MAX_CELLS`` training cells is cut
+#: down: columns to ``LIMIX2_MAX_COLS`` (highest univariate F-score), then rows to ``LIMIX2_MAX_ROWS`` and to the
+#: cell cap (stratified sub-sample). Smaller tables, including the wide gene-expression ones, are untouched.
+LIMIX2_MAX_CELLS = 10_000_000
+LIMIX2_MAX_COLS = 500
+LIMIX2_MAX_ROWS = 30_000
+#: Query rows per forward pass once a cap engaged; the library's default scores the whole query set first and
+#: only halves the batch after a CUDA out-of-memory error.
+LIMIX2_TEST_BATCH_SIZE = 4096
+
 _INSTALL_HINT = (
     "LimiX-2 needs the LimiX inference package, installed without its dependency tree "
     "(it pins torch==2.9.1): see the LimiX2Model docstring."
@@ -68,6 +90,44 @@ def _patch_predictor(predictor_cls: type) -> None:
     predictor_cls._tabarena_patched = True
 
 
+class _TruncatedSVDWithArpackFallback(TruncatedSVD):
+    """``TruncatedSVD`` that retries with the randomized solver when ARPACK fails.
+
+    Module-level so the fitted preprocessing pipelines that hold it pickle with the model.
+    """
+
+    _tabarena_arpack_fallback = True
+
+    def fit_transform(self, X, y=None):
+        try:
+            return super().fit_transform(X, y)
+        except ArpackError as exc:
+            logger.log(
+                20,
+                f"\tLimiX-2: ARPACK failed on a {X.shape[0]} x {X.shape[1]} fold ({exc}); "
+                "retrying the SVD member with the randomized solver.",
+            )
+            self.algorithm = "randomized"
+            return super().fit_transform(X, y)
+
+
+def _patch_svd_fallback() -> None:
+    """Let LimiX's SVD preprocessing survive an ARPACK failure on a tiny or degenerate training fold.
+
+    ``inference.v2_0.preprocess`` builds ``TruncatedSVD(algorithm="arpack", ...)`` for its SVD-augmented
+    members. On a fold with few rows and near-duplicate columns ARPACK can raise ``ArpackError`` ("No
+    shifts could be applied during a cycle of the Implicitly restarted Arnoldi iteration"), which failed a
+    134-row BeyondArena split. The name the module looks up at construction time is replaced by
+    :class:`_TruncatedSVDWithArpackFallback`; the member is otherwise unchanged. Idempotent. The
+    library-side fix is the same fallback (or ``algorithm="randomized"``) in LimiX itself.
+    """
+    from inference.v2_0 import preprocess
+
+    if getattr(preprocess.TruncatedSVD, "_tabarena_arpack_fallback", False):
+        return
+    preprocess.TruncatedSVD = _TruncatedSVDWithArpackFallback
+
+
 def _build_limix2_predictor(*, device_str, model_path, inference_config, preprocess_num_jobs, hps):
     """Construct one ``LimiXPredictor`` instance (LimiX-2 is stateless per ``predict()`` call, so
     this is the whole "fit"). Factored out of ``LimiX2Model._fit`` so the exact same construction
@@ -79,6 +139,7 @@ def _build_limix2_predictor(*, device_str, model_path, inference_config, preproc
     from inference.v2_0.predictor import LimiXPredictor
 
     _patch_predictor(LimiXPredictor)
+    _patch_svd_fallback()
     return LimiXPredictor(
         device=torch.device(device_str),
         model_path=str(model_path),
@@ -152,6 +213,13 @@ class _LimiX2SklearnWrapper:
 class LimiX2Model(AbstractTorchModel):
     """LimiX-2 TabArena integration.
 
+    A stored in-context training table above ``LIMIX2_MAX_CELLS`` cells is cut to ``LIMIX2_MAX_COLS`` columns
+    (highest univariate F-score), then to ``LIMIX2_MAX_ROWS`` rows and the cell cap (stratified sub-sample), and
+    such a fit scores the query rows in fixed batches (:mod:`tabarena.utils.wrapper_utils`): LimiX has no cap
+    of its own and, on tables of that size, spent hours per fold in its smaller-batch fallback before
+    AutoGluon's fold scheduler gave up. The ``max_cells``, ``max_cols`` and ``max_rows`` hyperparameters
+    override the defaults (``max_cells=None`` disables the caps).
+
     LimiX-2 is Stable AI's 400M-parameter tabular foundation model, a Contextual Mechanism Network
     pretrained with context-conditional masked modeling on synthetic data from structural causal
     models. Prediction is in context: the fit stores the training table, and every predict passes it
@@ -218,6 +286,7 @@ class LimiX2Model(AbstractTorchModel):
         super().__init__(**kwargs)
         self._X_train: pd.DataFrame | None = None
         self._y_train: np.ndarray | None = None
+        self._keep_cols: list | None = None  # the columns kept by the column cap, applied to the query rows too
         self._use_many_class = False  # True when ManyClassClassifier (ECOC) is active
 
     def _preprocess(self, X: pd.DataFrame, **kwargs) -> pd.DataFrame:
@@ -266,6 +335,39 @@ class LimiX2Model(AbstractTorchModel):
 
         self._X_train = self.preprocess(X)
         self._y_train = y.to_numpy()
+        # Size caps (see the module constants): LimiX has no row or column cap of its own, and above the cell
+        # cap its smaller-batch fallback turns a fit into hours per fold.
+        max_cells = hps.pop("max_cells", LIMIX2_MAX_CELLS)
+        max_cols = hps.pop("max_cols", LIMIX2_MAX_COLS)
+        max_rows = hps.pop("max_rows", LIMIX2_MAX_ROWS)
+        classification = self.problem_type in [BINARY, MULTICLASS]
+        n_rows, n_cols = self._X_train.shape
+        if max_cells is not None and n_rows * n_cols > max_cells:
+            if max_cols is not None and n_cols > max_cols:
+                self._keep_cols = univariate_top_columns(
+                    self._X_train, self._y_train, max_cols, classification=classification
+                )
+                self._X_train = self._X_train[self._keep_cols]
+            n_keep = rows_within_budget(n_rows, self._X_train.shape[1], max_cells)
+            if max_rows is not None:
+                n_keep = min(n_keep, max_rows)
+            if n_keep < n_rows:
+                keep = stratified_row_subsample(
+                    self._y_train,
+                    n_keep,
+                    classification=classification,
+                    seed=self.random_seed if isinstance(getattr(self, "random_seed", None), int) else 0,
+                )
+                self._X_train = self._X_train.iloc[keep]
+                self._y_train = self._y_train[keep]
+            hps.setdefault("test_batch_mode", "fixed")
+            hps.setdefault("test_batch_size", LIMIX2_TEST_BATCH_SIZE)
+            logger.log(
+                20,
+                f"\tLimiX-2: training table {n_rows} x {n_cols} exceeds {max_cells} cells, cut to "
+                f"{self._X_train.shape[0]} x {self._X_train.shape[1]} (at most {max_rows} rows, {max_cols} "
+                f"columns); query rows scored in batches of {hps['test_batch_size']}.",
+            )
         self._use_many_class = (
             self.problem_type in [BINARY, MULTICLASS]
             and self.num_classes is not None
@@ -274,7 +376,7 @@ class LimiX2Model(AbstractTorchModel):
 
         if self._use_many_class:
             try:
-                from tabpfn_extensions.many_class import ManyClassClassifier
+                ManyClassClassifier = import_many_class_classifier()
             except ImportError:
                 logger.log(
                     40,
@@ -313,6 +415,8 @@ class LimiX2Model(AbstractTorchModel):
         sklearn fit API). The regression decoder can return a tensor; both come back as float32.
         """
         X_test = self.preprocess(X, **kwargs)
+        if self._keep_cols is not None:
+            X_test = X_test[self._keep_cols]
         if self._use_many_class:
             # ManyClassClassifier (ECOC) exposes its own predict_proba, which internally
             # dispatches to each sub-estimator's predict_proba (i.e.

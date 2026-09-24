@@ -187,6 +187,9 @@ class EXAONETabularModel(AbstractTorchModel):
         from huggingface_hub import hf_hub_download
 
         checkpoint = released_checkpoint(task)
+        # The library's weight resolution also requests the repo's ``config.json`` (its download
+        # tracking), so an offline fit needs that file in the cache next to the weights.
+        hf_hub_download(repo_id=checkpoint.repo_id, filename="config.json", revision=checkpoint.revision)
         return hf_hub_download(
             repo_id=checkpoint.repo_id,
             filename=checkpoint.filename,

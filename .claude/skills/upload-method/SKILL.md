@@ -113,6 +113,18 @@ diff**. Use it to confirm `info.py` matches the raw data before processing. Two 
   arena's official protocol; a `holdout:`/`outer`/custom key there means the run cannot be uploaded as
   an official result. KNN's `8x1 requested; 1 child via use_child_oof` histogram line is expected.
 
+**BeyondArena runs**: the task directories of a BeyondArena run are named `<dataset>-<hash>`, not OpenML task
+ids, so `EndToEnd.from_path_raw` cannot infer the task metadata from them and filters every result out
+(`No results to process`). Pass the committed collection,
+`task_metadata=load_beyond_task_metadata_collection("BeyondArena")` (from `tabarena.evaluation.beyond_metadata`),
+which `scripts/run_process_method.py` does not expose yet: process through a small driver that calls
+`EndToEnd.from_path_raw` with the `RawMethod`'s resolved name / model key / suite (see the
+`beyondarena_tfms_22092026` driver in `tmp_scripts/`). Register the method in
+`contexts/beyondarena/methods.py` through the model's `ModelDescriptor` (`<x>_descriptor.method_metadata(...)`
+with the file's `_common_fm_kwargs` / `_common_bag_kwargs`), adding a descriptor to the model's `info.py` when
+it only has `MethodMetadata.config(...)` entries; the BeyondArena bundle names configs `<Method>_c1_BAG_L1`
+(no `_default` infix) and `method` follows the raw `ag_name` (`TA-...` for most wrappers, `Causilo` for Causilo).
+
 **Multi-method run dirs**: if the run's `data/` holds several methods' config dirs side by side,
 `run_process_method.py` can't split them — write a small gitignored driver in `tmp_scripts/` that
 discovers the `results.pkl` paths once, splits them by top-level config-dir prefix, and calls

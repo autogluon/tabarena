@@ -165,6 +165,21 @@ class TestNativeViews:
         per_dataset = collection.per_dataset_frame().set_index("dataset")["max_train_rows"]
         assert (grid["max_train_rows"].to_numpy() == per_dataset.loc[grid["dataset"]].to_numpy()).all()
 
+    def test_subsets_keep_the_full_collection_max_train_rows(self):
+        # A temporal dataset whose last split trains on more rows (sf_permit_time on BeyondArena:
+        # 108k on a later split, 91k on the core ones). Cutting the collection to its first splits,
+        # as an evaluation scoped to the core splits does, must not move it into a smaller bucket.
+        splits = [_split_meta(fold=f, num_instances_train=size) for f, size in enumerate([90_000, 90_784, 108_379])]
+        collection = TaskMetadataCollection(_unrolled(_task_meta(dataset_name="grows", splits=splits)))
+        first_two = collection.subset([("grows", 0, 0), ("grows", 1, 0)])
+        assert first_two.dataset_fold_repeats() == [("grows", 0, 0), ("grows", 1, 0)]
+        assert set(first_two.task_grid()["max_train_rows"]) == {108_379}
+        assert first_two.per_dataset_frame().set_index("dataset").loc["grows", "max_train_rows"] == 108_379
+        # Further subsets and a filter step inherit it too; a fresh collection over the same splits does not.
+        assert first_two.subset([("grows", 0, 0)]).task_grid()["max_train_rows"].iloc[0] == 108_379
+        assert first_two.subset_tasks(split_indices=["r0f0"]).task_grid()["max_train_rows"].iloc[0] == 108_379
+        assert TaskMetadataCollection(first_two.tasks).task_grid()["max_train_rows"].iloc[0] == 90_784
+
 
 def _legacy_row(
     *,

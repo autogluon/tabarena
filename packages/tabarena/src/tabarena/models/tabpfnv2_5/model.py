@@ -10,6 +10,8 @@ from autogluon.core.models.abstract import SharedWeights
 from autogluon.features.generators import LabelEncoderFeatureGenerator
 from autogluon.tabular.models.abstract.abstract_torch_model import AbstractTorchModel
 
+from tabarena.utils.wrapper_utils import import_many_class_classifier
+
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
@@ -241,7 +243,7 @@ class TabPFNModel(AbstractTorchModel):
             # Wrap with ManyClassClassifier for datasets with more classes than the head
             many_class_threshold = self.params_aux.get("many_class_threshold", 10)
             if is_classification and self.num_classes is not None and self.num_classes > many_class_threshold:
-                from tabpfn_extensions.many_class import ManyClassClassifier
+                ManyClassClassifier = import_many_class_classifier()
 
                 self.model = ManyClassClassifier(
                     estimator=self.model,
@@ -316,7 +318,7 @@ class TabPFNModel(AbstractTorchModel):
     def _get_base_tabpfn_model(self):
         """Unwrap ManyClassClassifier to get the underlying TabPFN estimator."""
         try:
-            from tabpfn_extensions.many_class import ManyClassClassifier
+            ManyClassClassifier = import_many_class_classifier()
         except ImportError:
             return self.model
         if isinstance(self.model, ManyClassClassifier):
@@ -356,31 +358,14 @@ class TabPFNModel(AbstractTorchModel):
         hyperparameters: dict | None = None,
         **kwargs,
     ) -> int:
-        """Heuristic memory estimate based on TabPFN's memory estimate logic in:
-        https://github.com/PriorLabs/TabPFN/blob/57a2efd3ebdb3886245e4d097cefa73a5261a969/src/tabpfn/model/memory.py#L147.
+        """Host-memory estimate: a 10 GB baseline plus five copies of the training frame.
 
-        This is based on GPU memory usage, but hopefully with overheads it also approximates CPU memory usage.
+        tabpfn batches its inference to the memory it finds (``memory_saving_mode="auto"``) and its 2.5
+        checkpoints sub-sample the features per estimator, so GPU activations are not proportional to
+        rows x columns; TabPFN-v2's activation formula used here before refused a 96k x 1799 BeyondArena
+        table that the model fits. Same frame term as the TabPFN-3.5 and LimiX-2 wrappers.
         """
-        # TODO: update, this is not correct anymore, consider using internal TabPFN functions directly.
-        features_per_group = 3  # Based on TabPFNv2 default (unused)
-        n_layers = 12  # Based on TabPFNv2 default
-        embedding_size = 192  # Based on TabPFNv2 default
-        dtype_byte_size = 2  # Based on TabPFNv2 default
-
-        model_mem = 14489108  # Based on TabPFNv2 default
-
-        n_samples, n_features = X.shape[0], min(X.shape[1], 500)
-        n_feature_groups = (n_features) / features_per_group + 1  # TODO: Unsure how to calculate this
-
-        X_mem = n_samples * n_feature_groups * dtype_byte_size
-        activation_mem = n_samples * n_feature_groups * embedding_size * n_layers * dtype_byte_size
-
-        baseline_overhead_mem_est = 1e9  # 1 GB generic overhead
-
-        # Add some buffer to each term + 1 GB overhead to be safe
-        return int(
-            model_mem + 4 * X_mem + 2 * activation_mem + baseline_overhead_mem_est,
-        )
+        return int(10 * 1e9 + 5 * get_approximate_df_mem_usage(X).sum())
 
     def _more_tags(self) -> dict:
         return {"can_refit_full": True}
@@ -402,7 +387,9 @@ class RealTabPFNv25Model(TabPFNModel):
     The extra checkpoints include models trained on only synthetic datasets as well.
 
     Datasets with more than ten classes run through the ``ManyClassClassifier`` output coding of the
-    base class, as TabPFN-2.6 does; only the row and feature caps remain.
+    base class, as TabPFN-2.6 does; only the row cap remains. Tables wider than the 2000 features the
+    checkpoint was trained for run as well (``ignore_pretraining_limits`` is set): tabpfn sub-samples the
+    features per estimator.
     """
 
     ag_key = "TA-REALTABPFN-V2.5"
@@ -412,7 +399,6 @@ class RealTabPFNv25Model(TabPFNModel):
     default_regression_model: str | None = "tabpfn-v2.5-regressor-v2.5_default.ckpt"
     _default_auxiliary_params_extra = {
         "max_rows": 100_000,
-        "max_features": 2000,
     }
 
     @staticmethod
@@ -543,9 +529,36 @@ class TabPFNv26Model(TabPFNModel):
         ]
 
 
-def prefetch_weights() -> None:
-    """Pre-download all TabPFN checkpoints (shared by the v2.5 / v2.6 wrappers)."""
-    from tabpfn.model_loading import download_all_models, resolve_model_path
+def prefetch_weights() -> list[Path]:
+    """Download the v2.5 and v2.6 checkpoints missing from the tabpfn cache; return the paths of all of them.
+
+    Only the files the two wrappers can load: each class's ``default_*_model`` and, for RealTabPFN-v2.5,
+    the named variants its ``extra_checkpoints_for_tuning`` may pick (TabPFN-v2.6 has none). Each file is
+    fetched on its own, so a missing license token or a failed download raises instead of being logged
+    and skipped, and the returned paths let the node staging and the SkyPilot seeding copy the files
+    without enumerating the cache.
+    """
+    from tabpfn.model_loading import ModelVersion, download_model, resolve_model_path
 
     _, model_dir, _, _ = resolve_model_path(model_path=None, which="classifier")
-    download_all_models(to=model_dir[0])
+    cache_dir = Path(model_dir[0])
+    names_by_version = {
+        ModelVersion.V2_5: [
+            RealTabPFNv25Model.default_classification_model,
+            RealTabPFNv25Model.default_regression_model,
+            *RealTabPFNv25Model.extra_checkpoints_for_tuning("classification"),
+            *RealTabPFNv25Model.extra_checkpoints_for_tuning("regression"),
+        ],
+        ModelVersion.V2_6: [TabPFNv26Model.default_classification_model, TabPFNv26Model.default_regression_model],
+    }
+    paths: list[Path] = []
+    for version, names in names_by_version.items():
+        for name in names:
+            which = "classifier" if "classifier" in name else "regressor"
+            path = cache_dir / name
+            if not path.exists():
+                result = download_model(to=path, version=version, which=which, model_name=name)
+                if result != "ok":
+                    raise RuntimeError(f"Could not download the TabPFN checkpoint {name}: {result}")
+            paths.append(path)
+    return paths
