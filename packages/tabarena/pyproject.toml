@@ -114,6 +114,8 @@ tabm = ["torch", "tabm>=0.0.3", "rtdl_num_embeddings>=0.0.12"]
 
 # Extended model extras — opt-in individually or together via the `extended` union below.
 causilo = ["causilo==1.0.2"]  # 1.0.2 fits more than ten classes with its own output codes; 1.0.0 rejected them
+# Weights are fetched from the Hugging Face Hub at a pinned commit (see models/fintfm/model.py).
+fintfm = ["fintfm==0.5.5"]
 modernnca = ["category_encoders"]
 xrfm = ["xrfm[cu12]"]
 # sap-rpt-oss and tabfm stay pinned to the git commits used for the benchmark runs, so these two
@@ -196,6 +198,7 @@ benchmark = [
 # Note: `probmetrics` is intentionally excluded — install it explicitly via `tabarena[probmetrics]` or `tabarena[all]`.
 extended = [
   "tabarena[causilo]",
+  "tabarena[fintfm]",
   "tabarena[modernnca]",
   "tabarena[xrfm]",
   "tabarena[sap-rpt-oss]",
