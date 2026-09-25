@@ -52,6 +52,15 @@ class EXAONETabularModel(AbstractTorchModel):
     shared_weights: ClassVar[SharedWeights] = SharedWeights(
         loader="tabarena.models.exaone_tabular._estimators:load_network", key=("task", "compute_dtype")
     )
+    #: Budget on the in-context workload, ``support rows x min(columns, feature_limit)``, above which the
+    #: support set is subsampled to ``max_support_cells // min(columns, feature_limit)`` rows through the
+    #: runtime's ``support_row_limit``. The largest workload that fit the 95 GB RTX PRO 6000 in the
+    #: BeyondArena runs was california_house_prices_2020 r1 (20,764 x 657 regression columns, 13.6M); its
+    #: r2 (31,146 x 657, 20.5M) exhausted the card even with expandable segments. Every other BeyondArena
+    #: table up to 100k training rows stays below 10M (classification keeps at most 100 columns), so the
+    #: guard engages only above a shape that fails. The ``max_support_cells`` hyperparameter overrides it;
+    #: ``None`` disables it.
+    max_support_cells: ClassVar[int] = 14_000_000
     #: Knobs that make the warm-up's dummy fit cheap without touching the network.
     cheap_hyperparameters: ClassVar[dict] = {"ensemble_count": 1}
     # Sequential fold fitting avoids contention on the shared Hugging Face checkpoint cache.
@@ -130,6 +139,7 @@ class EXAONETabularModel(AbstractTorchModel):
         from tabarena.models.exaone_tabular._estimators import estimator_cls, load_network, released_manifest
 
         hps = self._get_model_params()
+        max_support_cells = hps.pop("max_support_cells", self.max_support_cells)
         if device == "cpu" and hps.get("compute_dtype") == "float16":
             # Half precision is a GPU choice; several torch CPU kernels have no half
             # implementation, so the CPU fallback path runs in float32 instead.
@@ -153,10 +163,44 @@ class EXAONETabularModel(AbstractTorchModel):
                 compute_dtype=hps.get("compute_dtype"),
                 seed=hps.get("seed"),
             )
+            support_row_limit = self._support_row_limit(
+                X_np.shape, manifest.runtime.feature_limit, manifest.runtime.support_row_limit, max_support_cells
+            )
+            if support_row_limit is not None:
+                manifest = released_manifest(
+                    task,
+                    ensemble_count=hps.get("ensemble_count"),
+                    compute_dtype=hps.get("compute_dtype"),
+                    seed=hps.get("seed"),
+                    support_row_limit=support_row_limit,
+                )
             self.model = estimator_cls(task)(
                 manifest, device=device, model=network, max_vram_bytes=hps.get("max_vram_bytes")
             )
         self.model.fit(X_np, y_np)
+
+    @staticmethod
+    def _support_row_limit(
+        shape: tuple[int, int], feature_limit: int, current_limit: int, max_support_cells: int | None
+    ) -> int | None:
+        """The support-row cap that keeps ``rows x min(columns, feature_limit)`` within ``max_support_cells``.
+
+        ``None`` when the workload fits the budget (or the budget is disabled), so the runtime keeps its own
+        ``support_row_limit``; the cap never raises that limit.
+        """
+        if max_support_cells is None:
+            return None
+        rows, columns = shape
+        effective_columns = max(1, min(columns, feature_limit))
+        if rows * effective_columns <= max_support_cells:
+            return None
+        limit = min(current_limit, max(1, max_support_cells // effective_columns))
+        logger.log(
+            20,
+            f"\tSubsampling the support set to {limit} of {rows} rows: {rows} x {effective_columns} effective "
+            f"columns exceeds max_support_cells={max_support_cells}.",
+        )
+        return limit
 
     def _set_default_params(self):
         # The released checkpoints' runtime defaults, identical for both (exaonetabular.presets).
