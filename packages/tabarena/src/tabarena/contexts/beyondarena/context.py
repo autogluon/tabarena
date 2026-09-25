@@ -50,10 +50,22 @@ if TYPE_CHECKING:
 CORE_TASKS_CSV = Path(__file__).parent / "data" / "BeyondArena_core_tasks.csv"
 
 
+#: Committed CSV of the BeyondArena "core2k" subset's ``(dataset, split)`` tasks: the first ``n_d`` splits of each
+#: dataset from the cost-weighted split allocation (:mod:`tabarena.evaluation.split_allocation`) started from Lite and
+#: run to 2,000 splits, written by ``examples/!experimental/run_generate_beyondarena_core2k_subset.py``.
+CORE2K_TASKS_CSV = Path(__file__).parent / "data" / "BeyondArena_core2k_tasks.csv"
+
+
 @lru_cache(maxsize=1)
 def _core_subset_predicate() -> SubsetPredicate:
     """The committed-CSV-backed ``"core"`` predicate (loaded once, on first use)."""
     return tasks_in_frame(pd.read_csv(CORE_TASKS_CSV))
+
+
+@lru_cache(maxsize=1)
+def _core2k_subset_predicate() -> SubsetPredicate:
+    """The committed-CSV-backed ``"core2k"`` predicate (loaded once, on first use)."""
+    return tasks_in_frame(pd.read_csv(CORE2K_TASKS_CSV))
 
 
 class BeyondArenaContext(AbstractArenaContext):
@@ -130,6 +142,9 @@ class BeyondArenaContext(AbstractArenaContext):
         # data-dependent: keeps each dataset's first `folds_to_use` splits (the committed
         # `(dataset, split)` tasks in CORE_TASKS_CSV). Lazily loaded on first evaluation.
         "core": SubsetPredicate(lambda df: _core_subset_predicate().predicate(df), ("dataset", "split")),
+        # data-dependent: keeps each dataset's first splits from the 2,000-split cost-weighted allocation (the
+        # committed `(dataset, split)` tasks in CORE2K_TASKS_CSV). Lazily loaded on first evaluation.
+        "core2k": SubsetPredicate(lambda df: _core2k_subset_predicate().predicate(df), ("dataset", "split")),
     }
 
     #: Shortcuts for the standard BeyondArena subslices: each name maps to a list of subset
