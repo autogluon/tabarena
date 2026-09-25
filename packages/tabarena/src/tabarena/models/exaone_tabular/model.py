@@ -30,6 +30,10 @@ class EXAONETabularModel(AbstractTorchModel):
     Codebase: https://github.com/LGAI-Research/EXAONE-Tabular
     License: code under the BSD-3-Clause-LG AI Research License; the released weights under the
         EXAONE AI Model License 1.2 - NC, which permits non-commercial use only.
+
+    The wrapper turns on expandable segments in torch's CUDA caching allocator for its process (see
+    :func:`tabarena.models.warmup.configure_cuda_allocator`): on wide medium-size tables the chunked
+    attention passes otherwise strand a third of the card in fragmented reserves.
     """
 
     ag_key = "TA-EXAONE-TABULAR"
@@ -107,6 +111,9 @@ class EXAONETabularModel(AbstractTorchModel):
         """
         import torch
 
+        from tabarena.models.warmup import configure_cuda_allocator
+
+        configure_cuda_allocator()
         available_num_gpus = ResourceManager.get_gpu_count_torch(cuda_only=True)
         if num_gpus > available_num_gpus:
             raise AssertionError(
@@ -170,6 +177,19 @@ class EXAONETabularModel(AbstractTorchModel):
 
     def _more_tags(self) -> dict:
         return {"can_refit_full": True}
+
+    @classmethod
+    def warmup(cls, *, num_gpus: float | None = None, **kwargs) -> None:
+        """Configure the CUDA allocator before the CUDA context exists, then create that context.
+
+        The allocator reads ``PYTORCH_CUDA_ALLOC_CONF`` when it first runs, so this classmethod runs
+        before the generic torch layer of ``warmup_model_cls`` and calls :func:`warmup_torch` itself
+        (idempotent, the generic layer repeats it harmlessly).
+        """
+        from tabarena.models.warmup import configure_cuda_allocator, warmup_torch
+
+        configure_cuda_allocator()
+        warmup_torch(cuda=None if num_gpus is None else num_gpus > 0)
 
     @classmethod
     def download_checkpoint(cls, task: str) -> str:

@@ -396,6 +396,44 @@ def warmup_imports_best_effort(*module_names: str, report: WarmupReport | None =
     return imported
 
 
+#: Allocator settings :func:`configure_cuda_allocator` applies when the environment sets none.
+CUDA_ALLOC_CONF = "expandable_segments:True"
+
+
+def configure_cuda_allocator() -> None:
+    """Enable expandable segments in torch's CUDA caching allocator for this process.
+
+    For wrappers whose large, shape-changing activations fragment the caching allocator. With
+    fixed-size segments it ends up holding a large share of the card in fragments it cannot hand
+    out as one block: Mitra-v2 prediction on hiva_agnostic (2563 rows, 1414 columns) failed on a
+    13.9 GiB request while 59.5 GiB were live and 32.8 GiB were reserved but unallocated on a 95 GiB
+    card, and EXAONE-Tabular's regressor on california_house_prices_2020 (10,382 rows, 657 columns)
+    failed on 17 to 20 GiB requests with 33 to 43 GiB reserved but unallocated. Expandable segments
+    let the allocator grow a segment in place, so that reserve stays usable. Allocation layout only;
+    the numerics are unchanged.
+
+    The allocator reads ``PYTORCH_CUDA_ALLOC_CONF`` when it first runs, so a wrapper calls this in
+    its ``warmup`` classmethod before the CUDA context exists, and again at the start of ``_fit`` as
+    a fallback: when CUDA is already initialized the setting is applied through torch's runtime
+    setter instead. An explicit ``PYTORCH_CUDA_ALLOC_CONF`` in the environment is respected and
+    left untouched. Idempotent.
+    """
+    if os.environ.get("PYTORCH_CUDA_ALLOC_CONF") is not None:
+        return
+    os.environ["PYTORCH_CUDA_ALLOC_CONF"] = CUDA_ALLOC_CONF
+    import torch
+
+    if not torch.cuda.is_initialized():
+        return  # read from the environment when the allocator starts
+    set_settings = getattr(torch._C, "_accelerator_setAllocatorSettings", None)
+    if set_settings is None:  # torch < 2.9
+        set_settings = torch.cuda.memory._set_allocator_settings
+    try:
+        set_settings(CUDA_ALLOC_CONF)
+    except RuntimeError as exc:
+        logger.log(20, f"\tCould not apply {CUDA_ALLOC_CONF!r} to the running CUDA allocator: {exc}")
+
+
 def warmup_torch(*, cuda: bool | None = None, kernels: bool | None = None) -> list[str]:
     """Import torch and initialize the CUDA context (both one-time costs per process); idempotent.
 
