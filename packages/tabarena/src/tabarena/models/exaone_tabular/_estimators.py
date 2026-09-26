@@ -14,6 +14,7 @@ Imports ``exaonetabular`` (and with it torch) at module level; the wrapper impor
 from __future__ import annotations
 
 import logging
+from dataclasses import replace
 from typing import TYPE_CHECKING
 
 from exaonetabular.checkpoint import load_checkpoint
@@ -34,12 +35,25 @@ def estimator_cls(task: str) -> type[EXAONETabularClassifier | EXAONETabularRegr
 
 
 def released_manifest(
-    task: str, *, ensemble_count: int | None = None, compute_dtype: str | None = None, seed: int | None = None
+    task: str,
+    *,
+    ensemble_count: int | None = None,
+    compute_dtype: str | None = None,
+    seed: int | None = None,
+    support_row_limit: int | None = None,
 ):
-    """The released checkpoint's manifest of ``task`` with the runtime overrides ``from_pretrained`` accepts."""
-    return released_checkpoint(task).manifest.with_overrides(
+    """The released checkpoint's manifest of ``task`` with the runtime overrides ``from_pretrained`` accepts.
+
+    ``support_row_limit`` replaces the runtime's cap on the in-context support rows (the estimators draw a
+    seeded random subset above it); ``with_overrides`` does not expose it, so it is set on the runtime
+    config directly.
+    """
+    manifest = released_checkpoint(task).manifest.with_overrides(
         ensemble_count=ensemble_count, compute_dtype=compute_dtype, seed=seed
     )
+    if support_row_limit is not None:
+        manifest = replace(manifest, runtime=replace(manifest.runtime, support_row_limit=support_row_limit))
+    return manifest
 
 
 def load_network(task: str, device: str, compute_dtype: str | None = None) -> torch.nn.Module:

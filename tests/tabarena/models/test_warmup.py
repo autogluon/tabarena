@@ -822,3 +822,23 @@ def test_run_warmup_fn_failure_prints_header_and_traceback(capsys):
     header = "Warm-up of method 'MyMethod' failed (fitting cold instead):"
     assert header in out.out
     assert "RuntimeError: warm-up bug" in out.err
+
+
+# --- CUDA allocator ---------------------------------------------------------------------------
+
+
+def test_configure_cuda_allocator_sets_expandable_segments(monkeypatch):
+    pytest.importorskip("torch")
+    monkeypatch.delenv("PYTORCH_CUDA_ALLOC_CONF", raising=False)
+    wu.configure_cuda_allocator()
+    import os
+
+    assert os.environ["PYTORCH_CUDA_ALLOC_CONF"] == wu.CUDA_ALLOC_CONF
+
+
+def test_configure_cuda_allocator_respects_explicit_setting(monkeypatch):
+    monkeypatch.setenv("PYTORCH_CUDA_ALLOC_CONF", "max_split_size_mb:512")
+    wu.configure_cuda_allocator()
+    import os
+
+    assert os.environ["PYTORCH_CUDA_ALLOC_CONF"] == "max_split_size_mb:512"

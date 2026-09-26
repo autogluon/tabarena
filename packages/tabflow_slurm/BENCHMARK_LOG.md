@@ -34,6 +34,89 @@ run against `main`. To reproduce an entry, check out its recorded **git SHA**.
 
 ---
 
+## 2026-09-25 — beyondarena_tfms_22092026 (core2k extension)
+
+- **Model(s):** the nine models of the 2026-09-22 entry below (default config only, `NUM_CONFIGS=0`), same size scopes
+  (TabPFN-3.5, TabPFN-3.5-Fast and Causilo on every dataset; LimiX-2, TabFM, EXAONE-Tabular, RealTabPFN-v2.5,
+  TabDPT-1.3 and TabSwift on `!large`) and time limits (16 h on medium and large datasets, 4 h on tiny and small ones)
+- **Git SHA:** main `290bc251` (after #611, #612, #614 and #615) for launch 1; branch `fix/exaone-expandable-segments`
+  at `5d6e8e12` for the tail relaunch and at `f7eb3020` for the EXAONE-Tabular rerun; editable AutoGluon
+  `../autogluon` at `62f92309`
+- **Validation protocol:** BeyondArena's official protocol, asserted by `BeyondArenaContext`
+- **Purpose:** Extend the 2026-09-22 run from the `core` protocol (507 splits) to `core2k`, the 2,000-split cost-weighted
+  allocation of #615 (497 of the core splits plus 1,503 new ones over the same 142 datasets). Same `benchmark_name`,
+  so the cache check re-approved only the missing items; the core results of 2026-09-22 are reused.
+- **Notes:** 13,491 new items (`gpu_16h` 318, `gpu_16h_le100k` 600, `gpu` 12,573), 17,862 results in total (2,010 per
+  all-size model, 1,972 per `!large` model; the 10 core splits outside core2k are kept). The reused core results predate
+  #612 (text-embedding preprocessing) and #614 (thread variables, fit timing); the new ones ran after both. Run venv
+  `~/.venvs/tabarena_beyondarena_core2k_25092026`: the shared `tabarena_10082026` had drifted after the 2026-09-22 run
+  (tabpfn 9.0.0 to 8.4.0, tabdpt 1.3.1 to 1.2.0, editable AutoGluon re-pointed to another checkout), so the new venv
+  installs the frozen pins of that run's last launch (bucket env `fa539d8f9f83`, `--no-deps` because LimiX pins
+  torch 2.9.1) plus editable `../tabarena` and `../autogluon`. SkyPilot pools (`--scheduler skypilot-pool`, spot
+  `g4-standard-48`, RTX PRO 6000 96 GB, `fake_memory_for_estimates=96`, bundle size 1): launch 1 on
+  `tabarena-beyondarena-tfms-core2k-25092026` (64 workers, env `655f1fd83658`), the `gpu` group also on a second
+  64-worker pool `...-b` added at 10:50 UTC on the same claim queue (resizing the first pool would have replaced its
+  workers and restarted the running fits); pool 1 was taken down with 5 LimiX-2 fits running (about 57 idle workers)
+  and pool `-b` with 1, and those 6 were rerun on `...-tail` (7 workers, env `83dfe0a77076`) together with the EXAONE
+  fits below. Launch 1 ran 07:05 to 13:30 UTC; the tail ended 21:08 UTC (one santander LimiX-2 fit preempted and
+  restarted, 4.6 h). Failures: EXAONE-Tabular on `california_house_prices_2020` r1 and r2 ran out of CUDA memory (33 to
+  43 GiB reserved but unallocated). With expandable segments (`5d6e8e12`, Mitra-v2's `configure_cuda_allocator` moved to
+  `tabarena.models.warmup`) r1 passed (3,740 s) and r2 crawled on its first fold until `TimeLimitExceeded`: the temporal
+  split grows the training set per repeat (10,382 / 20,764 / 31,146 rows x 657 regression columns), and r2's 20.5M
+  in-context cells are the only split up to 100k rows above 10M (classification keeps at most 100 columns). `f7eb3020`
+  caps the support set at `max_support_cells=14M` (seeded `support_row_limit` subsample); r2 passed with it (5,600 s,
+  pool `...-exaone`, env `3589be1526ea`), and no other result is affected. Uploaded 2026-09-25 to the existing suite
+  `beyondarena-2026-09-22` (all nine methods re-processed and re-uploaded; registration unchanged). Eval on core2k
+  (37 methods, Elo anchored at XGBoost default): TabPFN-3.5 1385, Causilo 1339, TabPFN-3.5-Fast 1330, LimiX-2 1285,
+  TabFM 1278, EXAONE-Tabular 1255, RealTabPFN-v2.5 1150, TabDPT-1.3 1129, TabSwift 1052; on `!large` (120 datasets,
+  1,962 tasks, no imputation) TabPFN-3.5 1452, Causilo 1422, LimiX-2 1418, TabFM 1408, TabPFN-3.5-Fast 1406,
+  EXAONE-Tabular 1375, RealTabPFN-v2.5 1236, TabDPT-1.3 1209, TabSwift 1115. The core leaderboard reproduces the
+  2026-09-24 eval exactly.
+
+```python
+plan = TabArenaBenchmarkPlan(
+    benchmark_name="beyondarena_tfms_22092026",
+    model_jobs=[
+        ModelJob(
+            models=[(m, 0) for m in ("TabPFN-3.5", "TabPFN-3.5-Fast", "Causilo")],
+            name="gpu_16h",
+            resources={"num_gpus": 1, "fake_memory_for_estimates": 96, "time_limit": 16 * 3600},
+            tasks=TaskSubset(subset=["core2k", "medium|large"]),
+        ),
+        ModelJob(
+            models=[(m, 0) for m in ("LimiX-2", "TabFM", "EXAONE-Tabular", "RealTabPFN-v2.5", "TabDPT-1.3", "TabSwift")],
+            name="gpu_16h_le100k",
+            resources={"num_gpus": 1, "fake_memory_for_estimates": 96, "time_limit": 16 * 3600},
+            tasks=TaskSubset(subset=["core2k", "medium"]),
+        ),
+        ModelJob(
+            models=[(m, 0) for m in ("TabPFN-3.5", "TabPFN-3.5-Fast", "Causilo", "LimiX-2", "TabFM",
+                                     "EXAONE-Tabular", "RealTabPFN-v2.5", "TabDPT-1.3", "TabSwift")],
+            name="gpu",
+            resources={"num_gpus": 1, "fake_memory_for_estimates": 96, "time_limit": 4 * 3600},
+            tasks=TaskSubset(subset=["core2k", "!medium", "!large"]),
+        ),
+    ],
+    task_subset=TaskSubset(subset=["core2k"]),
+    context=BeyondArenaContext(),
+    experiment_bundle=BeyondArenaExperimentBundle(model_verbosity=2),
+    path_setup=PathSetup(
+        workspace="/home/lennart_priorlabs_ai/workspace/benchmarking/tabarena_workspace",
+        python_path="/home/lennart_priorlabs_ai/.venvs/tabarena_beyondarena_core2k_25092026/bin/python",
+    ),
+    resources_setup=BeyondArenaResourcesSetup(),
+    scheduler_setup=SkyPilotSetup(
+        bundle_size=1,
+        workers=64,
+        secrets=("HF_TOKEN",),
+        use_pool=True,
+        pool_name="tabarena-beyondarena-tfms-core2k-25092026",
+        api_server_endpoint="http://skypilot-api:46580",
+    ),
+)
+plan.setup_jobs()
+```
+
 ## 2026-09-22 — beyondarena_tfms_22092026
 
 - **Model(s):** TabPFN-3.5, TabPFN-3.5-Fast, Causilo, LimiX-2, TabFM, EXAONE-Tabular, RealTabPFN-v2.5, TabDPT-1.3,
