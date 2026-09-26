@@ -5,6 +5,11 @@ The ``"core"`` subset keeps each dataset's first ``folds_to_use`` splits, where
 analysis (``compare(compute_fold_similarity=True)``). Running this script rewrites the committed
 ``BeyondArena_core_tasks.csv`` that the ``BeyondArenaContext`` ``"core"`` subset predicate reads,
 then shows the leaderboard restricted to that core via ``subset=["core"]``.
+
+Set ``USE_HARMONIC_RANK`` to measure fold stability on the harmonic mean rank (HMR) ordering
+instead of the mean rank ordering. That run writes the alternative ``BeyondArena_core_tasks_hmr.csv``
+next to the committed CSV (leaving the ``"core"`` subset unchanged), saves its figures and tables
+to ``output_beyondarena_leaderboard_hmr``, and scores its core leaderboard on the HMR tasks directly.
 """
 
 from __future__ import annotations
@@ -16,9 +21,12 @@ import pandas as pd
 from tabarena.contexts.beyondarena.context import CORE_TASKS_CSV, BeyondArenaContext
 
 TARGET_RELIABILITY = 0.8
+USE_HARMONIC_RANK = False  # True: fold stability of the HMR ordering (Pearson on 1 / rank)
 
 if __name__ == "__main__":
-    save_path = Path("output_beyondarena_leaderboard")  # folder to save all figures and tables
+    suffix = "_hmr" if USE_HARMONIC_RANK else ""
+    save_path = Path(f"output_beyondarena_leaderboard{suffix}")  # folder to save all figures and tables
+    core_tasks_csv = CORE_TASKS_CSV.with_name(f"{CORE_TASKS_CSV.stem}{suffix}{CORE_TASKS_CSV.suffix}")
 
     tabarena_context = BeyondArenaContext()
 
@@ -26,7 +34,7 @@ if __name__ == "__main__":
     leaderboard = tabarena_context.compare(
         output_dir=save_path,
         compute_fold_similarity=True,
-        fold_similarity_kwargs={"target_reliability": TARGET_RELIABILITY},
+        fold_similarity_kwargs={"target_reliability": TARGET_RELIABILITY, "harmonic_rank": USE_HARMONIC_RANK},
     )
     print("Leaderboard:")
     print(tabarena_context.leaderboard_to_website_format(leaderboard=leaderboard).to_markdown(index=False))
@@ -51,11 +59,19 @@ if __name__ == "__main__":
         rows.extend({"dataset": dataset, "split": s} for s in splits[:n])
     valid_tasks = pd.DataFrame(rows).sort_values(["dataset", "split"]).reset_index(drop=True)
 
-    # 4) commit the valid tasks; the BeyondArena "core" subset predicate reads this file.
-    valid_tasks.to_csv(CORE_TASKS_CSV, index=False)
-    print(f"Wrote {len(valid_tasks)} core (dataset, split) tasks (of {len(grid)}) to {CORE_TASKS_CSV}\n")
+    # 4) write the valid tasks; the BeyondArena "core" subset predicate reads the non-HMR file.
+    valid_tasks.to_csv(core_tasks_csv, index=False)
+    print(f"Wrote {len(valid_tasks)} core (dataset, split) tasks (of {len(grid)}) to {core_tasks_csv}\n")
 
-    # 5) the committed "core" subset now restricts the leaderboard to those tasks.
-    core_leaderboard = tabarena_context.compare(output_dir=save_path / "core", subset=["core"])
+    # 5) restrict the leaderboard to those tasks: via the committed "core" subset, or, for the HMR
+    #    variant that the "core" predicate does not read, via the task list itself.
+    if USE_HARMONIC_RANK:
+        core_leaderboard = tabarena_context.compare(
+            output_dir=save_path / "core",
+            tasks=list(zip(valid_tasks["dataset"], valid_tasks["split"].astype(int), strict=True)),
+            subset_label="core_hmr",
+        )
+    else:
+        core_leaderboard = tabarena_context.compare(output_dir=save_path / "core", subset=["core"])
     print("Core leaderboard:")
     print(tabarena_context.leaderboard_to_website_format(leaderboard=core_leaderboard).to_markdown(index=False))

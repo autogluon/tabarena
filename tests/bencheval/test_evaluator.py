@@ -459,6 +459,18 @@ class TestDatasetAnalysis:
         assert "dataset_ranking" in ranking
         assert len(ranking["dataset_ranking"]) == 4  # one row per task
 
+    def test_fold_similarity_harmonic_rank(self, seeded):
+        ev, rpt = seeded
+        out = ev.rank_datasets_by_fold_similarity(rpt, harmonic_rank=True)
+        assert out["stability_params"]["similarity"] == "pearson"
+        assert out["stability_params"]["harmonic_rank"] is True
+        # Pearson on reciprocal rank matches computing the fold similarity on 1 / rank directly.
+        rpt_rr = rpt.assign(reciprocal_rank=1.0 / rpt["rank"])
+        expected = ev.rank_datasets_by_fold_similarity(rpt_rr, value_col="reciprocal_rank", similarity="pearson")
+        pd.testing.assert_frame_equal(out["dataset_ranking"], expected["dataset_ranking"])
+        with pytest.raises(ValueError, match="requires similarity='pearson'"):
+            ev.rank_datasets_by_fold_similarity(rpt, harmonic_rank=True, similarity="spearman")
+
     def test_jitter(self, seeded):
         ev, rpt = seeded
         dj = ev.dataset_jitter(rpt, dataset="t1")

@@ -334,7 +334,8 @@ class DatasetAnalysisMixin:
         results_per_task: pd.DataFrame,
         value_col: str = RANK,
         *,
-        similarity: str = "spearman",  # {"spearman", "pearson"}
+        harmonic_rank: bool = False,
+        similarity: str | None = None,  # {"spearman", "pearson"}; None picks per `harmonic_rank`
         agg_fold_score: str = "mean_pairwise",  # {"mean_pairwise", "median_pairwise"}
         min_folds: int = 2,
         min_methods: int | None = None,
@@ -367,8 +368,15 @@ class DatasetAnalysisMixin:
             Must include `self.seed_column`.
         value_col : str, default RANK
             Column used to compare method performance across folds.
-        similarity : {"spearman","pearson"}, default "spearman"
-            Similarity metric for fold-fold correlation across methods.
+        harmonic_rank : bool, default False
+            If True, measure the stability of the harmonic mean rank (HMR) ordering instead of
+            the mean rank ordering. Folds are compared on the reciprocal rank ``1 / value_col``,
+            whose mean over folds is the MRR (``HMR = 1 / MRR``). Requires ``value_col`` to be a
+            rank column and a Pearson similarity: reciprocal rank is a monotone transform of
+            rank, so a Spearman similarity would give the same result as ``harmonic_rank=False``.
+        similarity : {"spearman","pearson"} | None, default None
+            Similarity metric for fold-fold correlation across methods. None uses "spearman",
+            or "pearson" when ``harmonic_rank`` is True.
         agg_fold_score : {"mean_pairwise","median_pairwise"}, default "mean_pairwise"
             How to aggregate fold-fold similarities into a dataset score.
         min_folds : int, default 2
@@ -413,8 +421,21 @@ class DatasetAnalysisMixin:
             raise ValueError(
                 f"agg_fold_score must be 'mean_pairwise' or 'median_pairwise', got {agg_fold_score!r}",
             )
+        if similarity is None:
+            similarity = "pearson" if harmonic_rank else "spearman"
         if similarity not in {"spearman", "pearson"}:
             raise ValueError(f"similarity must be 'spearman' or 'pearson', got {similarity!r}")
+        if harmonic_rank:
+            if similarity != "pearson":
+                raise ValueError(
+                    "harmonic_rank=True requires similarity='pearson': reciprocal rank is a monotone "
+                    "transform of rank, so a Spearman similarity equals the harmonic_rank=False result.",
+                )
+            if value_col not in results_per_task.columns:
+                raise ValueError(f"results_per_task is missing rank column {value_col!r}")
+            reciprocal_col = f"reciprocal_{value_col}"
+            results_per_task = results_per_task.assign(**{reciprocal_col: 1.0 / results_per_task[value_col]})
+            value_col = reciprocal_col
         if not (0 < float(target_reliability) < 1):
             raise ValueError(f"target_reliability must be in (0,1), got {target_reliability!r}")
 
@@ -574,6 +595,7 @@ class DatasetAnalysisMixin:
                 "rho_floor": stability_rho_floor,
                 "similarity": similarity,
                 "agg_fold_score": agg_fold_score,
+                "harmonic_rank": harmonic_rank,
             },
         }
 
