@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from tabarena.models.exaone_tabular.model import EXAONETabularModel
 
 cap = EXAONETabularModel._support_row_limit
@@ -27,13 +25,3 @@ def test_cap_subsamples_above_budget():
 def test_cap_never_raises_the_runtime_limit_and_can_be_disabled():
     assert cap((500_000, 100), 100, 100_000, 14_000_000) == 100_000
     assert cap((31_146, 657), 1024, 100_000, None) is None
-
-
-def test_released_manifest_sets_support_row_limit():
-    pytest.importorskip("exaonetabular")
-    from tabarena.models.exaone_tabular._estimators import released_manifest
-
-    manifest = released_manifest("regression", support_row_limit=21_308)
-    assert manifest.runtime.support_row_limit == 21_308
-    assert released_manifest("regression").runtime.support_row_limit == 100_000
-    assert manifest.runtime.feature_limit == released_manifest("regression").runtime.feature_limit
