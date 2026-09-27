@@ -34,6 +34,137 @@ run against `main`. To reproduce an entry, check out its recorded **git SHA**.
 
 ---
 
+## 2026-09-24 — beyondarena_linear_24092026
+
+- **Model(s):** Linear (`LinearModel`), default config plus 200 random configs (201 per split) on the BeyondArena
+  `core` protocol, 101,907 items
+- **Git SHA:** `a37a5ca7` (main) plus the runner thread fix `7e0960bc` (PR #614, merged), in the detached worktree
+  `../tabarena-run-linear-24092026`; AutoGluon worktree `../autogluon-run-linear-24092026` at master `ebae7ae9`
+  (includes the L1 fix, autogluon #5933)
+- **Validation protocol:** BeyondArena's official protocol, asserted by `BeyondArenaContext`
+- **Purpose:** Rerun Linear for issue #598: AutoGluon's `LinearModel` fit every L1 classification config with L2.
+  Replaces the hosted `beyond_iid_benchmark_2026` Linear (26 configs on every split) with 201 configs on `core`.
+  Processed and uploaded as suite `beyondarena-2026-09-24` (`beyond_linear_2026_09_metadata`).
+- **Notes:** SLURM partition `cpun416mtspotinteractive` (n4-standard-16 spot, 16 vCPU, 64 GB), run venv
+  `~/.venvs/tabarena_linear_24092026` with both worktrees editable (another session switched the shared
+  `../autogluon` checkout mid-run on the first launch, so the run was moved to pinned worktrees). Bundle size 10 with
+  the large-dataset rule off (one array), 150 concurrent tasks next to the TabArena run, raised to 300 once that
+  finished. Relaunches: after the thread fix (all earlier results discarded), `setup-bigmem` for
+  `maps_router_eta_1m` (AutoGluon estimated 59.5 GB per fit against 48.7 GB usable, so its 201 items ran with
+  `fake_memory_for_estimates=96`; the folds then fit one at a time on 16 CPUs), and `setup-tail` (the last 385 items
+  as single-item tasks with a 24 h SLURM limit). 8 `home_credit_default_stability_1m` configs are missing: they ran
+  for up to 24 h against the 4 h config limit, which AutoGluon's LinearModel does not enforce, and were stopped as
+  time-limit failures. Slowest tables: `home_credit_default_stability_1m` (about 3.2 h per item, as in the hosted
+  suite), `ieee_fraud_detection` (median 3.1 h), `pva_revenue_prediction_kddcup98` L1 (about 3.4 h). Result:
+  101,899 of 101,907 items. Joint leaderboard against the hosted Linear on `core`: default Elo 789 vs 791, tuned 874
+  vs 847, tuned + ensemble 912 vs 883; the tuned gain mixes the L1 fix with the larger search (201 vs 26 configs).
+
+```python
+from tabarena.benchmark.experiment import BeyondArenaExperimentBundle
+from tabarena.benchmark.task.metadata import TaskSubset
+from tabarena.contexts import BeyondArenaContext
+from tabflow_slurm import BeyondArenaResourcesSetup, GCPSlurmSetup, ModelJob, PathSetup, TabArenaBenchmarkPlan
+
+path_setup = PathSetup(
+    workspace="/home/lennart_priorlabs_ai/workspace/benchmarking/tabarena_workspace",
+    python_path="/home/lennart_priorlabs_ai/.venvs/tabarena_linear_24092026/bin/python",
+)
+common = dict(
+    benchmark_name="beyondarena_linear_24092026",
+    task_subset=TaskSubset(subset=["core"]),
+    context=BeyondArenaContext(),
+    experiment_bundle=BeyondArenaExperimentBundle(model_verbosity=2),
+    path_setup=path_setup,
+    resources_setup=BeyondArenaResourcesSetup(),
+)
+# setup: the main launch
+TabArenaBenchmarkPlan(
+    model_jobs=[ModelJob(models=("LinearModel", 200), name="cpu")],
+    scheduler_setup=GCPSlurmSetup(
+        cpu_partition="cpun416mtspotinteractive", bundle_size=10, array_job_limit=150,
+        large_dataset_n_samples=None, large_dataset_n_features=None,
+    ),
+    **common,
+).setup_jobs()
+# setup-bigmem: maps_router_eta_1m with a 96 GB memory budget reported to AutoGluon
+TabArenaBenchmarkPlan(
+    model_jobs=[
+        ModelJob(
+            models=("LinearModel", 200), name="cpu_bigmem", resources={"fake_memory_for_estimates": 96},
+            tasks=TaskSubset(subset=["core"], dataset_names=["maps_router_eta_1m"]),
+        )
+    ],
+    scheduler_setup=GCPSlurmSetup(
+        cpu_partition="cpun416mtspotinteractive", bundle_size=10, array_job_limit=150,
+        large_dataset_n_samples=None, large_dataset_n_features=None,
+    ),
+    **common,
+).setup_jobs()
+# setup-tail: every missing item as its own task
+TabArenaBenchmarkPlan(
+    model_jobs=[ModelJob(models=("LinearModel", 200), name="cpu")],
+    scheduler_setup=GCPSlurmSetup(
+        cpu_partition="cpun416mtspotinteractive", bundle_size=1, array_job_limit=300, time_limit_overhead=20,
+        large_dataset_n_samples=None, large_dataset_n_features=None,
+    ),
+    **common,
+).setup_jobs()
+```
+
+---
+
+## 2026-09-24 — linear_24092026
+
+- **Model(s):** Linear (`LinearModel`), default config plus 200 random configs (201 per split) on all 816 TabArena
+  splits, 164,016 items
+- **Git SHA:** `a37a5ca7` (main) plus the runner thread fix `7e0960bc` (PR #614, merged), in the detached worktree
+  `../tabarena-run-linear-24092026`; AutoGluon worktree `../autogluon-run-linear-24092026` at master `ebae7ae9`
+  (includes the L1 fix, autogluon #5933)
+- **Validation protocol:** `8x1` (TabArena default, asserted by the context)
+- **Purpose:** Rerun Linear for issue #598: AutoGluon's `LinearModel` fit every L1 classification config with L2.
+  Replaces the hosted suite `tabarena-2025-10-20`. Processed and uploaded as suite `tabarena-2026-09-24`
+  (`lr_2026_09_method_metadata`).
+- **Notes:** SLURM partition `cpun416mtspotinteractive` (n4-standard-16 spot, 16 vCPU, 64 GB), run venv
+  `~/.venvs/tabarena_linear_24092026` with both worktrees editable, bundle size 10, 150 concurrent tasks next to the
+  BeyondArena run. Two false starts, both discarded: the first launch imported the shared `../autogluon`, which another
+  session switched to a work-in-progress branch mid-run; the second ran under the runner's exported
+  `OMP/MKL/OPENBLAS_NUM_THREADS=16`, which every Ray fold worker inherited (8 folds x 16 BLAS threads on 16 cores), so
+  L1 fits took up to 4,400 s instead of seconds. Fixed in #614 and relaunched (array 1189859, relaunch of 185
+  preempted items 1217901). No item failed; `launch failed requeued held` tasks needed `scontrol release`. Result:
+  164,016 of 164,016 items, processed with 11 `Not close TEST` warnings (diamonds, physiochemical_protein,
+  superconductivity; at most 0.014 percent of a split's test rows). Joint leaderboard against the hosted suite (all
+  subsets): default Elo 852 vs 852, tuned 947 vs 930, tuned + ensemble 990 vs 958; binary tuned + ensemble 1085 vs
+  1051, multiclass 1043 vs 980, regression 487 vs 488. Median train time per 1K rows: default 2.6 s vs 1.2 s, tuned
+  1175 s vs 238 s (L1 classification now runs `saga`, single-threaded and slow on wide tables).
+
+```python
+from tabarena.benchmark.experiment import TabArenaV0pt1ExperimentBundle
+from tabarena.benchmark.task.metadata import TaskSubset
+from tabflow_slurm import (
+    GCPSlurmSetup,
+    ModelJob,
+    PathSetup,
+    TabArenaV0pt1BenchmarkPlan,
+    TabArenaV0pt1ResourcesSetup,
+)
+
+plan = TabArenaV0pt1BenchmarkPlan(
+    benchmark_name="linear_24092026",
+    model_jobs=[ModelJob(models=("LinearModel", 200), name="cpu")],
+    task_subset=TaskSubset(),
+    path_setup=PathSetup(
+        workspace="/home/lennart_priorlabs_ai/workspace/benchmarking/tabarena_workspace",
+        python_path="/home/lennart_priorlabs_ai/.venvs/tabarena_linear_24092026/bin/python",
+    ),
+    experiment_bundle=TabArenaV0pt1ExperimentBundle(model_verbosity=2),
+    resources_setup=TabArenaV0pt1ResourcesSetup(num_cpus=None, memory_limit=None),
+    scheduler_setup=GCPSlurmSetup(cpu_partition="cpun416mtspotinteractive", bundle_size=10, array_job_limit=150),
+)
+plan.setup_jobs()
+```
+
+---
+
 ## 2026-09-25 — beyondarena_tfms_22092026 (core2k extension)
 
 - **Model(s):** the nine models of the 2026-09-22 entry below (default config only, `NUM_CONFIGS=0`), same size scopes

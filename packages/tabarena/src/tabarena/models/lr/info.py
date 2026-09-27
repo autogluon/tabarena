@@ -26,9 +26,22 @@ lr_method_metadata = lr_descriptor.method_metadata(
     # FIXME: technically LR is not verified
 )
 
+# Rerun with L1 honored for classification (AutoGluon #5933, issue #598) and per-worker BLAS threads (#614).
+lr_2026_09_method_metadata = lr_descriptor.method_metadata(
+    method="LinearModel",
+    suite="tabarena-2026-09-24",
+    ag_key="LR",
+    config_default="LinearModel_c1_default_BAG_L1",
+    validation_protocol="8x1",
+    cache_type="r2",
+    cache_kwargs={"bucket": "tabarena", "prefix": "cache"},
+    date="2026-09-24",
+    verified=False,
+)
+
 
 lr_info = ModelInfo(
     model_cls=LinearModel,
     search_space=gen_linear,
-    method_metadata=lr_method_metadata,
+    method_metadata=lr_2026_09_method_metadata,
 )
