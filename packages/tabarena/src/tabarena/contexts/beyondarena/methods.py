@@ -236,3 +236,14 @@ beyond_method_metadata_lst: list[MethodMetadata] = [
 beyond_method_metadata_collection = MethodMetadataCollection(
     method_metadata_lst=beyond_method_metadata_lst,
 )
+
+# Metadata that a rerun has replaced in the roster above. Kept so that their hosted artifacts stay reachable
+# by (method, suite) through the complete collection. Append a method here whenever a rerun takes over its slot.
+beyond_methods_superseded: list[MethodMetadata] = [
+    beyond_linear_metadata,  # rerun beyondarena-2026-09-24 replaced it
+]
+
+# The roster plus every superseded variant: all hosted BeyondArena results.
+beyond_method_metadata_complete_collection = beyond_method_metadata_collection.with_additional_methods(
+    beyond_methods_superseded,
+)
