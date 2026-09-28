@@ -76,7 +76,7 @@ class KumoTabularModel(AbstractTorchModel):
         device = self._resolve_fit_device(num_gpus)
         task = "regression" if self.problem_type == REGRESSION else "classification"
         network = _estimators.load_network(task=task, size=self.size, device=device)
-        self.model = _estimators.build_estimator(task=task, size=self.size, network=network)
+        self.model = _estimators.FittedNetwork(task=task, size=self.size, network=network)
 
         X = self.preprocess(X, y=y)
         # AutoGluon hands binary columns over as integers; the library then treats them as categorical.
@@ -96,7 +96,7 @@ class KumoTabularModel(AbstractTorchModel):
         if isinstance(self.random_seed, int):
             generator = torch.Generator(device).manual_seed(self.random_seed)
         with torch.amp.autocast(device.type, dtype=torch.float16, enabled=device.type == "cuda"):
-            out = self.model(
+            out = self.model.estimator()(
                 x_context=self._x_context.to(device),
                 y_context=self._y_context.to(device),
                 x_query=x_query,
@@ -128,11 +128,11 @@ class KumoTabularModel(AbstractTorchModel):
         self._set_default_param_value("num_estimators", self.default_num_estimators)
 
     def get_device(self) -> str:
-        param = next(self.model.parameters(), None)
+        param = next(self.model.network.parameters(), None)
         return str(param.device) if param is not None else "cpu"
 
     def _set_device(self, device: str):
-        self.model.to(device)
+        self.model.network.to(device)
 
     def _more_tags(self) -> dict:
         return {"can_refit_full": True}

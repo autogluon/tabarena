@@ -84,6 +84,13 @@ SMOKE_OVERRIDES: dict[str, ModelSmokeTest] = {
     # (over the class's cheap single member) reach the first `power` member of the classification
     # config (the fifth of the regression config), whose lambdas the wrapper's pickle has to survive.
     "LimiX-2": ModelSmokeTest({"n_estimators": 17}, verify_single_prediction_equivalent_to_multi=False),
+    # Kumo Tabular predicts under float16 autocast on CUDA, so a row predicted alone vs. inside a batch
+    # drifts up to ~4e-4 on toy classification data (the tolerance is 1e-5). The drift is numerical: with
+    # the autocast off it is ~1e-6, and `FitHelper.verify_model` passes with the check on under
+    # CUDA_VISIBLE_DEVICES="" for all three sizes.
+    "Kumo-Tabular": ModelSmokeTest({"num_estimators": 1}, verify_single_prediction_equivalent_to_multi=False),
+    "Kumo-Tabular-Medium": ModelSmokeTest({"num_estimators": 1}, verify_single_prediction_equivalent_to_multi=False),
+    "Kumo-Tabular-Small": ModelSmokeTest({"num_estimators": 1}, verify_single_prediction_equivalent_to_multi=False),
     "TabSTAR": ModelSmokeTest({"max_epochs": 1}),
     "TabFM": ModelSmokeTest({"n_estimators": 1}),
     "Nori": ModelSmokeTest(problem_types=("regression",)),

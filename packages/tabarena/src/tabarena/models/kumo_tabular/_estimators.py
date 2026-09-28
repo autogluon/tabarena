@@ -10,11 +10,16 @@ The library could offer both itself, as a public ``load_network(task, size, devi
 constructor argument; until it does, re-diff this module against ``_load_from_pretrained`` whenever the
 library is bumped.
 
+The fitted wrapper keeps a :class:`FittedNetwork`, not the estimator: AutoGluon's shared-weights pickle
+finds the network by identity in the fitted state but treats a ``torch.nn.Module`` as one unit, and the
+estimator is a module holding the network as a submodule.
+
 Imports ``sdm`` (and with it torch) at module level; the wrapper imports this module inside ``_fit``.
 """
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 
 import sdm
@@ -57,3 +62,20 @@ def build_estimator(task: str, size: str, network: torch.nn.Module) -> sdm.model
     estimator = sdm.models.KumoTabular(task=task, size=size, pretrained=False, device="meta")
     estimator.models[task] = network
     return estimator.eval()
+
+
+@dataclass
+class FittedNetwork:
+    """The network a fit took, with the task and size its estimator is built for.
+
+    A plain object, so the shared-weights pickle finds ``network`` inside it, leaves it out and puts the
+    registry's network for the load device back. The estimator holds no state of its own beyond the
+    network and takes milliseconds to build on the meta device, so :meth:`estimator` builds it per call.
+    """
+
+    task: str
+    size: str
+    network: torch.nn.Module
+
+    def estimator(self) -> sdm.models.KumoTabular:
+        return build_estimator(task=self.task, size=self.size, network=self.network)
