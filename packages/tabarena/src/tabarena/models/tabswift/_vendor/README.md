@@ -99,3 +99,22 @@ normalizer's outputs to a large finite bound (`_clip_to_finite_range`, a quarter
 NaNs pass through) in both `fit` and `transform`, and the outlier remover's own clipping takes it from
 there. Upstream `TALENT/model/lib/tabswift/preprocessing.py` has the same code path; the fix applies
 there unchanged.
+
+### 6. Regression output shape under batched ICL inference — `model/learning.py`
+
+`ICLearning` routes the regression pass through the `InferenceManager` it builds for classification
+(`out_dim=max_classes`), and the regression forward returns the encoder's `register_tokens` rows in front of the
+table rows. When the manager splits the tables into sub-batches (CUDA only, and whenever its memory estimate is
+below the number of ensemble members) it pre-allocates a `(tables, T, max_classes)` output and each
+`(tables, register_tokens + T, 1)` sub-batch result fails to fit, e.g. `RuntimeError: The expanded size of the
+tensor (9) must match the existing size (73) at non-singleton dimension 1. Target sizes: [1, 9, 10]. Tensor sizes:
+[73, 1]` (issue #618). The estimate's `tf_icl` coefficients give a negative slope in the batch size for short
+sequences (under ~14 rows), so tiny inputs hit this reliably. Regression now has its own manager with
+`out_dim=1` (`inference_mgr_reg`) and drops the register rows inside each sub-batch before the manager writes
+them back. The single-pass result is unchanged. The upstream file has the same code path; the fix applies there
+unchanged.
+
+The same regression forward (`_icl_predictions_reg`) added the target encoding into `R` in place. The manager
+hands each sub-batch a view of the caller's `R` and re-runs the whole loop at half the batch size after a CUDA OOM,
+so the tables processed before the OOM had their targets encoded twice on the retry. The encoding now builds a new
+tensor (`torch.cat` of the encoded train rows and the test rows) and leaves the caller's `R` untouched.
