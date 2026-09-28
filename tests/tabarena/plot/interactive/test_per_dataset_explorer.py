@@ -7,6 +7,7 @@ import pandas as pd
 import pytest
 
 from tabarena.plot.interactive.per_dataset_explorer import (
+    BEYONDARENA_SIZE_BUCKETS,
     build_per_dataset_explorer_html,
     dataset_records,
     imputed_counts,
@@ -237,6 +238,26 @@ def test_build_per_dataset_explorer(tmp_path):
     # and 2nd on beta, against the system's 2nd and 1st, and CatBoost (default)'s 3rd and 3rd.
     contender = config["methods"][config["defaultContender"]]
     assert contender["name"] in {"CatBoost (tuned)", "AutoGluon 1.6 (extreme, 4h)"}
+
+
+def test_explorer_carries_the_split_regime_and_arena_size_buckets(tmp_path):
+    metadata = pd.DataFrame(
+        [
+            {"dataset": "alpha", "max_train_rows": 400, "task_type": "temporal"},
+            {"dataset": "beta", "max_train_rows": 160_000, "task_type": "grouped"},
+        ],
+    )
+    out = build_per_dataset_explorer_html(
+        results_per_split=_results_per_split(),
+        method_info=_METHOD_INFO,
+        dataset_metadata=metadata,
+        save_path=tmp_path / "per_dataset_explorer.html",
+        size_buckets=BEYONDARENA_SIZE_BUCKETS,
+    )
+    config = _config(out.read_text(encoding="utf-8"))
+    assert [d["split"] for d in config["datasets"]] == ["temporal", "grouped"]
+    assert [b["key"] for b in config["sizeBuckets"]] == ["tiny", "small", "medium", "large"]
+    assert config["sizeBuckets"][-1]["max"] is None
 
 
 def test_build_per_dataset_explorer_without_trajectories(tmp_path):
