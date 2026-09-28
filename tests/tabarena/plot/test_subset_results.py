@@ -93,3 +93,39 @@ def test_per_family_skipped_when_no_known_methods(leaderboards, tmp_path):
     saved = plot_subset_results(renamed, tmp_path, metrics=["elo"])
     # per_family has nothing to draw (no family contains Mystery-* methods); per_model plots any method.
     assert list(saved) == ["per_model_elo"]
+
+
+def test_unlisted_foundation_model_joins_the_tfm_family(leaderboards):
+    from matplotlib.text import Text
+
+    from tabarena.plot import subset_results as sr
+
+    # TabPFN-3.5 is in no default group but is typed a foundation model; it beats every listed TFM.
+    boosted = {
+        label: pd.concat([lb, lb[lb["method"] == "TabPFN-3 (default)"].assign(method="TabPFN-3.5 (default)", elo=2e3)])
+        for label, lb in leaderboards.items()
+    }
+    order = list(boosted)
+    df = sr._prepare_frame(boosted, order)
+    groups = sr._with_extra_methods(sr.DEFAULT_FAMILY_GROUPS, "TFM", sr._foundation_models(df))
+    assert "TabPFN-3.5" in groups["TFM"]["methods"]
+    assert "TabPFN-3.5" not in sr.DEFAULT_FAMILY_GROUPS["TFM"]["methods"]
+
+    fig = sr._per_family_figure(df, order, sr.METRIC_SPECS["elo"], groups, [])
+    labels = [t.get_text() for t in fig.findobj(Text)]
+    assert any("TabPFN-3.5" in label for label in labels), labels
+
+
+def test_per_model_width_grows_with_the_number_of_methods(leaderboards):
+    from tabarena.plot import subset_results as sr
+
+    def width(lbs):
+        order = list(lbs)
+        fig = sr._per_model_figure(sr._prepare_frame(lbs, order), order, sr.METRIC_SPECS["elo"], {}, [], None)
+        return fig.get_size_inches()[0]
+
+    many = {
+        label: pd.concat([lb, *(lb.assign(method=lb["method"] + f" {i}") for i in range(4))])
+        for label, lb in leaderboards.items()
+    }
+    assert width(many) > width(leaderboards)

@@ -29,6 +29,8 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 
+from tabarena.website.website_format import Constants, get_model_family
+
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
@@ -213,6 +215,7 @@ _MARKER_ZORDER_BASE = 10
 _EDGE_ZORDER_OFFSET = 100  # edges above all fills so borders stay visible
 _BAR_ALPHA = 0.45
 _DODGE_WIDTH = 0.8  # per-model: total x spread of the per-column method slots
+_INCHES_PER_METHOD = 0.11  # per-model: minimum column width per method, so the slots never crowd
 
 _RC_PARAMS = {
     "font.family": "serif",
@@ -261,8 +264,11 @@ def plot_subset_results(
             bare method names (strongest available subtype) or ``(method, subtype)`` tuples.
         subset_order: x-axis order; defaults to :data:`DEFAULT_SUBSET_ORDER` filtered to the
             available labels (+ any unknown labels appended, keeping ``"full"`` last).
-        family_groups: Override for :data:`DEFAULT_FAMILY_GROUPS` (per-family lines).
-        marker_groups: Override for :data:`DEFAULT_MARKER_GROUPS` (per-model marker shapes).
+        family_groups: Override for :data:`DEFAULT_FAMILY_GROUPS` (per-family lines). The default
+            ``TFM`` group also takes every other method in the data that
+            :func:`~tabarena.website.website_format.get_model_family` types as a foundation model.
+        marker_groups: Override for :data:`DEFAULT_MARKER_GROUPS` (per-model marker shapes). The
+            default ``Foundation Model`` group takes the same extra methods.
         models: If given, the per-model plot only shows these methods (default: all available).
 
     Returns:
@@ -271,8 +277,13 @@ def plot_subset_results(
     """
     order = _resolve_subset_order(leaderboards, subset_order)
     df = _prepare_frame(leaderboards, order)
-    family_groups = dict(DEFAULT_FAMILY_GROUPS if family_groups is None else family_groups)
-    marker_groups = dict(DEFAULT_MARKER_GROUPS if marker_groups is None else marker_groups)
+    foundation_models = _foundation_models(df)
+    if family_groups is None:
+        family_groups = _with_extra_methods(DEFAULT_FAMILY_GROUPS, "TFM", foundation_models)
+    if marker_groups is None:
+        marker_groups = _with_extra_methods(DEFAULT_MARKER_GROUPS, "Foundation Model", foundation_models)
+    family_groups = dict(family_groups)
+    marker_groups = dict(marker_groups)
     contender_entries = list(contenders)
 
     output_dir = Path(output_dir)
@@ -340,6 +351,19 @@ def _prepare_frame(leaderboards: dict[str, pd.DataFrame], order: list[str]) -> p
     # Strip the "(<subtype>)" display suffix; the method_subtype column already carries it.
     df["method"] = df["method"].astype(str).str.replace(r"\s*\([^)]*\)\s*$", "", regex=True)
     return df
+
+
+def _foundation_models(df: pd.DataFrame) -> list[str]:
+    """Methods in ``df`` that the website typing places in the foundation-model family."""
+    return sorted({m for m in df["method"].unique() if get_model_family(m) == Constants.foundational})
+
+
+def _with_extra_methods(groups: dict[str, dict], key: str, methods: list[str]) -> dict[str, dict]:
+    """Copy of ``groups`` whose ``key`` group also lists ``methods`` (after its own, without repeats)."""
+    groups = {name: dict(cfg) for name, cfg in groups.items()}
+    known = groups[key]["methods"]
+    groups[key]["methods"] = [*known, *(m for m in methods if m not in known)]
+    return groups
 
 
 def _series_by(df: pd.DataFrame, order: list[str], key_cols: list[str], col: str) -> dict[tuple, np.ndarray]:
@@ -762,7 +786,9 @@ def _per_model_figure(
     n = len(by_anchor)
     slot = {m: ((i - (n - 1) / 2) / (n - 1) * _DODGE_WIDTH if n > 1 else 0.0) for i, m in enumerate(by_anchor)}
 
-    fig, ax = plt.subplots(figsize=(max(7.0, 1.35 * len(order) - 0.2), 4.2))
+    # Every method gets a slot in every column, so the column width grows with the number of methods.
+    column_width = max(1.35, _INCHES_PER_METHOD * n)
+    fig, ax = plt.subplots(figsize=(max(7.0, column_width * len(order) - 0.2), 4.2))
     _draw_x_scaffolding(ax, order, column_guides=False, left=-0.52, right=0.45)
 
     vals = np.concatenate([val_by_m[m] for m in method_order])
