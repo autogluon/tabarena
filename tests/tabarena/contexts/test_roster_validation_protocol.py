@@ -7,7 +7,10 @@ from tabarena.benchmark.validation_protocol import (
     TABARENA_V0PT1_VALIDATION_PROTOCOL,
 )
 from tabarena.contexts import BeyondArenaContext, TabArenaContext
-from tabarena.contexts.beyondarena.methods import beyond_method_metadata_collection
+from tabarena.contexts.beyondarena.methods import (
+    beyond_method_metadata_collection,
+    beyond_method_metadata_complete_collection,
+)
 from tabarena.contexts.tabarena.methods import (
     tabarena_method_metadata_2025_06_12_collection,
     tabarena_method_metadata_collection,
@@ -30,8 +33,16 @@ def test_every_tabarena_method_declares_its_protocol():
 
 
 def test_every_beyondarena_method_declares_the_beyondarena_protocol():
-    for method in beyond_method_metadata_collection.method_metadata_lst:
-        assert method.validation_protocol == BEYONDARENA_VALIDATION_PROTOCOL.key(), method.method
+    for collection in (beyond_method_metadata_collection, beyond_method_metadata_complete_collection):
+        for method in collection.method_metadata_lst:
+            assert method.validation_protocol == BEYONDARENA_VALIDATION_PROTOCOL.key(), method.method
+
+
+def test_beyondarena_complete_collection_keeps_superseded_linear():
+    # The roster holds only the rerun; the complete collection still resolves the hosted original.
+    for suite in ("beyond_iid_benchmark_2026", "beyondarena-2026-09-24"):
+        method = beyond_method_metadata_complete_collection.get_method_metadata(method="LinearModel", suite=suite)
+        assert method.suite == suite
 
 
 def test_roster_methods_read_as_official_on_their_arena():
