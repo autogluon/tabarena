@@ -255,3 +255,10 @@ The second leaderboard has its own generator and target folder:
 `generated_beyondarena_website_artifacts/clean_website_artifacts/` (`subsets/` + `result_plots/`) →
 Space repo's **`data_beyondarena/`**. Same delete-then-copy discipline applies. Only touch it when the
 maintainer asks for BeyondArena; this skill's default is the main leaderboard `data/`.
+
+The generator has no argument parser, so `--help` starts a full run. Delete `subsets/` and
+`result_plots/` before copying: the unzipped `*.png` files that `data_loading.unzip_png` leaves there
+are gitignored and would be served stale. Then compare the file list against the Space's tracked one
+(`diff <(cd $SRC && find . -type f | sed 's|^\./||' | sort) <(cd $DST && git ls-files | sort)` is empty when no subset
+changed). Each subset must carry a `leaderboard_table.html` (12 in total), which the app embeds as
+the full table.
