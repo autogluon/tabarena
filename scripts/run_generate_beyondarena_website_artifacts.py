@@ -3,7 +3,10 @@
 Counterpart to ``run_generate_website_artifacts.py`` (TabArena), but for the data-foundry
 BeyondArena benchmark. It (1) regenerates every per-subset figure/table from the cached BeyondArena
 baselines, (2) adds the cross-subset overview figure, and (3) converts the result into the website's
-folder/file layout (per-subset CSV, figures and the embedded ``leaderboard_table.html``) and zips it.
+folder/file layout and zips it. Each subset is converted by TabArena's own
+:func:`~tabarena.website.process_artifacts_to_website.process_one_folder`, so it ships the same
+interactive explorers, embedded table and per-dataset browser as a TabArena cell; only the
+cross-subset overview figures are static (zipped) PNGs.
 The artifacts are then copied into the leaderboard Space's ``data/``
 directory (under the ``beyondarena`` root the BeyondArena tab reads from) and committed — see the
 publishing procedure in ``run_generate_website_artifacts.py``.
@@ -33,11 +36,11 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
-import pandas as pd
-
 from tabarena.contexts import BeyondArenaContext
-from tabarena.plot.interactive.leaderboard_table import build_leaderboard_table_html
+from tabarena.plot.interactive.per_dataset_explorer import BEYONDARENA_SIZE_BUCKETS
 from tabarena.plot.subset_results import plot_subset_results
+from tabarena.plot.tuning_trajectories.plot_pareto_over_tuning_time import plot_tuning_trajectories
+from tabarena.website.process_artifacts_to_website import process_one_folder
 from tabarena.website.process_pngs import process_png_bulk
 
 # Subset axis of the BeyondArena tab: label -> extra predicate(s) layered on top of the always
@@ -61,15 +64,6 @@ BEYOND_SUBSETS: dict[str, list[str]] = {
     "text": ["text"],
     "high-cardinality": ["high-cardinality"],
 }
-
-# Per-subset figures produced by ``compare`` that the BeyondArena tab renders. NOTE: unlike TabArena
-# there is no HPO tuning-trajectory figure (``pareto_n_configs_imp``) — BeyondArena is evaluated on a
-# single ``core`` protocol, not a tuning sweep, so ``plot_tuning_trajectories_all`` is not run.
-_SUBSET_FIGURES = (
-    "tuning-impact-elo",
-    "pareto_front_improvability_vs_time_infer",
-    "winrate_matrix",
-)
 
 # Methods highlighted as "contenders" in the overview figure (their own line in the per-family plot,
 # star-marked in the per-model plot). Leave empty for the neutral official leaderboard.
@@ -140,6 +134,25 @@ class BeyondArenaWebsiteArtifactGenerator:
 
             leaderboards[label] = leaderboard
 
+            # The tuning trajectories (and, for "full", the per-dataset frame the browser reads),
+            # written where the converter looks for them. Imputed results stay in, as on the
+            # leaderboard: the foundation models that skip the >100k-row tables would vanish
+            # otherwise.
+            plot_tuning_trajectories(
+                tabarena_context=context,
+                subset_map={"placeholder_name": subset},
+                fig_save_dir=out_dir / "tuning_trajectories",
+                exclude_imputed=False,
+                ban_bad_methods=True,
+                include_baselines=True,
+                focus_mode=True,
+                website_only=True,
+                # A dataset's own trajectory does not depend on which other datasets share the
+                # subset, so only the unrestricted one emits the per-dataset frame.
+                per_dataset_trajectories=not extra,
+                file_ext=f".{figure_file_type}",
+            )
+
         # Give the overview figure display names so its per-family lines resolve. compare() leaves
         # the method column as raw config-type names (e.g. "TA-REALMLP (tuned + ensemble)"), which do
         # not match plot_subset_results' family groups ("RealMLP", "TabM", ...). Mirror the rename that
@@ -176,33 +189,23 @@ class BeyondArenaWebsiteArtifactGenerator:
     def convert_to_website_format(self):
         input_path = self.raw_artifacts_dir
         output_path = self.clean_artifacts_dir
-        figure_file_type = "png"
 
-        # -- Per-subset folders: copy the CSV + n_datasets marker, build the embedded table, copy the
-        #    rendered figures.
+        # One row per dataset, the same for every subset: the per-dataset browser's filters and its
+        # metadata line read it.
+        dataset_metadata = BeyondArenaContext().task_metadata_collection.per_dataset_frame()
+
+        # -- Per-subset folders, converted exactly like a TabArena cell.
         for subset_dir in sorted((input_path / "subsets").iterdir()):
             if not subset_dir.is_dir():
                 continue
-            out_dir = output_path / "subsets" / subset_dir.name
-            out_dir.mkdir(parents=True, exist_ok=True)
-
-            shutil.copy(subset_dir / "website_leaderboard.csv", out_dir / "website_leaderboard.csv")
-            # The full leaderboard table the app embeds, built from the same frame as the CSV so the
-            # two cannot sort or style the numbers differently (as the TabArena converter does).
-            build_leaderboard_table_html(
-                pd.read_csv(out_dir / "website_leaderboard.csv"),
-                save_path=out_dir / "leaderboard_table.html",
-                page_title=f"BeyondArena leaderboard table — {subset_dir.name}",
+            process_one_folder(
+                base_input_path=subset_dir,
+                base_output_path=output_path / "subsets" / subset_dir.name,
+                subset_label=subset_dir.name,
+                dataset_metadata=dataset_metadata,
+                benchmark_name="BeyondArena",
+                size_buckets=BEYONDARENA_SIZE_BUCKETS,
             )
-            for marker in subset_dir.glob("n_datasets_*"):
-                (out_dir / marker.name).touch()
-
-            for fig in _SUBSET_FIGURES:
-                src = subset_dir / f"{fig}.{figure_file_type}"
-                if src.exists():
-                    shutil.copy(src, out_dir / f"{fig}.{figure_file_type}")
-                else:
-                    print(f"WARNING: expected figure not found, skipping: {src}")
 
         # -- Cross-subset overview figures (per_family_*/per_model_* elo & improvability).
         overview_in = input_path / "result_plots"
@@ -216,8 +219,8 @@ class BeyondArenaWebsiteArtifactGenerator:
         if subsets_json.exists():
             shutil.copy(subsets_json, output_path / subsets_json.name)
 
-        # Zip every PNG (subset figures + overview) into <name>.png.zip and drop the raw PNGs, matching
-        # what the leaderboard app expects (it lazily unzips on demand).
+        # Zip the overview PNGs into <name>.png.zip and drop the raw PNGs, matching what the
+        # leaderboard app expects (it lazily unzips on demand).
         process_png_bulk(path=output_path)
 
         # Place the zip next to (and named after) the clean artifacts folder.

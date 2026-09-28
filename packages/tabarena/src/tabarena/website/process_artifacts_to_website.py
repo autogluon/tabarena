@@ -6,9 +6,9 @@ static PNGs were a second copy of what the reader already had: 80 of the 105 MB 
 ``data/``, and the only reason it needed Git LFS. They are still rendered into
 ``raw_website_artifacts/`` for paper use; they are simply not published.
 
-BeyondArena is unaffected. It has its own copy path in
-``scripts/run_generate_beyondarena_website_artifacts.py`` and ships PNGs because it has no
-explorers for most of its figures.
+BeyondArena's generator (``scripts/run_generate_beyondarena_website_artifacts.py``) runs every
+subset through the same :func:`process_one_folder`; only its cross-subset overview figures stay
+static PNGs.
 """
 
 from __future__ import annotations
@@ -42,11 +42,15 @@ def process_one_folder(
     base_output_path: Path,
     subset_label: str | None = None,
     dataset_metadata: pd.DataFrame | None = None,
+    benchmark_name: str = "TabArena",
+    size_buckets: list[tuple[str, str, float]] | None = None,
 ):
     """Copy one subset's artifacts into the website layout.
 
     ``subset_label`` is the human-readable subset name used in the interactive
     explorers' headline (e.g. "Models only | All Tasks | Small"); omitted when ``None``.
+    ``benchmark_name`` leads the standalone explorer files' page titles, and ``size_buckets``
+    overrides the per-dataset browser's size chips (see ``build_per_dataset_explorer_html``).
     ``dataset_metadata`` is the benchmark's one-row-per-dataset frame, used by the per-dataset
     browser; it is the same for every subset, so the caller loads it once.
     """
@@ -96,9 +100,9 @@ def process_one_folder(
         save_path=base_output_path / "leaderboard_overview_explorer.html",
         # No in-page heading: the website's panel header already names the
         # figure and the subset. The label identifies the standalone file.
-        page_title=f"TabArena leaderboard explorer — {subset_label}"
+        page_title=f"{benchmark_name} leaderboard explorer — {subset_label}"
         if subset_label
-        else "TabArena leaderboard explorer",
+        else f"{benchmark_name} leaderboard explorer",
     )
     # The leaderboard table itself, for the same reason and from the same frame:
     # the app embeds this instead of rendering its own table, so the two cannot
@@ -106,7 +110,9 @@ def process_one_folder(
     build_leaderboard_table_html(
         website_leaderboard,
         save_path=base_output_path / "leaderboard_table.html",
-        page_title=f"TabArena leaderboard table — {subset_label}" if subset_label else "TabArena leaderboard table",
+        page_title=f"{benchmark_name} leaderboard table — {subset_label}"
+        if subset_label
+        else f"{benchmark_name} leaderboard table",
     )
 
     # The per-dataset browser, for the cells that carry the per-dataset trajectory frame. A
@@ -123,8 +129,9 @@ def process_one_folder(
             dataset_metadata=dataset_metadata,
             # The published table is already sorted by Elo, so its first row is the leader.
             default_contender=_leader_name(website_leaderboard),
+            size_buckets=size_buckets,
             save_path=base_output_path / "per_dataset_explorer.html",
-            page_title=f"TabArena per-dataset results — {subset_label}"
+            page_title=f"{benchmark_name} per-dataset results — {subset_label}"
             if subset_label
-            else "TabArena per-dataset results",
+            else f"{benchmark_name} per-dataset results",
         )

@@ -46,6 +46,15 @@ _SIZE_BUCKETS: list[tuple[str, str, float]] = [
     ("large", "> 100k", math.inf),
 ]
 
+#: BeyondArena's buckets, as its ``tiny`` / ``small`` / ``medium`` / ``large`` subsets draw them
+#: (see ``BeyondArenaContext.SUBSET_PREDICATES``).
+BEYONDARENA_SIZE_BUCKETS: list[tuple[str, str, float]] = [
+    ("tiny", "≤ 1k rows", 1_000),
+    ("small", "1k – 10k", 10_000),
+    ("medium", "10k – 100k", 100_000),
+    ("large", "> 100k", math.inf),
+]
+
 #: Columns of ``CONFIG.trajectory.rows``, kept as positional arrays rather than records: the
 #: frame is one row per (dataset, method, tuning budget) and the key names would outweigh the
 #: numbers several times over. ``x`` is the median training time in seconds on that dataset;
@@ -154,6 +163,9 @@ def dataset_records(
         "dataset_year": "year",
         "target_imbalance_ratio": "imbalance_ratio",
         "target_skewness": "target_skew",
+        # How train and test were split (random / temporal / grouped); the browser only offers
+        # it as a filter when the benchmark mixes them.
+        "task_type": "split",
     }
     available = {src: dst for src, dst in columns.items() if src in dataset_metadata.columns}
     meta = dataset_metadata[["dataset", *available]].rename(columns=available)
@@ -298,6 +310,7 @@ def build_per_dataset_explorer_html(
     save_path: str | Path,
     title: str | None = None,
     page_title: str = "TabArena per-dataset results",
+    size_buckets: list[tuple[str, str, float]] | None = None,
 ) -> Path | None:
     """Render the per-dataset browser for one subset.
 
@@ -322,6 +335,9 @@ def build_per_dataset_explorer_html(
         makes that measure favour a model that ran on few datasets and did well on those.
     title
         Headline shown above the table; omitted when ``None``.
+    size_buckets
+        ``(key, label, max_train_rows)`` per size chip, matching the arena's own size subsets;
+        defaults to TabArena's small / medium / large.
 
     Returns:
     -------
@@ -395,7 +411,7 @@ def build_per_dataset_explorer_html(
         "trajectory": {"cols": _TRAJECTORY_COLS, "rows": trajectory_rows},
         "sizeBuckets": [
             {"key": key, "label": label, "max": None if max_rows == math.inf else max_rows}
-            for key, label, max_rows in _SIZE_BUCKETS
+            for key, label, max_rows in (_SIZE_BUCKETS if size_buckets is None else size_buckets)
         ],
         "metricDisplay": _METRIC_DISPLAY,
         "defaultContender": int(contender_index),

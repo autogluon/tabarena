@@ -1798,7 +1798,7 @@ def plot_tuning_trajectories_from_leaderboard(
             # Mirrored against the Pareto scatter explorer (chips left there).
             chips_side="right",
             save_path=fig_save_dir / "tuning_trajectories_explorer.html",
-            page_title="TabArena tuning trajectories",
+            page_title=f"{benchmark_name} tuning trajectories",
         )
         explorer_points.to_csv(fig_save_dir / "tuning_trajectories.csv", index=False)
 
