@@ -69,6 +69,15 @@ beyond_linear_metadata = lr_descriptor.method_metadata(
     config_default="LinearModel_c1_BAG_L1",
     **_common_bag_kwargs,
 )
+# Rerun of the 2026-09-24 run (`beyondarena_linear_24092026` in BENCHMARK_LOG.md): L1 honored for classification
+# (AutoGluon #5933, issue #598), per-worker BLAS threads (#614), the default config plus 200 random configs on the
+# core protocol (the hosted suite above ran 26 configs on every split).
+beyond_linear_2026_09_metadata = lr_descriptor.method_metadata(
+    method="LinearModel",
+    ag_key="LR",
+    config_default="LinearModel_c1_BAG_L1",
+    **{**_common_bag_kwargs, "suite": "beyondarena-2026-09-24", "date": "2026-09-24", "verified": True},
+)
 beyond_random_forest_metadata = random_forest_descriptor.method_metadata(
     method="RandomForest",
     ag_key="RF",
@@ -201,7 +210,7 @@ beyond_tabswift_metadata = tabswift_descriptor.method_metadata(
 )
 
 beyond_method_metadata_lst: list[MethodMetadata] = [
-    beyond_linear_metadata,
+    beyond_linear_2026_09_metadata,
     beyond_random_forest_metadata,
     beyond_extra_trees_metadata,
     beyond_catboost_metadata,
