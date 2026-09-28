@@ -36,7 +36,7 @@ lr_2026_09_method_metadata = lr_descriptor.method_metadata(
     cache_type="r2",
     cache_kwargs={"bucket": "tabarena", "prefix": "cache"},
     date="2026-09-24",
-    verified=False,
+    verified=True,
 )
 
 

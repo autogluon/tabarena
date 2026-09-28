@@ -76,7 +76,7 @@ beyond_linear_2026_09_metadata = lr_descriptor.method_metadata(
     method="LinearModel",
     ag_key="LR",
     config_default="LinearModel_c1_BAG_L1",
-    **{**_common_bag_kwargs, "suite": "beyondarena-2026-09-24", "date": "2026-09-24", "verified": False},
+    **{**_common_bag_kwargs, "suite": "beyondarena-2026-09-24", "date": "2026-09-24", "verified": True},
 )
 beyond_random_forest_metadata = random_forest_descriptor.method_metadata(
     method="RandomForest",
