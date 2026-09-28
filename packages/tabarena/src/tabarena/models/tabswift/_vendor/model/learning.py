@@ -91,6 +91,12 @@ class ICLearning(nn.Module):
         self.inference_mgr = InferenceManager(
             enc_name="tf_icl", out_dim=max_classes, min_batch_size=1, safety_factor=0.8, offload=False
         )
+        # NOTE (tabarena vendor): the regression head emits one value per row, not ``max_classes``, so it
+        # needs its own manager; sharing ``inference_mgr`` pre-allocated a (..., T, max_classes) output
+        # that no regression sub-batch fits into once the manager splits the tables.
+        self.inference_mgr_reg = InferenceManager(
+            enc_name="tf_icl", out_dim=1, min_batch_size=1, safety_factor=0.8, offload=False
+        )
 
     def _grouping(self, num_classes: int) -> tuple[Tensor, int]:
         """Divide classes into balanced groups for hierarchical classification.
@@ -260,11 +266,15 @@ class ICLearning(nn.Module):
         if if_regression:
             # For regression, use a linear layer to encode the target values
             if y_train.dim() == 2:
-                R[:, :train_size] = R[:, :train_size] + self.y_encoder_reg(y_train.float().unsqueeze(-1))
+                y_emb = self.y_encoder_reg(y_train.float().unsqueeze(-1))
             else:
-                R[:, :train_size] = R[:, :train_size] + self.y_encoder_reg(y_train.float())
+                y_emb = self.y_encoder_reg(y_train.float())
         else:
-            R[:, :train_size] = R[:, :train_size] + self.y_encoder(y_train.float())
+            y_emb = self.y_encoder(y_train.float())
+        # NOTE (tabarena vendor): the target encoding builds a new tensor instead of writing into ``R``. The
+        # inference manager passes views of the caller's ``R`` and re-runs sub-batches after a CUDA OOM, so an
+        # in-place add encoded the targets of the already processed tables a second time on the retry.
+        R = torch.cat([R[:, :train_size] + y_emb, R[:, train_size:]], dim=1)
         src = self.tf_icl(R, attn_mask=train_size)
         if self.norm_first:
             src = self.ln(src)
@@ -362,13 +372,17 @@ class ICLearning(nn.Module):
 
         train_size = y_train.shape[1]
         num_classes = len(torch.unique(y_train[0]))
-        out = self.inference_mgr(
-            self._icl_predictions_reg, inputs=OrderedDict([("R", R), ("y_train", y_train)]), auto_batch=auto_batch
+
+        # NOTE (tabarena vendor): the encoder prepends ``register_tokens`` rows, but the manager's pre-allocated
+        # output only has the input's T rows, so the register rows are dropped per sub-batch before the manager
+        # writes them back.
+        def _icl_predictions_reg_rows(R: Tensor, y_train: Tensor) -> Tensor:
+            return self._icl_predictions_reg(R, y_train)[:, self.register_tokens :]
+
+        out = self.inference_mgr_reg(
+            _icl_predictions_reg_rows, inputs=OrderedDict([("R", R), ("y_train", y_train)]), auto_batch=auto_batch
         )
-        if self.register_tokens > 0:
-            out = out[:, self.register_tokens+train_size:]
-        else:
-            out = out[:, train_size:]
+        out = out[:, train_size:]
 
         # if not return_logits:
         #     out = torch.softmax(out / softmax_temperature, dim=-1)
@@ -497,6 +511,7 @@ class ICLearning(nn.Module):
         """
         # Configure inference parameters
         self.inference_mgr.configure_inference(device=device, use_amp=use_amp, verbose=verbose)
+        self.inference_mgr_reg.configure_inference(device=device, use_amp=use_amp, verbose=verbose)
         if if_regression:
             return self._predict_standard_reg(
                 R, y_train, return_logits=return_logits, softmax_temperature=softmax_temperature,
