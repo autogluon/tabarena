@@ -129,3 +129,12 @@ def test_per_model_width_grows_with_the_number_of_methods(leaderboards):
         for label, lb in leaderboards.items()
     }
     assert width(many) > width(leaderboards)
+
+
+@pytest.mark.parametrize("n", [5, 21, 30])
+def test_model_palette_never_repeats_a_color(n):
+    from tabarena.plot.subset_results import _model_palette
+
+    palette = _model_palette(n)
+    assert len(palette) == n
+    assert len({tuple(round(c, 3) for c in color) for color in palette}) == n

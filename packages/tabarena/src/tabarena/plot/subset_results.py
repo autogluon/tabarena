@@ -145,6 +145,23 @@ ANCHOR_PRIORITY = ["T+E", "D", "ICL", CONTENDER_SUBTYPE]
 #: the other yellows/oranges in the bright palette).
 COLOR_OVERRIDES = {"RandomForest": "darkgreen"}
 
+#: Per-model colors after seaborn's ten "bright" ones: dark and mid tones that stay apart from
+#: those and from each other, so the per-model plot has distinct colors for 22 methods.
+_EXTRA_MODEL_COLORS = [
+    "#000075",  # navy
+    "#800000",  # maroon
+    "#808000",  # olive
+    "#469990",  # teal
+    "#000000",  # black
+    "#9ACD32",  # yellow-green
+    "#FA8072",  # salmon
+    "#4B0082",  # indigo
+    "#B8860B",  # dark goldenrod
+    "#C71585",  # medium violet-red
+    "#708090",  # slate gray
+    "#87CEEB",  # sky blue
+]
+
 # --- Metrics -----------------------------------------------------------------
 
 
@@ -351,6 +368,14 @@ def _prepare_frame(leaderboards: dict[str, pd.DataFrame], order: list[str]) -> p
     # Strip the "(<subtype>)" display suffix; the method_subtype column already carries it.
     df["method"] = df["method"].astype(str).str.replace(r"\s*\([^)]*\)\s*$", "", regex=True)
     return df
+
+
+def _model_palette(n: int) -> list:
+    """``n`` per-model colors without repeats: the bright palette, the extra tones, then spaced hues."""
+    palette = [*sns.color_palette("bright", n_colors=10), *(mcolors.to_rgb(c) for c in _EXTRA_MODEL_COLORS)]
+    if n > len(palette):
+        palette += sns.color_palette("husl", n_colors=n - len(palette))
+    return palette[:n]
 
 
 def _foundation_models(df: pd.DataFrame) -> list[str]:
@@ -773,7 +798,7 @@ def _per_model_figure(
     # Colors keyed on best-value order so the strongest methods get the leading palette slots.
     pick_best = np.nanmax if spec.higher_is_better else np.nanmin
     method_order = sorted(val_by_m, key=lambda m: spec.sort_value(pick_best(val_by_m[m])))
-    palette = sns.color_palette("bright", n_colors=max(10, len(method_order)))
+    palette = _model_palette(len(method_order))
     color_of = {m: palette[i] for i, m in enumerate(method_order)}
     color_of.update({m: c for m, c in COLOR_OVERRIDES.items() if m in color_of})
 
