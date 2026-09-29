@@ -992,24 +992,39 @@ class MethodMetadata:
         )
 
     def _refresh_stale_results(self):
-        """Re-download the results tables when the remote copy changed since the local one was downloaded.
+        """Re-download the results tables when a local one differs from its committed checksum.
 
-        A re-upload keeps the suite and file names, so a present local table alone doesn't prove it is current.
+        A re-upload keeps the suite and file names, so a present local table alone doesn't prove it is current. The
+        expected MD5s are committed in ``results_checksums.json`` (see :mod:`tabarena.models._artifacts.results_checksums`),
+        so the check needs no network access.
         """
+        from tabarena.models._artifacts.results_checksums import expected_results_md5, file_md5
+
         if not (self.has_results and self.has_remote_cache):
             return
-        downloader = self.method_downloader()
-        if downloader.stale_results():
+        stale = [
+            path
+            for path in map(Path, self.path_results_files())
+            if path.exists() and expected_results_md5(self, path) not in (None, file_md5(path))
+        ]
+        if not stale:
+            return
+        print(
+            f"Local results for method {self.method!r} (suite={self.suite!r}) differ from the hosted checksums, "
+            f"re-downloading from {self.cache_type}...",
+        )
+        self.method_downloader().download_results()
+        if any(expected_results_md5(self, path) != file_md5(path) for path in stale):
             print(
-                f"Local results for method {self.method!r} (suite={self.suite!r}) differ from the "
-                f"{self.cache_type} store, re-downloading...",
+                f"\tThe downloaded results still differ from results_checksums.json for {self.method!r}; the committed "
+                f"checksums are out of date (python -m tabarena.tools.results_checksums --check).",
             )
-            downloader.download_results()
 
     def load_model_results(self, download: str | bool = "auto") -> pd.DataFrame:
         """The per-config ``model_results`` table; ``download`` as in :meth:`load_processed`.
 
-        ``"auto"`` also re-downloads the results tables when the remote copy changed (see :meth:`_refresh_stale_results`).
+        ``"auto"`` also re-downloads the results tables when they differ from the hosted copy's committed checksum
+        (see :meth:`_refresh_stale_results`).
         """
         return self._load_results_file(self.path_results_model(), download=download)
 

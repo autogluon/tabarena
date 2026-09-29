@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import shutil
 import zipfile
 from abc import ABC, abstractmethod
@@ -90,27 +89,13 @@ class MethodDownloader(ABC):
         self._download_to_local_if_exists(key=self.local_to_key(path_local), path_local=path_local)
 
     # -- freshness ------------------------------------------------------------------------------
-    def stale_results(self) -> bool:
-        """Whether a local results table differs from its remote copy, e.g. after a re-upload to the same suite.
+    def remote_etag(self, key: str) -> str | None:
+        """The ETag of the object at ``key`` without quotes, or ``None`` when the object does not exist.
 
-        Compares each local table's MD5 with the remote object's ETag, which is the MD5 of a single-part upload (the
-        results tables stay far below the multipart threshold). Missing local tables are skipped, since the loader's
-        cache-miss path fetches them. A table whose ETag is unknown (unreachable store) or not an MD5 (multipart
-        upload) counts as fresh, so a machine without network access keeps using its cache.
+        Raises when the store can't be asked (connection or permission errors), so a caller can tell an unreachable
+        store from a missing object.
         """
-        for path_local in map(Path, self.method_metadata.path_results_files()):
-            if not path_local.exists():
-                continue
-            etag = self._remote_etag(key=self.local_to_key(path_local))
-            if etag is None or "-" in etag:
-                continue
-            if etag != hashlib.md5(path_local.read_bytes(), usedforsecurity=False).hexdigest():
-                return True
-        return False
-
-    def _remote_etag(self, key: str) -> str | None:
-        """The ETag of the object at ``key`` without quotes, or ``None`` when the backend can't tell."""
-        return None
+        raise NotImplementedError(f"{type(self).__name__} does not report ETags")
 
     # -- shared helpers -----------------------------------------------------------------------
     def _log(self, msg: str):

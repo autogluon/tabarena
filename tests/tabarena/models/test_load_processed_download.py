@@ -2,27 +2,22 @@
 
 from __future__ import annotations
 
-import hashlib
 from pathlib import Path
 
 import pandas as pd
 import pytest
 
+import tabarena.models._artifacts.results_checksums as checksums_module
 import tabarena.models._method_metadata as mm_module
-from tabarena.models._artifacts.downloader import MethodDownloader
 from tabarena.models._method_metadata import MethodMetadata
 
 
 class _Downloader:
     """Records the downloads asked for; `on_download` can make the artifact appear."""
 
-    def __init__(self, on_download=None, stale: bool = False):
+    def __init__(self, on_download=None):
         self.calls: list[str] = []
         self.on_download = on_download
-        self.stale = stale
-
-    def stale_results(self) -> bool:
-        return self.stale
 
     def _fetch(self, kind: str):
         self.calls.append(kind)
@@ -199,55 +194,37 @@ class TestLoadResults:
             metadata.load_results(download=False)
         assert downloader.calls == []
 
-    def test_auto_redownloads_a_present_table_that_changed_remotely(self, monkeypatch, tmp_path):
+    @staticmethod
+    def _commit_checksum(monkeypatch, metadata: MethodMetadata, md5: str):
+        key = checksums_module.checksum_key(metadata, metadata.path_results_hpo())
+        monkeypatch.setattr(checksums_module, "load_results_checksums", lambda: {key: md5})
+
+    def test_auto_redownloads_a_table_that_differs_from_its_committed_checksum(self, monkeypatch, tmp_path):
         metadata = _metadata(cache_root=tmp_path)
         self._write(metadata.path_results_hpo())
-        downloader = _Downloader(stale=True)
+        self._commit_checksum(monkeypatch, metadata, md5="0" * 32)
+        downloader = _Downloader()
         monkeypatch.setattr(MethodMetadata, "method_downloader", lambda self, *a, **k: downloader)
         assert len(metadata.load_results()) == 1
         assert downloader.calls == ["results"]
 
-    def test_false_skips_the_freshness_check(self, monkeypatch, tmp_path):
+    def test_auto_keeps_a_table_matching_its_committed_checksum(self, monkeypatch, tmp_path):
         metadata = _metadata(cache_root=tmp_path)
         self._write(metadata.path_results_hpo())
-        downloader = _Downloader(stale=True)
+        self._commit_checksum(monkeypatch, metadata, md5=checksums_module.file_md5(metadata.path_results_hpo()))
+        downloader = _Downloader()
+        monkeypatch.setattr(MethodMetadata, "method_downloader", lambda self, *a, **k: downloader)
+        assert len(metadata.load_results()) == 1
+        assert downloader.calls == []
+
+    def test_false_skips_the_checksum_comparison(self, monkeypatch, tmp_path):
+        metadata = _metadata(cache_root=tmp_path)
+        self._write(metadata.path_results_hpo())
+        self._commit_checksum(monkeypatch, metadata, md5="0" * 32)
+        downloader = _Downloader()
         monkeypatch.setattr(MethodMetadata, "method_downloader", lambda self, *a, **k: downloader)
         assert len(metadata.load_results(download=False)) == 1
         assert downloader.calls == []
-
-
-class TestStaleResults:
-    """`MethodDownloader.stale_results` compares local MD5s with the remote ETags."""
-
-    @staticmethod
-    def _downloader(tmp_path: Path, etag: str | None):
-        class _Fake(MethodDownloader):
-            def _remote_etag(self, key: str) -> str | None:
-                return etag
-
-            def _download_to_local_if_exists(self, key, path_local):
-                raise NotImplementedError
-
-            def _download_and_unzip_if_exists(self, key, dest_dir, clear_dir=True):
-                raise NotImplementedError
-
-        metadata = _metadata(cache_root=tmp_path)
-        path = metadata.path_results_hpo()
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(b"local")
-        return _Fake(metadata, bucket="b")
-
-    @pytest.mark.parametrize(
-        ("etag", "stale"),
-        [
-            (hashlib.md5(b"local", usedforsecurity=False).hexdigest(), False),
-            (hashlib.md5(b"reuploaded", usedforsecurity=False).hexdigest(), True),
-            (None, False),  # store unreachable: keep the local copy
-            ("abc-3", False),  # multipart ETag is not an MD5
-        ],
-    )
-    def test_etag_comparison(self, tmp_path, etag, stale):
-        assert self._downloader(tmp_path, etag).stale_results() is stale
 
 
 class TestLoadRaw:
