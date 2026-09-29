@@ -88,9 +88,19 @@ SMOKE_OVERRIDES: dict[str, ModelSmokeTest] = {
     # drifts up to ~4e-4 on toy classification data (the tolerance is 1e-5). The drift is numerical: with
     # the autocast off it is ~1e-6, and `FitHelper.verify_model` passes with the check on under
     # CUDA_VISIBLE_DEVICES="" for all three sizes.
-    "Kumo-Tabular": ModelSmokeTest({"num_estimators": 1}, verify_single_prediction_equivalent_to_multi=False),
-    "Kumo-Tabular-Medium": ModelSmokeTest({"num_estimators": 1}, verify_single_prediction_equivalent_to_multi=False),
-    "Kumo-Tabular-Small": ModelSmokeTest({"num_estimators": 1}, verify_single_prediction_equivalent_to_multi=False),
+    # Two separate estimator batches and small query batches exercise cache replay across both axes.
+    "Kumo-Tabular": ModelSmokeTest(
+        {"num_estimators": 2, "estimator_batch_size": 1, "query_batch_size": 5},
+        verify_single_prediction_equivalent_to_multi=False,
+    ),
+    "Kumo-Tabular-Medium": ModelSmokeTest(
+        {"num_estimators": 2, "estimator_batch_size": 1, "query_batch_size": 5},
+        verify_single_prediction_equivalent_to_multi=False,
+    ),
+    "Kumo-Tabular-Small": ModelSmokeTest(
+        {"num_estimators": 2, "estimator_batch_size": 1, "query_batch_size": 5},
+        verify_single_prediction_equivalent_to_multi=False,
+    ),
     "TabSTAR": ModelSmokeTest({"max_epochs": 1}),
     "TabFM": ModelSmokeTest({"n_estimators": 1}),
     "Nori": ModelSmokeTest(problem_types=("regression",)),
