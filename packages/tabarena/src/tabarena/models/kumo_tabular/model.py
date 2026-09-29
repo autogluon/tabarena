@@ -33,7 +33,7 @@ class KumoTabularModel(AbstractTorchModel):
 
     ``fit`` fits the preprocessing recipe and records the context KV cache. ``predict`` reuses both in
     query-row batches, under float16 autocast on CUDA. The recipe computes numerical statistics in
-    float64. ``estimator_batch_size`` and ``query_batch_size`` default to conservative memory-based
+    float64. ``estimator_batch_size`` and ``ag.max_batch_size`` default to conservative memory-based
     estimates; positive integer overrides fix either size. These estimates are not an OOM guarantee:
     fitting still preprocesses the full context and stores the ensemble's KV cache in host memory.
     """
@@ -93,8 +93,6 @@ class KumoTabularModel(AbstractTorchModel):
             df=y.rename(_TARGET).to_frame(), stypes={_TARGET: target_stype}, device=device
         )
         params = self._get_model_params()
-        if params["query_batch_size"] is not None and params["query_batch_size"] < 1:
-            raise ValueError("query_batch_size must be positive or None")
         self._num_cpus = num_cpus
         self._num_columns = X.shape[1]
         self._row_bytes, cache_bytes = _estimators.row_bytes(network, X.shape[1], self.num_classes or 0)
@@ -127,37 +125,38 @@ class KumoTabularModel(AbstractTorchModel):
         finally:
             torch.set_num_threads(previous_threads)
 
+    def _get_max_batch_size(self) -> int | None:
+        import torch
+        from sdm._memory import chunk_memory_limit
+
+        from tabarena.models.kumo_tabular import _estimators
+
+        batch_size = super()._get_max_batch_size()
+        device = torch.device(self.get_device())
+        if batch_size is not None or device.type != "cuda":
+            return batch_size
+        self.model.move_processors(device)
+        params = self._get_model_params()
+        cache = self.model.cache
+        # SDM overlaps transfer of the next estimator batch with execution of the current one.
+        staging_bytes = 2 * max(cache[i].size() for i in range(cache["num_batches"]))
+        budget = min(chunk_memory_limit(device), max(0, _estimators.available_memory(device) - staging_bytes) // 2)
+        output_columns = 999 if self.problem_type == REGRESSION else self.num_classes
+        # Query preprocessing and output reduction keep tensors for all members, not just a network batch.
+        bytes_per_row = self._row_bytes * self._estimator_batch_size + params["num_estimators"] * 8 * (
+            8 * self._num_columns + 4 * output_columns
+        )
+        batch_size = max(1, budget // bytes_per_row)
+        logger.info("\tKumo query batch size: %s", batch_size)
+        return batch_size
+
     def _predict_proba(self, X: pd.DataFrame, **kwargs) -> np.ndarray:
         import sdm
         import torch
 
-        from tabarena.models.kumo_tabular import _estimators
-
         device = torch.device(self.get_device())
         X = self.preprocess(X, **kwargs)
         estimator = self.model.estimator()
-        params = self._get_model_params()
-        batch_size = params["query_batch_size"]
-        if batch_size is None:
-            batch_size = max(1, len(X))
-            if device.type == "cuda":
-                from sdm._memory import chunk_memory_limit
-
-                cache = self.model.cache
-                # SDM overlaps transfer of the next estimator batch with execution of the current one.
-                staging_bytes = 2 * max(cache[i].size() for i in range(cache["num_batches"]))
-                budget = min(
-                    chunk_memory_limit(device), max(0, _estimators.available_memory(device) - staging_bytes) // 2
-                )
-                output_columns = 999 if self.problem_type == REGRESSION else self.num_classes
-                # Query preprocessing and output reduction keep tensors for all members, not just a network batch.
-                bytes_per_row = self._row_bytes * self._estimator_batch_size + params["num_estimators"] * 8 * (
-                    8 * self._num_columns + 4 * output_columns
-                )
-                batch_size = max(1, min(batch_size, budget // bytes_per_row))
-        logger.info("\tKumo query batch size: %s", batch_size)
-        shape = (len(X),) if self.problem_type == REGRESSION else (len(X), self.num_classes)
-        predictions = np.zeros(shape, dtype=np.float32)
         previous_threads = torch.get_num_threads()
         try:
             torch.set_num_threads(self._num_cpus)
@@ -165,24 +164,21 @@ class KumoTabularModel(AbstractTorchModel):
                 torch.inference_mode(),
                 torch.amp.autocast(device.type, dtype=torch.float16, enabled=device.type == "cuda"),
             ):
-                for start in range(0, len(X), batch_size):
-                    stop = start + batch_size
-                    query = sdm.TableTensor.from_pandas(df=X.iloc[start:stop], stypes=self._stypes, device=device)
-                    out = estimator.predict(query)
-                    if self.problem_type == REGRESSION:
-                        predictions[start:stop] = out.numerical.float().mean(dim=-1).cpu().numpy()
-                    else:
-                        # A class missing from the fitted context gets zero probability.
-                        labels = [int(label) for label in out.columns[sdm.Stype.numerical]]
-                        predictions[start:stop, labels] = out.numerical.float().cpu().numpy()
+                query = sdm.TableTensor.from_pandas(df=X, stypes=self._stypes, device=device)
+                out = estimator.predict(query)
+                if self.problem_type == REGRESSION:
+                    return out.numerical.float().mean(dim=-1).cpu().numpy()
+                # A class missing from the fitted context gets zero probability.
+                predictions = np.zeros((len(X), self.num_classes), dtype=np.float32)
+                labels = [int(label) for label in out.columns[sdm.Stype.numerical]]
+                predictions[:, labels] = out.numerical.float().cpu().numpy()
+                return self._convert_proba_to_unified_form(predictions)
         finally:
             torch.set_num_threads(previous_threads)
-        return predictions if self.problem_type == REGRESSION else self._convert_proba_to_unified_form(predictions)
 
     def _set_default_params(self):
         self._set_default_param_value("num_estimators", self.default_num_estimators)
         self._set_default_param_value("estimator_batch_size", None)
-        self._set_default_param_value("query_batch_size", None)
 
     def get_device(self) -> str:
         param = next(self.model.network.parameters(), None)
