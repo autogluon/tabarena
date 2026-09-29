@@ -979,6 +979,8 @@ class MethodMetadata:
         raise ValueError(f"Invalid cache_type for uploads: {cache_type}")
 
     def _load_results_file(self, path: Path, download: str | bool) -> pd.DataFrame:
+        if download == "auto":
+            self._refresh_stale_results()
         return self._load_artifact(
             kind="results",
             load=lambda: pd.read_parquet(path=path),
@@ -989,8 +991,26 @@ class MethodMetadata:
             fetch=lambda downloader: downloader.download_results(),
         )
 
+    def _refresh_stale_results(self):
+        """Re-download the results tables when the remote copy changed since the local one was downloaded.
+
+        A re-upload keeps the suite and file names, so a present local table alone doesn't prove it is current.
+        """
+        if not (self.has_results and self.has_remote_cache):
+            return
+        downloader = self.method_downloader()
+        if downloader.stale_results():
+            print(
+                f"Local results for method {self.method!r} (suite={self.suite!r}) differ from the "
+                f"{self.cache_type} store, re-downloading...",
+            )
+            downloader.download_results()
+
     def load_model_results(self, download: str | bool = "auto") -> pd.DataFrame:
-        """The per-config ``model_results`` table; ``download`` as in :meth:`load_processed`."""
+        """The per-config ``model_results`` table; ``download`` as in :meth:`load_processed`.
+
+        ``"auto"`` also re-downloads the results tables when the remote copy changed (see :meth:`_refresh_stale_results`).
+        """
         return self._load_results_file(self.path_results_model(), download=download)
 
     def load_hpo_results(self, download: str | bool = "auto") -> pd.DataFrame:

@@ -50,6 +50,15 @@ class MethodDownloaderS3(MethodDownloader):
             self._unsigned_client = boto3.session.Session().client("s3", config=Config(signature_version=UNSIGNED))
         return self._unsigned_client
 
+    def _remote_etag(self, key: str) -> str | None:
+        # Signed first, then anonymous for public buckets; any failure means "unknown", and the local copy is used.
+        for client in (self.signed_client, self.unsigned_client):
+            try:
+                return client.head_object(Bucket=self.bucket, Key=key)["ETag"].strip('"')
+            except Exception:  # noqa: S112
+                continue
+        return None
+
     def _download_to_local_if_exists(self, key: str, path_local: Path):
         """Attempts to download a single file to `path_local`. Skips quietly if not found."""
         from botocore.exceptions import ClientError, NoCredentialsError, PartialCredentialsError

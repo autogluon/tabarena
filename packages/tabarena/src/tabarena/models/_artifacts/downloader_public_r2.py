@@ -76,6 +76,15 @@ class MethodDownloaderPublicR2(MethodDownloader):
             except requests.RequestException:
                 return False
 
+    def _remote_etag(self, key: str) -> str | None:
+        """ETag from a HEAD request, with a short connect timeout so an offline check fails fast."""
+        try:
+            response = self.session.head(self.key_to_url(key), allow_redirects=True, timeout=(5, self.timeout))
+        except requests.RequestException:
+            return None
+        etag = response.headers.get("ETag") if response.ok else None
+        return etag.removeprefix("W/").strip('"') if etag else None
+
     def _download_to_local_if_exists(self, key: str, path_local: Path):
         """Attempts to download a single file to `path_local`. Skips quietly if not found."""
         url = self.key_to_url(key)
