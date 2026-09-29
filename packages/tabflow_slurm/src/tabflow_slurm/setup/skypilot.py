@@ -61,6 +61,13 @@ if TYPE_CHECKING:
 WORKER_CACHE_ROOT = "$HOME/tabarena_sky/cache"
 #: The venv the job's setup builds on the VM (see ``sky_env.render_env_setup_script``).
 WORKER_PYTHON = "$HOME/tabarena_sky/venv/bin/python"
+#: Longest pool name whose worker clusters (``<pool>-<worker id>``, ids up to three digits) keep their full
+#: name on GCP. SkyPilot caps a GCP cluster name at 35 characters including the 9-character user hash and
+#: replaces a longer name by a 23-character prefix plus a 2-character hash, so the workers of one pool share
+#: 1296 names: two workers with the same name share a ``skypilot-cluster-name`` label, the pool controller's
+#: prober then fails on every pass and stops promoting finished workers to READY, and taking one of them down
+#: can delete the other's VM.
+MAX_POOL_NAME_LENGTH = 22
 
 
 class _LiteralDumper(yaml.SafeDumper):
@@ -148,7 +155,8 @@ class SkyPilotSetup(SchedulerSetup):
     use_pool: bool = False
     """Run on a job pool instead of one VM per managed job (see the class docstring)."""
     pool_name: str | None = None
-    """Pool name in pool mode; ``None`` means ``tabarena-gpu`` or ``tabarena-cpu`` by the run's resources."""
+    """Pool name in pool mode; ``None`` means ``tabarena-gpu`` or ``tabarena-cpu`` by the run's resources.
+    At most :data:`MAX_POOL_NAME_LENGTH` characters."""
     gpu_accelerator: str = "RTXPRO6000:1"
     """SkyPilot accelerator spec for GPU runs. The default is the card of the SLURM GPU partition (a
     ``g4-standard-48``: 96 GB VRAM, 48 vCPU, 180 GB RAM, spot); ``sky gpus list`` names the others.
@@ -191,6 +199,11 @@ class SkyPilotSetup(SchedulerSetup):
     def __post_init__(self) -> None:
         if self.workers < 1:
             raise ValueError(f"workers must be at least 1, got {self.workers}.")
+        if self.pool_name is not None and len(self.pool_name) > MAX_POOL_NAME_LENGTH:
+            raise ValueError(
+                f"pool_name {self.pool_name!r} has {len(self.pool_name)} characters; use at most "
+                f"{MAX_POOL_NAME_LENGTH}, or SkyPilot truncates its workers' GCP cluster names and they collide."
+            )
         self._synced: set[tuple[str, str]] = set()
 
     # ------------------------------------------------------------------ naming

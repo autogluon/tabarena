@@ -120,6 +120,11 @@ class TestConfiguration:
         with pytest.raises(ValueError, match="workers"):
             _setup(local_storage, workers=0)
 
+    def test_pool_name_must_fit_the_gcp_cluster_name(self, local_storage):
+        _setup(local_storage, use_pool=True, pool_name="x" * sky_mod.MAX_POOL_NAME_LENGTH)
+        with pytest.raises(ValueError, match="pool_name"):
+            _setup(local_storage, use_pool=True, pool_name="x" * (sky_mod.MAX_POOL_NAME_LENGTH + 1))
+
     def test_layout_and_prefix_default_to_the_login_user(self, local_storage, monkeypatch):
         monkeypatch.setattr(sky_mod.getpass, "getuser", lambda: "me")
         setup = SkyPilotSetup(storage=local_storage, bucket="gs://b/")
