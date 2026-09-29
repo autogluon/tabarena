@@ -5,11 +5,17 @@
 # is done, or when no worker job of the launch is left. Meant to be driven by the Monitor tool (each
 # line becomes a notification), or run once with --once for an on-demand snapshot.
 #
-#   sky_progress.sh QUEUE_URI N_BUNDLES [--launch LAUNCH_ID] [--sky SKY_BINARY] [--interval SECONDS] [--once]
+#   sky_progress.sh QUEUE_URI N_BUNDLES [--launch LAUNCH_ID] [--pool POOL]... [--sky SKY_BINARY]
+#                   [--interval SECONDS] [--once]
 #
 #   QUEUE_URI     gs://.../runs/<benchmark>/queue/<launch_id>  (first line of the printed command block)
 #   N_BUNDLES     the bundle count from the same line
 #   --launch      the launch id; adds the `sky jobs queue` states of its worker jobs to each line
+#   --pool        a pool the launch runs on (repeatable); adds its READY worker count to each line and
+#                 flags, once per worker, a worker cluster name the pool controller finds on more than one
+#                 VM (two workers collide when the pool name is too long). The controller's prober then
+#                 fails on every pass and stops promoting finished workers to READY, so the pool idles
+#                 below its size while every VM bills (see the skill's Step 6).
 #   --sky         the sky executable (default: sky on PATH)
 #   --interval    seconds between status lines (default 600)
 #   --once        print one status line and exit
@@ -22,12 +28,14 @@ queue=${1:?usage: sky_progress.sh QUEUE_URI N_BUNDLES [options]}
 total=${2:?usage: sky_progress.sh QUEUE_URI N_BUNDLES [options]}
 shift 2
 launch=""
+pools=""
 sky_bin="sky"
 interval=600
 once=0
 while [ $# -gt 0 ]; do
     case "$1" in
         --launch) launch=$2; shift 2 ;;
+        --pool) pools="$pools $2"; shift 2 ;;
         --sky) sky_bin=$2; shift 2 ;;
         --interval) interval=$2; shift 2 ;;
         --once) once=1; shift ;;
@@ -46,6 +54,7 @@ count_markers() {
 }
 
 seen_failed=""
+seen_duplicates=""
 while true; do
     read -r done_bundles done_items < <(count_markers done)
     read -r _ failed_items < <(count_markers failed)
@@ -61,7 +70,24 @@ while true; do
             | sort | uniq -c | awk '{printf "%s=%s ", $2, $1}')
         running=$(printf '%s' "$states" | grep -c -E 'PENDING|STARTING|RUNNING|RECOVERING' || true)
     fi
-    echo "$(date '+%H:%M:%S') ${pct}% of bundles left | bundles done=${done_bundles}/${total} claimed=${claimed} | items done=${done_items} failed=${failed_items} ${states:+| jobs: $states}"
+    ready=""
+    for pool in $pools; do
+        ready="$ready $pool=$("$sky_bin" jobs pool status "$pool" 2>/dev/null | awk -v p="$pool" '$1 == p' \
+            | grep -o -E '[0-9]+/[0-9]+' | tail -1)"
+    done
+    echo "$(date '+%H:%M:%S') ${pct}% of bundles left | bundles done=${done_bundles}/${total} claimed=${claimed} | items done=${done_items} failed=${failed_items} ${states:+| jobs: $states}${ready:+| ready:$ready}"
+    # A worker provisioned twice: the controller logs its cluster name on every probe.
+    for pool in $pools; do
+        for cluster in $("$sky_bin" jobs pool logs --controller --no-follow --tail 300 "$pool" 2>/dev/null \
+            | grep -o -E "same cluster name tag in the cloud provider for cluster '[^']+'" \
+            | grep -o -E "'[^']+'" | tr -d "'" | sort -u); do
+            case " $seen_duplicates " in *" $cluster "*) continue ;; esac
+            seen_duplicates="$seen_duplicates $cluster"
+            echo "  DUPLICATE VM for pool worker $cluster: two workers share one GCP cluster name (a pool name over" \
+                "22 characters); cancel the launch, take the pool down, rerun setup with a shorter pool_name" \
+                "(benchmark-model skill, Step 6)"
+        done
+    done
     # Report each failed item once, with its recorded status and coordinates.
     for marker in $(gcloud storage ls "$queue/failed/" 2>/dev/null); do
         case " $seen_failed " in *" $marker "*) continue ;; esac
