@@ -114,12 +114,17 @@ class KumoTabularModel(AbstractTorchModel):
                 # several small datasets (e.g. two 20-row skin-conductance targets and a
                 # handful of others): some of Kumo's own internal ensemble members end up
                 # with incompatible column/category/class structure for the batched
-                # forward pass, and the library raises exactly the error checked for
-                # below, itself naming the one-at-a-time fallback as the fix. Retrying
-                # with estimator_batch_size=1 (skipped entirely when that's what was
-                # already tried) trades some inference speed on just these datasets for
+                # forward pass, and sdm's own _check_compatible raises exactly this
+                # error, itself naming the one-at-a-time fallback as the fix. Compared
+                # against sdm's own message constant rather than a guessed substring, so
+                # this stays correct if the wording ever changes upstream (and doesn't
+                # accidentally swallow some other, unrelated ValueError). Retrying with
+                # estimator_batch_size=1 (skipped entirely when that's what was already
+                # tried) trades some inference speed on just these datasets for
                 # correctness, rather than failing the whole task.
-                if estimator_batch_size == 1 or "must share column names" not in str(e):
+                from sdm.models.base import _INCOMPATIBLE_ESTIMATORS
+
+                if estimator_batch_size == 1 or str(e) != _INCOMPATIBLE_ESTIMATORS:
                     raise
                 out = self.model.estimator()(
                     x_context=self._x_context.to(device),
