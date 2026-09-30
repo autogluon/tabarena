@@ -21,9 +21,23 @@ if TYPE_CHECKING:
 RESULTS_CHECKSUMS_JSON = Path(__file__).parent / "results_checksums.json"
 
 
+# Per-process memo of file MD5s, keyed by path and invalidated by a changed size or modification time.
+_md5_memo: dict[Path, tuple[int, int, str]] = {}
+
+
 def file_md5(path: str | Path) -> str:
-    """Hex MD5 of a file's bytes, the ETag of a single-part upload."""
-    return hashlib.md5(Path(path).read_bytes(), usedforsecurity=False).hexdigest()
+    """Hex MD5 of a file's bytes, the ETag of a single-part upload.
+
+    Memoized per process: a file is hashed again only when its size or modification time changed (a re-download).
+    """
+    path = Path(path).resolve()
+    stat = path.stat()
+    memo = _md5_memo.get(path)
+    if memo is not None and memo[:2] == (stat.st_size, stat.st_mtime_ns):
+        return memo[2]
+    md5 = hashlib.md5(path.read_bytes(), usedforsecurity=False).hexdigest()
+    _md5_memo[path] = (stat.st_size, stat.st_mtime_ns, md5)
+    return md5
 
 
 @functools.cache

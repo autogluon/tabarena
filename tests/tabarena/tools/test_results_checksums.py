@@ -57,3 +57,22 @@ def test_committed_checksums_match_the_hosted_objects():
     )
     if unreachable(hosted):
         pytest.skip(f"{len(unreachable(hosted))} results tables were unreachable: {unreachable(hosted)}")
+
+
+def test_file_md5_is_memoized_until_the_file_changes(tmp_path, monkeypatch):
+    import hashlib
+    import os
+
+    from tabarena.models._artifacts import results_checksums
+
+    path = tmp_path / "t.parquet"
+    path.write_bytes(b"old")
+    reads = []
+    real_md5 = hashlib.md5
+    monkeypatch.setattr(results_checksums.hashlib, "md5", lambda data, **kw: reads.append(data) or real_md5(data, **kw))
+    assert results_checksums.file_md5(path) == results_checksums.file_md5(path) == real_md5(b"old").hexdigest()
+    assert len(reads) == 1
+    path.write_bytes(b"new!")
+    os.utime(path, ns=(1, 1))
+    assert results_checksums.file_md5(path) == real_md5(b"new!").hexdigest()
+    assert len(reads) == 2

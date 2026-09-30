@@ -217,6 +217,16 @@ class TestLoadResults:
         assert len(metadata.load_results()) == 1
         assert downloader.calls == []
 
+    def test_only_the_loaded_table_is_checked(self, monkeypatch, tmp_path):
+        metadata = _metadata(cache_root=tmp_path)
+        self._write(metadata.path_results_model())
+        key = checksums_module.checksum_key(metadata, metadata.path_results_hpo())
+        monkeypatch.setattr(checksums_module, "load_results_checksums", lambda: {key: "0" * 32})
+        downloader = _Downloader()
+        monkeypatch.setattr(MethodMetadata, "method_downloader", lambda self, *a, **k: downloader)
+        assert len(metadata.load_model_results()) == 1  # hpo_results is stale, but not loaded
+        assert downloader.calls == []
+
     def test_false_skips_the_checksum_comparison(self, monkeypatch, tmp_path):
         metadata = _metadata(cache_root=tmp_path)
         self._write(metadata.path_results_hpo())
