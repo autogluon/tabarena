@@ -58,6 +58,16 @@ class MethodDownloaderR2(MethodDownloader):
         code = e.response.get("Error", {}).get("Code")
         return code in ("404", "NoSuchKey", "NotFound")
 
+    def remote_etag(self, key: str) -> str | None:
+        from botocore.exceptions import ClientError
+
+        try:
+            return self.client.head_object(Bucket=self.bucket, Key=key)["ETag"].strip('"')
+        except ClientError as e:
+            if self._is_missing_error(e):
+                return None
+            raise
+
     def _download_to_local_if_exists(self, key: str, path_local: Path):
         """Attempts to download a single file to `path_local`. Skips quietly if not found."""
         from botocore.exceptions import ClientError
