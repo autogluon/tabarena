@@ -53,6 +53,9 @@ SMOKE_OVERRIDES: dict[str, ModelSmokeTest] = {
     "PerpetualBooster": ModelSmokeTest({"iteration_limit": 10, "budget": 0.1}),
     "ChimeraBoost": ModelSmokeTest({"n_estimators": 100}),
     "CTBoost": ModelSmokeTest({"iterations": 10, "early_stopping_rounds": 3}),
+    # `cheap_hyperparameters` pins n_estimators for the warm-up, which skips the validation
+    # ladder. Put the ladder back for the smoke fit, over two cheap rungs (50 and 100).
+    "PrismBoost": ModelSmokeTest({"n_estimators": "auto", "max_n_estimators": 100}),
     "ModernNCA": ModelSmokeTest({"n_epochs": 10}),
     "ModernNCA_GPU": ModelSmokeTest({"n_epochs": 10}),
     "RealMLP": ModelSmokeTest({"n_epochs": 10}),
