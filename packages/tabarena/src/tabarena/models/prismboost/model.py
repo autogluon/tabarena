@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import logging
-import time
 from typing import TYPE_CHECKING, ClassVar
 
 import numpy as np
@@ -14,24 +12,10 @@ if TYPE_CHECKING:
 
     from tabarena.utils.config_utils import ConfigGenerator
 
-logger = logging.getLogger(__name__)
-
 _CLASSIFIER_ONLY_PARAMS = ("class_weight", "scale_pos_weight")
 _REGRESSOR_UNSUPPORTED_PARAMS = (*_CLASSIFIER_ONLY_PARAMS, "second_order")
 #: Wrapper-owned parameters, consumed here and never forwarded to the estimator.
-_WRAPPER_PARAMS = (
-    "numeric_scaler",
-    "categorical_encoder",
-    "ohe_max_cardinality",
-    "max_n_estimators",
-)
-#: Boosting rounds tried when a validation set is available; the last rung is replaced by
-#: ``max_n_estimators``. Doubling keeps the ladder's total cost under 2x its final fit.
-_ITERATION_LADDER = (50, 100, 200, 400, 800)
-#: Consecutive rungs allowed to not improve validation error before the ladder stops.
-_ITERATION_PATIENCE = 1
-#: Fraction of ``time_limit`` the ladder may spend, leaving room for predict and cleanup.
-_TIME_BUDGET_FRACTION = 0.95
+_WRAPPER_PARAMS = ("numeric_scaler", "categorical_encoder", "ohe_max_cardinality")
 
 
 class PrismBoostModel(AbstractModel):
@@ -48,22 +32,18 @@ class PrismBoostModel(AbstractModel):
     PMLB study searched both per dataset; ``_internal/preprocessing.py`` says why neither has a
     safe fixed value.
 
-    **Boosting rounds come from the validation split.** PrismBoost has no eval-set or staged
-    prediction API, so this wrapper does the next best thing within the ``_fit`` contract: with
-    ``n_estimators`` left at ``"auto"`` it fits a doubling ladder of round counts, scores each on
-    the ``X_val`` / ``y_val`` TabArena provides, and keeps the best. It is early stopping paid for
-    by refitting -- the ladder costs under 2x its final rung -- and the chosen count goes into
-    ``params_trained``, so a refit replays that count as an explicit value and fits once. An
-    explicit ``n_estimators``, or a fit with no validation set, also goes straight to one fit.
-    A ``staged_decision_function`` or an ``eval_set`` argument upstream would make this one fit.
+    ``_fit`` is a single fit. The round count comes from early stopping on the ``X_val`` /
+    ``y_val`` the harness provides, the way the other boosting wrappers here work:
+    ``n_estimators`` is the cap and ``early_stopping_rounds`` the patience, both requiring
+    prismboost>=0.4.0 for its ``eval_set`` support. Without a validation set (refit, holdout) the
+    configured ``n_estimators`` is used as-is, and ``params_trained`` carries the count early
+    stopping selected so a refit reproduces it.
 
-    ``reg_lambda`` needs prismboost>=0.3.0. Without it an unregularized Newton leaf on a nearly
-    pure node can drive the boosted scores far enough to saturate the softmax, which log loss
-    scores as an infinite penalty on a single wrong row.
-
-    ``num_cpus`` is accepted and unused: PrismBoost's C++ core is single-threaded (it links no
-    OpenMP) and its Python backend is NumPy-level, so there is no thread argument to wire the
-    budget to. A thread count upstream would let the wrapper honour it.
+    ``num_cpus`` and ``time_limit`` are accepted and unused, both for want of an upstream knob.
+    PrismBoost's C++ core is single-threaded (it links no OpenMP) and its Python backend is
+    NumPy-level, so there is no thread argument to wire the budget to; and the library has no
+    wall-clock budget, so a fit runs to its cap or to early stopping. ``early_stopping_rounds``
+    bounds the work in practice but not in time. Both are recorded here as upstream asks.
     """
 
     ag_key = "PRISMBOOST"
@@ -71,7 +51,7 @@ class PrismBoostModel(AbstractModel):
     ag_priority = 65
     seed_name = "random_state"
     warmup_modules: ClassVar[tuple[str, ...]] = ("prismboost",)
-    cheap_hyperparameters: ClassVar[dict] = {"n_estimators": 8, "max_depth": 2, "max_n_estimators": 8}
+    cheap_hyperparameters: ClassVar[dict] = {"n_estimators": 8, "max_depth": 2}
     _supported_problem_types = ["binary", "multiclass", "regression"]
     _default_auxiliary_params_extra = {"valid_raw_types": ["int", "float", "category"]}
     default_resources_physical_cores_only = True
@@ -111,8 +91,7 @@ class PrismBoostModel(AbstractModel):
         sample_weight: np.ndarray | None = None,
         **kwargs,
     ) -> None:
-        del num_cpus, num_gpus, kwargs  # single-threaded CPU library
-        start_time = time.time()
+        del num_cpus, num_gpus, time_limit, kwargs
         from prismboost import PrismBoostClassifier, PrismBoostRegressor
 
         if self.problem_type == "regression":
@@ -121,7 +100,6 @@ class PrismBoostModel(AbstractModel):
             model_cls, unsupported = PrismBoostClassifier, ()
 
         params = self._get_model_params()
-        max_n_estimators = params["max_n_estimators"]
         for name in (*_WRAPPER_PARAMS, *unsupported):
             params.pop(name, None)
         # The C++ core implements the Newton criterion only, so first-order configs fall back to
@@ -131,92 +109,16 @@ class PrismBoostModel(AbstractModel):
         X = self.preprocess(X, y=y, is_train=True)
         fit_kwargs = {} if sample_weight is None else {"sample_weight": sample_weight}
 
-        # An explicit round count is honoured as given: that is how a refit reuses the count the
-        # ladder chose (AutoGluon replays it through `params_trained`), and how a caller pins one.
-        if X_val is None or y_val is None or params.get("n_estimators") != "auto":
-            self.model = model_cls(**params).fit(X, y, **fit_kwargs)
-            return
-
-        X_val = self.preprocess(X_val)
-        self._fit_iteration_ladder(
-            model_cls=model_cls,
-            params=params,
-            max_n_estimators=max_n_estimators,
-            X=X,
-            y=y,
-            X_val=X_val,
-            y_val=y_val,
-            fit_kwargs=fit_kwargs,
-            start_time=start_time,
-            time_limit=time_limit,
-        )
-
-    def _fit_iteration_ladder(
-        self,
-        *,
-        model_cls,
-        params: dict,
-        max_n_estimators: int,
-        X: np.ndarray,
-        y: pd.Series,
-        X_val: np.ndarray,
-        y_val: pd.Series,
-        fit_kwargs: dict,
-        start_time: float,
-        time_limit: float | None,
-    ) -> None:
-        """Fit increasing round counts and keep the one with the best validation error."""
-        params = dict(params)
-        params.pop("n_estimators", None)
-        rungs = [n for n in _ITERATION_LADDER if n < max_n_estimators]
-        rungs.append(max_n_estimators)
-
-        best_error = float("inf")
-        best_rounds = rungs[0]
-        misses = 0
-        last_rounds: int | None = None
-        last_seconds = 0.0
-
-        for rounds in rungs:
-            if time_limit is not None and last_rounds is not None:
-                # Fit time is close to linear in the round count; extrapolate from the last rung.
-                projected = last_seconds * rounds / last_rounds
-                elapsed = time.time() - start_time
-                if elapsed + projected > _TIME_BUDGET_FRACTION * time_limit:
-                    logger.log(
-                        15,
-                        f"\tPrismBoost: stopping the round ladder at {best_rounds} "
-                        f"({rounds} rounds would not fit the remaining time budget).",
-                    )
-                    break
-            rung_start = time.time()
-            model = model_cls(n_estimators=rounds, **params).fit(X, y, **fit_kwargs)
-            last_seconds = max(time.time() - rung_start, 1e-6)
-            last_rounds = rounds
-
-            error = self._validation_error(model, X_val, y_val)
-            # `self.model is None` keeps the first rung even when its score is not finite, so a
-            # degenerate validation score cannot leave the fit without a model.
-            if self.model is None or error < best_error:
-                best_error, best_rounds, self.model = error, rounds, model
-                misses = 0
-            else:
-                misses += 1
-                if misses > _ITERATION_PATIENCE:
-                    break
-
-        if self.model is None:  # every rung was cut by the time limit
-            self.model = model_cls(n_estimators=rungs[0], **params).fit(X, y, **fit_kwargs)
-            best_rounds = rungs[0]
-        self.params_trained["n_estimators"] = best_rounds
-
-    def _validation_error(self, model, X_val: np.ndarray, y_val: pd.Series) -> float:
-        if self.problem_type == "regression":
-            y_pred = model.predict(X_val)
+        if X_val is not None and y_val is not None:
+            fit_kwargs["eval_set"] = (self.preprocess(X_val), np.asarray(y_val))
         else:
-            y_pred = self._align_proba(model, model.predict_proba(X_val))
-        y_pred = self._convert_proba_to_unified_form(y_pred)
-        return self.score_with_y_pred_proba(y=y_val, y_pred_proba=y_pred, as_error=True)
+            # No validation set to stop on, so the configured cap is the round count.
+            params.pop("early_stopping_rounds", None)
+
+        self.model = model_cls(**params).fit(X, y, **fit_kwargs)
+        best = getattr(self.model, "best_iteration_", None)
+        if best:
+            self.params_trained["n_estimators"] = int(best)
 
     def _align_proba(self, model, proba: np.ndarray) -> np.ndarray:
         """Widen a child's probabilities to the task's full class set.
@@ -245,24 +147,24 @@ class PrismBoostModel(AbstractModel):
 
     def _set_default_params(self) -> None:
         default_params = {
-            # Capacity knobs stay at PrismBoost's data-adaptive "auto" rules. "auto" here also
-            # means "let the validation ladder choose", and any explicit value pins the fit.
-            "n_estimators": "auto",
-            "max_n_estimators": 1600,
+            # The cap, with early stopping picking the real count. Deliberately 2000 rather than
+            # the ~10000 the other boosting wrappers use: those libraries also take a wall-clock
+            # budget, and PrismBoost does not, so a dataset whose validation loss keeps creeping
+            # down runs the cap out with nothing to stop it. 2000 is just above the highest count
+            # the previous implementation ever selected, so no capacity is lost. Raise it once
+            # the library honours `time_limit`.
+            "n_estimators": 2000,
+            "early_stopping_rounds": 50,
             # Chosen by varying only this knob through the bagged pipeline: mean rank over six
             # TabArena-Lite datasets is standard 2.00, robust 2.50, minmax 2.67,
-            # quantile-normal 3.00, quantile-uniform 4.83, and the 25-config search agrees
-            # (standard first of five, quantile-normal last). An earlier single-holdout sweep
-            # picked quantile-normal; bagging reorders them, so the bagged result is the one
-            # that counts. qsar-biodeg is the clearest case: 0.0871 -> 0.0773.
+            # quantile-normal 3.00, quantile-uniform 4.83.
             "numeric_scaler": "standard",
             "categorical_encoder": "target",
-            # L2 on leaf weights. PrismBoost defaults this to 0.0 to keep its published results
-            # reproducible; 0.0 is the worst of the five settings measured over TabArena-Lite
-            # (mean rank 3.67, worst case 58% off the best) and 10.0 the best on every problem
-            # type (2.43, worst case 9%), so the benchmark default is set here rather than there.
-            "reg_lambda": 10.0,
             "ohe_max_cardinality": 32,
+            # L2 on leaf weights. PrismBoost defaults this to 0.0 to keep its published results
+            # reproducible; 0.0 is the worst of five settings measured over TabArena-Lite and
+            # 10.0 the best on every problem type, so the benchmark default is set here.
+            "reg_lambda": 10.0,
         }
         for param, value in default_params.items():
             self._set_default_param_value(param, value)
@@ -282,8 +184,7 @@ class PrismBoostModel(AbstractModel):
         """Conservative peak-fit RAM (bytes) so bagging folds are packed safely.
 
         The C++ core keeps a dense float64 copy of the encoded matrix plus gradient/hessian
-        buffers and the growing ensemble, and the ladder holds two fitted models at once.
-        Over-estimate rather than OOM.
+        buffers and the growing ensemble. Over-estimate rather than OOM.
         """
         hyperparameters = hyperparameters or {}
         n_classes = max(int(num_classes or 1), 1)

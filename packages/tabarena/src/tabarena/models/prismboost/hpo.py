@@ -1,7 +1,8 @@
 """HPO config generator for PrismBoost.
 
 ``manual_configs=[{}]`` is the leaderboard's default row: PrismBoost's ``"auto"`` capacity
-rules, with the round count taken from the validation split by the wrapper's ladder.
+rules, with the round count chosen by early stopping on the validation split, up to the
+wrapper's cap.
 
 The ranges follow the per-dataset Optuna optima of PrismBoost's 121-dataset PMLB study, widened
 to that study's own search bounds where the optima crowd an edge (``max_depth`` reached 14 there,
@@ -11,11 +12,9 @@ are searched for the same reason the study searched them: a SEFR node weights fe
 shifted, and no single scaling won across datasets (the study's optima split 30/25/24/22/20 over
 the five, and TabArena-Lite agrees).
 
-``n_estimators`` is deliberately absent: the wrapper picks the round count on ``X_val``, so
-searching it would duplicate a value that is already chosen per fit. ``second_order`` is absent
-because the C++ backend implements Newton splits only and a first-order config would fall back to
-the much slower Python backend. ``class_weight`` is sampled and dropped on regression inside the
-wrapper.
+``second_order`` is absent because the C++ backend implements Newton splits only and a
+first-order config would fall back to the much slower Python backend. ``class_weight`` is sampled
+and dropped on regression inside the wrapper.
 """
 
 from __future__ import annotations
@@ -30,6 +29,11 @@ from tabarena.models.prismboost.model import PrismBoostModel
 from tabarena.utils.config_utils import ConfigGenerator
 
 _SEARCH_SPACE = {
+    # Cap on boosting rounds. Early stopping on the harness's validation split picks the count
+    # actually used, so this searches the headroom rather than the number of rounds itself. The
+    # ceiling matches the default cap, which is bounded by the library having no wall-clock
+    # budget (see `model.py`).
+    "n_estimators": Int(200, 2000),
     "learning_rate": Real(0.01, 0.5, log=True),
     "max_depth": Int(2, 14),
     "min_samples_leaf": Int(2, 50),

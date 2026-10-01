@@ -28,5 +28,5 @@ prismboost_info = ModelInfo(
     model_cls=PrismBoostModel,
     search_space=gen_prismboost,
     method_metadata=prismboost_method_metadata,
-    pip_extra=("prismboost>=0.3.0",),
+    pip_extra=("prismboost>=0.4.0",),
 )
