@@ -7,6 +7,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
+import tabarena.models._artifacts.results_checksums as checksums_module
 import tabarena.models._method_metadata as mm_module
 from tabarena.models._method_metadata import MethodMetadata
 
@@ -191,6 +192,48 @@ class TestLoadResults:
         monkeypatch.setattr(MethodMetadata, "method_downloader", lambda self, *a, **k: downloader)
         with pytest.raises(FileNotFoundError, match="download=True"):
             metadata.load_results(download=False)
+        assert downloader.calls == []
+
+    @staticmethod
+    def _commit_checksum(monkeypatch, metadata: MethodMetadata, md5: str):
+        key = checksums_module.checksum_key(metadata, metadata.path_results_hpo())
+        monkeypatch.setattr(checksums_module, "load_results_checksums", lambda: {key: md5})
+
+    def test_auto_redownloads_a_table_that_differs_from_its_committed_checksum(self, monkeypatch, tmp_path):
+        metadata = _metadata(cache_root=tmp_path)
+        self._write(metadata.path_results_hpo())
+        self._commit_checksum(monkeypatch, metadata, md5="0" * 32)
+        downloader = _Downloader()
+        monkeypatch.setattr(MethodMetadata, "method_downloader", lambda self, *a, **k: downloader)
+        assert len(metadata.load_results()) == 1
+        assert downloader.calls == ["results"]
+
+    def test_auto_keeps_a_table_matching_its_committed_checksum(self, monkeypatch, tmp_path):
+        metadata = _metadata(cache_root=tmp_path)
+        self._write(metadata.path_results_hpo())
+        self._commit_checksum(monkeypatch, metadata, md5=checksums_module.file_md5(metadata.path_results_hpo()))
+        downloader = _Downloader()
+        monkeypatch.setattr(MethodMetadata, "method_downloader", lambda self, *a, **k: downloader)
+        assert len(metadata.load_results()) == 1
+        assert downloader.calls == []
+
+    def test_only_the_loaded_table_is_checked(self, monkeypatch, tmp_path):
+        metadata = _metadata(cache_root=tmp_path)
+        self._write(metadata.path_results_model())
+        key = checksums_module.checksum_key(metadata, metadata.path_results_hpo())
+        monkeypatch.setattr(checksums_module, "load_results_checksums", lambda: {key: "0" * 32})
+        downloader = _Downloader()
+        monkeypatch.setattr(MethodMetadata, "method_downloader", lambda self, *a, **k: downloader)
+        assert len(metadata.load_model_results()) == 1  # hpo_results is stale, but not loaded
+        assert downloader.calls == []
+
+    def test_false_skips_the_checksum_comparison(self, monkeypatch, tmp_path):
+        metadata = _metadata(cache_root=tmp_path)
+        self._write(metadata.path_results_hpo())
+        self._commit_checksum(monkeypatch, metadata, md5="0" * 32)
+        downloader = _Downloader()
+        monkeypatch.setattr(MethodMetadata, "method_downloader", lambda self, *a, **k: downloader)
+        assert len(metadata.load_results(download=False)) == 1
         assert downloader.calls == []
 
 

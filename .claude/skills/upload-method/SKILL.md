@@ -202,6 +202,14 @@ method should have the full object set under
 `cache/artifacts/<suite>/methods/<Method>/` (`metadata.yaml`, `processed.zip`,
 `processed/configs_hyperparameters.json`, `raw.zip`, `results/*.parquet`).
 
+The real upload also records the MD5 of each uploaded results table in
+`packages/tabarena/src/tabarena/models/_artifacts/results_checksums.json`. Commit that diff together with the
+`info.py` / `methods.py` edits: `download="auto"` loaders re-download a cached table that differs from its committed
+checksum, and `tests/tabarena/tools/test_results_checksums.py` fails in CI when a registered method has no entry or
+an entry differs from the hosted object. For a re-upload under an existing suite the diff changes the old entries, which
+is what makes other machines replace their cached copies. `python -m tabarena.tools.results_checksums --check` compares
+the file with the hosted ETags (`--refresh` rewrites it from them).
+
 Notes:
 - `process` requires the explicit `--method-metadata` and verifies it against the raw data first; a
   real mismatch errors (override with `--ignore-metadata-mismatch`, a `method`-name mismatch only
@@ -285,7 +293,8 @@ Tell the maintainer:
   (e.g. `Not close TEST` prediction-fidelity lines, with affected datasets and severity).
 - **Edits Claude made**: the `info.py` upload fields (suite / cache_type / cache_kwargs / date /
   verified, plus any inspect-diff fixes), the `methods.py` import + collection entry (and the
-  `methods_superseded` append, for a rerun), and the `BENCHMARK_LOG.md` entry (with the SHA it
+  `methods_superseded` append, for a rerun), the `results_checksums.json` entries the upload recorded, and the
+  `BENCHMARK_LOG.md` entry (with the SHA it
   recorded and how it was determined, since that one is inferred).
 - **Steps handed off** (only if the env couldn't run one): the exact command(s) from Step 4.
 - **Open decisions / TODOs**: whether to flip `verified` to `True` (only after sign-off), committing

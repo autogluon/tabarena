@@ -37,6 +37,7 @@ import shlex
 import sys
 from pathlib import Path
 
+from tabarena.models._artifacts.results_checksums import record_results_checksums
 from tabarena.models._method_metadata import MethodMetadata
 
 # Backends this script will upload to. "s3" is implemented in MethodMetadata.method_uploader and can
@@ -272,6 +273,8 @@ def upload_method(
     )
     uploader.upload_metadata()
     uploader.upload_results()
+    # Loaders compare local tables against these checksums; commit the updated results_checksums.json.
+    record_results_checksums(method_metadata)
     if "processed" in parts:
         uploader.upload_processed()
     if "hpo_trajectories" in parts:

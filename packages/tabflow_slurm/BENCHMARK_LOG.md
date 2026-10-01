@@ -34,6 +34,114 @@ run against `main`. To reproduce an entry, check out its recorded **git SHA**.
 
 ---
 
+## 2026-09-28 — beyondarena_linear_24092026 (core2k extension)
+
+- **Model(s):** Linear (`LinearModel`), default config plus 200 random configs (201 per split) on the 1,503 BeyondArena
+  `core2k` splits outside `core`, 302,103 items, plus a retry of the 8 `home_credit_default_stability_1m` core configs
+- **Git SHA:** `47755216` (main, for the `core2k` subset from #615) in the detached worktree
+  `../tabarena-run-linear-core2k-28092026`; AutoGluon worktree `../autogluon-run-linear-24092026` at master `ebae7ae9`
+  (includes the L1 fix, autogluon #5933), the same AutoGluon as the `core` run
+- **Validation protocol:** BeyondArena's official protocol, asserted by `BeyondArenaContext`
+- **Purpose:** Extend the Linear rerun for issue #598 from `core` to `core2k`, reusing the `core` run's benchmark name
+  so its 101,899 results are skipped by the cache check.
+- **Notes:** SLURM partition `cpun416mtspotinteractive` (n4-standard-16 spot, 16 vCPU, 64 GB), run venv
+  `~/.venvs/tabarena_linear_core2k_28092026` built from the `core` run's frozen requirements with both worktrees
+  editable. The commits between the `core` run (`a37a5ca7` + `7e0960bc`) and `47755216` do not touch Linear fits: #612
+  does nothing with `use_pca=False` and #611 only renames the recorded rmse metric. Two arrays from one `setup`:
+  2,420 single-item tasks for the slowest tables (`ieee_fraud_detection`, `sdss_17`, `kdd_cup_09_appetency`,
+  `anes_voting_2026`, `home_credit_default_stability_1m`; 24 h SLURM limit) at 100 concurrent (1219104) and
+  14,985 bundles of 20 at 200 concurrent (1219105), raised to 290 once the first array drained. Failures: 21
+  tasks killed by SIGTERM (spot nodes lost, often within seconds of the start), two items hit Ray's "node timed out
+  during startup", and many tasks sat in `launch failed requeued held` until `scontrol release` (once leaving the
+  single-item array at 9 running tasks). slurmctld socket timeouts made `slurm_progress.sh` report DONE on an empty
+  `squeue`. The last 9 `kick` bundles (about 28 min per item) were cancelled and their items, with every other
+  missing one, relaunched as 384 single-item tasks (`setup-relaunch`, `ModelJob` name `cpu_relaunch`, 1237619) that
+  excluded `home_credit_default_stability_1m` while its 8 configs still ran. Eval post-processing ran the 122 GB
+  head node out of memory with 16 Ray workers; `num_cpus=6` fixed it. About 5,100 node-hours in total (estimate
+  before launch: 3,400 to 4,200). The 8 `home_credit_default_stability_1m` configs need 20 to 24 h each on
+  these nodes, so spot preemptions restarted several from scratch: 4 finished in the first array, r41 hit the 24 h
+  limit and was rerun alone with a 48 h limit (`setup-home-credit-48h`, 1239171, 18.9 h), r120 finished after a
+  restart, r138 finished at 20 h, and r5 hit the 24 h limit and finished on an on-demand copy on `cpuhigh32` (c4,
+  16 CPUs, 1239864; 8.6 h, so its fit time is from a faster machine type than every other item). Result: 404,010 of
+  404,010 items (`core` + `core2k`), including the 8 configs missing from the `core` upload. Reprocessed and
+  re-uploaded as the existing suite `beyondarena-2026-09-24` (`beyond_linear_2026_09_metadata`), processed on an
+  on-demand `cpuhigh32` node with 6 Ray workers; its HPO-trajectory step ran separately on `cpuhighmem96mt` with 40
+  workers (57 min), since 6 workers would have run past the 12 h job limit. 5 `Not close TEST` warnings
+  (`sat11_hand_algo_runtime` 4, `early_learning_predictors` 1; at most 0.102 percent of a split's test rows).
+  On `core2k` (40 methods): Linear [Rerun] tuned + ensemble #33 Elo 905, tuned #37 Elo 866, default #40 Elo 793.
+
+```python
+from tabarena.benchmark.experiment import BeyondArenaExperimentBundle
+from tabarena.benchmark.task.metadata import TaskSubset
+from tabarena.contexts import BeyondArenaContext
+from tabflow_slurm import BeyondArenaResourcesSetup, GCPSlurmSetup, ModelJob, PathSetup, TabArenaBenchmarkPlan
+
+path_setup = PathSetup(
+    workspace="/home/lennart_priorlabs_ai/workspace/benchmarking/tabarena_workspace",
+    python_path="/home/lennart_priorlabs_ai/.venvs/tabarena_linear_core2k_28092026/bin/python",
+)
+common = dict(
+    benchmark_name="beyondarena_linear_24092026",
+    task_subset=TaskSubset(subset=["core2k"]),
+    experiment_bundle=BeyondArenaExperimentBundle(model_verbosity=2),
+    path_setup=path_setup,
+    resources_setup=BeyondArenaResourcesSetup(),
+)
+SLOW_DATASETS = [
+    "ieee_fraud_detection-5e0af5cbbb73",
+    "sdss_17-3d9b16fdea21",
+    "kdd_cup_09_appetency-72d0143e7c3d",
+    "anes_voting_2026-58a0e941922e",
+    "home_credit_default_stability_1m-e56e2cf55fa2",
+]
+# setup: the main launch (two arrays: size-1 and size-20 bundles)
+TabArenaBenchmarkPlan(
+    model_jobs=[ModelJob(models=("LinearModel", 200), name="cpu")],
+    context=BeyondArenaContext(),
+    scheduler_setup=GCPSlurmSetup(
+        cpu_partition="cpun416mtspotinteractive", bundle_size=20,
+        bundle_size_per_dataset=dict.fromkeys(SLOW_DATASETS, 1), array_job_limit=300, time_limit_overhead=20,
+        large_dataset_n_samples=None, large_dataset_n_features=None,
+    ),
+    **common,
+).setup_jobs()
+# setup-relaunch: every missing item except the still-running home_credit configs, one item per task
+context = BeyondArenaContext()
+datasets = sorted({t.dataset_name for t in context.task_metadata_collection._tasks} - {"home_credit_default_stability_1m"})
+TabArenaBenchmarkPlan(
+    model_jobs=[
+        ModelJob(
+            models=("LinearModel", 200), name="cpu_relaunch",
+            tasks=TaskSubset(subset=["core2k"], dataset_names=datasets),
+        )
+    ],
+    context=context,
+    scheduler_setup=GCPSlurmSetup(
+        cpu_partition="cpun416mtspotinteractive", bundle_size=1, array_job_limit=300, time_limit_overhead=20,
+        large_dataset_n_samples=None, large_dataset_n_features=None,
+    ),
+    **common,
+).setup_jobs()
+# setup-home-credit-48h: the home_credit configs still missing, 48 h SLURM limit; only the index of r41 was submitted
+# (the others were still running), and later r5 and r138 as on-demand copies on --partition=cpuhigh32
+TabArenaBenchmarkPlan(
+    model_jobs=[
+        ModelJob(
+            models=("LinearModel", 200), name="cpu_home_credit_48h",
+            tasks=TaskSubset(subset=["core2k"], dataset_names=["home_credit_default_stability_1m"]),
+        )
+    ],
+    context=BeyondArenaContext(),
+    scheduler_setup=GCPSlurmSetup(
+        cpu_partition="cpun416mtspotinteractive", bundle_size=1, array_job_limit=300, time_limit_overhead=44,
+        large_dataset_n_samples=None, large_dataset_n_features=None,
+    ),
+    **common,
+).setup_jobs()
+```
+
+---
+
 ## 2026-09-24 — beyondarena_linear_24092026
 
 - **Model(s):** Linear (`LinearModel`), default config plus 200 random configs (201 per split) on the BeyondArena

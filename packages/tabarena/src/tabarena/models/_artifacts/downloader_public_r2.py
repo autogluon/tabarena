@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import tempfile
+import time
 from pathlib import Path
 from typing import TYPE_CHECKING
 from urllib.parse import quote, urljoin
@@ -75,6 +76,21 @@ class MethodDownloaderPublicR2(MethodDownloader):
                 return True
             except requests.RequestException:
                 return False
+
+    def remote_etag(self, key: str, attempts: int = 3) -> str | None:
+        """ETag from a HEAD request, retried with a short connect timeout on connection errors."""
+        for attempt in range(attempts):
+            try:
+                response = self.session.head(self.key_to_url(key), allow_redirects=True, timeout=(5, self.timeout))
+                break
+            except requests.RequestException:
+                if attempt == attempts - 1:
+                    raise
+                time.sleep(2**attempt)
+        if response.status_code == 404:
+            return None
+        response.raise_for_status()
+        return response.headers["ETag"].removeprefix("W/").strip('"')
 
     def _download_to_local_if_exists(self, key: str, path_local: Path):
         """Attempts to download a single file to `path_local`. Skips quietly if not found."""

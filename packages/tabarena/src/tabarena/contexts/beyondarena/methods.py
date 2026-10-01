@@ -71,7 +71,7 @@ beyond_linear_metadata = lr_descriptor.method_metadata(
 )
 # Rerun of the 2026-09-24 run (`beyondarena_linear_24092026` in BENCHMARK_LOG.md): L1 honored for classification
 # (AutoGluon #5933, issue #598), per-worker BLAS threads (#614), the default config plus 200 random configs on the
-# core protocol (the hosted suite above ran 26 configs on every split).
+# core and core2k splits (the hosted suite above ran 26 configs on every split).
 beyond_linear_2026_09_metadata = lr_descriptor.method_metadata(
     method="LinearModel",
     ag_key="LR",
