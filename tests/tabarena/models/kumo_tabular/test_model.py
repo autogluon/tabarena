@@ -62,3 +62,28 @@ def test_out_of_memory_below_the_smallest_pass_is_raised(monkeypatch):
     wrapper._forward = forward
     with pytest.raises(torch.OutOfMemoryError):
         wrapper._predict_values(np.arange(model._MIN_QUERY_PASS_ROWS), device=None)
+
+
+def test_unsigned_columns_become_signed_and_pickle():
+    import pickle
+
+    import numpy as np
+    import pandas as pd
+
+    from tabarena.models.kumo_tabular.model import to_signed_integers
+
+    X = pd.DataFrame(
+        {
+            "u8": np.array([1, 2], dtype=np.uint8),
+            "u32": np.array([1, 2**32 - 1], dtype=np.uint32),
+            "u64": np.array([1, 2**64 - 1], dtype=np.uint64),
+            "f": [0.5, 1.5],
+        }
+    )
+    out = to_signed_integers(X)
+
+    assert out.dtypes.astype(str).tolist() == ["uint8", "int64", "float64", "float64"]
+    assert out["u32"].tolist() == [1, 2**32 - 1]
+    for column in ("u8", "u32"):
+        tensor = torch.from_numpy(out[column].to_numpy())
+        assert torch.equal(pickle.loads(pickle.dumps(tensor)), tensor)

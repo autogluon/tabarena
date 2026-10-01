@@ -15,6 +15,23 @@ _TARGET = "__target__"
 _MIN_QUERY_PASS_ROWS = 512
 
 
+def to_signed_integers(X: pd.DataFrame) -> pd.DataFrame:
+    """``X`` with its ``uint16`` / ``uint32`` / ``uint64`` columns cast to ``int64`` (``float64`` above its range).
+
+    The library keeps the unsigned dtype for the category values of such columns when it infers them as
+    categorical, and torch pickles those tensors with a storage its own unpickler cannot read back
+    (``'UntypedStorage' has no attribute 'dtype'``), so the fitted child fails to load at refit:
+    home_credit_default_stability_1m has 20 ``uint32`` columns, 17 of them inferred as categorical. The
+    values and the inferred semantic types are unchanged.
+    """
+    casts = {}
+    for column, dtype in X.dtypes.items():
+        if dtype.kind == "u" and dtype.itemsize > 1:
+            fits = dtype.itemsize < 8 or X[column].max() <= np.iinfo(np.int64).max
+            casts[column] = "int64" if fits else "float64"
+    return X.astype(casts) if casts else X
+
+
 def context_subsample_index(n_rows: int, num_estimators: int, max_context_size: int | None, seed: int | None):
     """Row indices of each ensemble member's context, shape ``[num_estimators, max_context_size]``.
 
@@ -198,6 +215,9 @@ class KumoTabularModel(AbstractTorchModel):
         if device.type != "cuda" or n_rows > 3_000 or n_rows * n_cols > 50_000:
             return 1
         return None
+
+    def _preprocess(self, X: pd.DataFrame, **kwargs) -> pd.DataFrame:
+        return to_signed_integers(super()._preprocess(X, **kwargs))
 
     def _set_default_params(self):
         self._set_default_param_value("num_estimators", self.default_num_estimators)
