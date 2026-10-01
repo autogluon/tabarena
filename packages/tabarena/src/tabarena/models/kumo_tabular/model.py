@@ -53,7 +53,10 @@ class KumoTabularModel(AbstractTorchModel):
     Above ``max_context_size`` training rows (default 200,000, the cap of NVIDIA's own BeyondArena runs)
     each ensemble member gets its own random subsample of that many context rows; the network's buffers
     grow with the context, and a 1M-row table needs over 100 GB. The library's default recipe already caps
-    each member at 500 columns. When the query rows still exhaust GPU memory, they run in halved passes.
+    each member at 500 columns. When the query rows still exhaust GPU memory, they run in halved passes,
+    and the CUDA allocator runs with expandable segments (:func:`tabarena.models.warmup.configure_cuda_allocator`):
+    a 200k-row context of maps_router_eta_1m needs one 48 GiB buffer, which failed with 20 GiB live and 46 GiB
+    reserved but unallocated on a 95 GiB card.
     """
 
     ag_key = "TA-KUMO-TABULAR"
@@ -96,7 +99,9 @@ class KumoTabularModel(AbstractTorchModel):
         import sdm
 
         from tabarena.models.kumo_tabular import _estimators
+        from tabarena.models.warmup import configure_cuda_allocator
 
+        configure_cuda_allocator()
         device = self._resolve_fit_device(num_gpus)
         task = "regression" if self.problem_type == REGRESSION else "classification"
         network = _estimators.load_network(task=task, size=self.size, device=device)
@@ -207,6 +212,18 @@ class KumoTabularModel(AbstractTorchModel):
 
     def _more_tags(self) -> dict:
         return {"can_refit_full": True}
+
+    @classmethod
+    def warmup(cls, *, num_gpus: float | None = None, **kwargs) -> None:
+        """Configure the CUDA allocator before the CUDA context exists, then create that context.
+
+        The allocator reads ``PYTORCH_CUDA_ALLOC_CONF`` when it first runs, so this runs before the
+        generic torch layer of ``warmup_model_cls`` and calls :func:`warmup_torch` itself (idempotent).
+        """
+        from tabarena.models.warmup import configure_cuda_allocator, warmup_torch
+
+        configure_cuda_allocator()
+        warmup_torch(cuda=None if num_gpus is None else num_gpus > 0)
 
     @classmethod
     def prefetch_weights(cls) -> list:
