@@ -11,6 +11,8 @@ if TYPE_CHECKING:
     import pandas as pd
 
 _TARGET = "__target__"
+#: Smallest query pass the out-of-memory fallback in ``_predict_values`` splits down to.
+_MIN_QUERY_PASS_ROWS = 512
 
 
 def context_subsample_index(n_rows: int, num_estimators: int, max_context_size: int | None, seed: int | None):
@@ -51,7 +53,7 @@ class KumoTabularModel(AbstractTorchModel):
     Above ``max_context_size`` training rows (default 200,000, the cap of NVIDIA's own BeyondArena runs)
     each ensemble member gets its own random subsample of that many context rows; the network's buffers
     grow with the context, and a 1M-row table needs over 100 GB. The library's default recipe already caps
-    each member at 500 columns.
+    each member at 500 columns. When the query rows still exhaust GPU memory, they run in halved passes.
     """
 
     ag_key = "TA-KUMO-TABULAR"
@@ -122,11 +124,45 @@ class KumoTabularModel(AbstractTorchModel):
         device = torch.device(self.get_device())
         X = self.preprocess(X, **kwargs)
         x_query = sdm.TableTensor.from_pandas(df=X, stypes=self._stypes, device=device)
+        labels, values = self._predict_values(x_query, device=device)
+        if self.problem_type == REGRESSION:
+            return values.mean(axis=-1)
+        # Output columns are the class labels seen in the context; a class missing there gets zero.
+        proba = np.zeros((len(X), self.num_classes), dtype=np.float32)
+        proba[:, [int(label) for label in labels]] = values
+        return self._convert_proba_to_unified_form(proba)
+
+    def _predict_values(self, x_query, device) -> tuple[list, np.ndarray]:
+        """The output columns and values for ``x_query``, in one pass or, after a CUDA out-of-memory error, two.
+
+        Each query row is predicted from the context alone, so splitting the query rows changes the
+        predictions only by floating-point rounding (the library's own query chunking, NVIDIA/structured-data-
+        models#1015, relies on the same). Every pass replays the same seeded randomness.
+        """
+        import torch
+
+        try:
+            return self._forward(x_query, device=device)
+        except torch.OutOfMemoryError:
+            if len(x_query) <= _MIN_QUERY_PASS_ROWS:
+                raise
+        # Outside the except block, so the failed pass's tensors are released before the retry.
+        torch.cuda.empty_cache()
+        half = len(x_query) // 2
+        labels, first = self._predict_values(x_query[:half], device=device)
+        _, second = self._predict_values(x_query[half:], device=device)
+        return labels, np.concatenate([first, second])
+
+    def _forward(self, x_query, device) -> tuple[list, np.ndarray]:
+        import sdm
+        import torch
+
         generator = None
         if isinstance(self.random_seed, int):
             generator = torch.Generator(device).manual_seed(self.random_seed)
         x_context, y_context = self._x_context, self._y_context
         num_estimators = self._get_model_params()["num_estimators"]
+        n_query = len(x_query)
         if self._context_index is not None:
             # One context per member along a leading estimator dimension, which the library reads as the
             # ensemble when ``num_estimators`` is None.
@@ -141,16 +177,10 @@ class KumoTabularModel(AbstractTorchModel):
                 y_context=y_context.to(device),
                 x_query=x_query,
                 num_estimators=num_estimators,
-                estimator_batch_size=self._estimator_batch_size(n_query=len(X), device=device),
+                estimator_batch_size=self._estimator_batch_size(n_query=n_query, device=device),
                 generator=generator,
             )
-        values = out.numerical.float().cpu().numpy()
-        if self.problem_type == REGRESSION:
-            return values.mean(axis=-1)
-        # Output columns are the class labels seen in the context; a class missing there gets zero.
-        proba = np.zeros((len(X), self.num_classes), dtype=np.float32)
-        proba[:, [int(label) for label in out.columns[sdm.Stype.numerical]]] = values
-        return self._convert_proba_to_unified_form(proba)
+        return list(out.columns[sdm.Stype.numerical]), out.numerical.float().cpu().numpy()
 
     def _estimator_batch_size(self, n_query: int, device) -> int | None:
         """How many ensemble members run through the network together (``None``: all of them).
