@@ -1,6 +1,6 @@
 """Kumo Tabular's network load as a separable call, so one network per process serves every fit.
 
-Developer fix. ``sdm.models.KumoTabular.__init__`` (structured-data-models at commit ``ee6acd40``)
+Developer fix. ``sdm.models.KumoTabular.__init__`` (structured-data-models at commit ``5d663369``)
 builds the network and loads the checkpoint inside the constructor, resolving it against the Hub tag
 ``v1.0.0``; it offers no loader call and no ``network=`` argument. :func:`load_network` is the loading
 half of that constructor (``KumoTabular._load_from_pretrained``) against the pinned commit

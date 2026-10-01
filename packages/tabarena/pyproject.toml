@@ -177,7 +177,7 @@ tabpfn_3_5 = ["tabpfn>=9.0.0"]
 # Kumo Tabular's library is not on PyPI yet (only a placeholder release); pinned to a commit so the
 # benchmarked code is fixed (empty extra on PyPI). Keep in sync with `pip_extra` in models/kumo_tabular/info.py.
 kumo_tabular = [
-  "structured-data-models @ git+https://github.com/NVIDIA/structured-data-models.git@ee6acd402176b0efa42527babd63f15672d63418",
+  "structured-data-models @ git+https://github.com/NVIDIA/structured-data-models.git@5d663369ff8ead4a78c910dbb8483d558e46627b",
 ]
 
 # Core benchmark set: the always-on models for benchmarking, plus the plotting and
