@@ -95,15 +95,45 @@ class KumoTabularModel(AbstractTorchModel):
         generator = None
         if isinstance(self.random_seed, int):
             generator = torch.Generator(device).manual_seed(self.random_seed)
+        num_estimators = self._get_model_params()["num_estimators"]
+        estimator_batch_size = self._estimator_batch_size(n_query=len(X), device=device)
         with torch.amp.autocast(device.type, dtype=torch.float16, enabled=device.type == "cuda"):
-            out = self.model.estimator()(
-                x_context=self._x_context.to(device),
-                y_context=self._y_context.to(device),
-                x_query=x_query,
-                num_estimators=self._get_model_params()["num_estimators"],
-                estimator_batch_size=self._estimator_batch_size(n_query=len(X), device=device),
-                generator=generator,
-            )
+            try:
+                out = self.model.estimator()(
+                    x_context=self._x_context.to(device),
+                    y_context=self._y_context.to(device),
+                    x_query=x_query,
+                    num_estimators=num_estimators,
+                    estimator_batch_size=estimator_batch_size,
+                    generator=generator,
+                )
+            except ValueError as e:
+                # The size heuristic in _estimator_batch_size batches every ensemble
+                # member through the network together (estimator_batch_size=None) once
+                # a dataset is small enough -- a real, confirmed production failure on
+                # several small datasets (e.g. two 20-row skin-conductance targets and a
+                # handful of others): some of Kumo's own internal ensemble members end up
+                # with incompatible column/category/class structure for the batched
+                # forward pass, and sdm's own _check_compatible raises exactly this
+                # error, itself naming the one-at-a-time fallback as the fix. Compared
+                # against sdm's own message constant rather than a guessed substring, so
+                # this stays correct if the wording ever changes upstream (and doesn't
+                # accidentally swallow some other, unrelated ValueError). Retrying with
+                # estimator_batch_size=1 (skipped entirely when that's what was already
+                # tried) trades some inference speed on just these datasets for
+                # correctness, rather than failing the whole task.
+                from sdm.models.base import _INCOMPATIBLE_ESTIMATORS
+
+                if estimator_batch_size == 1 or str(e) != _INCOMPATIBLE_ESTIMATORS:
+                    raise
+                out = self.model.estimator()(
+                    x_context=self._x_context.to(device),
+                    y_context=self._y_context.to(device),
+                    x_query=x_query,
+                    num_estimators=num_estimators,
+                    estimator_batch_size=1,
+                    generator=generator,
+                )
         values = out.numerical.float().cpu().numpy()
         if self.problem_type == REGRESSION:
             return values.mean(axis=-1)
