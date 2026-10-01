@@ -13,6 +13,23 @@ if TYPE_CHECKING:
 _TARGET = "__target__"
 
 
+def context_subsample_index(n_rows: int, num_estimators: int, max_context_size: int | None, seed: int | None):
+    """Row indices of each ensemble member's context, shape ``[num_estimators, max_context_size]``.
+
+    ``None`` when the context fits within ``max_context_size``. Otherwise NVIDIA's adapter rule: the members
+    take consecutive slices of concatenated random permutations, so every row is used about equally often
+    (a member whose slice spans two permutations can draw a row twice).
+    """
+    import torch
+
+    if max_context_size is None or n_rows <= max_context_size:
+        return None
+    generator = torch.Generator().manual_seed(seed) if isinstance(seed, int) else None
+    num_repeats = -(-num_estimators * max_context_size // n_rows)
+    perm = torch.cat([torch.randperm(n_rows, generator=generator) for _ in range(num_repeats)])
+    return perm[: num_estimators * max_context_size].view(num_estimators, max_context_size)
+
+
 class KumoTabularModel(AbstractTorchModel):
     """Kumo Tabular: NVIDIA's pretrained in-context-learning tabular foundation model (large checkpoint).
 
@@ -31,6 +48,10 @@ class KumoTabularModel(AbstractTorchModel):
 
     ``fit`` stores the context; the library's preprocessing recipe and the forward pass over context and
     query rows run at predict time, under float16 autocast on CUDA as in NVIDIA's own TabArena adapter.
+    Above ``max_context_size`` training rows (default 200,000, the cap of NVIDIA's own BeyondArena runs)
+    each ensemble member gets its own random subsample of that many context rows; the network's buffers
+    grow with the context, and a 1M-row table needs over 100 GB. The library's default recipe already caps
+    each member at 500 columns.
     """
 
     ag_key = "TA-KUMO-TABULAR"
@@ -61,6 +82,7 @@ class KumoTabularModel(AbstractTorchModel):
     size: ClassVar[str] = "large"
     #: The library's default for the large model; NVIDIA's adapter uses 8 for the smaller two.
     default_num_estimators: ClassVar[int] = 16
+    default_max_context_size: ClassVar[int] = 200_000
 
     def _fit(self, X: pd.DataFrame, y: pd.Series, num_gpus: int = 0, **kwargs):
         """Load the pretrained network and store the context as table tensors on the CPU.
@@ -84,6 +106,14 @@ class KumoTabularModel(AbstractTorchModel):
         self._x_context = sdm.TableTensor.from_pandas(df=X, stypes=self._stypes)
         target_stype = "numerical" if task == "regression" else "categorical"
         self._y_context = sdm.TableTensor.from_pandas(df=y.rename(_TARGET).to_frame(), stypes={_TARGET: target_stype})
+        params = self._get_model_params()
+        # Indices rather than the stacked subsamples, so the pickle holds the context once.
+        self._context_index = context_subsample_index(
+            n_rows=len(X),
+            num_estimators=params["num_estimators"],
+            max_context_size=params["max_context_size"],
+            seed=self.random_seed,
+        )
 
     def _predict_proba(self, X: pd.DataFrame, **kwargs) -> np.ndarray:
         import sdm
@@ -95,12 +125,22 @@ class KumoTabularModel(AbstractTorchModel):
         generator = None
         if isinstance(self.random_seed, int):
             generator = torch.Generator(device).manual_seed(self.random_seed)
+        x_context, y_context = self._x_context, self._y_context
+        num_estimators = self._get_model_params()["num_estimators"]
+        if self._context_index is not None:
+            # One context per member along a leading estimator dimension, which the library reads as the
+            # ensemble when ``num_estimators`` is None.
+            index = self._context_index.flatten()
+            x_context = x_context[index].unflatten(0, self._context_index.shape)
+            y_context = y_context[index].unflatten(0, self._context_index.shape)
+            x_query = x_query.expand(num_estimators, *x_query.size())
+            num_estimators = None
         with torch.amp.autocast(device.type, dtype=torch.float16, enabled=device.type == "cuda"):
             out = self.model.estimator()(
-                x_context=self._x_context.to(device),
-                y_context=self._y_context.to(device),
+                x_context=x_context.to(device),
+                y_context=y_context.to(device),
                 x_query=x_query,
-                num_estimators=self._get_model_params()["num_estimators"],
+                num_estimators=num_estimators,
                 estimator_batch_size=self._estimator_batch_size(n_query=len(X), device=device),
                 generator=generator,
             )
@@ -126,6 +166,7 @@ class KumoTabularModel(AbstractTorchModel):
 
     def _set_default_params(self):
         self._set_default_param_value("num_estimators", self.default_num_estimators)
+        self._set_default_param_value("max_context_size", self.default_max_context_size)
 
     def get_device(self) -> str:
         param = next(self.model.network.parameters(), None)
