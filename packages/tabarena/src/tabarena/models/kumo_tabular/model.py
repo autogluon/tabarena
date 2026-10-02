@@ -65,15 +65,13 @@ class KumoTabularModel(AbstractTorchModel):
     Codebase: https://github.com/NVIDIA/structured-data-models (weights: https://huggingface.co/nvidia/Kumo-Tabular)
     License: code under Apache-2.0, weights under OpenMDW 1.1.
 
-    ``fit`` stores the context; the library's preprocessing recipe and the forward pass over context and
-    query rows run at predict time, under float16 autocast on CUDA as in NVIDIA's own TabArena adapter.
-    Above ``max_context_size`` training rows (default 200,000, the cap of NVIDIA's own BeyondArena runs)
-    each ensemble member gets its own random subsample of that many context rows; the network's buffers
-    grow with the context, and a 1M-row table needs over 100 GB. The library's default recipe already caps
-    each member at 500 columns. When the query rows still exhaust GPU memory, they run in halved passes,
-    and the CUDA allocator runs with expandable segments (:func:`tabarena.models.warmup.configure_cuda_allocator`):
-    a 200k-row context of maps_router_eta_1m needs one 48 GiB buffer, which failed with 20 GiB live and 46 GiB
-    reserved but unallocated on a 95 GiB card.
+    ``fit`` fits the preprocessing recipe and records the context KV cache. ``predict`` reuses both in
+    query-row batches, under float16 autocast on CUDA. The recipe computes numerical statistics in
+    float64. ``estimator_batch_size`` and ``ag.max_batch_size`` default to conservative memory-based
+    estimates; positive integer overrides fix either size. These estimates are not an OOM guarantee:
+    fitting stores the ensemble's KV cache in host memory. Above ``max_context_size`` training rows
+    (default 200,000), each member uses its own random context subsample. Prediction retries CUDA
+    out-of-memory errors with smaller query passes; the allocator uses expandable segments.
     """
 
     ag_key = "TA-KUMO-TABULAR"
@@ -106,37 +104,118 @@ class KumoTabularModel(AbstractTorchModel):
     default_num_estimators: ClassVar[int] = 16
     default_max_context_size: ClassVar[int] = 200_000
 
-    def _fit(self, X: pd.DataFrame, y: pd.Series, num_gpus: int = 0, **kwargs):
-        """Load the pretrained network and store the context as table tensors on the CPU.
+    def _fit(self, X: pd.DataFrame, y: pd.Series, num_cpus: int = 1, num_gpus: int = 0, **kwargs):
+        """Fit preprocessing and cache the context.
 
         An in-context-learning model without a training loop, so ``X_val`` / ``y_val`` and
-        ``time_limit`` are unused, like in the other foundation-model wrappers; the library has no
-        thread-count knob for ``num_cpus``.
+        ``time_limit`` are unused, like in the other foundation-model wrappers.
         """
         import sdm
+        import torch
+        from sdm.models.kumo.tabular import estimate_fit_batch_size
 
         from tabarena.models.kumo_tabular import _estimators
         from tabarena.models.warmup import configure_cuda_allocator
 
         configure_cuda_allocator()
-        device = self._resolve_fit_device(num_gpus)
         task = "regression" if self.problem_type == REGRESSION else "classification"
-        network = _estimators.load_network(task=task, size=self.size, device=device)
+        network = _estimators.load_network(task=task, size=self.size, device=self._resolve_fit_device(num_gpus))
+        device = next(network.parameters()).device
         self.model = _estimators.FittedNetwork(task=task, size=self.size, network=network)
 
         X = self.preprocess(X, y=y)
         # AutoGluon hands binary columns over as integers; the library then treats them as categorical.
         self._stypes = sdm.infer_stypes(X, _low_cardinality="infer")
-        self._x_context = sdm.TableTensor.from_pandas(df=X, stypes=self._stypes)
+        x_context = sdm.TableTensor.from_pandas(df=X, stypes=self._stypes)
         target_stype = "numerical" if task == "regression" else "categorical"
-        self._y_context = sdm.TableTensor.from_pandas(df=y.rename(_TARGET).to_frame(), stypes={_TARGET: target_stype})
+        y_context = sdm.TableTensor.from_pandas(df=y.rename(_TARGET).to_frame(), stypes={_TARGET: target_stype})
+        # Include target classes absent from this fold in batch estimates.
+        self._y_metadata = y_context[:0].cpu()
+        if task == "classification":
+            self._y_metadata = sdm.TableTensor(
+                columns=y_context.columns,
+                categorical=sdm.CategoricalTensor(
+                    code=self._y_metadata.categorical.code,
+                    categories=(torch.arange(self.num_classes),),
+                ),
+            )
         params = self._get_model_params()
-        # Indices rather than the stacked subsamples, so the pickle holds the context once.
-        self._context_index = context_subsample_index(
+        context_index = context_subsample_index(
             n_rows=len(X),
             num_estimators=params["num_estimators"],
             max_context_size=params["max_context_size"],
             seed=self.random_seed,
+        )
+        num_estimators = params["num_estimators"]
+        self._context_subsampled = context_index is not None
+        if self._context_subsampled:
+            # The leading axis supplies one context per ensemble member.
+            index = context_index.flatten()
+            x_context = x_context[index].unflatten(0, context_index.shape)
+            y_context = y_context[index].unflatten(0, context_index.shape)
+            num_estimators = None
+        x_context = x_context.to(device)
+        y_context = y_context.to(device)
+        self._num_cpus = num_cpus
+        estimator = self.model.estimator()
+        batch_size = params["estimator_batch_size"]
+        if batch_size is None:
+            batch_size = 1
+            if device.type == "cuda":
+                batch_size = estimate_fit_batch_size(
+                    model=estimator,
+                    x=x_context,
+                    y=self._y_metadata,
+                    num_estimators=params["num_estimators"],
+                    memory_budget=_estimators.available_memory(device),
+                )
+        self._estimator_batch_size = batch_size
+        generator = torch.Generator(device).manual_seed(self.random_seed) if isinstance(self.random_seed, int) else None
+        previous_threads = torch.get_num_threads()
+        try:
+            torch.set_num_threads(num_cpus)
+            with (
+                torch.inference_mode(),
+                torch.amp.autocast(device.type, dtype=torch.float16, enabled=device.type == "cuda"),
+            ):
+                estimator.fit(
+                    x=x_context,
+                    y=y_context,
+                    num_estimators=num_estimators,
+                    estimator_batch_size=batch_size,
+                    generator=generator,
+                )
+            # Multi-member fits already offload to pinned CPU memory; also offload singleton fits.
+            self.model.cache = estimator._cache.cpu()
+            # Query batch estimation only needs feature and target metadata.
+            self._x_metadata = sdm.TableTensor.from_tensor(torch.empty(0, x_context.size(-1), device="cpu"))
+        finally:
+            torch.set_num_threads(previous_threads)
+
+    def _get_max_batch_size(self) -> int | None:
+        import torch
+        from sdm._memory import chunk_memory_limit
+        from sdm.models.kumo.tabular import estimate_predict_batch_size
+
+        from tabarena.models.kumo_tabular import _estimators
+
+        batch_size = super()._get_max_batch_size()
+        device = torch.device(self.get_device())
+        if batch_size is not None or device.type != "cuda":
+            return batch_size
+        estimator = self.model.estimator()
+        params = self._get_model_params()
+        cache = self.model.cache
+        # SDM overlaps transfer of the next estimator batch with execution of the current one.
+        staging_bytes = 2 * max(cache[i].size() for i in range(cache["num_batches"]))
+        budget = min(chunk_memory_limit(device), max(0, _estimators.available_memory(device) - staging_bytes) // 2)
+        return estimate_predict_batch_size(
+            model=estimator,
+            x=self._x_metadata,
+            y=self._y_metadata,
+            num_estimators=params["num_estimators"],
+            estimator_batch_size=self._estimator_batch_size,
+            memory_budget=2 * budget,
         )
 
     def _predict_proba(self, X: pd.DataFrame, **kwargs) -> np.ndarray:
@@ -145,21 +224,19 @@ class KumoTabularModel(AbstractTorchModel):
 
         device = torch.device(self.get_device())
         X = self.preprocess(X, **kwargs)
-        x_query = sdm.TableTensor.from_pandas(df=X, stypes=self._stypes, device=device)
-        labels, values = self._predict_values(x_query, device=device)
+        query = sdm.TableTensor.from_pandas(df=X, stypes=self._stypes, device=device)
+        labels, values = self._predict_values(query, device=device)
         if self.problem_type == REGRESSION:
-            return values.mean(axis=-1)
-        # Output columns are the class labels seen in the context; a class missing there gets zero.
-        proba = np.zeros((len(X), self.num_classes), dtype=np.float32)
-        proba[:, [int(label) for label in labels]] = values
-        return self._convert_proba_to_unified_form(proba)
+            return values[:, 0]
+        predictions = np.zeros((len(X), self.num_classes), dtype=np.float32)
+        predictions[:, [int(label) for label in labels]] = values
+        return self._convert_proba_to_unified_form(predictions)
 
     def _predict_values(self, x_query, device) -> tuple[list, np.ndarray]:
         """The output columns and values for ``x_query``, in one pass or, after a CUDA out-of-memory error, two.
 
         Each query row is predicted from the context alone, so splitting the query rows changes the
-        predictions only by floating-point rounding (the library's own query chunking, NVIDIA/structured-data-
-        models#1015, relies on the same). Every pass replays the same seeded randomness.
+        predictions only by floating-point rounding.
         """
         import torch
 
@@ -179,48 +256,30 @@ class KumoTabularModel(AbstractTorchModel):
         import sdm
         import torch
 
-        generator = None
-        if isinstance(self.random_seed, int):
-            generator = torch.Generator(device).manual_seed(self.random_seed)
-        x_context, y_context = self._x_context, self._y_context
-        num_estimators = self._get_model_params()["num_estimators"]
-        n_query = len(x_query)
-        if self._context_index is not None:
-            # One context per member along a leading estimator dimension, which the library reads as the
-            # ensemble when ``num_estimators`` is None.
-            index = self._context_index.flatten()
-            x_context = x_context[index].unflatten(0, self._context_index.shape)
-            y_context = y_context[index].unflatten(0, self._context_index.shape)
-            x_query = x_query.expand(num_estimators, *x_query.size())
-            num_estimators = None
-        with torch.amp.autocast(device.type, dtype=torch.float16, enabled=device.type == "cuda"):
-            out = self.model.estimator()(
-                x_context=x_context.to(device),
-                y_context=y_context.to(device),
-                x_query=x_query,
-                num_estimators=num_estimators,
-                estimator_batch_size=self._estimator_batch_size(n_query=n_query, device=device),
-                generator=generator,
-            )
-        return list(out.columns[sdm.Stype.numerical]), out.numerical.float().cpu().numpy()
-
-    def _estimator_batch_size(self, n_query: int, device) -> int | None:
-        """How many ensemble members run through the network together (``None``: all of them).
-
-        NVIDIA's adapter heuristic: batch all members on CUDA while context plus query rows stay within
-        3,000 rows and 50,000 cells, else one at a time.
-        """
-        n_rows, n_cols = self._x_context.shape[-2:]
-        n_rows += n_query
-        if device.type != "cuda" or n_rows > 3_000 or n_rows * n_cols > 50_000:
-            return 1
-        return None
+        if self._context_subsampled:
+            x_query = x_query.expand(self._get_model_params()["num_estimators"], *x_query.size())
+        estimator = self.model.estimator()
+        previous_threads = torch.get_num_threads()
+        try:
+            torch.set_num_threads(self._num_cpus)
+            with (
+                torch.inference_mode(),
+                torch.amp.autocast(device.type, dtype=torch.float16, enabled=device.type == "cuda"),
+            ):
+                out = estimator.predict(x_query)
+                if self.problem_type == REGRESSION:
+                    values = out.numerical.float().mean(dim=-1, keepdim=True)
+                    return [_TARGET], values.cpu().numpy()
+                return list(out.columns[sdm.Stype.numerical]), out.numerical.float().cpu().numpy()
+        finally:
+            torch.set_num_threads(previous_threads)
 
     def _preprocess(self, X: pd.DataFrame, **kwargs) -> pd.DataFrame:
         return to_signed_integers(super()._preprocess(X, **kwargs))
 
     def _set_default_params(self):
         self._set_default_param_value("num_estimators", self.default_num_estimators)
+        self._set_default_param_value("estimator_batch_size", None)
         self._set_default_param_value("max_context_size", self.default_max_context_size)
 
     def get_device(self) -> str:
@@ -229,6 +288,15 @@ class KumoTabularModel(AbstractTorchModel):
 
     def _set_device(self, device: str):
         self.model.network.to(device)
+
+    def set_device(self, device: str):
+        # AutoGluon's shared-weight device walker would also move the offloaded KV cache onto the GPU.
+        cache, self.model.cache = self.model.cache, None
+        try:
+            super().set_device(device)
+        finally:
+            self.model.cache = cache
+        self.model.move_processors(device)
 
     def _more_tags(self) -> dict:
         return {"can_refit_full": True}
