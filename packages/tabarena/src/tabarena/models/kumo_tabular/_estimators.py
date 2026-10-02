@@ -1,6 +1,6 @@
 """Kumo Tabular's network load as a separable call, so one network per process serves every fit.
 
-Developer fix. ``sdm.models.KumoTabular.__init__`` (structured-data-models at commit ``5d663369``)
+Developer fix. ``sdm.models.KumoTabular.__init__`` (structured-data-models at commit ``fff8a503``)
 builds the network and loads the checkpoint inside the constructor, resolving it against the Hub tag
 ``v1.0.0``; it offers no loader call and no ``network=`` argument. :func:`load_network` is the loading
 half of that constructor (``KumoTabular._load_from_pretrained``) against the pinned commit
@@ -19,7 +19,6 @@ Imports ``sdm`` (and with it torch) at module level; the wrapper imports this mo
 
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -106,20 +105,3 @@ def available_memory(device: torch.device) -> int:
     reusable = torch.cuda.memory_reserved(device) - allocated
     limit = total * torch.cuda.get_per_process_memory_fraction(device) - allocated
     return max(0, int(min(free + reusable, limit)))
-
-
-def row_bytes(network: torch.nn.Module, num_columns: int, num_classes: int) -> tuple[int, int]:
-    """Conservative FP16 model workspace and fit-cache bytes per row and estimator.
-
-    This mirrors the pinned Kumo architecture, not a measured peak: four cell-sized buffers plus the
-    attention block's 15x workspace allowance. ECOC repeats the network for each codebook task.
-    The recipe can add one count column per input column and keeps at most 500 model features.
-    """
-    columns = min(2 * num_columns, 500)
-    row = network.row_embedding
-    icl = network.icl_block
-    tasks = max(math.ceil(num_classes / 9), 4 * math.ceil(math.log(num_classes, 10))) if num_classes > 10 else 1
-    workspace = tasks * 2 * (4 * (columns + row.readout_token.size(0)) * row.channels + 15 * icl.layers[0].attn.q_dim)
-    # Fit projects all attention heads before retaining the smaller query KV heads.
-    cache = tasks * 2 * 2 * icl.layers[0].attn.q_dim * len(icl.layers)
-    return workspace, cache

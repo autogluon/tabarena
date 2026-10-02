@@ -75,6 +75,7 @@ class KumoTabularModel(AbstractTorchModel):
         """
         import sdm
         import torch
+        from sdm.models.kumo.tabular import estimate_fit_batch_size
 
         from tabarena.models.kumo_tabular import _estimators
 
@@ -92,20 +93,33 @@ class KumoTabularModel(AbstractTorchModel):
         y_context = sdm.TableTensor.from_pandas(
             df=y.rename(_TARGET).to_frame(), stypes={_TARGET: target_stype}, device=device
         )
+        # Include target classes absent from this fold in batch estimates.
+        self._y_metadata = y_context[:0].cpu()
+        if task == "classification":
+            self._y_metadata = sdm.TableTensor(
+                columns=y_context.columns,
+                categorical=sdm.CategoricalTensor(
+                    code=self._y_metadata.categorical.code,
+                    categories=(torch.arange(self.num_classes),),
+                ),
+            )
         params = self._get_model_params()
         self._num_cpus = num_cpus
-        self._num_columns = X.shape[1]
-        self._row_bytes, cache_bytes = _estimators.row_bytes(network, X.shape[1], self.num_classes or 0)
+        estimator = self.model.estimator()
         batch_size = params["estimator_batch_size"]
         if batch_size is None:
             batch_size = 1
             if device.type == "cuda":
-                budget = _estimators.available_memory(device) // 2
-                batch_size = max(1, min(params["num_estimators"], budget // (len(X) * (self._row_bytes + cache_bytes))))
+                batch_size = estimate_fit_batch_size(
+                    model=estimator,
+                    x=x_context,
+                    y=self._y_metadata,
+                    num_estimators=params["num_estimators"],
+                    memory_budget=_estimators.available_memory(device),
+                )
         self._estimator_batch_size = batch_size
         logger.info("\tKumo estimator batch size: %s", batch_size)
         generator = torch.Generator(device).manual_seed(self.random_seed) if isinstance(self.random_seed, int) else None
-        estimator = self.model.estimator()
         previous_threads = torch.get_num_threads()
         try:
             torch.set_num_threads(num_cpus)
@@ -122,12 +136,15 @@ class KumoTabularModel(AbstractTorchModel):
                 )
             # Multi-member fits already offload to pinned CPU memory; also offload singleton fits.
             self.model.cache = estimator._cache.cpu()
+            # Query batch estimation only needs feature and target metadata.
+            self._x_metadata = sdm.TableTensor.from_tensor(torch.empty(0, x_context.size(-1), device="cpu"))
         finally:
             torch.set_num_threads(previous_threads)
 
     def _get_max_batch_size(self) -> int | None:
         import torch
         from sdm._memory import chunk_memory_limit
+        from sdm.models.kumo.tabular import estimate_predict_batch_size
 
         from tabarena.models.kumo_tabular import _estimators
 
@@ -141,12 +158,14 @@ class KumoTabularModel(AbstractTorchModel):
         # SDM overlaps transfer of the next estimator batch with execution of the current one.
         staging_bytes = 2 * max(cache[i].size() for i in range(cache["num_batches"]))
         budget = min(chunk_memory_limit(device), max(0, _estimators.available_memory(device) - staging_bytes) // 2)
-        output_columns = 999 if self.problem_type == REGRESSION else self.num_classes
-        # Query preprocessing and output reduction keep tensors for all members, not just a network batch.
-        bytes_per_row = self._row_bytes * self._estimator_batch_size + params["num_estimators"] * 8 * (
-            8 * self._num_columns + 4 * output_columns
+        batch_size = estimate_predict_batch_size(
+            model=self.model.estimator(),
+            x=self._x_metadata,
+            y=self._y_metadata,
+            num_estimators=params["num_estimators"],
+            estimator_batch_size=self._estimator_batch_size,
+            memory_budget=2 * budget,
         )
-        batch_size = max(1, budget // bytes_per_row)
         logger.info("\tKumo query batch size: %s", batch_size)
         return batch_size
 
