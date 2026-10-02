@@ -161,6 +161,7 @@ AutogluonModels/
 /examples/**/*.zip
 /examples/**/*.html
 /scripts/generated_website_artifacts/
+/scripts/generated_beyondarena_website_artifacts/
 
 /tmp_scripts/
 
