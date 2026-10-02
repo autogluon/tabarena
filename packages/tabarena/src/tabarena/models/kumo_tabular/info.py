@@ -8,7 +8,7 @@ from tabarena.models.kumo_tabular.model import KumoTabularMediumModel, KumoTabul
 #: Not on PyPI yet (only a placeholder release); pinned to a commit so the benchmarked code is fixed.
 #: Keep in sync with the `kumo_tabular` extra in pyproject.toml.
 _PIP_EXTRA = (
-    "structured-data-models @ git+https://github.com/NVIDIA/structured-data-models.git@ce95710703a8be5744c756cd2f662ed79d3ee444",
+    "structured-data-models @ git+https://github.com/NVIDIA/structured-data-models.git@b982fbf4188ea8db17249fe81338723106100b63",
 )
 
 

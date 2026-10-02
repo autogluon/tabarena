@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 from typing import TYPE_CHECKING, ClassVar
 
 import numpy as np
@@ -12,7 +11,6 @@ if TYPE_CHECKING:
     import pandas as pd
 
 _TARGET = "__target__"
-logger = logging.getLogger(__name__)
 #: Smallest query pass the out-of-memory fallback in ``_predict_values`` splits down to.
 _MIN_QUERY_PASS_ROWS = 512
 
@@ -107,7 +105,7 @@ class KumoTabularModel(AbstractTorchModel):
     default_max_context_size: ClassVar[int] = 200_000
 
     def _fit(self, X: pd.DataFrame, y: pd.Series, num_cpus: int = 1, num_gpus: int = 0, **kwargs):
-        """Fit preprocessing and record the context once, without updating checkpoint weights.
+        """Fit preprocessing and cache the context.
 
         An in-context-learning model without a training loop, so ``X_val`` / ``y_val`` and
         ``time_limit`` are unused, like in the other foundation-model wrappers.
@@ -120,9 +118,8 @@ class KumoTabularModel(AbstractTorchModel):
         from tabarena.models.warmup import configure_cuda_allocator
 
         configure_cuda_allocator()
-        device = torch.device(self._resolve_fit_device(num_gpus))
         task = "regression" if self.problem_type == REGRESSION else "classification"
-        network = _estimators.load_network(task=task, size=self.size, device=str(device))
+        network = _estimators.load_network(task=task, size=self.size, device=self._resolve_fit_device(num_gpus))
         device = next(network.parameters()).device
         self.model = _estimators.FittedNetwork(task=task, size=self.size, network=network)
 
@@ -173,7 +170,6 @@ class KumoTabularModel(AbstractTorchModel):
                     memory_budget=_estimators.available_memory(device),
                 )
         self._estimator_batch_size = batch_size
-        logger.info("\tKumo estimator batch size: %s", batch_size)
         generator = torch.Generator(device).manual_seed(self.random_seed) if isinstance(self.random_seed, int) else None
         previous_threads = torch.get_num_threads()
         try:
@@ -207,22 +203,20 @@ class KumoTabularModel(AbstractTorchModel):
         device = torch.device(self.get_device())
         if batch_size is not None or device.type != "cuda":
             return batch_size
-        self.model.move_processors(device)
+        estimator = self.model.estimator()
         params = self._get_model_params()
         cache = self.model.cache
         # SDM overlaps transfer of the next estimator batch with execution of the current one.
         staging_bytes = 2 * max(cache[i].size() for i in range(cache["num_batches"]))
         budget = min(chunk_memory_limit(device), max(0, _estimators.available_memory(device) - staging_bytes) // 2)
-        batch_size = estimate_predict_batch_size(
-            model=self.model.estimator(),
+        return estimate_predict_batch_size(
+            model=estimator,
             x=self._x_metadata,
             y=self._y_metadata,
             num_estimators=params["num_estimators"],
             estimator_batch_size=self._estimator_batch_size,
             memory_budget=2 * budget,
         )
-        logger.info("\tKumo query batch size: %s", batch_size)
-        return batch_size
 
     def _predict_proba(self, X: pd.DataFrame, **kwargs) -> np.ndarray:
         import sdm
@@ -242,8 +236,7 @@ class KumoTabularModel(AbstractTorchModel):
         """The output columns and values for ``x_query``, in one pass or, after a CUDA out-of-memory error, two.
 
         Each query row is predicted from the context alone, so splitting the query rows changes the
-        predictions only by floating-point rounding (the library's own query chunking, NVIDIA/structured-data-
-        models#1015, relies on the same). Every pass replays the same seeded randomness.
+        predictions only by floating-point rounding.
         """
         import torch
 
