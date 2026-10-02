@@ -349,6 +349,11 @@ class TestCustomLeaderboardMetric:
         cols = list(lb.columns)
         assert cols.index("winrate") < cols.index("worst_task_error") < cols.index("time_train_s")
 
+    def test_custom_metrics_alone_keep_the_flag_defaults(self, ev, data):
+        lb = ev.leaderboard(data, include_mrr=True, metrics=[LeaderboardMetric("worst", _worst_task_error)])
+        default = ev.leaderboard(data, include_mrr=True)
+        assert set(lb.columns) == {*default.columns, "worst_task_error"}
+
     def test_custom_metric_is_sortable(self, ev, data):
         lb = ev.leaderboard(
             data,
