@@ -26,6 +26,10 @@ if TYPE_CHECKING:
     from tabarena.benchmark.task.metadata.schema import GroupLabelTypes
 
 
+TABARENA_DEFAULT_GROUP_ID = "tabarena_default_group_id"
+"""The TabArena pipeline with the group key exposed on label-per-sample grouped tasks."""
+
+
 def _identity_model_specific(hyperparameters: dict) -> dict:
     return hyperparameters
 
@@ -53,12 +57,14 @@ def resolve_preprocessing_pipeline(name: str | None) -> PreprocessingPipeline:
       model-specific step (the historical default for both wrapper families).
     * ``"tabarena_default"`` — ``TabArenaModelAgnosticPreprocessing`` plus
       ``TabArenaModelSpecificPreprocessing.add_to_hyperparameters``.
+    * ``"tabarena_default_group_id"`` — the same, with the group key of a label-per-sample grouped
+      task exposed as the ``__group_id__`` feature (``expose_group_id=True``).
     """
     from autogluon.features import AutoMLPipelineFeatureGenerator
 
     if name is None or name == "default":
         return PreprocessingPipeline(feature_generator_cls=AutoMLPipelineFeatureGenerator)
-    if name == "tabarena_default":
+    if name in ("tabarena_default", TABARENA_DEFAULT_GROUP_ID):
         from tabarena.benchmark.preprocessing import (
             TabArenaModelAgnosticPreprocessing,
             TabArenaModelSpecificPreprocessing,
@@ -66,10 +72,11 @@ def resolve_preprocessing_pipeline(name: str | None) -> PreprocessingPipeline:
 
         return PreprocessingPipeline(
             feature_generator_cls=TabArenaModelAgnosticPreprocessing,
+            feature_generator_kwargs={"expose_group_id": True} if name == TABARENA_DEFAULT_GROUP_ID else {},
             apply_model_specific=TabArenaModelSpecificPreprocessing.add_to_hyperparameters,
         )
     raise ValueError(
-        f"Preprocessing pipeline name {name!r} not recognized; expected 'default' or 'tabarena_default'.",
+        f"Preprocessing pipeline name {name!r} not recognized; expected 'default', 'tabarena_default' or 'tabarena_default_group_id'.",
     )
 
 

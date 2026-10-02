@@ -20,6 +20,41 @@ from autogluon.features import AbstractFeatureGenerator
 
 GROUP_INDEX_FEATURES = "group_index_features"
 
+S_GROUP_ID = "group_id"
+"""Feature-metadata special type of an exposed group key (see :class:`GroupIdCodes`).
+
+The column keeps the task's group column name; this type in ``FeatureMetadata`` is how the
+pipeline tells a model what the column is. A model that can use the group as a category selects it
+with ``feature_metadata.get_features(required_special_types=[S_GROUP_ID])`` and declares it
+categorical in its own ``_preprocess``; a model that cannot drops it the AutoGluon way, with
+``ag_args_fit={"ignored_type_group_special": [S_GROUP_ID]}``.
+"""
+
+
+class GroupIdCodes:
+    """Integer codes for a group key, fit on the fit block; a level unseen there maps to NaN.
+
+    On a label-per-sample grouped task the rows of a group share hidden state that the label
+    depends on, and an in-context model does better when it can tell which context rows belong
+    together. The raw key is replaced by these codes. They are floats, not a pandas category,
+    because the model-specific ``CategoryFeatureGenerator`` NaNs any level seen fewer than twice,
+    which would erase every singleton group; a numeric column passes it untouched, and the model
+    declares it categorical afterwards. The outer splits of a grouped task are group-disjoint, so
+    the column is NaN on the test rows and the effect comes from the training context alone.
+    """
+
+    def __init__(self) -> None:
+        self._codes: dict = {}
+
+    def fit(self, key: pd.Series) -> GroupIdCodes:
+        """Assign one code per level of ``key``, in order of first appearance."""
+        self._codes = {value: index for index, value in enumerate(pd.unique(key))}
+        return self
+
+    def transform(self, key: pd.Series) -> pd.Series:
+        """The codes of ``key``'s levels as floats, NaN for a level not seen in ``fit``."""
+        return key.map(self._codes).astype(np.float64)
+
 
 class GroupAggregationFeatureGenerator(AbstractFeatureGenerator):
     """Pre-generator that handles group columns in the preprocessing pipeline.

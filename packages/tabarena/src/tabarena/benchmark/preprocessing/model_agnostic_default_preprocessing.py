@@ -25,7 +25,9 @@ from tabarena.benchmark.preprocessing.date_feature_generators import (
     DateTimeFeatureGenerator,
 )
 from tabarena.benchmark.preprocessing.group_feature_generators import (
+    S_GROUP_ID,
     GroupAggregationFeatureGenerator,
+    GroupIdCodes,
 )
 from tabarena.benchmark.preprocessing.text_feature_generators import (
     SemanticTextFeatureGenerator,
@@ -81,9 +83,23 @@ class TabArenaModelAgnosticPreprocessing(AutoMLPipelineFeatureGenerator):
         group_cols: str | list[str] | None = None,
         group_labels: GroupLabelTypes | None = None,
         group_time_on: str | None = None,
+        expose_group_id: bool = False,
         **kwargs,
     ):
-        """Custom init of the AutoMLPipelineFeatureGenerator with our new changes."""
+        """Custom init of the AutoMLPipelineFeatureGenerator with our new changes.
+
+        ``expose_group_id`` keeps a label-per-sample task's group key as one extra feature under
+        its own column name: integer codes fit on the fit block (a level absent from it is NaN),
+        appended after every other stage has run and tagged with the :data:`S_GROUP_ID` special
+        type in the output feature metadata. Label-per-group tasks are untouched: there the group
+        is summarised by the per-group aggregates instead. A composite key is refused.
+        """
+        self._exposed_group_col: str | None = None
+        if expose_group_id and group_cols is not None and group_labels == GroupLabelTypes.PER_SAMPLE:
+            if not isinstance(group_cols, str):
+                raise NotImplementedError(f"exposing a composite group key {group_cols!r} is not supported")
+            self._exposed_group_col = group_cols
+        self._group_codes = GroupIdCodes()
         custom_feature_generators = []
         if enable_sematic_text_features:
             custom_feature_generators.append(SemanticTextFeatureGenerator())
@@ -172,6 +188,46 @@ class TabArenaModelAgnosticPreprocessing(AutoMLPipelineFeatureGenerator):
         if self._dot_rename_map_:
             X = X.rename(columns=self._dot_rename_map_)
         return super().transform(X)
+
+    def _exposed_key(self, X: pd.DataFrame) -> pd.Series | None:
+        """The raw group key of ``X``'s rows when the group is exposed, else None.
+
+        Read from the raw input before any stage runs: the type fixing bool-encodes a two-level
+        column, which would map a level unseen in the fit block onto one seen there.
+        """
+        if self._exposed_group_col is None:
+            return None
+        return X[self._exposed_group_feature].copy()
+
+    @property
+    def _exposed_group_feature(self) -> str:
+        """The output column carrying the group codes: the group column's (dot-renamed) name."""
+        return self._dot_rename_map_.get(self._exposed_group_col, self._exposed_group_col)
+
+    def _with_group_codes(self, out: pd.DataFrame, key: pd.Series | None) -> pd.DataFrame:
+        if key is None:
+            return out
+        out = out.drop(columns=[self._exposed_group_feature], errors="ignore")
+        out[self._exposed_group_feature] = self._group_codes.transform(key)
+        return out
+
+    def _fit_transform(self, X: pd.DataFrame, y: pd.Series | None = None, **kwargs) -> tuple[pd.DataFrame, dict]:
+        key = self._exposed_key(X)
+        out, type_group_map_special = super()._fit_transform(X, y=y, **kwargs)
+        if key is not None:
+            self._group_codes.fit(key)
+            # The column now holds the codes, so whatever special types a stage recorded for the
+            # raw key no longer describe it; its one special type is S_GROUP_ID.
+            feature = self._exposed_group_feature
+            type_group_map_special = {
+                special: [f for f in features if f != feature] for special, features in type_group_map_special.items()
+            }
+            type_group_map_special = {k: v for k, v in type_group_map_special.items() if v}
+            type_group_map_special[S_GROUP_ID] = [feature]
+        return self._with_group_codes(out, key), type_group_map_special
+
+    def _transform(self, X: pd.DataFrame) -> pd.DataFrame:
+        return self._with_group_codes(super()._transform(X), self._exposed_key(X))
 
     def _get_category_feature_generator(self):
         # Pass categorical columns through *without* encoding.
