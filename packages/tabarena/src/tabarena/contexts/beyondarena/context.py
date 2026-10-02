@@ -180,6 +180,7 @@ class BeyondArenaContext(AbstractArenaContext):
         fillna_method: str | None = "RF (default)",
         calibration_method: str | None = "XGB (default)",
         only_valid_tasks: bool = False,
+        subset: str | list[str] | None = None,
         cache_config: CacheConfig | None = None,
         validation_protocol: ValidationProtocol | dict | None = None,
         official_validation_protocol: bool = True,
@@ -198,6 +199,11 @@ class BeyondArenaContext(AbstractArenaContext):
             calibration_method: Calibration-method name forwarded to :class:`AbstractArenaContext`.
             only_valid_tasks: Forwarded to :class:`AbstractArenaContext`; when ``True``,
                 pre-filter ``task_metadata`` to the registered in-memory methods' tasks.
+            subset: Scope the whole context to one slice of the tasks, as a subset expression,
+                an AND-list of them or a :attr:`subset_shortcuts` name (e.g. ``"core2k"``):
+                ``task_metadata`` keeps only the matching tasks, so "all" is that slice and the
+                subsets of ``compare`` / ``generate_all_figs`` are evaluated within it
+                (``["classification"]`` instead of ``["core2k", "classification"]``).
             cache_config: Optional :class:`~tabarena.caching.CacheConfig` declaring the OpenML /
                 HuggingFace / data-foundry / TabArena cache locations (and how to apply them — see
                 its ``apply_on_run`` / ``scope_openml`` flags). Applied on construction and
@@ -220,6 +226,7 @@ class BeyondArenaContext(AbstractArenaContext):
             fillna_method=fillna_method,
             calibration_method=calibration_method,
             only_valid_tasks=only_valid_tasks,
+            subset=subset,
             cache_config=cache_config,
             validation_protocol=validation_protocol,
             official_validation_protocol=official_validation_protocol,
