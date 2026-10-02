@@ -174,10 +174,10 @@ mitra_v2 = ["autogluon.tabular[mitra]>=1.6,<1.7"]
 # TabPFN-3.5 / TabPFN-3.5-Fast need the release that ships the v3.5 checkpoints; the shared
 # `tabpfn` extra above stays at the floor the earlier TabPFN versions were benchmarked with.
 tabpfn_3_5 = ["tabpfn>=9.0.0"]
-# Kumo Tabular's library is not on PyPI yet (only a placeholder release); install from main
-# (empty extra on PyPI). Keep in sync with `pip_extra` in models/kumo_tabular/info.py.
+# Kumo Tabular's library is not on PyPI yet (only a placeholder release); pinned to a commit so the
+# benchmarked code is fixed (empty extra on PyPI). Keep in sync with `pip_extra` in models/kumo_tabular/info.py.
 kumo_tabular = [
-  "structured-data-models @ git+https://github.com/NVIDIA/structured-data-models.git@main",
+  "structured-data-models @ git+https://github.com/NVIDIA/structured-data-models.git@ce95710703a8be5744c756cd2f662ed79d3ee444",
 ]
 
 # Core benchmark set: the always-on models for benchmarking, plus the plotting and

@@ -5,9 +5,11 @@ from tabarena.models._model_info import ModelInfo
 from tabarena.models.kumo_tabular.hpo import gen_kumo_tabular, gen_kumo_tabular_medium, gen_kumo_tabular_small
 from tabarena.models.kumo_tabular.model import KumoTabularMediumModel, KumoTabularModel, KumoTabularSmallModel
 
-#: Not on PyPI yet (only a placeholder release); install from main.
+#: Not on PyPI yet (only a placeholder release); pinned to a commit so the benchmarked code is fixed.
 #: Keep in sync with the `kumo_tabular` extra in pyproject.toml.
-_PIP_EXTRA = ("structured-data-models @ git+https://github.com/NVIDIA/structured-data-models.git@main",)
+_PIP_EXTRA = (
+    "structured-data-models @ git+https://github.com/NVIDIA/structured-data-models.git@ce95710703a8be5744c756cd2f662ed79d3ee444",
+)
 
 
 def _descriptor(display_name: str) -> ModelDescriptor:
