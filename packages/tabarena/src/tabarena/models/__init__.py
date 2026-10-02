@@ -25,6 +25,7 @@ if TYPE_CHECKING:
     from tabarena.models.nori.model import Nori30MModel, NoriModel
     from tabarena.models.orionmsp.model import OrionMSPModel
     from tabarena.models.perpetual_booster.model import PerpetualBoosterModel
+    from tabarena.models.prismboost.model import PrismBoostModel
     from tabarena.models.realmlp.model import RealMLPModel
     from tabarena.models.sap_rpt_oss.model import SAPRPTOSSModel
     from tabarena.models.tabdpt.model import TabDPTModel, TabDPTTurboModel, TabDPTv13Model
@@ -62,6 +63,7 @@ _LAZY_CLASSES: dict[str, str] = {
     "Nori30MModel": "tabarena.models.nori.model",
     "OrionMSPModel": "tabarena.models.orionmsp.model",
     "PerpetualBoosterModel": "tabarena.models.perpetual_booster.model",
+    "PrismBoostModel": "tabarena.models.prismboost.model",
     "RealMLPModel": "tabarena.models.realmlp.model",
     "RealTabPFNv25Model": "tabarena.models.tabpfnv2_5.model",
     "SAPRPTOSSModel": "tabarena.models.sap_rpt_oss.model",
