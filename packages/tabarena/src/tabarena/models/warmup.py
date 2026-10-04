@@ -65,6 +65,7 @@ import gc
 import importlib
 import logging
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -116,6 +117,10 @@ def warmup_always() -> bool:
     return os.environ.get(WARMUP_ALWAYS_ENV, "0").strip().lower() in {"1", "true", "yes", "on"}
 
 
+#: A memory address in a default ``repr`` (``<pkg.Cls object at 0x7f...>``), dropped from :func:`warm_key`.
+_ADDRESS = re.compile(r" at 0x[0-9a-fA-F]+")
+
+
 def warm_key(
     model_cls: type, *, problem_type: str | None, num_gpus: float | None, hyperparameters: dict | None
 ) -> tuple:
@@ -123,9 +128,12 @@ def warm_key(
 
     The configuration is the model's own hyperparameters (AutoGluon's ``ag_args*`` stripped), since
     they select the checkpoint a shared-weights class loads; two configs of one class warm separately.
+    Values are compared by ``repr`` without memory addresses: a value holding objects with the default
+    ``repr`` (the feature generators of ``ag.model_specific_feature_generator_kwargs``, built anew
+    for every experiment) keys the same configuration whichever instances it holds.
     """
     hps = strip_ag_args(hyperparameters) if hyperparameters else {}
-    config = tuple(sorted((str(k), repr(v)) for k, v in hps.items()))
+    config = tuple(sorted((str(k), _ADDRESS.sub("", repr(v))) for k, v in hps.items()))
     return (f"{model_cls.__module__}.{model_cls.__qualname__}", problem_type, bool(num_gpus), config)
 
 
