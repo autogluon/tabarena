@@ -743,6 +743,12 @@ def test_tabm_dummy_fit_caps_its_epochs():
     assert wu.cheap_hyperparameters(TabMModel) == {"n_epochs": 2}
 
 
+def test_realmlp_dummy_fit_trains_no_epochs():
+    from tabarena.models.realmlp.model import RealMLPModel
+
+    assert wu.cheap_hyperparameters(RealMLPModel) == {"n_epochs": 0}
+
+
 def test_dummy_fit_caps_the_rounds_of_an_autogluon_gbdt(recorded_imports):
     _GbmKeyMeanModel.fits.clear()
     wu.warmup_model_cls(
