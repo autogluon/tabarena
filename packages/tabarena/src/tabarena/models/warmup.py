@@ -223,6 +223,18 @@ WARMUP_STEPS_BY_AG_KEY: dict[str, tuple[str | Callable[[], None], ...]] = {
 }
 
 
+#: Cheapness knobs the dummy fit merges over the configuration of AutoGluon built-in model classes,
+#: keyed by their registry ``ag_key`` like :data:`WARMUP_STEPS_BY_AG_KEY` (a class that declares
+#: ``cheap_hyperparameters`` uses its own). The gradient-boosted trees see no validation data in the
+#: dummy fit, so nothing stops them early: without a cap they boost the configuration's whole round
+#: budget (10,000 by default, more when a configuration raises it) until the time limit.
+CHEAP_HYPERPARAMETERS_BY_AG_KEY: dict[str, dict[str, Any]] = {
+    "GBM": {"num_boost_round": 10},
+    "CAT": {"iterations": 10},
+    "XGB": {"n_estimators": 10},
+}
+
+
 @dataclass
 class WarmupReport:
     """What one warm-up did, stored under ``experiment_metadata["warmup_report"]``.
@@ -611,6 +623,17 @@ def resolve_warmup_num_gpus(hyperparameters: dict | None, num_gpus: float | None
     return num_gpus
 
 
+def cheap_hyperparameters(model_cls: type) -> dict[str, Any]:
+    """The cheapness knobs the dummy fit merges over ``model_cls``'s configuration.
+
+    The class's own ``cheap_hyperparameters``, else :data:`CHEAP_HYPERPARAMETERS_BY_AG_KEY` for its ``ag_key``.
+    """
+    own = getattr(model_cls, "cheap_hyperparameters", None)
+    if own is not None:
+        return dict(own)
+    return dict(CHEAP_HYPERPARAMETERS_BY_AG_KEY.get(getattr(model_cls, "ag_key", None), {}))
+
+
 def strip_ag_args(hyperparameters: dict | None) -> dict:
     """A copy of ``hyperparameters`` without ``ag_args``, ``ag_args_fit`` and ``ag_args_ensemble``.
 
@@ -733,7 +756,8 @@ def warmup_dummy_fit(
     ``n_categorical=1``, ``seed=0``; a class may override ``n_rows``, ``n_features``,
     ``n_categorical`` and ``time_limit`` through ``warmup_dummy_fit_kwargs`` and merge cheapness knobs
     (``n_estimators=1``, ``fine_tune_steps=1``) over the config through
-    ``cheap_hyperparameters``; checkpoint-relevant keys must not be overridden there. The
+    ``cheap_hyperparameters`` (AutoGluon's gradient-boosted trees get a 10-round cap from
+    :data:`CHEAP_HYPERPARAMETERS_BY_AG_KEY`); checkpoint-relevant keys must not be overridden there. The
     model is built in a temporary directory, fitted with ``num_cpus`` (default 1), the resolved GPU
     count and the time limit, asked for ``predict_proba`` (classification) or ``predict``
     (regression) on the prediction frame, then deleted; the directory is removed, ``gc.collect()``
@@ -825,7 +849,7 @@ def warmup_dummy_fit(
                 seed=0,
             )
             hps = strip_ag_args(hyperparameters)
-            hps.update(getattr(model_cls, "cheap_hyperparameters", None) or {})
+            hps.update(cheap_hyperparameters(model_cls))
             model = model_cls(
                 path=tmp_dir,
                 name=f"warmup_{model_cls.__name__}",
