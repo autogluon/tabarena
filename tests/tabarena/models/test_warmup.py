@@ -606,6 +606,25 @@ def test_warm_memo_is_keyed_on_problem_type_device_and_config():
     )
 
 
+def test_warm_key_ignores_the_instances_a_config_holds():
+    """Feature generators rebuilt for every experiment key the same configuration; other values still count."""
+
+    class _Generator:
+        pass
+
+    def config(lr):
+        return {"lr": lr, "ag.model_specific_feature_generator_kwargs": {"feature_generators": [[_Generator()]]}}
+
+    first = wu.warm_key(_MeanModel, problem_type="binary", num_gpus=0, hyperparameters=config(1))
+    assert first == wu.warm_key(_MeanModel, problem_type="binary", num_gpus=0, hyperparameters=config(1))
+    assert first != wu.warm_key(_MeanModel, problem_type="binary", num_gpus=0, hyperparameters=config(2))
+    _MeanModel.fits.clear()
+    for _ in range(2):
+        hps = {"lr": 3, "init": _Generator()}
+        wu.warmup_model_cls(_MeanModel, problem_type="binary", num_cpus=1, num_gpus=0, hyperparameters=hps)
+    assert len(_MeanModel.fits) == 1
+
+
 def test_failed_dummy_fit_is_not_remembered_as_warm(caplog):
     with caplog.at_level(logging.WARNING):
         wu.warmup_model_cls(_BoomModel, problem_type="binary", num_cpus=1, num_gpus=0)
