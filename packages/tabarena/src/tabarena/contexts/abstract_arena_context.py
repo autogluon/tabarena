@@ -1131,7 +1131,7 @@ class AbstractArenaContext:
         figure_file_type: str = "pdf",
         plot_only: list[str] | None = None,
         method_color_overrides: dict[str, str] | None = None,
-        pareto_focus_new_methods: bool = False,
+        pareto_focus_new_methods: bool = True,
         # extra analyses
         compute_fold_similarity: bool = False,
         fold_similarity_kwargs: dict | None = None,
@@ -1214,9 +1214,10 @@ class AbstractArenaContext:
             pareto_focus_new_methods: emphasize the registered "new" methods (those added via
                 ``extra_methods=`` / :meth:`register`) in every Pareto figure, in addition to the
                 Pareto-front members: family color plus a boxed label instead of the muted grey
-                the dominated methods get. Plotting-only, like ``plot_only``. Forwarded as
-                ``pareto_focus_methods`` to :meth:`LeaderboardReporter.eval`; a no-op when no new
-                method is registered.
+                the dominated methods get. On by default, so a TabArena and a BeyondArena eval of a
+                new method render the same figures; ``False`` emphasizes the front alone.
+                Plotting-only, like ``plot_only``. Forwarded as ``pareto_focus_methods`` to
+                :meth:`LeaderboardReporter.eval`; a no-op when no new method is registered.
             compute_fold_similarity: rank the datasets by how consistently their folds/seeds
                 agree and estimate the folds needed for a stable result, written to
                 ``fold_similarity.csv``. Needs an ``output_dir``.
