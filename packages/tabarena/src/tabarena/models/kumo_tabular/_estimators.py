@@ -70,17 +70,21 @@ def build_estimator(task: str, size: str, network: torch.nn.Module) -> sdm.model
 
 @dataclass
 class FittedNetwork:
-    """Shared checkpoint weights and a fold-local fitted SDM cache.
+    """Shared checkpoint weights and a fold-local fitted SDM cache, or the raw context when the cache is off.
 
     A plain object, so the shared-weights pickle finds ``network`` inside it, leaves it out and puts the
     registry's network for the load device back. KV tensors stay on the CPU; SDM stages each estimator
-    batch on the GPU during prediction. Fitted processors move with the prediction device.
+    batch on the GPU during prediction. Fitted processors move with the prediction device. Without the
+    cache, ``context`` holds the context features, targets and per-member subsample index (``None`` when
+    the context fits) for the library's stateless forward. Both sit here rather than on the wrapper, so
+    a bagged fold model that AutoGluon drops after its out-of-fold prediction (``model = None``) drops them.
     """
 
     task: str
     size: str
     network: torch.nn.Module
     cache: Cache | None = None
+    context: tuple | None = None
 
     def estimator(self) -> sdm.models.KumoTabular:
         estimator = build_estimator(task=self.task, size=self.size, network=self.network)
