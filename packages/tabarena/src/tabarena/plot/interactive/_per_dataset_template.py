@@ -315,6 +315,8 @@ __BASE_JS__
   const METRIC_DISPLAY = CONFIG.metricDisplay || {};
   const SIZE_BUCKETS = CONFIG.sizeBuckets || [];
   const SPLIT_LABELS = { random: "IID", temporal: "Temporal", grouped: "Grouped" };
+  // The leaderboard's "classification" tab covers both, and the host preselects it by that key.
+  const CLASSIFICATION_TASKS = new Set(["binary", "multiclass"]);
 
   const titleEl = document.getElementById("title");
   if (CONFIG.title) titleEl.textContent = CONFIG.title; else titleEl.hidden = true;
@@ -655,7 +657,8 @@ __BASE_JS__
     for (let d = 0; d < nD; d++) {
       const ds = DATASETS[d];
       if (!matchesQuery(ds)) continue;
-      if (state.task !== "all" && ds.task !== state.task) continue;
+      if (state.task === "classification" ? !CLASSIFICATION_TASKS.has(ds.task)
+          : (state.task !== "all" && ds.task !== state.task)) continue;
       if (state.split !== "all" && ds.split !== state.split) continue;
       if (state.size !== "all" && SIZE_OF[d] !== state.size) continue;
       // "extreme" is the far end of "imbalanced", so it filters on its own flag.
@@ -1334,8 +1337,11 @@ __BASE_JS__
   const TASK_LABELS = { binary: "Binary", multiclass: "Multiclass", regression: "Regression" };
   const tasksPresent = [...new Set(DATASETS.map(ds => ds.task).filter(Boolean))]
     .sort((a, b) => (TASK_LABELS[a] || a).localeCompare(TASK_LABELS[b] || b));
+  // Offered once both kinds are present, where it narrows something the others do not.
+  const bothClassifications = [...CLASSIFICATION_TASKS].every(t => tasksPresent.includes(t));
   buildFilter("taskfilter", "Task", [
     { key: "all", label: "All" },
+    ...(bothClassifications ? [{ key: "classification", label: "Classification" }] : []),
     ...tasksPresent.map(t => ({ key: t, label: TASK_LABELS[t] || t })),
   ], "task");
   // How train and test were split. Only a benchmark that mixes regimes (BeyondArena) gets the

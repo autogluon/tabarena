@@ -169,6 +169,7 @@ class AbstractArenaContext:
         fillna_method: str | None = None,
         calibration_method: str | None = None,
         only_valid_tasks: bool = False,
+        subset: str | list[str] | None = None,
         cache_config: CacheConfig | None = None,
         validation_protocol: ValidationProtocol | dict | None = None,
         official_validation_protocol: bool = True,
@@ -200,6 +201,13 @@ class AbstractArenaContext:
         # A TaskMetadataCollection is the single source of truth; the legacy `task_metadata`
         # DataFrame view is derived from it on demand (see the `task_metadata` cached_property).
         self.task_metadata_collection = self._resolve_task_metadata_collection(task_metadata)
+        # `subset=` scopes the whole context to one slice of the tasks (e.g. BeyondArena's "core2k"): the
+        # collection is cut down here, so "all" (`subset=None` / `[]` in `compare`, the "all" label of
+        # `generate_all_figs`) means that slice, and every subset expression is evaluated within it
+        # (`"classification"` is the scope's classification tasks).
+        self.subset = self._normalize_scope_subset(subset)
+        if self.subset:
+            self._scope_to_subset(self.subset)
         self.fillna_method = fillna_method
         self.calibration_method = calibration_method
         assert backend in ["ray", "native"]
@@ -1010,6 +1018,37 @@ class AbstractArenaContext:
             f"[{reference.key()}] and count as custom: {custom}. Compare them with that in mind.",
             stacklevel=3,
         )
+
+    def _normalize_scope_subset(self, subset: str | list[str] | None) -> list[str]:
+        """``subset=`` as an AND-list of expressions: a lone expression becomes a one-item list and a
+        :attr:`subset_shortcuts` name its expression list.
+        """
+        if subset is None:
+            return []
+        if isinstance(subset, str):
+            return list(self.subset_shortcuts.get(subset, [subset]))
+        return list(subset)
+
+    def _scope_to_subset(self, subset: list[str]) -> None:
+        """Pre-filter :attr:`task_metadata_collection` to the tasks matching ``subset``.
+
+        The expressions are evaluated on the collection's task grid with the context's subset
+        predicates, as ``compare(subset=...)`` evaluates them (items AND-ed, ``|`` a union, a leading
+        ``!`` a negation); the collection keeps the surviving ``(dataset, fold, repeat)`` tasks and the
+        derived :attr:`task_metadata` cache is invalidated. Raises if no task matches.
+        """
+        from tabarena.nips2025_utils.compare import _evaluate_subset_expression, _task_grid
+
+        grid = _task_grid(self.task_metadata_collection)
+        for expression in subset:
+            grid = grid[_evaluate_subset_expression(expression, grid, predicates=self.subset_predicates).values]
+        if grid.empty:
+            raise ValueError(f"subset={subset!r} matches no task of this context's task metadata.")
+        triplets = sorted(
+            {(d, int(f), int(r)) for d, f, r in zip(grid["dataset"], grid["fold"], grid["repeat"], strict=False)}
+        )
+        self.task_metadata_collection = self.task_metadata_collection.subset(triplets)
+        self.__dict__.pop("task_metadata", None)
 
     def _scope_to_valid_tasks(self) -> None:
         """Pre-filter :attr:`task_metadata_collection` to the registered new methods' tasks.

@@ -41,6 +41,9 @@ class RealMLPModel(AbstractTorchModel):
 
     ag_key = "TA-REALMLP"
     warmup_modules: ClassVar[tuple[str, ...]] = ("pytabkit",)
+    #: Knobs that make the warm-up's dummy fit cheap: the model is built, preprocesses and predicts
+    #: without training, which leaves the timed fit's training and inference times unchanged.
+    cheap_hyperparameters: ClassVar[dict] = {"n_epochs": 0}
     ag_name = "TA-RealMLP"
     ag_priority = 75
     seed_name = "random_state"

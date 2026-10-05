@@ -350,7 +350,9 @@ class BenchmarkEvaluator(ResultsValidationMixin, DatasetAnalysisMixin, PlottingM
 
             ev.leaderboard(data, metrics=["elo", LeaderboardMetric("my_score", my_metric)])
 
-        Their columns are emitted after the built-in ones, in the order passed.
+        Their columns are emitted after the built-in ones, in the order passed. With no
+        metric keys next to them, the ``include_*`` flags still select the built-ins, so
+        ``metrics=[LeaderboardMetric(...)]`` adds a column to the default leaderboard.
         """
         if elo_kwargs is None:
             elo_kwargs = {}
@@ -430,17 +432,21 @@ class BenchmarkEvaluator(ResultsValidationMixin, DatasetAnalysisMixin, PlottingM
     ) -> tuple[set[str], list[LeaderboardMetric]]:
         """Split ``metrics`` into enabled built-in keys and caller-supplied metrics.
 
-        ``metrics`` (when not ``None``) takes precedence: its string entries are validated
-        against the registry and its :class:`LeaderboardMetric` entries are returned in the
-        order given. Otherwise the legacy boolean flags select the keys and there are no
-        caller-supplied metrics. ``rank`` is always emitted and is not part of the key set.
+        String entries of ``metrics`` select the built-in keys and override the legacy
+        boolean flags. When ``metrics`` holds only :class:`LeaderboardMetric` entries, the
+        flags still select the built-ins, so a caller adds its own metrics to the default
+        leaderboard without naming the defaults. :class:`LeaderboardMetric` entries are
+        returned in the order given. ``rank`` is always emitted and is not part of the key set.
         """
         all_keys = {m.key for m in _LEADERBOARD_METRICS}
+        by_flags = {_LEADERBOARD_FLAG_TO_KEY[flag] for flag, on in include_flags.items() if on}
         if metrics is None:
-            return {_LEADERBOARD_FLAG_TO_KEY[flag] for flag, on in include_flags.items() if on}, []
+            return by_flags, []
 
         requested = {m for m in metrics if isinstance(m, str)}
         custom = [m for m in metrics if not isinstance(m, str)]
+        if custom and not requested:
+            requested = by_flags
 
         not_a_metric = [m for m in custom if not isinstance(m, LeaderboardMetric)]
         if not_a_metric:
