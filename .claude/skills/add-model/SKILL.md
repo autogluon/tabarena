@@ -65,6 +65,17 @@ If `doc_url` was provided, fetch it with WebFetch to understand:
 - `.predict()` / `.predict_proba()` signature
 - Key hyperparameters to expose
 
+Also check whether the library's `fit` tunes or selects anything on its own split of the training
+data: a hyperparameter search, an internal cross-validation or hold-out split, or ensemble or
+candidate weights solved on rows held out of `X`. A model submission must do any such step on the
+`X_val` / `y_val` TabArena passes to `_fit`, or not at all. When the library does one, raise it with
+the maintainer before writing the wrapper, quoting where it happens, and let them choose: integrate
+it as a system (`add-system`), wrap a version or checkpoint without the step, or have the wrapper
+run the step on the passed `X_val` / `y_val`, the way a fine-tuning API takes an eval set
+(autogluon/tabarena#637). Early stopping on `X_val` is fine, and so is an in-context model that
+ignores `X_val`. EXAONE-Tabular's regression hold-out (a fifth of the support rows, used for the
+member weights) was accepted by oversight and is no precedent.
+
 ## Step 2: Pick the right base class and reference model
 
 Choose the most similar existing model to read for detailed inspiration:

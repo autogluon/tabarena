@@ -425,11 +425,19 @@ class TestCompareParetoFocusNewMethods:
         ctx.compare(output_dir=tmp_path, pareto_focus_new_methods=True, pareto_focus_methods=["LightGBM"])
         assert captured["pareto_focus_methods"] == ["LightGBM", "TA-New"]
 
-    def test_off_by_default(self, monkeypatch, tmp_path):
+    def test_on_by_default(self, monkeypatch, tmp_path):
+        # A bare ``compare`` (the BeyondArena eval path) focuses the new methods like ``run_eval`` does.
         captured = self._capture(monkeypatch)
         ctx = self._base_ctx()
         ctx._new_method_names = {"TA-New"}
         ctx.compare(output_dir=tmp_path)
+        assert captured["pareto_focus_methods"] == ["TA-New"]
+
+    def test_opt_out(self, monkeypatch, tmp_path):
+        captured = self._capture(monkeypatch)
+        ctx = self._base_ctx()
+        ctx._new_method_names = {"TA-New"}
+        ctx.compare(output_dir=tmp_path, pareto_focus_new_methods=False)
         assert "pareto_focus_methods" not in captured
 
     def test_no_registered_new_method_is_a_no_op(self, monkeypatch, tmp_path):
