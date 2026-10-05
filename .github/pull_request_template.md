@@ -38,7 +38,7 @@ Kind: <!-- model or system; if it replaces an entrant already on the leaderboard
 
 **Implementation**
 
-- [ ] Model: `_fit` uses the `X_val` / `y_val` that TabArena passes (no internal cross-validation), and the search space in `hpo.py` supports about 200 configurations. Variants are search-space parameters, not separate models.
+- [ ] Model: `_fit` uses the `X_val` / `y_val` that TabArena passes (no internal cross-validation, hold-out split or tuning on the training data), and the search space in `hpo.py` supports about 200 configurations. Variants are search-space parameters, not separate models.
 - [ ] `time_limit`, `num_cpus` / `num_gpus` and the seed are wired through; nothing is monkey-patched globally; optional imports stay inside the wrapper; the model pickles for parallel bagging.
 - [ ] The dependency is pip-installable with an exact pin (PyPI version or git commit, no vendored code) and the extra matches `pip_extra` in `info.py`; Hugging Face checkpoints pin a revision; maintainers can run it without credentials or gated weights; the license, the paper and documentation links, and the supported problem types are stated.
 - [ ] `ruff check` and `ruff format --check` pass. Model: `pytest -m models -k <Key>` passes. System: `pytest tests/tabarena/systems/` passes and the system quick start ran.

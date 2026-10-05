@@ -104,6 +104,21 @@ to a small data-size estimate and keeps eight parallel folds regardless. Still s
 tell the maintainer to sanity-check per-fold VRAM times eight, or pin `num_folds_parallel` via
 `ag_args_ensemble`, before launching.
 
+## Step 1b: Check `_fit` for tuning on its own splits
+
+Read the wrapper's `_fit` and the library calls it makes for any step that tunes or selects on a
+split of the training data instead of the `X_val` / `y_val` TabArena passes: a hyperparameter
+search, an internal cross-validation or hold-out split, or ensemble or candidate weights solved on
+rows held out of `X`. Model submissions may not do this. When you find one, stop before Step 2 and
+raise it with the maintainer, quoting the lines and saying what they fit on. List the options from
+autogluon/tabarena#637: submit it as a system (`add-system`), use a version or checkpoint without
+the step, or change the wrapper so the step runs on the passed `X_val` / `y_val`, the way a
+fine-tuning API takes an eval set. Launch nothing until the maintainer decides. A PR description
+that mentions a hold-out is the quickest tell (#637: "fits its candidate/ensemble weights on a
+single 20% hold-out split"), but read the code, because a library can do it without the PR saying
+so. Early stopping on `X_val` is fine, and so is an in-context model that ignores `X_val`.
+EXAONE-Tabular's regression hold-out was accepted by oversight and is no precedent.
+
 ## Step 2: Resolve the run venv and install the model's extra
 
 The jobs import the code checked out **here**, so `PYTHON_PATH` must be a venv whose `tabarena`
