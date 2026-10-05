@@ -27,6 +27,48 @@ def test_seed_makes_the_draw_reproducible():
     assert not torch.equal(first, context_subsample_index(n_rows=250, num_estimators=4, max_context_size=100, seed=4))
 
 
+def test_default_config_caches_the_context_only_for_the_refit(tmp_path):
+    from tabarena.models.kumo_tabular.hpo import gen_kumo_tabular
+    from tabarena.models.kumo_tabular.model import KumoTabularModel
+
+    (config,) = gen_kumo_tabular.manual_configs
+    fold_model = KumoTabularModel(path=str(tmp_path), name="fold", hyperparameters=config)
+    refit_model = fold_model.convert_to_refit_full_template()
+
+    assert fold_model.get_params()["hyperparameters"]["cache_context"] is False
+    assert refit_model.get_params()["hyperparameters"]["cache_context"] is True
+
+
+@pytest.mark.models
+@pytest.mark.parametrize("max_context_size", [None, 150])
+def test_uncached_predictions_match_the_cache(tmp_path, max_context_size):
+    pytest.importorskip("sdm")
+    import numpy as np
+    import pandas as pd
+
+    from tabarena.models.kumo_tabular.model import KumoTabularSmallModel
+
+    rng = np.random.default_rng(0)
+    X = pd.DataFrame(rng.normal(size=(300, 5)), columns=[f"f{i}" for i in range(5)])
+    y = pd.Series((X["f0"] > 0).astype(int))
+    predictions = {}
+    for cache_context in (True, False):
+        model = KumoTabularSmallModel(
+            path=str(tmp_path / str(cache_context)),
+            name="m",
+            problem_type="binary",
+            eval_metric="log_loss",
+            hyperparameters={"num_estimators": 2, "max_context_size": max_context_size, "cache_context": cache_context},
+        )
+        model.fit(X=X.iloc[:250], y=y.iloc[:250], num_gpus=0)
+        assert (model.model.cache is not None) == cache_context
+        assert (model.model.context is None) == cache_context
+        model.save()
+        predictions[cache_context] = KumoTabularSmallModel.load(model.path).predict_proba(X.iloc[250:])
+
+    np.testing.assert_allclose(predictions[True], predictions[False], atol=1e-5)
+
+
 def test_out_of_memory_splits_the_query_rows_in_order(monkeypatch):
     import numpy as np
 
