@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import contextlib
+import os
 from typing import TYPE_CHECKING, ClassVar
 
 import numpy as np
@@ -230,9 +232,9 @@ class KumoTabularModel(AbstractTorchModel):
         # Without the cache every call encodes the context again, so the query goes in one call.
         if batch_size is not None or device.type != "cuda" or not self._get_model_params()["cache_context"]:
             return batch_size
+        cache = self._load_cache()
         estimator = self.model.estimator()
         params = self._get_model_params()
-        cache = self.model.cache
         # SDM overlaps transfer of the next estimator batch with execution of the current one.
         staging_bytes = 2 * max(cache[i].size() for i in range(cache["num_batches"]))
         budget = min(chunk_memory_limit(device), max(0, _estimators.available_memory(device) - staging_bytes) // 2)
@@ -249,6 +251,7 @@ class KumoTabularModel(AbstractTorchModel):
         import sdm
         import torch
 
+        self._load_cache()
         device = torch.device(self.get_device())
         X = self.preprocess(X, **kwargs)
         query = sdm.TableTensor.from_pandas(df=X, stypes=self._stypes, device=device)
@@ -347,6 +350,64 @@ class KumoTabularModel(AbstractTorchModel):
         finally:
             self.model.cache, self.model.context = cache, context
         self.model.move_processors(device)
+
+    #: The KV cache is saved next to ``model.pkl``; a loaded model reads it on first use from ``_cache_path``.
+    cache_file_name: ClassVar[str] = "kv_cache.pt"
+    _cache_path: str | None = None
+
+    @contextlib.contextmanager
+    def _without_cache(self):
+        """Detach the KV cache while ``self`` is pickled, so the pickle never copies it."""
+        cache = self.model.cache
+        self.model.cache = None
+        try:
+            yield cache
+        finally:
+            self.model.cache = cache
+
+    def save(self, path: str | None = None, verbose: bool = True) -> str:
+        """Pickle the model without the KV cache and write the cache with ``torch.save``, which needs no copy."""
+        if self.model is None or self._load_cache() is None:
+            return super().save(path=path, verbose=verbose)
+        import torch
+
+        with self._without_cache() as cache:
+            path = super().save(path=path, verbose=verbose)
+        torch.save(cache, os.path.join(path, self.cache_file_name))
+        return path
+
+    @classmethod
+    def load(cls, path: str, reset_paths: bool = True, verbose: bool = True):
+        """Load the model without its KV cache, since AutoGluon also loads models just for metadata."""
+        model = super().load(path=path, reset_paths=reset_paths, verbose=verbose)
+        cache_path = os.path.join(path, cls.cache_file_name)
+        if os.path.exists(cache_path):
+            model._cache_path = cache_path
+        return model
+
+    def _load_cache(self):
+        """The KV cache, read memory-mapped on first use and pinned when CUDA is available."""
+        if self._cache_path is not None:
+            import torch
+
+            # The cache file is as trusted as model.pkl.
+            cache = torch.load(self._cache_path, mmap=True, weights_only=False)
+            self.model.cache = cache.pin_memory() if torch.cuda.is_available() else cache
+            self._cache_path = None
+        return self.model.cache
+
+    def prepare_for_inference(self) -> None:
+        super().prepare_for_inference()
+        if self.model is not None:
+            self._load_cache()
+
+    def _get_pickled_size(self) -> int:
+        """The pickle size without the KV cache plus the cache's bytes."""
+        if self.model is None:
+            return super()._get_pickled_size()
+        with self._without_cache() as cache:
+            size = super()._get_pickled_size()
+        return size + (cache.size() if cache is not None else 0)
 
     def _more_tags(self) -> dict:
         return {"can_refit_full": True}
