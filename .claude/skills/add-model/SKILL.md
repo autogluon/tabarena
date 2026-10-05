@@ -76,6 +76,16 @@ run the step on the passed `X_val` / `y_val`, the way a fine-tuning API takes an
 ignores `X_val`. EXAONE-Tabular's regression hold-out (a fifth of the support rows, used for the
 member weights) was accepted by oversight and is no precedent.
 
+For an in-context model, check whether the library can cache the fitted context for later predict
+calls: a KV cache (TabICL's `kv_cache`, OrionMSP's `enable_kv_cache`), TabPFN's
+`fit_mode="fit_with_cache"`, or a `fit` that records the encoded context, as Kumo Tabular's library
+does. With `refit_folds` each bagged fold model predicts its out-of-fold rows once and is then
+dropped, so the cache pays off only in the refit model that serves the test predictions. Settle this
+in the model's first PR: expose the switch as a hyperparameter, off for the fold models and on for
+the refit model through `ag.refit_hyperparameters` in the default config, and estimate the cache's
+size for the largest tables against the workers' disk and RAM. See "Context caches: only in the refit
+model" in `references/model_patterns.md`.
+
 ## Step 2: Pick the right base class and reference model
 
 Choose the most similar existing model to read for detailed inspiration:
