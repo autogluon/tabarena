@@ -312,6 +312,12 @@ if X_val is not None and y_val is not None:
 
 Only generate a split yourself when `X_val is None` (see "Handling missing validation split" below).
 
+The same applies to anything else fit on validation data. A hyperparameter search, an internal
+cross-validation, or ensemble or candidate weights solved on rows held out of `X` run on the passed
+`X_val` / `y_val` or not at all; a model submission may not carve its own split for them. A library
+that does one inside its own `fit` goes to the maintainer before the wrapper is written (SKILL.md,
+Step 1).
+
 ### 2. `num_cpus` / `num_gpus` — wire them to the library, never hardcode a default
 
 The scheduler allocates a CPU/GPU budget and passes it into `_fit`. Route it to the library's
