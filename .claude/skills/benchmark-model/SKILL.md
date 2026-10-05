@@ -104,6 +104,21 @@ to a small data-size estimate and keeps eight parallel folds regardless. Still s
 tell the maintainer to sanity-check per-fold VRAM times eight, or pin `num_folds_parallel` via
 `ag_args_ensemble`, before launching.
 
+## Step 1b: Check `_fit` for tuning on its own splits
+
+Read the wrapper's `_fit` and the library calls it makes for any step that tunes or selects on a
+split of the training data instead of the `X_val` / `y_val` TabArena passes: a hyperparameter
+search, an internal cross-validation or hold-out split, or ensemble or candidate weights solved on
+rows held out of `X`. Model submissions may not do this. When you find one, stop before Step 2 and
+raise it with the maintainer, quoting the lines and saying what they fit on. List the options from
+autogluon/tabarena#637: submit it as a system (`add-system`), use a version or checkpoint without
+the step, or change the wrapper so the step runs on the passed `X_val` / `y_val`, the way a
+fine-tuning API takes an eval set. Launch nothing until the maintainer decides. A PR description
+that mentions a hold-out is the quickest tell (#637: "fits its candidate/ensemble weights on a
+single 20% hold-out split"), but read the code, because a library can do it without the PR saying
+so. Early stopping on `X_val` is fine, and so is an in-context model that ignores `X_val`.
+EXAONE-Tabular's regression hold-out was accepted by oversight and is no precedent.
+
 ## Step 2: Resolve the run venv and install the model's extra
 
 The jobs import the code checked out **here**, so `PYTHON_PATH` must be a venv whose `tabarena`
@@ -217,6 +232,11 @@ the `beyondarena_tfms_22092026` run lost 11.5 h and 6 h of two TabPFN-3.5 fits t
 idle workers until the last item ends, or scale only a pool with nothing running; a changed
 environment always needs a fresh pool for the same reason.
 The block's first line names the launch id, the bucket queue and the bundle count.
+Keep a pool name at 22 characters or fewer (`SkyPilotSetup` rejects longer ones): SkyPilot cuts a longer
+worker cluster name on GCP to a 23-character prefix plus a 2-character hash, so the workers of one pool, and
+of two pools that share the prefix, collide on the `skypilot-cluster-name` label. The first Kumo-Tabular run
+(`tabarena-kumotabular-28092026`, 32 workers) sat at 19 READY for half an hour that way while every VM billed,
+and a second pool next to it collided with the first.
 
 ## Step 6: Monitor the run (end-to-end mode)
 
@@ -230,7 +250,7 @@ Watch each array with the progress script through the `Monitor` tool, one monito
 ```
 
 For a SkyPilot launch use `references/sky_progress.sh <queue_uri> <n_bundles> [--launch <launch_id>]
-[--interval 900]` instead (both values are on the first line of the printed command block). It counts
+[--pool <pool>] [--interval 900]` instead (both values are on the first line of the printed command block). It counts
 the `done/` and `failed/` markers in the bucket queue, lists `sky jobs queue` for the launch, and exits
 when every bundle is done or no worker job is left. Failed items are listed with their coordinates;
 their logs are at `<run_uri>/logs/<launch_id>/<bundle>_<item>.log` (`gcloud storage cat`). A `setup`
@@ -265,6 +285,7 @@ and classify:
 | `PENDING` with reason `launch failed requeued held` | the spot node failed to boot; SLURM requeued the task but holds it until someone releases it | `scontrol release <job>_<task>`; a loop over `squeue -r -o "%i %r"` every few minutes when the partition keeps losing nodes |
 | `LocalEntryNotFoundError`, `PretrainedWeightsUnavailableError`, `WeightsUnavailableError` | the job ran with `offline_weights` and a checkpoint was not in the shared cache | re-run `setup` (its head-node prefetch fills the cache) or set `offline_weights=False` on the plan for that run |
 | `##### item FAILED` lines with `##### bundle summary: ok=N failed=M` | one item of the bundle failed; the array task continues with its siblings and exits non-zero at the end | count the `results.pkl` files, not the task state: a `FAILED` task may have completed most of its items, and only the failed ones are missing |
+| a pool stuck below its size with workers in `STARTING` after their setup log ends `SUCCEEDED`, the controller log (`sky jobs pool logs --controller --no-follow --tail 300 <pool>`) repeating `Found 2 node(s) with the same cluster name tag`, `sky_progress.sh --pool <pool>` printing `DUPLICATE VM` | two workers share one GCP cluster name because the pool name is too long (Step 5); the prober fails on every pass and promotes no worker | do not delete one of the VMs, it may belong to the other worker; cancel the launch's worker jobs, take the pool down, re-run `setup` with a pool name of at most 22 characters and launch again (finished items stay cached) |
 | an item running far past a finished sibling's time, `#RECOVERIES > 0` for its job in `sky jobs queue --all`, `resuming own claim` in `sky jobs logs <id>` | the worker was replaced (a spot preemption, or a pool re-apply, see Step 5) and the item restarted from scratch; not a stall | nothing, apart from noting the restart in the log entry; compare the fit times of finished siblings before calling an item stuck |
 | `TimeLimitExceeded` from `_get_fold_time_limit` after thousands of `CUDACachingAllocator ... memory allocation failed` or `auto batch skip` lines, one to three children fitted in hours | a library that survives GPU out-of-memory by shrinking its batches and crawls until AutoGluon projects the remaining folds past the limit: a memory failure that never raises | treat it as out-of-memory and cap the in-context table in the wrapper. Measure rows and columns separately before choosing the cap: LimiX-2 passed 38k x 318 in 4 h but not 53.6k x 243 or 7.9k x 1652 (the same 13M cells), so a rows x columns budget is the wrong proxy; prefer the library's own knobs (`test_batch_size`, `max_num_rows`), engage the cap only above a shape that fails, and rerun every affected table with the final code |
 

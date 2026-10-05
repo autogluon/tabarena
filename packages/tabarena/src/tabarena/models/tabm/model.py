@@ -32,6 +32,9 @@ class TabMModel(AbstractTorchModel):
 
     ag_key = "TA-TABM"
     warmup_modules: ClassVar[tuple[str, ...]] = ("tabarena.models.tabm._internal._tabm_internal",)
+    #: Knobs that make the warm-up's dummy fit cheap: training runs until early stopping (``n_epochs``
+    #: is unbounded by default), which a slow-learning configuration never reaches on the dummy data.
+    cheap_hyperparameters: ClassVar[dict] = {"n_epochs": 2}
     ag_name = "TA-TabM"
     ag_priority = 85
     _supported_problem_types = ["binary", "multiclass", "regression"]

@@ -151,6 +151,36 @@ memory-estimate capability is derived rather than declared.
 > ensemble. **Do not ship a TFM wrapper with only `sequential_local`** (a recurring miss).
 > From-scratch NNs (TabM, RealMLP) intentionally omit it and set `can_refit_full=False`.
 
+#### Context caches: only in the refit model
+
+With `refit_folds=True`, AutoGluon fits the eight fold models for their out-of-fold predictions, drops
+each one after its single predict call (`save_bag_folds=False`, the saved fold directory is a stub with
+`model = None`), and keeps only the refit model. A library that caches the fitted context (a KV cache,
+TabPFN's `fit_mode="fit_with_cache"`, Kumo Tabular's `fit`) therefore helps only the refit model; in a
+fold model the cache costs host memory and transfers for one predict call. Expose the library's switch
+as a hyperparameter and set it per role in the default config in `hpo.py`; AutoGluon applies
+`ag.refit_hyperparameters` to the refit child it builds (autogluon/autogluon#5878), so no flag or
+`_is_refit` check is needed in the wrapper:
+
+```python
+def default_config() -> dict:
+    """The context cache only for the refit model, which serves every later prediction."""
+    return {"cache_context": False, "ag.refit_hyperparameters": {"cache_context": True}}
+
+gen_mymodel = ConfigGenerator(model_cls=MyModel, search_space={}, manual_configs=[default_config()])
+```
+
+Keep the cached and the uncached path equivalent (the same predictions up to floating-point rounding)
+and test it, as `tests/tabarena/models/kumo_tabular/test_model.py` does after a save/load round trip.
+Keep whatever the uncached path stores on `self.model`, not on the wrapper, so a dropped fold model
+drops it. Then estimate the refit model's cache for the largest tables of both arenas: it stays in host
+memory and is pickled with the model, so it has to fit the workers' disk (128 GB on the SkyPilot pool)
+and stay below the persist guard (40% of RAM) or the timed inference loads it from disk. Kumo Tabular
+keeps about 12 KB per context row per ensemble member, plus a per-column part, multiplied by the ECOC
+tasks of a many-class head (autogluon/tabarena#641). A cache that writes into the network also turns
+off weight sharing for that fit (`disabled_by`, see "Shared pretrained weights"), so the refit model
+then loads its own copy.
+
 ### Declare config as class attributes (AutoGluon 1.6)
 
 AutoGluon 1.6 replaced a set of override methods with class attributes. Declare the attribute;
@@ -311,6 +341,12 @@ if X_val is not None and y_val is not None:
 ```
 
 Only generate a split yourself when `X_val is None` (see "Handling missing validation split" below).
+
+The same applies to anything else fit on validation data. A hyperparameter search, an internal
+cross-validation, or ensemble or candidate weights solved on rows held out of `X` run on the passed
+`X_val` / `y_val` or not at all; a model submission may not carve its own split for them. A library
+that does one inside its own `fit` goes to the maintainer before the wrapper is written (SKILL.md,
+Step 1).
 
 ### 2. `num_cpus` / `num_gpus` — wire them to the library, never hardcode a default
 
