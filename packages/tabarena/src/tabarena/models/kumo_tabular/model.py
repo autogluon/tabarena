@@ -15,6 +15,19 @@ if TYPE_CHECKING:
 _TARGET = "__target__"
 #: Smallest query pass the out-of-memory fallback in ``_predict_values`` splits down to.
 _MIN_QUERY_PASS_ROWS = 512
+#: Large freed pinned blocks go back to the system, so they are allocated at their exact size and do not pile up.
+_CUDA_ALLOC_CONF = "expandable_segments:True,pinned_max_cached_size_mb:64"
+
+
+def _configure_allocator() -> None:
+    """The shared allocator setup, plus releasing large pinned blocks when the allocator has not started yet."""
+    import torch
+
+    from tabarena.models.warmup import configure_cuda_allocator
+
+    if os.environ.get("PYTORCH_CUDA_ALLOC_CONF") is None and not torch.cuda.is_initialized():
+        os.environ["PYTORCH_CUDA_ALLOC_CONF"] = _CUDA_ALLOC_CONF
+    configure_cuda_allocator()
 
 
 def to_signed_integers(X: pd.DataFrame) -> pd.DataFrame:
@@ -128,9 +141,8 @@ class KumoTabularModel(AbstractTorchModel):
         import torch
 
         from tabarena.models.kumo_tabular import _estimators
-        from tabarena.models.warmup import configure_cuda_allocator
 
-        configure_cuda_allocator()
+        _configure_allocator()
         task = "regression" if self.problem_type == REGRESSION else "classification"
         network = _estimators.load_network(task=task, size=self.size, device=self._resolve_fit_device(num_gpus))
         device = next(network.parameters()).device
@@ -405,9 +417,9 @@ class KumoTabularModel(AbstractTorchModel):
         The allocator reads ``PYTORCH_CUDA_ALLOC_CONF`` when it first runs, so this runs before the
         generic torch layer of ``warmup_model_cls`` and calls :func:`warmup_torch` itself (idempotent).
         """
-        from tabarena.models.warmup import configure_cuda_allocator, warmup_torch
+        from tabarena.models.warmup import warmup_torch
 
-        configure_cuda_allocator()
+        _configure_allocator()
         warmup_torch(cuda=None if num_gpus is None else num_gpus > 0)
 
     @classmethod
