@@ -173,6 +173,16 @@ ignore = [
     "B017", # assert pytest.raises(Exception) — acceptable in tests
     "RUF043", # pytest.raises pattern is a regex — acceptable in tests
 ]
+# A model's or system's own tests, kept next to its code (`models/<key>/tests/`); the same rules as `tests/**`.
+"packages/tabarena/src/tabarena/{models,systems}/*/tests/**" = [
+    "D100",
+    "D101",
+    "INP001",
+    "PT011",
+    "PT018",
+    "B017",
+    "RUF043",
+]
 # `__init__.py` files intentionally re-export names for the public API surface.
 "**/__init__.py" = [
     "F401", # Imported but unused (re-export)

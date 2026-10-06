@@ -794,12 +794,13 @@ __all__ = ["gen_{ModelKey}", "{ModelKey}_info", "{ModelKey}_method_metadata"]
 
 ---
 
-## Test config (no per-model test file)
+## Test config (no per-model test file in `tests/`)
 
 Models are fit-tested by the single registry-driven `tests/tabarena/models/test_all_models.py`,
 which parametrizes over `get_model_registry()` and calls `FitHelper.verify_model(...)` per model.
 A new model is picked up automatically once its `info.py` is discoverable — **do not write a
-`test_{ModelKey}.py`**.
+`test_{ModelKey}.py` under `tests/`**. Tests specific to the wrapper go into the model's own
+`models/{ModelKey}/tests/` instead, outside the default suite and CI (SKILL.md, Step 3f).
 
 Only add a speed-up override to `tests/tabarena/models/smoke_configs.py` if the default
 (empty hyperparameters, all problem types) is too slow or unsupported. Key by the model's

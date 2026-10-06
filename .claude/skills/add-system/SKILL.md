@@ -116,7 +116,7 @@ Add the system's dependency to the `[project.optional-dependencies]` block in `p
 - `pytest tests/tabarena/systems/ -q` — the registry test checks the new system is discovered and declares `method_class="system"`.
 - `ruff check` **and** `ruff format --check` on every touched file.
 
-There is no per-system fit test. Verify the wrapper with the quickstart in `examples/benchmarking/run_quickstart_tabarena_system.py`, which runs two configs of the demo system on the small datasets' first split (`examples/beyondarena/run_quickstart_beyondarena_system.py` is the BeyondArena counterpart and runs the shipped AutoGluon wrapper).
+There is no per-system fit test. Tests specific to the system, if any, go into `systems/<key>/tests/` (with an empty `__init__.py`), outside the default suite and CI, as for models (add-model, Step 3f). Verify the wrapper with the quickstart in `examples/benchmarking/run_quickstart_tabarena_system.py`, which runs two configs of the demo system on the small datasets' first split (`examples/beyondarena/run_quickstart_beyondarena_system.py` is the BeyondArena counterpart and runs the shipped AutoGluon wrapper).
 
 ## Step 6: Report and open the PR
 

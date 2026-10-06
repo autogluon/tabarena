@@ -192,6 +192,10 @@ so and ask whether to skip the smoke fit); anything else is a wrapper bug to fix
 Report the outcome and the wall time. The toy fits write an `AutogluonModels/` folder in the
 working directory (gitignored); remove the run's subfolders when done.
 
+When the model has its own tests (`packages/tabarena/src/tabarena/models/<key>/tests/`), run them
+too: `$PY -m pytest packages/tabarena/src/tabarena/models/<key>/tests -q`. CI never runs them, so
+this is where they catch a wrapper regression before the cluster does.
+
 ## Step 5: Set up and launch
 
 `setup` prefetches foundation weights, materializes the tasks, runs the Ray cache check and writes

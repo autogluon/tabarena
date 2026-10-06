@@ -253,6 +253,8 @@ include-package-data = true
 [tool.setuptools.packages.find]
 where = ["src"]
 include = ["tabarena*"]
+# A model's or system's own tests (`models/<key>/tests/`, `systems/<key>/tests/`) live next to its code but do not ship.
+exclude = ["tabarena.*.tests", "tabarena.*.tests.*"]
 
 # Non-Python files shipped in the wheel, matched recursively so vendored models (configs, licenses)
 # are picked up wherever they live. `scripts/release/build_pypi_dists.py` fails the build when a
