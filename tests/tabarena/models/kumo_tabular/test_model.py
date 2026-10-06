@@ -69,6 +69,33 @@ def test_uncached_predictions_match_the_cache(tmp_path, max_context_size):
     np.testing.assert_allclose(predictions[True], predictions[False], atol=1e-5)
 
 
+@pytest.mark.models
+def test_resave_over_a_memory_mapped_cache(tmp_path):
+    pytest.importorskip("sdm")
+    import numpy as np
+    import pandas as pd
+
+    from tabarena.models.kumo_tabular.model import KumoTabularSmallModel
+
+    rng = np.random.default_rng(0)
+    X = pd.DataFrame(rng.normal(size=(300, 5)), columns=[f"f{i}" for i in range(5)])
+    y = pd.Series((X["f0"] > 0).astype(int))
+    model = KumoTabularSmallModel(
+        path=str(tmp_path),
+        name="m",
+        problem_type="binary",
+        eval_metric="log_loss",
+        hyperparameters={"num_estimators": 2},
+    )
+    model.fit(X=X, y=y, num_gpus=0)
+    expected = model.predict_proba(X.iloc[:20])
+    loaded = KumoTabularSmallModel.load(model.save())
+    # On the CPU the loaded cache is memory-mapped from the file this save replaces.
+    loaded.save()
+
+    np.testing.assert_allclose(loaded.predict_proba(X.iloc[:20]), expected, atol=1e-6)
+
+
 def test_out_of_memory_splits_the_query_rows_in_order(monkeypatch):
     import numpy as np
 

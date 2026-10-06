@@ -383,7 +383,11 @@ class KumoTabularModel(AbstractTorchModel):
 
         with self._without_cache() as cache:
             path = super().save(path=path, verbose=verbose)
-        torch.save(cache, os.path.join(path, self.cache_file_name))
+        cache_path = os.path.join(path, self.cache_file_name)
+        # Written beside the file and swapped in: a cache loaded on the CPU stays memory-mapped from this file,
+        # and truncating it under the mapping kills the process with SIGBUS (refit_full re-saves a loaded model).
+        torch.save(cache, cache_path + ".tmp")
+        os.replace(cache_path + ".tmp", cache_path)
         return path
 
     @classmethod
