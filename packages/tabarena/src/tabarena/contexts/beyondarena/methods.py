@@ -217,7 +217,7 @@ beyond_tabswift_metadata = tabswift_descriptor.method_metadata(
 # -- Kumo Tabular, run 2026-10-06 (`beyondarena_kumotabular_core2k_06102026` in BENCHMARK_LOG.md) ---------------
 # The same official protocol on every core2k split, up to the 1M-row tables, with fit time limits of 16 h on the
 # tables above 10k training rows (a recorded deviation from the 4 h default).
-_kumo_run_kwargs = {**_common_fm_kwargs, "suite": "beyondarena-2026-10-06", "date": "2026-10-06", "verified": False}
+_kumo_run_kwargs = {**_common_fm_kwargs, "suite": "beyondarena-2026-10-06", "date": "2026-10-06", "verified": True}
 
 beyond_kumo_tabular_metadata = kumo_tabular_descriptor.method_metadata(
     method="TA-Kumo-Tabular",
