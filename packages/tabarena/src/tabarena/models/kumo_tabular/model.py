@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import contextlib
+import os
 from typing import TYPE_CHECKING, ClassVar
 
 import numpy as np
@@ -13,6 +15,19 @@ if TYPE_CHECKING:
 _TARGET = "__target__"
 #: Smallest query pass the out-of-memory fallback in ``_predict_values`` splits down to.
 _MIN_QUERY_PASS_ROWS = 512
+#: Large freed pinned blocks go back to the system, so they are allocated at their exact size and do not pile up.
+_CUDA_ALLOC_CONF = "expandable_segments:True,pinned_max_cached_size_mb:64"
+
+
+def _configure_allocator() -> None:
+    """The shared allocator setup, plus releasing large pinned blocks when the allocator has not started yet."""
+    import torch
+
+    from tabarena.models.warmup import configure_cuda_allocator
+
+    if os.environ.get("PYTORCH_CUDA_ALLOC_CONF") is None and not torch.cuda.is_initialized():
+        os.environ["PYTORCH_CUDA_ALLOC_CONF"] = _CUDA_ALLOC_CONF
+    configure_cuda_allocator()
 
 
 def to_signed_integers(X: pd.DataFrame) -> pd.DataFrame:
@@ -126,9 +141,8 @@ class KumoTabularModel(AbstractTorchModel):
         import torch
 
         from tabarena.models.kumo_tabular import _estimators
-        from tabarena.models.warmup import configure_cuda_allocator
 
-        configure_cuda_allocator()
+        _configure_allocator()
         task = "regression" if self.problem_type == REGRESSION else "classification"
         network = _estimators.load_network(task=task, size=self.size, device=self._resolve_fit_device(num_gpus))
         device = next(network.parameters()).device
@@ -348,6 +362,51 @@ class KumoTabularModel(AbstractTorchModel):
             self.model.cache, self.model.context = cache, context
         self.model.move_processors(device)
 
+    #: The KV cache is saved next to ``model.pkl`` rather than inside it.
+    cache_file_name: ClassVar[str] = "kv_cache.pt"
+
+    @contextlib.contextmanager
+    def _without_cache(self):
+        """Detach the KV cache while ``self`` is pickled, so the pickle never copies it."""
+        cache = self.model.cache
+        self.model.cache = None
+        try:
+            yield cache
+        finally:
+            self.model.cache = cache
+
+    def save(self, path: str | None = None, verbose: bool = True) -> str:
+        """Pickle the model without the KV cache and write the cache with ``torch.save``, which needs no copy."""
+        if self.model is None or self.model.cache is None:
+            return super().save(path=path, verbose=verbose)
+        import torch
+
+        with self._without_cache() as cache:
+            path = super().save(path=path, verbose=verbose)
+        torch.save(cache, os.path.join(path, self.cache_file_name))
+        return path
+
+    @classmethod
+    def load(cls, path: str, reset_paths: bool = True, verbose: bool = True):
+        """Load the model and its KV cache, memory-mapped and then pinned for transfers on CUDA."""
+        model = super().load(path=path, reset_paths=reset_paths, verbose=verbose)
+        cache_path = os.path.join(path, cls.cache_file_name)
+        if os.path.exists(cache_path):
+            import torch
+
+            # The cache file is as trusted as model.pkl.
+            cache = torch.load(cache_path, mmap=True, weights_only=False)
+            model.model.cache = cache.pin_memory() if torch.cuda.is_available() else cache
+        return model
+
+    def _get_pickled_size(self) -> int:
+        """The pickle size without the KV cache plus the cache's bytes."""
+        if self.model is None:
+            return super()._get_pickled_size()
+        with self._without_cache() as cache:
+            size = super()._get_pickled_size()
+        return size + (cache.size() if cache is not None else 0)
+
     def _more_tags(self) -> dict:
         return {"can_refit_full": True}
 
@@ -358,9 +417,9 @@ class KumoTabularModel(AbstractTorchModel):
         The allocator reads ``PYTORCH_CUDA_ALLOC_CONF`` when it first runs, so this runs before the
         generic torch layer of ``warmup_model_cls`` and calls :func:`warmup_torch` itself (idempotent).
         """
-        from tabarena.models.warmup import configure_cuda_allocator, warmup_torch
+        from tabarena.models.warmup import warmup_torch
 
-        configure_cuda_allocator()
+        _configure_allocator()
         warmup_torch(cuda=None if num_gpus is None else num_gpus > 0)
 
     @classmethod
