@@ -1,6 +1,6 @@
 ---
 name: add-model
-description: Add a new ML model to the TabArena benchmark system. Use this skill whenever the user wants to integrate a new tabular ML model into TabArena — even if they just say "add X model", "integrate X", "support X", or "wrap X for the benchmark". Creates all required files: the AutoGluon model wrapper, the search-space generator, the per-model `info.py`, and the `pyproject.toml` extra (the model is fit-tested automatically by the registry-driven `test_all_models.py` — no per-model test file). Reads existing similar models for inspiration and optionally fetches documentation URLs to understand the new model's API.
+description: Add a new ML model to the TabArena benchmark system. Use this skill whenever the user wants to integrate a new tabular ML model into TabArena — even if they just say "add X model", "integrate X", "support X", or "wrap X for the benchmark". Creates all required files: the AutoGluon model wrapper, the search-space generator, the per-model `info.py`, and the `pyproject.toml` extra (the model is fit-tested automatically by the registry-driven `test_all_models.py`; tests specific to the model go into its own `models/<key>/tests/`, outside CI). Reads existing similar models for inspiration and optionally fetches documentation URLs to understand the new model's API.
 argument-hint: <ModelName> [<pip-package>] [<doc-url>]
 user-invocable: true
 ---
@@ -11,7 +11,7 @@ This skill integrates a new tabular ML model into the TabArena benchmark.
 
 Every model lives in **one folder** at `packages/tabarena/src/tabarena/models/<ModelKey>/`. That folder contains the wrapper, the HPO generator, and the metadata — and is auto-discovered by `tabarena.models._registry.discover_models()`. There is no separate `benchmark/models/ag/` layout anymore.
 
-Per model, you create up to 5 source files, then edit three existing files. There is no per-model test file — the model is fit-tested automatically by the registry-driven `tests/tabarena/models/test_all_models.py`.
+Per model, you create up to 5 source files, then edit three existing files. There is no per-model test file in `tests/` — the model is fit-tested automatically by the registry-driven `tests/tabarena/models/test_all_models.py`. Tests specific to the model go into its own folder (`models/<ModelKey>/tests/`, Step 3f), outside the default suite and CI.
 
 ## First: single model or external system?
 
@@ -166,9 +166,9 @@ If the wrapper needs helper modules (preprocessors, vendored upstream code, larg
 
 Both subfolders need their own empty `__init__.py`. Import them from `model.py` via absolute paths, e.g. `from tabarena.models.{ModelKey}._internal.preprocessing import Preprocessor`.
 
-### 3f. Test config (no per-model test file)
+### 3f. Test config and the model's own tests
 
-There is **no per-model test file**. `tests/tabarena/models/test_all_models.py`
+There is **no per-model test file in `tests/`**. `tests/tabarena/models/test_all_models.py`
 is parametrized over the model registry, so it fits the new model automatically once
 its `info.py` is discoverable. It skips on `ImportError` (optional dep missing) and for
 GPU-only models without CUDA.
@@ -180,6 +180,16 @@ a speed-up: add one entry to `SMOKE_OVERRIDES`, keyed by the model's `MethodMeta
 fits fine with default hyperparameters on all problem types, add nothing. A wrapper that declares its
 cheapness knobs as the `cheap_hyperparameters` ClassVar (Step 3g) needs no entry either: `smoke_for`
 merges them into the smoke config and the warm-up dummy fit uses the same dict.
+
+Tests specific to the wrapper (a helper's edge cases, an equivalence check between two code paths, a
+save and load round trip) go into the model's own folder, never into `tests/`:
+`packages/tabarena/src/tabarena/models/{ModelKey}/tests/test_*.py` plus an empty `__init__.py`. Neither
+the default `pytest` (`testpaths = ["tests"]`) nor CI collects them, and the wheel leaves them out.
+Run them while working on the model: `pytest packages/tabarena/src/tabarena/models/{ModelKey}/tests`.
+Don't mark them `models` (the default `-m 'not models'` would deselect them on an explicit run too),
+skip on a missing optional dependency with `pytest.importorskip`, and write fit artifacts to `tmp_path`.
+`models/kumo_tabular/tests/` is an example. Add such tests only for logic the registry fit test does not
+reach; most models need none.
 
 ### 3g. Warm-up (untimed environment warm-up): decide, don't skip
 

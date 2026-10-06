@@ -33,7 +33,7 @@ Kind: <!-- model or system; if it replaces an entrant already on the leaderboard
 
 **Files**
 
-- [ ] Model: `models/<key>/{__init__,model,hpo,info}.py`, a lazy entry in `models/__init__.py`, the extra in `packages/tabarena/pyproject.toml` (also listed in `extended`), the family in `website/website_format.py`. A `tests/tabarena/models/smoke_configs.py` override only if the toy fit needs it; no per-model test file and no edits to shared test infrastructure.
+- [ ] Model: `models/<key>/{__init__,model,hpo,info}.py`, a lazy entry in `models/__init__.py`, the extra in `packages/tabarena/pyproject.toml` (also listed in `extended`), the family in `website/website_format.py`. A `tests/tabarena/models/smoke_configs.py` override only if the toy fit needs it; tests specific to the model in `models/<key>/tests/` (outside CI), never in `tests/`, and no edits to shared test infrastructure.
 - [ ] System: `systems/<key>/{__init__,system,hpo,info}.py` with `MethodMetadata.system(...)` and `tags` chosen from `with-llm` / `closed-source-api`, plus the extra in `packages/tabarena/pyproject.toml`.
 
 **Implementation**
