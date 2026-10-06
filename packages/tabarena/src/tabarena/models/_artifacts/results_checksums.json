@@ -45,6 +45,12 @@
  "artifacts/beyondarena-2026-09-22/methods/TA-TabSwift/results/model_results.parquet": "4048f0b926bb0374597b39cf0641bb99",
  "artifacts/beyondarena-2026-09-24/methods/LinearModel/results/hpo_results.parquet": "d5343c48f4f83ee9fb624a4e033aa61e",
  "artifacts/beyondarena-2026-09-24/methods/LinearModel/results/model_results.parquet": "50f71fea684a44cbe7df5cdf292f2c0c",
+ "artifacts/beyondarena-2026-10-06/methods/TA-Kumo-Tabular-Medium/results/hpo_results.parquet": "2547d22adbdb0aeb5badba68c7c6d35e",
+ "artifacts/beyondarena-2026-10-06/methods/TA-Kumo-Tabular-Medium/results/model_results.parquet": "b67ed1d893ee32b242116be1641afea8",
+ "artifacts/beyondarena-2026-10-06/methods/TA-Kumo-Tabular-Small/results/hpo_results.parquet": "20aa6c2a042efaab99e4e22bd87fd063",
+ "artifacts/beyondarena-2026-10-06/methods/TA-Kumo-Tabular-Small/results/model_results.parquet": "f7b1bdfc91c50a9407b9f5c13bc9297b",
+ "artifacts/beyondarena-2026-10-06/methods/TA-Kumo-Tabular/results/hpo_results.parquet": "ec85d884f46fc808168910d3fb564a12",
+ "artifacts/beyondarena-2026-10-06/methods/TA-Kumo-Tabular/results/model_results.parquet": "03e77d196116b33aada690f4a0aa07c0",
  "artifacts/tabarena-2025-06-12/methods/AutoGluon_v130/results/model_results.parquet": "3525df816c4fd01467362a8b856b4111",
  "artifacts/tabarena-2025-06-12/methods/CatBoost/results/hpo_results.parquet": "0cb9272dd7bae3df34b61aa176d9c4e0",
  "artifacts/tabarena-2025-06-12/methods/CatBoost/results/model_results.parquet": "3877455d95edfe52d8b32e3c97feb4da",
@@ -214,5 +220,11 @@
  "artifacts/tabarena-2026-09-21/methods/TabDPT-1.3/results/hpo_results.parquet": "191e9f7fc74247260b70d962eb7be405",
  "artifacts/tabarena-2026-09-21/methods/TabDPT-1.3/results/model_results.parquet": "8999df38fc75e371d3fcb09d6bdfae19",
  "artifacts/tabarena-2026-09-24/methods/LinearModel/results/hpo_results.parquet": "07091375fb7c00c068eab7fcb0c82dfd",
- "artifacts/tabarena-2026-09-24/methods/LinearModel/results/model_results.parquet": "7f3ea3076f48976cf8ff42d0843e89dc"
+ "artifacts/tabarena-2026-09-24/methods/LinearModel/results/model_results.parquet": "7f3ea3076f48976cf8ff42d0843e89dc",
+ "artifacts/tabarena-2026-10-06/methods/Kumo-Tabular-Medium/results/hpo_results.parquet": "71e756dcd3ad643d891e6a317a91b180",
+ "artifacts/tabarena-2026-10-06/methods/Kumo-Tabular-Medium/results/model_results.parquet": "a5fb3011c012e5b402aa6d464cde9d4c",
+ "artifacts/tabarena-2026-10-06/methods/Kumo-Tabular-Small/results/hpo_results.parquet": "f8e6465e1a31a3387331cc5f2c106b2c",
+ "artifacts/tabarena-2026-10-06/methods/Kumo-Tabular-Small/results/model_results.parquet": "21a9c6711460d5a05d225c319898ad8b",
+ "artifacts/tabarena-2026-10-06/methods/Kumo-Tabular/results/hpo_results.parquet": "5ad901c07985c11c89ca29c73e667ce7",
+ "artifacts/tabarena-2026-10-06/methods/Kumo-Tabular/results/model_results.parquet": "940de6c610f91bff69e8d94ae11cf7fe"
 }
