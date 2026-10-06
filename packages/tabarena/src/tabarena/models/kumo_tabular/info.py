@@ -23,28 +23,41 @@ def _descriptor(display_name: str) -> ModelDescriptor:
     )
 
 
-kumo_tabular_method_metadata = _descriptor("Kumo-Tabular").method_metadata(
+kumo_tabular_descriptor = _descriptor("Kumo-Tabular")
+kumo_tabular_medium_descriptor = _descriptor("Kumo-Tabular-Medium")
+kumo_tabular_small_descriptor = _descriptor("Kumo-Tabular-Small")
+
+# Run kumotabular_06102026 (SkyPilot pool, 64 RTX PRO 6000, BENCHMARK_LOG.md), all three sizes in one run, at a98c3381:
+# the context KV cache only for the refit model (#641), saved beside model.pkl (#644), sdm 98f61289, Hub tag v1.0.1.
+_tabarena_run_kwargs = dict(
+    can_hpo=False,
+    date="2026-10-06",
+    verified=False,
+    cache_type="r2",
+    validation_protocol="8x1",
+    suite="tabarena-2026-10-06",
+    cache_kwargs={"bucket": "tabarena", "prefix": "cache"},
+)
+
+kumo_tabular_method_metadata = kumo_tabular_descriptor.method_metadata(
     method="Kumo-Tabular",
     ag_key="TA-KUMO-TABULAR",
     config_default="Kumo-Tabular_c1_default_BAG_L1",
-    can_hpo=False,
-    date="2026-09-28",
+    **_tabarena_run_kwargs,
 )
 
-kumo_tabular_medium_method_metadata = _descriptor("Kumo-Tabular-Medium").method_metadata(
+kumo_tabular_medium_method_metadata = kumo_tabular_medium_descriptor.method_metadata(
     method="Kumo-Tabular-Medium",
     ag_key="TA-KUMO-TABULAR-MEDIUM",
     config_default="Kumo-Tabular-Medium_c1_default_BAG_L1",
-    can_hpo=False,
-    date="2026-09-28",
+    **_tabarena_run_kwargs,
 )
 
-kumo_tabular_small_method_metadata = _descriptor("Kumo-Tabular-Small").method_metadata(
+kumo_tabular_small_method_metadata = kumo_tabular_small_descriptor.method_metadata(
     method="Kumo-Tabular-Small",
     ag_key="TA-KUMO-TABULAR-SMALL",
     config_default="Kumo-Tabular-Small_c1_default_BAG_L1",
-    can_hpo=False,
-    date="2026-09-28",
+    **_tabarena_run_kwargs,
 )
 
 
