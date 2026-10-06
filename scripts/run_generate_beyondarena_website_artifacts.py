@@ -15,9 +15,9 @@ How it diverges from the TabArena generator:
 * **Cached baselines, not raw runs.** It uses :class:`~tabarena.contexts.BeyondArenaContext` (whose
   cached results are downloaded on demand), exactly like
   ``examples/beyondarena/run_generate_beyondarena_leaderboard.py``; no ``BenchmarkRun`` output dirs.
-* **Always the ``core`` protocol.** Every leaderboard and figure is computed on BeyondArena's
-  recommended ``core`` subset (each dataset's first ``folds_to_use`` splits, already enough for
-  stable rankings). Every filter below is layered *on top of* ``core``.
+* **Always the ``core2k`` protocol.** Every leaderboard and figure is computed on BeyondArena's
+  default ``core2k`` subset (each dataset's first splits from the 2,000-split cost-weighted
+  allocation). Every filter below is layered *on top of* ``core2k``.
 * **Four filter axes, crossed.** The BeyondArena tab filters by split regime, dataset size, feature
   dimensionality / type and problem type (:data:`BEYOND_AXES`). Every leaderboard is one cell of
   their cross product, written to ``subsets/split_<s>/size_<z>/features_<f>/tasks_<t>/`` (the
@@ -46,7 +46,7 @@ from tabarena.website.process_artifacts_to_website import process_one_folder
 from tabarena.website.process_pngs import process_png_bulk
 
 # The filter axes of the BeyondArena tab: axis -> {key: extra predicate(s) layered on top of the
-# always present "core" protocol}. Each axis's first key, "all", adds no filter. The keys are the
+# always present "core2k" protocol}. Each axis's first key, "all", adds no filter. The keys are the
 # subset predicates' names, so the per-dataset browser's split / size / task filters (which key on
 # the same metadata values) can be preselected with them directly. Order = folder order.
 BEYOND_AXES: dict[str, dict[str, list[str]]] = {
@@ -178,7 +178,7 @@ class BeyondArenaWebsiteArtifactGenerator:
         raw_artifacts_dirname: str = "raw_website_artifacts",
         clean_artifacts_dirname: str = "clean_website_artifacts",
         axes: dict[str, dict[str, list[str]]] | None = None,
-        base_subset: tuple[str, ...] = ("core",),
+        base_subset: tuple[str, ...] = ("core2k",),
         engine: str = "ray",
     ):
         """Args:
@@ -189,9 +189,9 @@ class BeyondArenaWebsiteArtifactGenerator:
             ``base_subset``}); defaults to :data:`BEYOND_AXES`. Must keep its axis names and their
             order, since they are the folder segments the tab reads; restrict the keys to
             generate part of the grid.
-        base_subset: Subset expressions ANDed into *every* cell. Defaults to ``("core",)``, the
-            recommended BeyondArena evaluation protocol; variants may append further predicates
-            (e.g. ``("core", "!large")`` for the <=100k-train-rows generator).
+        base_subset: Subset expressions ANDed into *every* cell. Defaults to ``("core2k",)``, the
+            default BeyondArena evaluation protocol; variants may append further predicates
+            (e.g. ``("core2k", "!large")`` for the <=100k-train-rows generator).
         engine: How the cells are spread over the machine: ``"ray"`` (default, every local CPU)
             or ``"sequential"`` to debug; see :func:`~tabarena.utils.parallel_for.parallel_for`.
         """
@@ -222,7 +222,7 @@ class BeyondArenaWebsiteArtifactGenerator:
         inputs = []
         empty: list[Cell] = []
         for cell in cells:
-            subset = cell_subset(cell, self.base_subset, self.axes)  # base_subset ALWAYS contains core.
+            subset = cell_subset(cell, self.base_subset, self.axes)  # base_subset ALWAYS contains core2k.
             if context.subset_results(df_results=ta_results, subset=subset).empty:
                 empty.append(cell)
                 continue

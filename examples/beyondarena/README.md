@@ -44,8 +44,8 @@ python examples/beyondarena/run_quickstart_beyondarena_system.py  # a system tha
 The model quickstart benchmarks a custom model on a small, fast slice of BeyondArena and prints a
 leaderboard comparing it against the cached BeyondArena baselines; the system quickstart does the
 same for the AutoGluon wrapper that ships with TabArena. Like every example here, both evaluate on
-the recommended **`core`** subset (further narrowed to `tiny`, `!high-dim` just to keep the
-quickstart fast; the system one also takes only the first split, `lite`).
+BeyondArena's default **`core2k`** protocol, narrowed to the first split (`lite`) of the `tiny`,
+`!high-dim` datasets to keep the quickstart fast.
 
 ## 🕹️ Use Cases
 
@@ -79,15 +79,16 @@ The `advanced/` folder holds lower-level and specialized workflows:
 
 ## 🔎 Choosing what to run: subsets
 
-> **Default to `core` — it's our recommended subset, and what all examples use.** `core` already
-> yields stable rankings, so you do **not** need to run the full `all` split set. Layer other
-> predicates on top to focus a run (e.g. `["core", "regression"]`, `["core", "tiny"]`). The one
-> exception is your *own* custom datasets, where `core` does not apply — see
+> **Default to `core2k`: it is BeyondArena's evaluation protocol, the one the leaderboard uses, and
+> what all examples use.** Its 2,000 splits over the 142 datasets yield stable rankings, so you do
+> **not** need to run the full `all` split set. Layer other predicates on top to focus a run (e.g.
+> `["core2k", "regression"]`, `["core2k", "tiny"]`). The one exception is your *own* custom datasets,
+> where `core2k` does not apply; see
 > [`advanced/run_quickstart_beyondarena_custom_datasets.py`](advanced/run_quickstart_beyondarena_custom_datasets.py).
 
 `BeyondArenaContext` scopes a run with the `subset=` argument. Pass a single predicate name or a
 list; combine them within an expression with `|` (OR) and `!` (NOT), and across a list with AND
-(e.g. `subset=["core", "tiny", "!high-dim"]` = core **and** tiny **and** not high-dim). The full set
+(e.g. `subset=["core2k", "tiny", "!high-dim"]` = core2k **and** tiny **and** not high-dim). The full set
 of predicates (see `BeyondArenaContext.SUBSET_PREDICATES`):
 
 | Group | Predicates | Meaning |
@@ -96,12 +97,15 @@ of predicates (see `BeyondArenaContext.SUBSET_PREDICATES`):
 | **Size bucket** | `tiny`, `small`, `medium`, `large` | By `max_train_rows`, the largest training-split size of a dataset (bounds inclusive): tiny 101 to 1k, small 1,001 to 10k, medium 10,001 to 100k, large above 100k. |
 | **Split regime** | `iid` (alias `random`), `temporal`, `grouped` | How the splits are drawn — the *beyond-IID* axis. |
 | **Features** | `low-dim`, `high-dim`, `text`, `high-cardinality` | `low/high-dim` split at 100 cols after preprocessing; `text`/`high-cardinality` keep datasets that have such columns. |
-| **Split** | `core`, `lite`, `all` | `core` = each dataset's first `folds_to_use` splits (**the recommended default — use this**); `lite` = the first split only (fast smoke test); `all` = every split (rarely needed — `core` is enough). |
+| **Split** | `core2k`, `core`, `lite`, `all` | `core2k` = each dataset's first splits from the 2,000-split cost-weighted allocation (**the default, use this**); `core` = each dataset's first `folds_to_use` splits (507 splits, the leaderboard's protocol until October 2026); `lite` = the first split only (fast smoke test); `all` = every split (rarely needed, `core2k` is enough). |
 
-`core` is data-dependent: it keeps each dataset's first `folds_to_use` splits, where
-`folds_to_use = min(folds_needed_for_stability, num_folds)` from a fold-similarity analysis.
-It is the recommended default because it uses only as many splits as are needed for stable rankings — running the full `all` set costs much more
-compute for no meaningful change in the leaderboard.
+`core2k` and `core` are data-dependent: each reads a committed list of `(dataset, split)` tasks.
+`core2k` keeps each dataset's first splits from a cost-weighted split allocation that starts from
+Lite (the first split of every dataset) and runs to 2,000 splits, so more splits go where they are
+cheap and informative. `core` keeps each dataset's first `folds_to_use` splits, where
+`folds_to_use = min(folds_needed_for_stability, num_folds)` from a fold-similarity analysis; it
+holds 497 of core2k's splits plus 10 more. Running the full `all` set costs much more compute for no
+meaningful change in the leaderboard.
 
 <a name="about-data-foundry"></a>
 ## 📦 About Data Foundry

@@ -80,11 +80,12 @@ if __name__ == "__main__":
     #   size bucket  : tiny, small, medium, large           (on max_train_rows)
     #   split regime : iid (== random), temporal, grouped
     #   features     : low-dim, high-dim, text, high-cardinality
-    #   split        : core, lite (first split == r0f0 of each dataset), all
-    #       `core` is the recommended *default* protocol that every BeyondArena run should use:
-    #       each dataset's first `folds_to_use` splits, already enough for stable rankings — you do
-    #       NOT need the full split set (`all`). Here we also restrict to tiny/!high-dim for speed.
-    subset = ["core", "tiny", "!high-dim"]
+    #   split        : core2k, core, lite (first split == r0f0 of each dataset), all
+    #       `core2k` is the *default* protocol that every BeyondArena run should use: each dataset's
+    #       first splits from the 2,000-split cost-weighted allocation, enough for stable rankings, so
+    #       you do NOT need the full split set (`all`). This quickstart narrows to the first split
+    #       (`lite`) of the tiny, low-dimensional datasets to stay fast; drop `lite` for a real run.
+    subset = ["core2k", "lite", "tiny", "!high-dim"]
 
     # 2: build the model experiment configs.
     experiments = BeyondArenaExperimentBundle(
