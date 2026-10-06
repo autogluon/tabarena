@@ -54,9 +54,9 @@ if __name__ == "__main__":
     results_dir = str(here / "experiments" / run_name)  # the runner's `expname`
     eval_dir = here / "eval" / run_name  # leaderboard `output_dir`
 
-    # 1: suite metadata -> filter. `core` is the recommended default protocol (no need for the full
-    #    `all` split set); tiny/!high-dim just keep this example fast.
-    subset = ["core", "tiny", "!high-dim"]
+    # 1: suite metadata -> filter. `core2k` is the default protocol (no need for the full `all` split
+    #    set); `lite` (the first split) and tiny/!high-dim just keep this example fast.
+    subset = ["core2k", "lite", "tiny", "!high-dim"]
 
     # 2: build the experiments. `outer_experiments=True` makes the bundle emit no-validation
     # `AGModelWrapper` fits (no train/val split, no bagging) for each model, instead of bagged

@@ -143,31 +143,32 @@ class BeyondArenaContext(AbstractArenaContext):
         # `(dataset, split)` tasks in CORE_TASKS_CSV). Lazily loaded on first evaluation.
         "core": SubsetPredicate(lambda df: _core_subset_predicate().predicate(df), ("dataset", "split")),
         # data-dependent: keeps each dataset's first splits from the 2,000-split cost-weighted allocation (the
-        # committed `(dataset, split)` tasks in CORE2K_TASKS_CSV). Lazily loaded on first evaluation.
+        # committed `(dataset, split)` tasks in CORE2K_TASKS_CSV). BeyondArena's default protocol, used by the
+        # leaderboard and the shortcuts below. Lazily loaded on first evaluation.
         "core2k": SubsetPredicate(lambda df: _core2k_subset_predicate().predicate(df), ("dataset", "split")),
     }
 
     #: Shortcuts for the standard BeyondArena subslices: each name maps to a list of subset
     #: expressions AND-ed together (atoms are :attr:`SUBSET_PREDICATES` names; a leading ``!``
-    #: negates one). Every shortcut is intersected with ``"core"`` so the standard slices share
-    #: the committed core task set. Read via :attr:`subset_shortcuts`.
+    #: negates one). Every shortcut is intersected with ``"core2k"``, BeyondArena's default protocol, so the
+    #: standard slices share its committed task set. Read via :attr:`subset_shortcuts`.
     SUBSET_SHORTCUTS: dict[str, list[str]] = {
-        "large": ["core", "large"],
-        "high_dim": ["core", "high-dim"],
-        "low_dim": ["core", "low-dim"],
-        "high_cardinality": ["core", "high-cardinality"],
-        "grouped": ["core", "grouped"],
-        "temporal": ["core", "temporal"],
-        "iid": ["core", "iid"],
-        "random": ["core", "random"],
-        "text": ["core", "text"],
-        "numerical": ["core", "numerical"],
-        "balanced": ["core", "balanced"],
-        "imbalanced": ["core", "imbalanced"],
-        "extreme": ["core", "extreme"],
+        "large": ["core2k", "large"],
+        "high_dim": ["core2k", "high-dim"],
+        "low_dim": ["core2k", "low-dim"],
+        "high_cardinality": ["core2k", "high-cardinality"],
+        "grouped": ["core2k", "grouped"],
+        "temporal": ["core2k", "temporal"],
+        "iid": ["core2k", "iid"],
+        "random": ["core2k", "random"],
+        "text": ["core2k", "text"],
+        "numerical": ["core2k", "numerical"],
+        "balanced": ["core2k", "balanced"],
+        "imbalanced": ["core2k", "imbalanced"],
+        "extreme": ["core2k", "extreme"],
         # high-cardinality slice with the large size bucket removed (all splits / lite split 0)
-        "hc_nolarge": ["core", "high-cardinality", "!large"],
-        "hc_nolarge_lite": ["core", "lite", "high-cardinality", "!large"],
+        "hc_nolarge": ["core2k", "high-cardinality", "!large"],
+        "hc_nolarge_lite": ["core2k", "lite", "high-cardinality", "!large"],
     }
 
     def __init__(

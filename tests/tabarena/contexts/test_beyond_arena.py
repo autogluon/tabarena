@@ -73,11 +73,15 @@ def test_subset_shortcuts_resolve_on_task_grid():
 
 
 def test_subset_shortcut_name_matches_negated_expressions():
-    assert BeyondArenaContext.subset_shortcut_name(["core", "high-cardinality", "!large"]) == "hc_nolarge"
+    assert BeyondArenaContext.subset_shortcut_name(["core2k", "high-cardinality", "!large"]) == "hc_nolarge"
     # order-insensitive
-    assert BeyondArenaContext.subset_shortcut_name(["!large", "core", "lite", "high-cardinality"]) == "hc_nolarge_lite"
-    assert BeyondArenaContext.subset_shortcut_name(["core", "high-cardinality"]) == "high_cardinality"
-    assert BeyondArenaContext.subset_shortcut_name(["core", "!large"]) is None
+    assert (
+        BeyondArenaContext.subset_shortcut_name(["!large", "core2k", "lite", "high-cardinality"]) == "hc_nolarge_lite"
+    )
+    assert BeyondArenaContext.subset_shortcut_name(["core2k", "high-cardinality"]) == "high_cardinality"
+    assert BeyondArenaContext.subset_shortcut_name(["core2k", "!large"]) is None
+    # the shortcuts follow the default protocol, core2k, not the older core subset
+    assert BeyondArenaContext.subset_shortcut_name(["core", "high-cardinality"]) is None
 
 
 def test_size_buckets_partition_datasets_by_largest_training_split():

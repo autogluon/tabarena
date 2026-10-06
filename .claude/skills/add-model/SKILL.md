@@ -449,7 +449,7 @@ When asked to open the PR, use `.github/pull_request_template.md`: a two-to-four
 everything longer inside the collapsed `<details><summary>Details</summary>` block, the commands run
 under Tests. Fill in the "Model or system submission" section for a model (delete the system lines)
 and keep the closing contribution line. Do not paste this Report into the PR body; the Report is for
-the chat, the PR body is for the reviewers. State the TabArena-Lite (or BeyondArena `core`) results
+the chat, the PR body is for the reviewers. State the TabArena-Lite (or BeyondArena `core2k`) results
 with the hardware and the entry-point script if they exist; if they do not, say so, since a
 maintainer will ask (TabArena verifies submitted results by re-running them, it does not benchmark
 on request). Questions go through the issue forms in `.github/ISSUE_TEMPLATE/`.
