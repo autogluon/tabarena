@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from typing import TYPE_CHECKING, ClassVar
 
 import numpy as np
@@ -14,6 +15,12 @@ if TYPE_CHECKING:
 
 _CLASSIFIER_ONLY_PARAMS = ("class_weight", "scale_pos_weight")
 _REGRESSOR_UNSUPPORTED_PARAMS = (*_CLASSIFIER_ONLY_PARAMS, "second_order")
+#: Share of the remaining budget handed to the library, leaving room for the validation scoring
+#: inside the fit and the predict that follows it.
+_TIME_BUDGET_FRACTION = 0.95
+#: Floor on the budget handed over, so an already-exhausted limit still produces a usable model
+#: rather than an empty one.
+_MIN_FIT_SECONDS = 5.0
 #: Wrapper-owned parameters, consumed here and never forwarded to the estimator.
 _WRAPPER_PARAMS = ("numeric_scaler", "categorical_encoder", "ohe_max_cardinality")
 
@@ -39,11 +46,15 @@ class PrismBoostModel(AbstractModel):
     configured ``n_estimators`` is used as-is, and ``params_trained`` carries the count early
     stopping selected so a refit reproduces it.
 
-    ``num_cpus`` and ``time_limit`` are accepted and unused, both for want of an upstream knob.
-    PrismBoost's C++ core is single-threaded (it links no OpenMP) and its Python backend is
-    NumPy-level, so there is no thread argument to wire the budget to; and the library has no
-    wall-clock budget, so a fit runs to its cap or to early stopping. ``early_stopping_rounds``
-    bounds the work in practice but not in time. Both are recorded here as upstream asks.
+    ``time_limit`` is passed through as prismboost's ``fit(time_limit=...)`` (>=0.5.0), minus the
+    preprocessing already done and a 5% margin for scoring the validation split and predicting.
+    The library checks it after each boosting stage and keeps the stages fitted so far, so the
+    budget bounds the loop rather than guaranteeing a deadline: one stage on a very large table
+    can still overshoot, which is the same contract the other boosters' callbacks offer.
+
+    ``num_cpus`` is accepted and unused: PrismBoost's C++ core is single-threaded (it links no
+    OpenMP) and its Python backend is NumPy-level, so there is no thread argument to wire the
+    budget to. Recorded here as an upstream ask.
     """
 
     ag_key = "PRISMBOOST"
@@ -91,7 +102,8 @@ class PrismBoostModel(AbstractModel):
         sample_weight: np.ndarray | None = None,
         **kwargs,
     ) -> None:
-        del num_cpus, num_gpus, time_limit, kwargs
+        del num_cpus, num_gpus, kwargs  # single-threaded CPU library
+        start_time = time.time()
         from prismboost import PrismBoostClassifier, PrismBoostRegressor
 
         if self.problem_type == "regression":
@@ -114,6 +126,12 @@ class PrismBoostModel(AbstractModel):
         else:
             # No validation set to stop on, so the configured cap is the round count.
             params.pop("early_stopping_rounds", None)
+
+        if time_limit is not None:
+            # Preprocessing is already spent; leave a margin for scoring the validation split
+            # and for the predict that follows the fit.
+            remaining = (time_limit - (time.time() - start_time)) * _TIME_BUDGET_FRACTION
+            fit_kwargs["time_limit"] = max(remaining, _MIN_FIT_SECONDS)
 
         self.model = model_cls(**params).fit(X, y, **fit_kwargs)
         best = getattr(self.model, "best_iteration_", None)
@@ -147,13 +165,9 @@ class PrismBoostModel(AbstractModel):
 
     def _set_default_params(self) -> None:
         default_params = {
-            # The cap, with early stopping picking the real count. Deliberately 2000 rather than
-            # the ~10000 the other boosting wrappers use: those libraries also take a wall-clock
-            # budget, and PrismBoost does not, so a dataset whose validation loss keeps creeping
-            # down runs the cap out with nothing to stop it. 2000 is just above the highest count
-            # the previous implementation ever selected, so no capacity is lost. Raise it once
-            # the library honours `time_limit`.
-            "n_estimators": 2000,
+            # A high cap, as the other boosting wrappers here use: early stopping picks the real
+            # count and `time_limit` bounds the work, so the cap is headroom rather than a budget.
+            "n_estimators": 10000,
             "early_stopping_rounds": 50,
             # Chosen by varying only this knob through the bagged pipeline: mean rank over six
             # TabArena-Lite datasets is standard 2.00, robust 2.50, minmax 2.67,
