@@ -78,3 +78,23 @@ def test_init_aux_metric_env_sets_and_clears():
             os.environ.pop(AUX_METRIC_ENV_VAR, None)
         else:
             os.environ[AUX_METRIC_ENV_VAR] = original
+
+
+def test_eval_names_resolve_a_registered_system():
+    """``EvalMethod("<system>")`` needs no ``ag_name_override``: systems resolve through their registry."""
+    from tabarena.evaluation._eval_common import resolve_ag_name, resolve_display_name
+    from tabarena.systems import get_system_registry
+
+    info = get_system_registry()["TabFM+"]
+    assert resolve_ag_name("TabFM+") == info.config_generator.name
+    assert resolve_display_name("TabFM+", result_suffix=" [Rerun]") == f"{info.method_metadata.display_name} [Rerun]"
+
+
+def test_eval_names_still_fail_for_unknown_methods():
+    from tabarena.evaluation._eval_common import resolve_ag_name, resolve_display_name
+
+    with pytest.raises(ValueError):
+        resolve_ag_name("NoSuchMethod")
+    with pytest.raises(ValueError):
+        resolve_display_name("NoSuchMethod")
+    assert resolve_display_name("NoSuchMethod", ag_name_override="X") is None
