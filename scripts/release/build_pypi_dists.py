@@ -184,8 +184,16 @@ def wheel_metadata(wheel: Path) -> tuple[dict[str, list[str]], str]:
     return fields, body
 
 
+def is_test_path(wheel_path: str) -> bool:
+    """Whether a wheel-relative path lies in a ``tests/`` folder, such as a model's own ``models/<key>/tests/``."""
+    return "tests" in wheel_path.split("/")[:-1]
+
+
 def tracked_data_files(package: str) -> list[str] | None:
-    """Git-tracked non-``.py`` files under ``src/<package>`` as wheel-relative paths; None if git is unavailable."""
+    """Git-tracked non-``.py`` files under ``src/<package>`` as wheel-relative paths; None if git is unavailable.
+
+    Files in ``tests/`` folders are left out: those tests stay in the repository and are excluded from the wheel.
+    """
     src_root = Path("packages") / package / "src"
     result = subprocess.run(  # noqa: S603
         ["git", "ls-files", "--", str(src_root / package)],  # noqa: S607
@@ -196,11 +204,12 @@ def tracked_data_files(package: str) -> list[str] | None:
     )
     if result.returncode != 0:
         return None
-    return [
+    paths = [
         Path(line).relative_to(src_root).as_posix()
         for line in result.stdout.splitlines()
         if line and not line.endswith(".py")
     ]
+    return [path for path in paths if not is_test_path(path)]
 
 
 def check_wheel(wheel: Path, package: str, version: str, tracked_files: list[str] | None) -> None:
@@ -220,9 +229,11 @@ def check_wheel(wheel: Path, package: str, version: str, tracked_files: list[str
         bad_pins = [req for req in requires if req.startswith("bencheval") and f"=={version}" not in req]
         if bad_pins:
             problems.append(f"bencheval not pinned to =={version}: {bad_pins}")
+    with zipfile.ZipFile(wheel) as zf:
+        shipped = set(zf.namelist())
+    if tests := sorted(name for name in shipped if is_test_path(name)):
+        problems.append(f"test files shipped in the wheel (exclude the tests package): {tests}")
     if tracked_files is not None:
-        with zipfile.ZipFile(wheel) as zf:
-            shipped = set(zf.namelist())
         if missing := sorted(set(tracked_files) - shipped):
             problems.append(f"git-tracked data files missing from the wheel (fix package-data): {missing}")
     if problems:

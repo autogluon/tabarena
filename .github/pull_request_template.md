@@ -33,19 +33,19 @@ Kind: <!-- model or system; if it replaces an entrant already on the leaderboard
 
 **Files**
 
-- [ ] Model: `models/<key>/{__init__,model,hpo,info}.py`, a lazy entry in `models/__init__.py`, the extra in `packages/tabarena/pyproject.toml` (also listed in `extended`), the family in `website/website_format.py`. A `tests/tabarena/models/smoke_configs.py` override only if the toy fit needs it; no per-model test file and no edits to shared test infrastructure.
+- [ ] Model: `models/<key>/{__init__,model,hpo,info}.py`, a lazy entry in `models/__init__.py`, the extra in `packages/tabarena/pyproject.toml` (also listed in `extended`), the family in `website/website_format.py`. A `tests/tabarena/models/smoke_configs.py` override only if the toy fit needs it; tests specific to the model in `models/<key>/tests/` (outside CI), never in `tests/`, and no edits to shared test infrastructure.
 - [ ] System: `systems/<key>/{__init__,system,hpo,info}.py` with `MethodMetadata.system(...)` and `tags` chosen from `with-llm` / `closed-source-api`, plus the extra in `packages/tabarena/pyproject.toml`.
 
 **Implementation**
 
-- [ ] Model: `_fit` uses the `X_val` / `y_val` that TabArena passes (no internal cross-validation), and the search space in `hpo.py` supports about 200 configurations. Variants are search-space parameters, not separate models.
+- [ ] Model: `_fit` uses the `X_val` / `y_val` that TabArena passes (no internal cross-validation, hold-out split or tuning on the training data), and the search space in `hpo.py` supports about 200 configurations. Variants are search-space parameters, not separate models.
 - [ ] `time_limit`, `num_cpus` / `num_gpus` and the seed are wired through; nothing is monkey-patched globally; optional imports stay inside the wrapper; the model pickles for parallel bagging.
 - [ ] The dependency is pip-installable with an exact pin (PyPI version or git commit, no vendored code) and the extra matches `pip_extra` in `info.py`; Hugging Face checkpoints pin a revision; maintainers can run it without credentials or gated weights; the license, the paper and documentation links, and the supported problem types are stated.
 - [ ] `ruff check` and `ruff format --check` pass. Model: `pytest -m models -k <Key>` passes. System: `pytest tests/tabarena/systems/` passes and the system quick start ran.
 
 **Results** (we need these before we re-run the method)
 
-- [ ] TabArena-Lite (`subset="lite"`) with the official pipeline: the default plus about 25 random HPO configurations where the method has a search space; or the BeyondArena `core` subset. The run used the arena's official validation protocol (the default); a run made with `official_validation_protocol=False` says so here and why.
+- [ ] TabArena-Lite (`subset="lite"`) with the official pipeline: the default plus about 25 random HPO configurations where the method has a search space; or the BeyondArena `core2k` subset. The run used the arena's official validation protocol (the default); a run made with `official_validation_protocol=False` says so here and why.
 - [ ] The hardware (CPU, GPU, RAM) and the entry-point script are stated below.
 - [ ] Optional: a link to the run's output directory (the `expname` folder with the `results.pkl` files, zipped or as a GitHub / Hugging Face release) so we can verify and integrate the results directly.
 - [ ] Who signs off on the maintainer re-run on behalf of the authors: <!-- GitHub handle -->

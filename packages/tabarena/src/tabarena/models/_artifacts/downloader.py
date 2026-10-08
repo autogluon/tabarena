@@ -88,6 +88,15 @@ class MethodDownloader(ABC):
         path_local = Path(self.method_metadata.path_results_hpo_trajectories())
         self._download_to_local_if_exists(key=self.local_to_key(path_local), path_local=path_local)
 
+    # -- freshness ------------------------------------------------------------------------------
+    def remote_etag(self, key: str) -> str | None:
+        """The ETag of the object at ``key`` without quotes, or ``None`` when the object does not exist.
+
+        Raises when the store can't be asked (connection or permission errors), so a caller can tell an unreachable
+        store from a missing object.
+        """
+        raise NotImplementedError(f"{type(self).__name__} does not report ETags")
+
     # -- shared helpers -----------------------------------------------------------------------
     def _log(self, msg: str):
         if self.verbose:

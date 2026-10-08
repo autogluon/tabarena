@@ -7,7 +7,8 @@ bencheval = { workspace = true }
 
 # Pytest config for the whole workspace. All tests live in the single top-level
 # `tests/` dir (mirroring src; the bencheval/tabflow_slurm packages have their
-# own subfolders under it).
+# own subfolders under it), except a model's or system's own tests, which live in
+# its folder (`models/<key>/tests/`) and run only when that folder is passed to pytest.
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = [

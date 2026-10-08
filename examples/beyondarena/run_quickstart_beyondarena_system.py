@@ -27,11 +27,11 @@ if __name__ == "__main__":
     results_dir = str(here / "experiments" / run_name)  # the runner's `expname`
     eval_dir = here / "eval" / run_name  # leaderboard `output_dir`
 
-    # 1: suite metadata -> filter. `core` is the recommended protocol for every BeyondArena run
+    # 1: suite metadata -> filter. `core2k` is BeyondArena's default protocol for every run
     #    (see `run_quickstart_beyondarena_model.py` for the full predicate list). A system fits a
     #    whole AutoGluon predictor per split, so this quickstart also narrows to `lite` (the first
     #    split of each dataset) and to tiny, low-dimensional datasets to stay fast.
-    subset = ["core", "lite", "tiny", "!high-dim"]
+    subset = ["core2k", "lite", "tiny", "!high-dim"]
 
     # 2: build the system experiments. A `SystemConfigGenerator` pairs the system's class with a
     #    `name` (a system has no AutoGluon registry name) and its configs, one benchmarked variant

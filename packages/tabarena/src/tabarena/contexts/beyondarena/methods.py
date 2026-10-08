@@ -23,6 +23,11 @@ from tabarena.models.catboost.info import catboost_descriptor
 from tabarena.models.causilo.info import causilo_descriptor
 from tabarena.models.exaone_tabular.info import exaone_tabular_descriptor
 from tabarena.models.extra_trees.info import extra_trees_descriptor
+from tabarena.models.kumo_tabular.info import (
+    kumo_tabular_descriptor,
+    kumo_tabular_medium_descriptor,
+    kumo_tabular_small_descriptor,
+)
 from tabarena.models.lightgbm.info import lightgbm_descriptor
 from tabarena.models.limix_2.info import limix_2_descriptor
 from tabarena.models.lr.info import lr_descriptor
@@ -71,7 +76,7 @@ beyond_linear_metadata = lr_descriptor.method_metadata(
 )
 # Rerun of the 2026-09-24 run (`beyondarena_linear_24092026` in BENCHMARK_LOG.md): L1 honored for classification
 # (AutoGluon #5933, issue #598), per-worker BLAS threads (#614), the default config plus 200 random configs on the
-# core protocol (the hosted suite above ran 26 configs on every split).
+# core and core2k splits (the hosted suite above ran 26 configs on every split).
 beyond_linear_2026_09_metadata = lr_descriptor.method_metadata(
     method="LinearModel",
     ag_key="LR",
@@ -209,6 +214,30 @@ beyond_tabswift_metadata = tabswift_descriptor.method_metadata(
     **_tfm_run_kwargs,
 )
 
+# -- Kumo Tabular, run 2026-10-06 (`beyondarena_kumotabular_core2k_06102026` in BENCHMARK_LOG.md) ---------------
+# The same official protocol on every core2k split, up to the 1M-row tables, with fit time limits of 16 h on the
+# tables above 10k training rows (a recorded deviation from the 4 h default).
+_kumo_run_kwargs = {**_common_fm_kwargs, "suite": "beyondarena-2026-10-06", "date": "2026-10-06", "verified": True}
+
+beyond_kumo_tabular_metadata = kumo_tabular_descriptor.method_metadata(
+    method="TA-Kumo-Tabular",
+    ag_key="TA-KUMO-TABULAR",
+    config_default="TA-Kumo-Tabular_c1_BAG_L1",
+    **_kumo_run_kwargs,
+)
+beyond_kumo_tabular_medium_metadata = kumo_tabular_medium_descriptor.method_metadata(
+    method="TA-Kumo-Tabular-Medium",
+    ag_key="TA-KUMO-TABULAR-MEDIUM",
+    config_default="TA-Kumo-Tabular-Medium_c1_BAG_L1",
+    **_kumo_run_kwargs,
+)
+beyond_kumo_tabular_small_metadata = kumo_tabular_small_descriptor.method_metadata(
+    method="TA-Kumo-Tabular-Small",
+    ag_key="TA-KUMO-TABULAR-SMALL",
+    config_default="TA-Kumo-Tabular-Small_c1_BAG_L1",
+    **_kumo_run_kwargs,
+)
+
 beyond_method_metadata_lst: list[MethodMetadata] = [
     beyond_linear_2026_09_metadata,
     beyond_random_forest_metadata,
@@ -231,6 +260,9 @@ beyond_method_metadata_lst: list[MethodMetadata] = [
     beyond_realtabpfnv25_metadata,
     beyond_tabdpt13_metadata,
     beyond_tabswift_metadata,
+    beyond_kumo_tabular_metadata,
+    beyond_kumo_tabular_medium_metadata,
+    beyond_kumo_tabular_small_metadata,
 ]
 
 beyond_method_metadata_collection = MethodMetadataCollection(

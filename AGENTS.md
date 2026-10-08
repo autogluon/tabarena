@@ -68,6 +68,15 @@ Tests live in a single top-level `tests/` dir, organized to mirror `src/`
 The root `pyproject.toml` `[tool.pytest.ini_options]` sets `testpaths = ["tests"]`,
 so a bare `pytest` from the repo root runs the whole suite.
 
+The one exception is a model's or system's own tests. They live next to its code in
+`packages/tabarena/src/tabarena/models/<key>/tests/` (or `systems/<key>/tests/`), with an empty
+`__init__.py`. `testpaths` keeps them out of a bare `pytest` and of CI, and the wheel excludes them;
+run them when changing that model: `pytest packages/tabarena/src/tabarena/models/<key>/tests`. Don't
+mark them `models` (the default `-m` would deselect them on an explicit run too), skip on a missing
+optional dependency with `pytest.importorskip`, and write fit artifacts to `tmp_path`. The registry fit
+test every model shares (`tests/tabarena/models/test_all_models.py` with `smoke_configs.py`) stays in
+`tests/`.
+
 ```bash
 pytest                                      # All tests
 pytest tests/metrics/test_metrics.py        # Single file
@@ -185,6 +194,7 @@ Turn a benchmark run's already-present raw `results.pkl` files into cached, host
 2. **Upload to r2** — `scripts/run_upload_results.py`:
    - Dry-run (default) verifies each part exists locally and prints what/where: `python scripts/run_upload_results.py --method-metadata tabarena.models.<model>.info:<x>_method_metadata` (or `--from-cache METHOD SUITE` to load from the local cache).
    - Real upload: add `--no-dry-run` with `R2_ACCOUNT_ID` / `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` set in the environment (never as flags). **r2 only** — the metadata needs `cache_type="r2"` + `cache_kwargs={"bucket", "prefix"}`; the dry-run prints the exact `--no-dry-run` command and, when the creds are unset, how to obtain them (`MethodMetadata.r2_credentials_help()`). `raw` uploads by default (`--no-upload-raw` to skip).
+   - The real upload records each uploaded results table's MD5 in `packages/tabarena/src/tabarena/models/_artifacts/results_checksums.json`; commit it with the registration. `download="auto"` loaders re-download a cached table that differs from its committed checksum (a re-upload under the same suite), and `tests/tabarena/tools/test_results_checksums.py` fails when a registered method has no entry or an entry differs from the hosted object (`python -m tabarena.tools.results_checksums --check`, `--refresh` to rewrite it from the hosted ETags).
 3. **Register in the appropriate context's collection** — add the method so it appears in the benchmark. For TabArena, import the model's `info.py` `method_metadata` and add it to `tabarena_method_metadata_collection` in `packages/tabarena/src/tabarena/contexts/tabarena/methods.py` (the collection lists each model's `info.py` metadata directly, and is itself the paper method set used by `TabArenaContext`). It flows into `tabarena_method_metadata_complete_collection` automatically. Other arena contexts register in their own collection.
 
 
@@ -249,7 +259,7 @@ One-time setup, and who can do it:
 
 ## Things to Avoid
 
-- Do not add a `tst/` dir or per-package `tests/` dirs — all tests live in the single top-level `tests/`, grouped by package (`tests/tabarena/`, `tests/bencheval/`, `tests/tabflow_slurm/`, `tests/integration/`).
+- Do not add a `tst/` dir or per-package `tests/` dirs — all tests live in the single top-level `tests/`, grouped by package (`tests/tabarena/`, `tests/bencheval/`, `tests/tabflow_slurm/`, `tests/integration/`). The exception is a model's or system's own tests in `models/<key>/tests/` (see Testing); tests specific to one model never go into `tests/`.
 - Do not import optional model dependencies at the top of shared modules; lazy-import inside the wrapper.
 - Do not skip `from __future__ import annotations` — ruff will fail CI.
 - Do not change the public API of `EvaluationRepository`, `TabularModelPredictions`, or `bencheval.evaluator.BenchmarkEvaluator` without explicit user direction; they are consumed by external scripts and artifacts.

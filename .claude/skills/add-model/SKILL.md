@@ -1,6 +1,6 @@
 ---
 name: add-model
-description: Add a new ML model to the TabArena benchmark system. Use this skill whenever the user wants to integrate a new tabular ML model into TabArena — even if they just say "add X model", "integrate X", "support X", or "wrap X for the benchmark". Creates all required files: the AutoGluon model wrapper, the search-space generator, the per-model `info.py`, and the `pyproject.toml` extra (the model is fit-tested automatically by the registry-driven `test_all_models.py` — no per-model test file). Reads existing similar models for inspiration and optionally fetches documentation URLs to understand the new model's API.
+description: Add a new ML model to the TabArena benchmark system. Use this skill whenever the user wants to integrate a new tabular ML model into TabArena — even if they just say "add X model", "integrate X", "support X", or "wrap X for the benchmark". Creates all required files: the AutoGluon model wrapper, the search-space generator, the per-model `info.py`, and the `pyproject.toml` extra (the model is fit-tested automatically by the registry-driven `test_all_models.py`; tests specific to the model go into its own `models/<key>/tests/`, outside CI). Reads existing similar models for inspiration and optionally fetches documentation URLs to understand the new model's API.
 argument-hint: <ModelName> [<pip-package>] [<doc-url>]
 user-invocable: true
 ---
@@ -11,7 +11,7 @@ This skill integrates a new tabular ML model into the TabArena benchmark.
 
 Every model lives in **one folder** at `packages/tabarena/src/tabarena/models/<ModelKey>/`. That folder contains the wrapper, the HPO generator, and the metadata — and is auto-discovered by `tabarena.models._registry.discover_models()`. There is no separate `benchmark/models/ag/` layout anymore.
 
-Per model, you create up to 5 source files, then edit three existing files. There is no per-model test file — the model is fit-tested automatically by the registry-driven `tests/tabarena/models/test_all_models.py`.
+Per model, you create up to 5 source files, then edit three existing files. There is no per-model test file in `tests/` — the model is fit-tested automatically by the registry-driven `tests/tabarena/models/test_all_models.py`. Tests specific to the model go into its own folder (`models/<ModelKey>/tests/`, Step 3f), outside the default suite and CI.
 
 ## First: single model or external system?
 
@@ -64,6 +64,27 @@ If `doc_url` was provided, fetch it with WebFetch to understand:
 - `.fit(X, y, ...)` signature
 - `.predict()` / `.predict_proba()` signature
 - Key hyperparameters to expose
+
+Also check whether the library's `fit` tunes or selects anything on its own split of the training
+data: a hyperparameter search, an internal cross-validation or hold-out split, or ensemble or
+candidate weights solved on rows held out of `X`. A model submission must do any such step on the
+`X_val` / `y_val` TabArena passes to `_fit`, or not at all. When the library does one, raise it with
+the maintainer before writing the wrapper, quoting where it happens, and let them choose: integrate
+it as a system (`add-system`), wrap a version or checkpoint without the step, or have the wrapper
+run the step on the passed `X_val` / `y_val`, the way a fine-tuning API takes an eval set
+(autogluon/tabarena#637). Early stopping on `X_val` is fine, and so is an in-context model that
+ignores `X_val`. EXAONE-Tabular's regression hold-out (a fifth of the support rows, used for the
+member weights) was accepted by oversight and is no precedent.
+
+For an in-context model, check whether the library can cache the fitted context for later predict
+calls: a KV cache (TabICL's `kv_cache`, OrionMSP's `enable_kv_cache`), TabPFN's
+`fit_mode="fit_with_cache"`, or a `fit` that records the encoded context, as Kumo Tabular's library
+does. With `refit_folds` each bagged fold model predicts its out-of-fold rows once and is then
+dropped, so the cache pays off only in the refit model that serves the test predictions. Settle this
+in the model's first PR: expose the switch as a hyperparameter, off for the fold models and on for
+the refit model through `ag.refit_hyperparameters` in the default config, and estimate the cache's
+size for the largest tables against the workers' disk and RAM. See "Context caches: only in the refit
+model" in `references/model_patterns.md`.
 
 ## Step 2: Pick the right base class and reference model
 
@@ -145,9 +166,9 @@ If the wrapper needs helper modules (preprocessors, vendored upstream code, larg
 
 Both subfolders need their own empty `__init__.py`. Import them from `model.py` via absolute paths, e.g. `from tabarena.models.{ModelKey}._internal.preprocessing import Preprocessor`.
 
-### 3f. Test config (no per-model test file)
+### 3f. Test config and the model's own tests
 
-There is **no per-model test file**. `tests/tabarena/models/test_all_models.py`
+There is **no per-model test file in `tests/`**. `tests/tabarena/models/test_all_models.py`
 is parametrized over the model registry, so it fits the new model automatically once
 its `info.py` is discoverable. It skips on `ImportError` (optional dep missing) and for
 GPU-only models without CUDA.
@@ -159,6 +180,16 @@ a speed-up: add one entry to `SMOKE_OVERRIDES`, keyed by the model's `MethodMeta
 fits fine with default hyperparameters on all problem types, add nothing. A wrapper that declares its
 cheapness knobs as the `cheap_hyperparameters` ClassVar (Step 3g) needs no entry either: `smoke_for`
 merges them into the smoke config and the warm-up dummy fit uses the same dict.
+
+Tests specific to the wrapper (a helper's edge cases, an equivalence check between two code paths, a
+save and load round trip) go into the model's own folder, never into `tests/`:
+`packages/tabarena/src/tabarena/models/{ModelKey}/tests/test_*.py` plus an empty `__init__.py`. Neither
+the default `pytest` (`testpaths = ["tests"]`) nor CI collects them, and the wheel leaves them out.
+Run them while working on the model: `pytest packages/tabarena/src/tabarena/models/{ModelKey}/tests`.
+Don't mark them `models` (the default `-m 'not models'` would deselect them on an explicit run too),
+skip on a missing optional dependency with `pytest.importorskip`, and write fit artifacts to `tmp_path`.
+`models/kumo_tabular/tests/` is an example. Add such tests only for logic the registry fit test does not
+reach; most models need none.
 
 ### 3g. Warm-up (untimed environment warm-up): decide, don't skip
 
@@ -428,7 +459,7 @@ When asked to open the PR, use `.github/pull_request_template.md`: a two-to-four
 everything longer inside the collapsed `<details><summary>Details</summary>` block, the commands run
 under Tests. Fill in the "Model or system submission" section for a model (delete the system lines)
 and keep the closing contribution line. Do not paste this Report into the PR body; the Report is for
-the chat, the PR body is for the reviewers. State the TabArena-Lite (or BeyondArena `core`) results
+the chat, the PR body is for the reviewers. State the TabArena-Lite (or BeyondArena `core2k`) results
 with the hardware and the entry-point script if they exist; if they do not, say so, since a
 maintainer will ask (TabArena verifies submitted results by re-running them, it does not benchmark
 on request). Questions go through the issue forms in `.github/ISSUE_TEMPLATE/`.

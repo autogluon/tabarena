@@ -14,8 +14,8 @@ bucket's results into the workspace first. See ``run_tabpfn3.py`` for the prereq
 `setup` launches a fresh run of a single contender (``CONTENDER_MODEL``). The tasks come from the
 Data Foundry ``BeyondArena`` collection, which ``BeyondArenaContext`` owns: it loads reference
 metadata (no downloads); the benchmark setup later materializes (downloads + converts) only the
-surviving datasets on this head node. Scope a subset with ``task_subset=TaskSubset(subset=["core"])``
-(``core`` is the recommended default protocol) or ``TaskSubset(dataset_names=[...])``.
+surviving datasets on this head node. Scope a subset with ``task_subset=TaskSubset(subset=["core2k"])``
+(``core2k`` is the default protocol) or ``TaskSubset(dataset_names=[...])``.
 
 `eval` builds the leaderboard the way the TabArena-v0.1 eval and the official BeyondArena leaderboard
 do: the **baselines come from the context**, not from hand-wired output dirs. We post-process only the
@@ -54,23 +54,23 @@ PYTHON_PATH = "/home/lennart_priorlabs_ai/.venvs/beyondarena_27052026/bin/python
 CONTENDER_MODEL = "TabPFN-3"  # the model this run adds; baselines come from the context
 RESULT_SUFFIX = " [rerun]"  # keeps this run distinct from the uploaded TabPFN-3 baseline; None for a new method
 
-# Subset slices to evaluate, anchored on the recommended ``core`` protocol (each dataset's first
-# ``folds_to_use`` splits — no need for the full ``["all"]`` split set). ``only_valid_tasks`` already
+# Subset slices to evaluate, anchored on the default ``core2k`` protocol (each dataset's first splits from
+# the 2,000-split cost-weighted allocation; no need for the full ``["all"]`` split set). ``only_valid_tasks`` already
 # restricts the leaderboard to the contender's tasks, so these just carve split-regime / problem-type
 # / size / feature slices within it.
 SUBSETS = [
-    ["core"],
-    ["core", "random"],
-    ["core", "temporal"],
-    ["core", "grouped"],
-    ["core", "tiny"],
-    ["core", "small"],
-    ["core", "medium"],
-    ["core", "large"],
-    ["core", "low-dim"],
-    ["core", "high-dim"],
-    ["core", "text"],
-    ["core", "high-cardinality"],
+    ["core2k"],
+    ["core2k", "random"],
+    ["core2k", "temporal"],
+    ["core2k", "grouped"],
+    ["core2k", "tiny"],
+    ["core2k", "small"],
+    ["core2k", "medium"],
+    ["core2k", "large"],
+    ["core2k", "low-dim"],
+    ["core2k", "high-dim"],
+    ["core2k", "text"],
+    ["core2k", "high-cardinality"],
 ]
 
 # Figure format(s) written per subset. PNGs render inline; PDFs are for papers. Each extra format
@@ -107,8 +107,8 @@ def setup(scheduler: str = "slurm") -> None:
                 },
             ),
         ],
-        # No `task_subset` runs the full suite; scope it with e.g. `task_subset=TaskSubset(subset=["core"])`
-        # (the recommended protocol) or `TaskSubset(dataset_names=[...])` so only those tasks are fetched.
+        # No `task_subset` runs the full suite; scope it with e.g. `task_subset=TaskSubset(subset=["core2k"])`
+        # (the default protocol) or `TaskSubset(dataset_names=[...])` so only those tasks are fetched.
         context=BeyondArenaContext(),
         experiment_bundle=BeyondArenaExperimentBundle(),
         path_setup=_path_setup(),

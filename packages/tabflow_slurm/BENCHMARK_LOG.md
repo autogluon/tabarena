@@ -34,6 +34,264 @@ run against `main`. To reproduce an entry, check out its recorded **git SHA**.
 
 ---
 
+## 2026-10-06 — beyondarena_kumotabular_core2k_06102026
+
+- **Model(s):** Kumo-Tabular, Kumo-Tabular-Medium, Kumo-Tabular-Small (default config only) on the 2,000 BeyondArena
+  `core2k` splits, 6,000 items
+- **Git SHA:** `a98c3381` (`kumo-tabular`, PR #625) in the detached worktree `../tabarena-run-kumotabular-05102026`;
+  AutoGluon worktree `../autogluon-run-kumotabular-05102026` at master `88d33ba6`
+- **Validation protocol:** BeyondArena's official protocol (`8x1+tiny5x5<=500+task-specific+adapt-classes`), asserted by
+  `BeyondArenaContext`
+- **Purpose:** Rerun of the three sizes from scratch on the final wrapper: SDM's cached fit and predict (#636), the
+  KV cache only for the refit model (#641), the cache saved beside `model.pkl` without pinned-block rounding (#644),
+  sdm `98f61289` and Hub tag `v1.0.1` (`b2f5a9d6`, the `v1.0.0` checkpoints).
+- **Notes:** SkyPilot pool `kumotab-0610` (64 spot RTX PRO 6000 workers, `g4-standard-48`, env `0e4a8ff6988e`),
+  shared with the TabArena run `kumotabular_06102026` and queued behind it; venv `~/.venvs/tabarena_kumotabular_05102026`
+  (torch 2.13.0+cu130). Two launches from one `setup`: the 552 items on tables above 10k training rows with a 16 h fit
+  limit (`gpu_16h`, a recorded deviation from the 4 h default) and the 5,448 others with the 4 h default (`gpu`); one
+  item per bundle, `fake_memory_for_estimates=96`. Wall time 10:09 to 14:54 CEST; the last items were Large on
+  `maps_router_eta_1m` and `home_credit_default_stability_1m` (about 4 h each) while the rest of the pool sat idle.
+  One spot preemption restarted Large on `ieee_fraud_detection` r0f0. `micro_mass` Large r0f0 and r0f1 failed twice
+  with a full worker disk while saving the refit model's KV cache (`kv_cache.pt`, about 100 GB, nearly all of it
+  column-block caches: 500 processed columns x 16 members x 8 ECOC tasks for 20 classes). The first time the workers
+  had cached other tables (92.9 GiB free); the second time, on fresh workers (`setup-retry`, pool `kumotab-0610b`), the
+  bucket's weight cache still held the superseded `bd7fa122` snapshot next to `b2f5a9d6` and the workers pulled both
+  (2.44 GB each). With the old snapshot deleted, a third launch on a fresh pool (`kumotab-0610c`) passed with 95.2 to
+  95.5 GiB free, about 1 GiB of headroom. Result: 6,000 of 6,000. Processed and uploaded as suite
+  `beyondarena-2026-10-06` (`beyond_kumo_tabular_metadata`, `beyond_kumo_tabular_medium_metadata`,
+  `beyond_kumo_tabular_small_metadata` in `contexts/beyondarena/methods.py`), `verified=True`. On `core2k` (40
+  methods): Kumo-Tabular #1 Elo 1427, Kumo-Tabular-Medium #3 1376, Kumo-Tabular-Small #5 1320.
+
+```python
+from tabarena.benchmark.experiment import BeyondArenaExperimentBundle
+from tabarena.benchmark.task.metadata import TaskSubset
+from tabarena.contexts import BeyondArenaContext
+from tabflow_slurm import BeyondArenaResourcesSetup, ModelJob, PathSetup, SkyPilotSetup, TabArenaBenchmarkPlan
+
+MODELS = ("Kumo-Tabular", "Kumo-Tabular-Medium", "Kumo-Tabular-Small")
+path_setup = PathSetup(
+    workspace="/home/lennart_priorlabs_ai/workspace/benchmarking/tabarena_workspace",
+    python_path="/home/lennart_priorlabs_ai/.venvs/tabarena_kumotabular_05102026/bin/python",
+)
+
+
+def job(name, tasks, time_limit):
+    return ModelJob(
+        models=[(model, 0) for model in MODELS],
+        name=name,
+        resources={"num_gpus": 1, "fake_memory_for_estimates": 96, "time_limit": time_limit},
+        tasks=TaskSubset(subset=tasks),
+    )
+
+
+# setup: two launches on the TabArena run's pool
+TabArenaBenchmarkPlan(
+    benchmark_name="beyondarena_kumotabular_core2k_06102026",
+    model_jobs=[
+        job("gpu_16h", ["core2k", "medium|large"], 16 * 3600),
+        job("gpu", ["core2k", "!medium", "!large"], 4 * 3600),
+    ],
+    task_subset=TaskSubset(subset=["core2k"]),
+    context=BeyondArenaContext(),
+    experiment_bundle=BeyondArenaExperimentBundle(model_verbosity=2),
+    path_setup=path_setup,
+    resources_setup=BeyondArenaResourcesSetup(),
+    scheduler_setup=SkyPilotSetup(
+        bundle_size=1, workers=64, use_pool=True, pool_name="kumotab-0610",
+        api_server_endpoint="http://skypilot-api:46580",
+    ),
+).setup_jobs()
+# setup-retry: the missing micro_mass items on a fresh pool (run twice, pools kumotab-0610b and kumotab-0610c)
+TabArenaBenchmarkPlan(
+    benchmark_name="beyondarena_kumotabular_core2k_06102026",
+    model_jobs=[
+        ModelJob(
+            models=[(model, 0) for model in MODELS],
+            name="gpu_retry",
+            resources={"num_gpus": 1, "fake_memory_for_estimates": 96, "time_limit": 4 * 3600},
+        ),
+    ],
+    task_subset=TaskSubset(subset=["core2k"], dataset_names=["micro_mass"]),
+    context=BeyondArenaContext(),
+    experiment_bundle=BeyondArenaExperimentBundle(model_verbosity=2),
+    path_setup=path_setup,
+    resources_setup=BeyondArenaResourcesSetup(),
+    scheduler_setup=SkyPilotSetup(
+        bundle_size=1, workers=2, use_pool=True, pool_name="kumotab-0610c",
+        api_server_endpoint="http://skypilot-api:46580",
+    ),
+).setup_jobs()
+```
+
+## 2026-10-06 — kumotabular_06102026
+
+- **Model(s):** Kumo-Tabular, Kumo-Tabular-Medium, Kumo-Tabular-Small (default config only) on the full TabArena-v0.1
+  task set, 2,448 items
+- **Git SHA:** `a98c3381` (`kumo-tabular`, PR #625) in the detached worktree `../tabarena-run-kumotabular-05102026`;
+  AutoGluon worktree `../autogluon-run-kumotabular-05102026` at master `88d33ba6`
+- **Validation protocol:** `8x1`
+- **Purpose:** Rerun of the three sizes from scratch on the final wrapper (#636, #641, #644, sdm `98f61289`, Hub tag
+  `v1.0.1`), for the upload; replaces the unhosted runs `kumotabular_28092026` and `kumotabular_01102026`.
+- **Notes:** SkyPilot pool `kumotab-0610` (64 spot RTX PRO 6000 workers, `g4-standard-48`, env `0e4a8ff6988e`); venv
+  `~/.venvs/tabarena_kumotabular_05102026` (torch 2.13.0+cu130), its sdm reinstalled at `98f61289` and the bucket's
+  Kumo weight manifests re-seeded at `b2f5a9d6` before this setup. One item per bundle, `fake_memory_for_estimates=96`.
+  A TabArena-Lite trial (`kumotabular_lite_05102026`, 153 items, 2026-10-05) passed first. Launched 10:04 CEST;
+  2,446 items were done by 10:50. Two Large items lost their spot workers and sat in RECOVERING while the BeyondArena
+  launches held every worker; both jobs were cancelled. `credit-g` r7f1 had already uploaded its result, and
+  `kddcup09_appetency` r2f2 ran on a separate 2-worker pool (`setup-retry`, `kumotab-0610r`) and finished at 11:24.
+  Result: 2,448 of 2,448. Processed and uploaded as suite `tabarena-2026-10-06` (`kumo_tabular_method_metadata`,
+  `kumo_tabular_medium_method_metadata`, `kumo_tabular_small_method_metadata` in `models/kumo_tabular/info.py`),
+  `verified=True`. Full leaderboard (100 methods): Kumo-Tabular #1 Elo 1957, Kumo-Tabular-Medium #3 1898,
+  Kumo-Tabular-Small #6 1795.
+
+```python
+from tabarena.benchmark.experiment import TabArenaV0pt1ExperimentBundle
+from tabarena.benchmark.task.metadata import TaskSubset
+from tabflow_slurm import (
+    ModelJob,
+    PathSetup,
+    SkyPilotSetup,
+    TabArenaV0pt1BenchmarkPlan,
+    TabArenaV0pt1ResourcesSetup,
+)
+
+
+def plan(pool_name, workers):
+    return TabArenaV0pt1BenchmarkPlan(
+        benchmark_name="kumotabular_06102026",
+        model_jobs=[
+            ModelJob(
+                models=[(model, 0) for model in ("Kumo-Tabular", "Kumo-Tabular-Medium", "Kumo-Tabular-Small")],
+                name="gpu",
+                resources={"num_gpus": 1, "fake_memory_for_estimates": 96},
+            ),
+        ],
+        task_subset=TaskSubset(),
+        path_setup=PathSetup(
+            workspace="/home/lennart_priorlabs_ai/workspace/benchmarking/tabarena_workspace",
+            python_path="/home/lennart_priorlabs_ai/.venvs/tabarena_kumotabular_05102026/bin/python",
+        ),
+        experiment_bundle=TabArenaV0pt1ExperimentBundle(model_verbosity=2),
+        resources_setup=TabArenaV0pt1ResourcesSetup(num_cpus=None, memory_limit=None),
+        scheduler_setup=SkyPilotSetup(
+            bundle_size=1, workers=workers, use_pool=True, pool_name=pool_name,
+            api_server_endpoint="http://skypilot-api:46580",
+        ),
+    )
+
+
+plan("kumotab-0610", 64).setup_jobs()  # setup
+plan("kumotab-0610r", 2).setup_jobs()  # setup-retry: the one missing item after the two preempted jobs were cancelled
+```
+
+## 2026-09-28 — beyondarena_linear_24092026 (core2k extension)
+
+- **Model(s):** Linear (`LinearModel`), default config plus 200 random configs (201 per split) on the 1,503 BeyondArena
+  `core2k` splits outside `core`, 302,103 items, plus a retry of the 8 `home_credit_default_stability_1m` core configs
+- **Git SHA:** `47755216` (main, for the `core2k` subset from #615) in the detached worktree
+  `../tabarena-run-linear-core2k-28092026`; AutoGluon worktree `../autogluon-run-linear-24092026` at master `ebae7ae9`
+  (includes the L1 fix, autogluon #5933), the same AutoGluon as the `core` run
+- **Validation protocol:** BeyondArena's official protocol, asserted by `BeyondArenaContext`
+- **Purpose:** Extend the Linear rerun for issue #598 from `core` to `core2k`, reusing the `core` run's benchmark name
+  so its 101,899 results are skipped by the cache check.
+- **Notes:** SLURM partition `cpun416mtspotinteractive` (n4-standard-16 spot, 16 vCPU, 64 GB), run venv
+  `~/.venvs/tabarena_linear_core2k_28092026` built from the `core` run's frozen requirements with both worktrees
+  editable. The commits between the `core` run (`a37a5ca7` + `7e0960bc`) and `47755216` do not touch Linear fits: #612
+  does nothing with `use_pca=False` and #611 only renames the recorded rmse metric. Two arrays from one `setup`:
+  2,420 single-item tasks for the slowest tables (`ieee_fraud_detection`, `sdss_17`, `kdd_cup_09_appetency`,
+  `anes_voting_2026`, `home_credit_default_stability_1m`; 24 h SLURM limit) at 100 concurrent (1219104) and
+  14,985 bundles of 20 at 200 concurrent (1219105), raised to 290 once the first array drained. Failures: 21
+  tasks killed by SIGTERM (spot nodes lost, often within seconds of the start), two items hit Ray's "node timed out
+  during startup", and many tasks sat in `launch failed requeued held` until `scontrol release` (once leaving the
+  single-item array at 9 running tasks). slurmctld socket timeouts made `slurm_progress.sh` report DONE on an empty
+  `squeue`. The last 9 `kick` bundles (about 28 min per item) were cancelled and their items, with every other
+  missing one, relaunched as 384 single-item tasks (`setup-relaunch`, `ModelJob` name `cpu_relaunch`, 1237619) that
+  excluded `home_credit_default_stability_1m` while its 8 configs still ran. Eval post-processing ran the 122 GB
+  head node out of memory with 16 Ray workers; `num_cpus=6` fixed it. About 5,100 node-hours in total (estimate
+  before launch: 3,400 to 4,200). The 8 `home_credit_default_stability_1m` configs need 20 to 24 h each on
+  these nodes, so spot preemptions restarted several from scratch: 4 finished in the first array, r41 hit the 24 h
+  limit and was rerun alone with a 48 h limit (`setup-home-credit-48h`, 1239171, 18.9 h), r120 finished after a
+  restart, r138 finished at 20 h, and r5 hit the 24 h limit and finished on an on-demand copy on `cpuhigh32` (c4,
+  16 CPUs, 1239864; 8.6 h, so its fit time is from a faster machine type than every other item). Result: 404,010 of
+  404,010 items (`core` + `core2k`), including the 8 configs missing from the `core` upload. Reprocessed and
+  re-uploaded as the existing suite `beyondarena-2026-09-24` (`beyond_linear_2026_09_metadata`), processed on an
+  on-demand `cpuhigh32` node with 6 Ray workers; its HPO-trajectory step ran separately on `cpuhighmem96mt` with 40
+  workers (57 min), since 6 workers would have run past the 12 h job limit. 5 `Not close TEST` warnings
+  (`sat11_hand_algo_runtime` 4, `early_learning_predictors` 1; at most 0.102 percent of a split's test rows).
+  On `core2k` (40 methods): Linear [Rerun] tuned + ensemble #33 Elo 905, tuned #37 Elo 866, default #40 Elo 793.
+
+```python
+from tabarena.benchmark.experiment import BeyondArenaExperimentBundle
+from tabarena.benchmark.task.metadata import TaskSubset
+from tabarena.contexts import BeyondArenaContext
+from tabflow_slurm import BeyondArenaResourcesSetup, GCPSlurmSetup, ModelJob, PathSetup, TabArenaBenchmarkPlan
+
+path_setup = PathSetup(
+    workspace="/home/lennart_priorlabs_ai/workspace/benchmarking/tabarena_workspace",
+    python_path="/home/lennart_priorlabs_ai/.venvs/tabarena_linear_core2k_28092026/bin/python",
+)
+common = dict(
+    benchmark_name="beyondarena_linear_24092026",
+    task_subset=TaskSubset(subset=["core2k"]),
+    experiment_bundle=BeyondArenaExperimentBundle(model_verbosity=2),
+    path_setup=path_setup,
+    resources_setup=BeyondArenaResourcesSetup(),
+)
+SLOW_DATASETS = [
+    "ieee_fraud_detection-5e0af5cbbb73",
+    "sdss_17-3d9b16fdea21",
+    "kdd_cup_09_appetency-72d0143e7c3d",
+    "anes_voting_2026-58a0e941922e",
+    "home_credit_default_stability_1m-e56e2cf55fa2",
+]
+# setup: the main launch (two arrays: size-1 and size-20 bundles)
+TabArenaBenchmarkPlan(
+    model_jobs=[ModelJob(models=("LinearModel", 200), name="cpu")],
+    context=BeyondArenaContext(),
+    scheduler_setup=GCPSlurmSetup(
+        cpu_partition="cpun416mtspotinteractive", bundle_size=20,
+        bundle_size_per_dataset=dict.fromkeys(SLOW_DATASETS, 1), array_job_limit=300, time_limit_overhead=20,
+        large_dataset_n_samples=None, large_dataset_n_features=None,
+    ),
+    **common,
+).setup_jobs()
+# setup-relaunch: every missing item except the still-running home_credit configs, one item per task
+context = BeyondArenaContext()
+datasets = sorted({t.dataset_name for t in context.task_metadata_collection._tasks} - {"home_credit_default_stability_1m"})
+TabArenaBenchmarkPlan(
+    model_jobs=[
+        ModelJob(
+            models=("LinearModel", 200), name="cpu_relaunch",
+            tasks=TaskSubset(subset=["core2k"], dataset_names=datasets),
+        )
+    ],
+    context=context,
+    scheduler_setup=GCPSlurmSetup(
+        cpu_partition="cpun416mtspotinteractive", bundle_size=1, array_job_limit=300, time_limit_overhead=20,
+        large_dataset_n_samples=None, large_dataset_n_features=None,
+    ),
+    **common,
+).setup_jobs()
+# setup-home-credit-48h: the home_credit configs still missing, 48 h SLURM limit; only the index of r41 was submitted
+# (the others were still running), and later r5 and r138 as on-demand copies on --partition=cpuhigh32
+TabArenaBenchmarkPlan(
+    model_jobs=[
+        ModelJob(
+            models=("LinearModel", 200), name="cpu_home_credit_48h",
+            tasks=TaskSubset(subset=["core2k"], dataset_names=["home_credit_default_stability_1m"]),
+        )
+    ],
+    context=BeyondArenaContext(),
+    scheduler_setup=GCPSlurmSetup(
+        cpu_partition="cpun416mtspotinteractive", bundle_size=1, array_job_limit=300, time_limit_overhead=44,
+        large_dataset_n_samples=None, large_dataset_n_features=None,
+    ),
+    **common,
+).setup_jobs()
+```
+
+---
+
 ## 2026-09-24 — beyondarena_linear_24092026
 
 - **Model(s):** Linear (`LinearModel`), default config plus 200 random configs (201 per split) on the BeyondArena

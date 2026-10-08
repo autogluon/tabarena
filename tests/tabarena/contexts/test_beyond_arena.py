@@ -78,6 +78,18 @@ def test_subset_shortcut_name_matches_negated_expressions():
     assert BeyondArenaContext.subset_shortcut_name(["!large", "core", "lite", "high-cardinality"]) == "hc_nolarge_lite"
     assert BeyondArenaContext.subset_shortcut_name(["core", "high-cardinality"]) == "high_cardinality"
     assert BeyondArenaContext.subset_shortcut_name(["core", "!large"]) is None
+    assert BeyondArenaContext.subset_shortcut_name(["core2k", "high-cardinality", "!large"]) == "core2k_hc_nolarge"
+    assert BeyondArenaContext.subset_shortcut_name(["large", "core2k"]) == "core2k_large"
+
+
+def test_every_core_shortcut_has_a_core2k_twin():
+    """Each ``core`` shortcut has a ``core2k_`` twin selecting the same slice on the default protocol."""
+    shortcuts = BeyondArenaContext.SUBSET_SHORTCUTS
+    core = {name: expressions for name, expressions in shortcuts.items() if "core" in expressions}
+    assert core
+    for name, expressions in core.items():
+        assert shortcuts[f"core2k_{name}"] == ["core2k" if e == "core" else e for e in expressions]
+    assert len(shortcuts) == 2 * len(core)
 
 
 def test_size_buckets_partition_datasets_by_largest_training_split():

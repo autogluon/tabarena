@@ -100,8 +100,8 @@ if __name__ == "__main__":
     #    (a brand-new dataset has none), so the leaderboard is computed purely from our own results;
     #    `fillna_method`/`calibration_method=None` for the same reason (their BeyondArena defaults
     #    reference baseline methods that aren't present here).
-    #    Don't scope with `subset="core"` (that predicate is specific to the official BeyondArena
-    #    suite); the size/problem-type/split-regime predicates (e.g. `subset=["tiny"]`) do work, as
+    #    Don't scope with `subset="core2k"` or `"core"` (those predicates are specific to the official
+    #    BeyondArena suite); the size/problem-type/split-regime predicates (e.g. `subset=["tiny"]`) do work, as
     #    they read the collection's own columns.
     context = BeyondArenaContext(
         task_metadata=task_collection,

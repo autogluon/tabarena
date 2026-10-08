@@ -117,7 +117,7 @@ results by re-running them.
    new one.
 2. Integrate it following the guide above and run the quick start.
 3. Evaluate it yourself on TabArena-Lite (`subset="lite"`, the first split of every dataset) with HPO
-   where applicable (the default plus about 25 random configurations), or on the BeyondArena `core`
+   where applicable (the default plus about 25 random configurations), or on the BeyondArena `core2k`
    subset. The quick starts run the official validation protocol by default; every result records
    the protocol it ran under, and a run made with `official_validation_protocol=False` is declared in
    the pull request.
