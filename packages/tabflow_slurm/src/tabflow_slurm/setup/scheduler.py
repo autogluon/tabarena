@@ -357,6 +357,102 @@ class LocalSequentialSetup(SchedulerSetup):
 
 
 @dataclass(kw_only=True)
+class SlurmSingleNodeSetup(LocalSequentialSetup):
+    """Run every item of the benchmark from one SLURM node through the local runner.
+
+    Made for systems whose compute is remote, a hosted API: the node only sends requests and waits,
+    so one node with ``num_workers`` items in flight replaces an array of exclusive nodes, and the
+    provider sees at most ``num_workers`` concurrent requests (set it to the concurrency the
+    provider grants). Each item still runs in its own subprocess and writes its own ``results.pkl``,
+    and its output goes to its own log file. Never use ``num_workers > 1`` for a model that computes
+    on the node: its fits would share the CPUs and the recorded times would be wrong.
+
+    ``get_run_commands`` writes the job JSON like :class:`LocalSequentialSetup` and returns a single
+    ``sbatch --wrap`` command running ``python -m tabflow_slurm.run_local`` on ``partition``. The
+    default partition is on-demand (not spot), so a multi-day run is not preempted; if the job dies
+    anyway, submitting the same command again resumes, because the runner skips every item whose
+    ``results.pkl`` exists. Logs: ``<slurm_out>/<benchmark>/<job id>/run.out`` for the runner and
+    ``.../<job id>/items/`` for the items.
+    """
+
+    partition: str = "cpuhighmem16"
+    """SLURM partition of the node; the default is an on-demand 8-core / 122 GB GCP node."""
+
+    num_workers: int = 4
+    """Items in flight at once, i.e. the number of concurrent requests the provider receives."""
+
+    continue_on_error: bool = True
+    """Keep going after a failed item (the job exits non-zero at the end when any item failed)."""
+
+    time_limit_hours: int | None = None
+    """``--time`` of the job in hours. ``None``: every item using its full ``time_limit``, divided over
+    the workers, plus ``time_limit_overhead``."""
+
+    time_limit_overhead: int = 1
+    """Hours added to the computed ``--time``."""
+
+    def describe_target(self, resources: ResourcesSetup) -> str:
+        return f"{self.partition} (one node, {self.num_workers} items in flight)"
+
+    def get_run_commands(
+        self,
+        *,
+        jobs_dict: dict,
+        path_setup: PathSetup,
+        benchmark_name: str,
+        parallel_safe_benchmark_name: str,
+        resources_setup: ResourcesSetup,
+        print_summary: bool = True,
+    ) -> list[str] | None:
+        """Persist ``jobs_dict`` and return the one ``sbatch`` command that runs all of it on one node."""
+        import math
+        import shlex
+
+        local = super().get_run_commands(
+            jobs_dict=jobs_dict,
+            path_setup=path_setup,
+            benchmark_name=benchmark_name,
+            parallel_safe_benchmark_name=parallel_safe_benchmark_name,
+            resources_setup=resources_setup,
+            print_summary=False,
+        )
+        if not local:
+            if print_summary:
+                print("No jobs to run.")
+            return None
+
+        n_items = sum(len(job["items"]) for job in jobs_dict["jobs"])
+        hours = self.time_limit_hours
+        if hours is None:
+            hours = math.ceil(n_items * resources_setup.time_limit_per_config / 3600 / self.num_workers)
+            hours += self.time_limit_overhead
+        log_dir = path_setup.get_slurm_log_output_path(benchmark_name)
+        wrap = f"{local[0]} --num_workers {self.num_workers} --item_log_dir {log_dir}/${{SLURM_JOB_ID}}/items"
+        command = " ".join(
+            [
+                "sbatch",
+                f"--partition={self.partition}",
+                "--nodes=1",
+                "--exclusive",
+                "--mem=0",
+                f"--time={hours}:00:00",
+                f"--job-name={parallel_safe_benchmark_name}",
+                f"--output={log_dir}/%j/run.out",
+                "--export=ALL,TABPFN_DISABLE_TELEMETRY=1,HF_HUB_DISABLE_PROGRESS_BARS=1",
+                f"--wrap={shlex.quote(wrap)}",
+            ],
+        )
+        if print_summary:
+            print(
+                "##### Setup Jobs"
+                f"\n{n_items} item(s) on one {self.partition} node, {self.num_workers} in flight, --time={hours}h."
+                "\nRun the following command to start the job:"
+                f"\n{command}\n",
+            )
+        return [command]
+
+
+@dataclass(kw_only=True)
 class SlurmSetup(SchedulerSetup):
     """Setup for SLURM jobs. Adjust as needed for your cluster setup."""
 

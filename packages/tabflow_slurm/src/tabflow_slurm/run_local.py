@@ -6,6 +6,12 @@ task's bundled items, this runner flattens *all* jobs and *all* items into a
 single sequential loop and runs ``run_tabarena_experiment``'s per-item logic
 once per item (one (experiment, dataset, fold, repeat) work unit each).
 
+``--num_workers N`` keeps up to N items in flight at once (subprocess mode only), each writing
+its output to its own file under ``--item_log_dir``. That is for systems whose compute is remote (a
+hosted API): the node only waits on the provider, so several items can share it without sharing
+compute. Never run a local model with N > 1, its fits would compete for the node's CPUs and the
+recorded times would be wrong.
+
 Two execution modes (``--execution_mode``):
     - ``subprocess`` (default): each item runs in its own fresh subprocess via
       ``run_tabarena_experiment.py`` — so every model fit stays isolated (fresh
@@ -18,6 +24,7 @@ Invoke it via the command emitted by ``LocalSequentialSetup.get_run_commands``:
 
     <python> -P -m tabflow_slurm.run_local <job.json> [--continue_on_error True]
                                                       [--execution_mode in_process]
+                                                      [--num_workers N --item_log_dir DIR]
 
 Subprocess mode mirrors the SLURM template's environment: ``python -P``, the thread-count
 variables unset (see ``HYGIENE_ENV_VARS``) and ``--offline_weights`` from the job defaults.
@@ -34,6 +41,8 @@ import json
 import os
 import subprocess
 import sys
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from tabflow_slurm.run_tabarena_experiment import _str2bool
@@ -95,9 +104,81 @@ def _build_item_command(defaults: dict, item: dict) -> list[str]:
     ]
 
 
-def _run_item_subprocess(defaults: dict, item: dict, env: dict) -> int:
-    """Run one item in its own subprocess; return its exit code (0 == success)."""
-    return subprocess.run(_build_item_command(defaults, item), env=env, check=False).returncode  # noqa: S603
+def _run_item_subprocess(defaults: dict, item: dict, env: dict, log_path: Path | None = None) -> int:
+    """Run one item in its own subprocess; return its exit code (0 == success).
+
+    With ``log_path`` the item's stdout and stderr go to that file instead of this process's output.
+    """
+    command = _build_item_command(defaults, item)
+    if log_path is None:
+        return subprocess.run(command, env=env, check=False).returncode  # noqa: S603
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    with log_path.open("w") as log:
+        return subprocess.run(command, env=env, check=False, stdout=log, stderr=subprocess.STDOUT).returncode  # noqa: S603
+
+
+def _item_label(item: dict) -> str:
+    return f"experiment={item['experiment']} dataset={item['dataset']} fold={item['fold']} repeat={item['repeat']}"
+
+
+def _item_log_path(log_dir: Path, idx: int, item: dict) -> Path:
+    safe = "".join(c if c.isalnum() or c in "-_." else "_" for c in f"{item['experiment']}__{item['dataset']}")
+    return log_dir / f"{idx:05d}__{safe}__r{item['repeat']}f{item['fold']}.log"
+
+
+def _run_parallel(
+    items: list[dict],
+    *,
+    defaults: dict,
+    env: dict,
+    num_workers: int,
+    item_log_dir: Path,
+    continue_on_error: bool,
+) -> tuple[list[tuple[int, dict, int]], int]:
+    """Run ``items`` with up to ``num_workers`` subprocesses in flight; return ``(failures, completed)``.
+
+    Without ``continue_on_error`` no new item starts after the first failure; the ones in flight finish.
+    """
+    total = len(items)
+    failures: list[tuple[int, dict, int]] = []
+    completed = 0
+    stop = False
+    print(f"Item logs: {item_log_dir}", flush=True)
+    with ThreadPoolExecutor(max_workers=num_workers) as pool:
+        pending = iter(enumerate(items, start=1))
+        futures: dict = {}
+
+        def submit_next() -> None:
+            for idx, item in pending:
+                log_path = _item_log_path(item_log_dir, idx, item)
+                print(f"===== [{idx}/{total}] START {_item_label(item)} log={log_path.name}", flush=True)
+                futures[pool.submit(_timed_item, defaults, item, env, log_path)] = (idx, item)
+                return
+
+        for _ in range(num_workers):
+            submit_next()
+        while futures:
+            future = next(as_completed(futures))
+            idx, item = futures.pop(future)
+            code, seconds = future.result()
+            completed += 1
+            status = "OK" if code == 0 else f"FAILED (exit {code})"
+            print(f"===== [{idx}/{total}] {status} after {seconds:.0f}s {_item_label(item)}", flush=True)
+            if code != 0:
+                failures.append((idx, item, code))
+                if not continue_on_error:
+                    stop = True
+            if not stop:
+                submit_next()
+    if stop:
+        print("Stopped starting new items (continue_on_error=False).", flush=True)
+    return failures, completed
+
+
+def _timed_item(defaults: dict, item: dict, env: dict, log_path: Path) -> tuple[int, float]:
+    start = time.monotonic()
+    code = _run_item_subprocess(defaults, item, env, log_path)
+    return code, time.monotonic() - start
 
 
 def _setup_in_process(defaults: dict) -> None:
@@ -147,19 +228,35 @@ def _run_item_in_process(defaults: dict, item: dict) -> int:
     return 0
 
 
-def run(json_path: str, *, continue_on_error: bool, execution_mode: str = "subprocess") -> int:
-    """Run every item in `json_path` sequentially; return 0 iff all succeeded.
+def run(
+    json_path: str,
+    *,
+    continue_on_error: bool,
+    execution_mode: str = "subprocess",
+    num_workers: int = 1,
+    item_log_dir: str | None = None,
+) -> int:
+    """Run every item in `json_path`; return 0 iff all succeeded.
 
     `execution_mode` is "subprocess" (one fresh process per item, isolated) or
-    "in_process" (run every item in this process; faster but no isolation).
+    "in_process" (run every item in this process; faster but no isolation). `num_workers` > 1
+    keeps that many subprocess items in flight, each logging to its own file under `item_log_dir`
+    (default: `<json stem>_item_logs` next to the JSON).
     """
+    if num_workers < 1:
+        raise ValueError(f"num_workers must be at least 1, got {num_workers}")
+    if num_workers > 1 and execution_mode != "subprocess":
+        raise ValueError(
+            "num_workers > 1 needs execution_mode='subprocess' (in-process items would share one process)."
+        )
     with Path(json_path).open() as f:
         jobs_dict = json.load(f)
 
     defaults = jobs_dict["defaults"]
     items = [item for job in jobs_dict["jobs"] for item in job["items"]]
     total = len(items)
-    print(f"Running {total} item(s) sequentially from {json_path} (mode={execution_mode})", flush=True)
+    how = "sequentially" if num_workers == 1 else f"with {num_workers} in flight"
+    print(f"Running {total} item(s) {how} from {json_path} (mode={execution_mode})", flush=True)
 
     # Subprocess mode: match the env the SLURM submit template exports to each job.
     env = os.environ.copy()
@@ -170,6 +267,18 @@ def run(json_path: str, *, continue_on_error: bool, execution_mode: str = "subpr
 
     if execution_mode == "in_process":
         _setup_in_process(defaults)
+
+    if num_workers > 1:
+        log_dir = Path(item_log_dir) if item_log_dir else Path(json_path).with_name(f"{Path(json_path).stem}_item_logs")
+        failures, completed = _run_parallel(
+            items,
+            defaults=defaults,
+            env=env,
+            num_workers=num_workers,
+            item_log_dir=log_dir,
+            continue_on_error=continue_on_error,
+        )
+        return _summarize(total, completed, failures)
 
     failures: list[tuple[int, dict, int]] = []
     completed = 0
@@ -195,7 +304,11 @@ def run(json_path: str, *, continue_on_error: bool, execution_mode: str = "subpr
             if not continue_on_error:
                 print("Stopping (continue_on_error=False).", flush=True)
                 break
+    return _summarize(total, completed, failures)
 
+
+def _summarize(total: int, completed: int, failures: list[tuple[int, dict, int]]) -> int:
+    """Print the run summary; return 1 when any item failed, else 0."""
     succeeded = completed - len(failures)
     print(
         f"\n##### Local run summary: {succeeded}/{total} succeeded, {len(failures)} failed.",
@@ -228,5 +341,25 @@ if __name__ == "__main__":
         help="'subprocess' (default): one isolated process per item. "
         "'in_process': run every item in this process (faster, no isolation).",
     )
+    parser.add_argument(
+        "--num_workers",
+        type=int,
+        default=1,
+        help="Items in flight at once (subprocess mode). Only for systems whose compute is remote (a hosted API).",
+    )
+    parser.add_argument(
+        "--item_log_dir",
+        type=str,
+        default=None,
+        help="Per-item log files when --num_workers > 1 (default: <json stem>_item_logs next to the JSON).",
+    )
     args = parser.parse_args()
-    sys.exit(run(args.json_path, continue_on_error=args.continue_on_error, execution_mode=args.execution_mode))
+    sys.exit(
+        run(
+            args.json_path,
+            continue_on_error=args.continue_on_error,
+            execution_mode=args.execution_mode,
+            num_workers=args.num_workers,
+            item_log_dir=args.item_log_dir,
+        ),
+    )

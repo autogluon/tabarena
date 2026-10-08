@@ -14,6 +14,7 @@ The task-metadata loading/filtering moved into `TaskMetadataCollection`
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -163,6 +164,62 @@ class TestSchedulerHooks:
         assert _slurm().describe_target(_resources(time_limit=3600, num_gpus=0)) == "cpu_part"
         assert _slurm().describe_target(_resources(time_limit=3600, num_gpus=1)) == "gpu_part"
         assert LocalSequentialSetup().describe_target(_resources(time_limit=3600)) == "LocalSequentialSetup"
+
+
+class TestSlurmSingleNodeSetup:
+    def _jobs_dict(self, n_items: int) -> dict:
+        items = [{"experiment": "Sys_c1", "dataset": f"d{i}", "fold": 0, "repeat": 0} for i in range(n_items)]
+        return {"defaults": {"python": "/py"}, "jobs": [{"items": items[:3]}, {"items": items[3:]}]}
+
+    def test_one_sbatch_runs_the_local_runner_with_workers(self, tmp_path):
+        import shlex
+
+        from tabflow_slurm.setup.scheduler import SlurmSingleNodeSetup
+
+        ps = PathSetup(workspace=str(tmp_path), python_path="/py")
+        ps.ensure_runtime_dirs("bench")
+        resources = _resources(time_limit=3600, time_limit_for_model_agnostic_preprocessing=None)
+        (command,) = SlurmSingleNodeSetup(num_workers=4).get_run_commands(
+            jobs_dict=self._jobs_dict(10),
+            path_setup=ps,
+            benchmark_name="bench",
+            parallel_safe_benchmark_name="bench_api",
+            resources_setup=resources,
+            print_summary=False,
+        )
+        argv = shlex.split(command)
+        assert argv[:2] == ["sbatch", "--partition=cpuhighmem16"]
+        assert "--exclusive" in argv
+        assert "--time=4:00:00" in argv  # ceil(10 items x 1 h / 4 workers) + 1 h overhead
+        wrap = next(a for a in argv if a.startswith("--wrap=")).removeprefix("--wrap=")
+        assert "-m tabflow_slurm.run_local" in wrap
+        assert "--continue_on_error True --num_workers 4" in wrap
+        assert wrap.endswith(f"{ps.get_slurm_log_output_path('bench')}/${{SLURM_JOB_ID}}/items")
+        json_path = ps.get_slurm_job_json_path(benchmark_name="bench", safe_benchmark_name="bench_api")
+        assert len([i for job in json.loads(Path(json_path).read_text())["jobs"] for i in job["items"]]) == 10
+
+    def test_no_jobs_no_command(self, tmp_path):
+        from tabflow_slurm.setup.scheduler import SlurmSingleNodeSetup
+
+        ps = PathSetup(workspace=str(tmp_path), python_path="/py")
+        ps.ensure_runtime_dirs("bench")
+        assert (
+            SlurmSingleNodeSetup().get_run_commands(
+                jobs_dict={"defaults": {"python": "/py"}, "jobs": []},
+                path_setup=ps,
+                benchmark_name="bench",
+                parallel_safe_benchmark_name="bench_api",
+                resources_setup=_resources(time_limit=3600),
+                print_summary=False,
+            )
+            is None
+        )
+
+    def test_describe_target(self):
+        from tabflow_slurm.setup.scheduler import SlurmSingleNodeSetup
+
+        target = SlurmSingleNodeSetup(partition="cpu22", num_workers=2).describe_target(_resources(time_limit=3600))
+        assert target == "cpu22 (one node, 2 items in flight)"
 
 
 # ---------------------------------------------------------------------------

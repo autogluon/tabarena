@@ -26,13 +26,15 @@ tabflow_slurm/                      ← this folder (docs, examples, history, py
     ├── run_tabarena_experiment.py  ← runner: fits ONE item on a node (bundled script; --cache_root / --materialize_tasks for VMs)
     ├── submit_template.sh          ← sbatch array script (parses job JSON via jq, calls runner)
     ├── sky_worker.py               ← SkyPilot worker: drains the GCS claim queue, runs the runner per item
+    ├── run_local.py                ← runs a job JSON on one machine (--num_workers N items in flight for APIs)
     ├── slurm_utils.py              ← setup_slurm_job(): per-node Ray init (caches via JobBatch.cache_config)
     └── setup/                      ← the building blocks
         ├── plan.py                 ← TabArenaBenchmarkPlan (ENTRY POINT), ModelJob, SingleModel
         ├── benchmark.py            ← TabArenaBenchmarkSetup (INTERNAL per-run engine)
         ├── paths.py                ← PathSetup, get_run_script_path/get_submit_script_path
         ├── resources.py            ← ResourcesSetup + v0.1/BeyondArena presets
-        ├── scheduler.py            ← SchedulerSetup → SlurmSetup → GCPSlurmSetup (batching + sbatch)
+        ├── scheduler.py            ← SchedulerSetup → SlurmSetup → GCPSlurmSetup (batching + sbatch);
+        │                             LocalSequentialSetup → SlurmSingleNodeSetup (one node, run_local)
         ├── skypilot.py             ← SkyPilotSetup (queue staging, job/pool YAML, sky commands, results sync)
         ├── sky_env.py              ← head-venv replication: freeze + working-tree archives + env.json manifest
         └── sky_storage.py          ← Storage protocol + GcsStorage (gcloud storage CLI wrapper)
