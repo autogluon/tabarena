@@ -17,7 +17,7 @@ chakra_tab_method_metadata = MethodMetadata.system(
     date_introduced="2026-10",
     reference_url="https://yhatlabs.com",
     license="Proprietary (hosted API; YHat Labs terms of service)",
-    commercial_use=True,
+    commercial_use=False,
     tags=("closed-source-api",),
     verified=False,
 )
