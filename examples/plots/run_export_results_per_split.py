@@ -16,7 +16,7 @@ rows.
 
 The per-split results are not hosted anywhere; this script is how to get them. Results
 download to ``~/.cache/tabarena/`` on first run. For BeyondArena, swap in
-``BeyondArenaContext`` (also in ``tabarena.contexts``) and pass ``subset=["core"]``.
+``BeyondArenaContext`` (also in ``tabarena.contexts``) and pass ``subset=["core2k"]``.
 """
 
 from __future__ import annotations

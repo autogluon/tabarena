@@ -170,6 +170,7 @@ def get_model_family(model_name: str, system_names: Container[str] = frozenset()
             "TABSWIFT",
             "EXAONE",
             "XIAOMI-TABLDM",
+            "TA-KUMO-TABULAR",
         ],
         Constants.baseline: ["KNN", "LR", "LINEAR"],
         Constants.other: ["XRFM", "APLR"],

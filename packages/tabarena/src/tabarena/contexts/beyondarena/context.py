@@ -143,14 +143,16 @@ class BeyondArenaContext(AbstractArenaContext):
         # `(dataset, split)` tasks in CORE_TASKS_CSV). Lazily loaded on first evaluation.
         "core": SubsetPredicate(lambda df: _core_subset_predicate().predicate(df), ("dataset", "split")),
         # data-dependent: keeps each dataset's first splits from the 2,000-split cost-weighted allocation (the
-        # committed `(dataset, split)` tasks in CORE2K_TASKS_CSV). Lazily loaded on first evaluation.
+        # committed `(dataset, split)` tasks in CORE2K_TASKS_CSV). BeyondArena's default protocol, used by the
+        # leaderboard and the `core2k_*` shortcuts below. Lazily loaded on first evaluation.
         "core2k": SubsetPredicate(lambda df: _core2k_subset_predicate().predicate(df), ("dataset", "split")),
     }
 
     #: Shortcuts for the standard BeyondArena subslices: each name maps to a list of subset
     #: expressions AND-ed together (atoms are :attr:`SUBSET_PREDICATES` names; a leading ``!``
-    #: negates one). Every shortcut is intersected with ``"core"`` so the standard slices share
-    #: the committed core task set. Read via :attr:`subset_shortcuts`.
+    #: negates one). The unprefixed shortcuts intersect a slice with ``"core"``, the protocol before
+    #: October 2026, and may be retired; each has a ``core2k_`` twin that intersects the same slice with
+    #: ``"core2k"``, BeyondArena's default protocol. Read via :attr:`subset_shortcuts`.
     SUBSET_SHORTCUTS: dict[str, list[str]] = {
         "large": ["core", "large"],
         "high_dim": ["core", "high-dim"],
@@ -168,6 +170,22 @@ class BeyondArenaContext(AbstractArenaContext):
         # high-cardinality slice with the large size bucket removed (all splits / lite split 0)
         "hc_nolarge": ["core", "high-cardinality", "!large"],
         "hc_nolarge_lite": ["core", "lite", "high-cardinality", "!large"],
+        # the same slices on the default core2k protocol
+        "core2k_large": ["core2k", "large"],
+        "core2k_high_dim": ["core2k", "high-dim"],
+        "core2k_low_dim": ["core2k", "low-dim"],
+        "core2k_high_cardinality": ["core2k", "high-cardinality"],
+        "core2k_grouped": ["core2k", "grouped"],
+        "core2k_temporal": ["core2k", "temporal"],
+        "core2k_iid": ["core2k", "iid"],
+        "core2k_random": ["core2k", "random"],
+        "core2k_text": ["core2k", "text"],
+        "core2k_numerical": ["core2k", "numerical"],
+        "core2k_balanced": ["core2k", "balanced"],
+        "core2k_imbalanced": ["core2k", "imbalanced"],
+        "core2k_extreme": ["core2k", "extreme"],
+        "core2k_hc_nolarge": ["core2k", "high-cardinality", "!large"],
+        "core2k_hc_nolarge_lite": ["core2k", "lite", "high-cardinality", "!large"],
     }
 
     def __init__(

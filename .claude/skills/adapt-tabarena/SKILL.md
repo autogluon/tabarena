@@ -668,7 +668,7 @@ Summarize for the user:
   groups across bagging folds. Declare a task-specific `ValidationProtocol` on your context.
 - Grouped inner splits import Data Foundry; without `tabarena[data-foundry]` a `group_on` task
   fails at fit time.
-- `subset="core"` and the other data-dependent predicates are specific to the official suites;
+- `subset="core2k"`, `"core"` and the other data-dependent predicates are specific to the official suites;
   size, problem-type and split-regime predicates work on any collection.
 - With `methods=[]`, `fillna_method` and `calibration_method` must be `None` or one of your own
   methods; the TabArena defaults name baselines you do not have.

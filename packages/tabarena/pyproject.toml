@@ -175,6 +175,11 @@ mitra_v2 = ["autogluon.tabular[mitra]>=1.6,<1.7"]
 # TabPFN-3.5 / TabPFN-3.5-Fast need the release that ships the v3.5 checkpoints; the shared
 # `tabpfn` extra above stays at the floor the earlier TabPFN versions were benchmarked with.
 tabpfn_3_5 = ["tabpfn>=9.0.0"]
+# Kumo Tabular's library is not on PyPI yet (only a placeholder release); pinned to a commit so the
+# benchmarked code is fixed (empty extra on PyPI). Keep in sync with `pip_extra` in models/kumo_tabular/info.py.
+kumo_tabular = [
+  "structured-data-models @ git+https://github.com/NVIDIA/structured-data-models.git@98f61289c7a4e1bce3b33771223ac2e123b63f19",
+]
 
 # Core benchmark set: the always-on models for benchmarking, plus the plotting and
 # preprocessing capabilities split out of the core install. Self-references avoid
@@ -217,6 +222,7 @@ extended = [
   "tabarena[tabldm]",
   "tabarena[mitra_v2]",
   "tabarena[tabpfn_3_5]",
+  "tabarena[kumo_tabular]",
 ]
 
 # Convenience: everything (core + extended + probmetrics).
@@ -249,6 +255,8 @@ include-package-data = true
 [tool.setuptools.packages.find]
 where = ["src"]
 include = ["tabarena*"]
+# A model's or system's own tests (`models/<key>/tests/`, `systems/<key>/tests/`) live next to its code but do not ship.
+exclude = ["tabarena.*.tests", "tabarena.*.tests.*"]
 
 # Non-Python files shipped in the wheel, matched recursively so vendored models (configs, licenses)
 # are picked up wherever they live. `scripts/release/build_pypi_dists.py` fails the build when a

@@ -141,3 +141,16 @@ def test_check_wheel_accepts_a_good_wheel_and_reports_every_problem(build, tmp_p
     message = str(info.value)
     for expected in ("direct-URL", "empty long description", "no License-File", "bencheval not pinned", "missing from"):
         assert expected in message
+
+
+def test_check_wheel_rejects_shipped_model_tests(build, tmp_path):
+    metadata = (
+        "Metadata-Version: 2.4\nName: tabarena\nVersion: 0.1.0a1\nLicense-File: LICENSE\n"
+        "Requires-Dist: bencheval==0.1.0a1\n\nLong description\n"
+    )
+    wheel = _fake_wheel(
+        tmp_path / "tabarena-0.1.0a1-py3-none-any.whl", metadata, ("tabarena/models/foo/tests/test_foo.py",)
+    )
+    with pytest.raises(SystemExit, match="test files shipped"):
+        build.check_wheel(wheel, "tabarena", "0.1.0a1", [])
+    assert not build.is_test_path("tabarena/models/foo/model.py")

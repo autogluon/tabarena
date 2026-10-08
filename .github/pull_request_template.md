@@ -33,7 +33,7 @@ Kind: <!-- model or system; if it replaces an entrant already on the leaderboard
 
 **Files**
 
-- [ ] Model: `models/<key>/{__init__,model,hpo,info}.py`, a lazy entry in `models/__init__.py`, the extra in `packages/tabarena/pyproject.toml` (also listed in `extended`), the family in `website/website_format.py`. A `tests/tabarena/models/smoke_configs.py` override only if the toy fit needs it; no per-model test file and no edits to shared test infrastructure.
+- [ ] Model: `models/<key>/{__init__,model,hpo,info}.py`, a lazy entry in `models/__init__.py`, the extra in `packages/tabarena/pyproject.toml` (also listed in `extended`), the family in `website/website_format.py`. A `tests/tabarena/models/smoke_configs.py` override only if the toy fit needs it; tests specific to the model in `models/<key>/tests/` (outside CI), never in `tests/`, and no edits to shared test infrastructure.
 - [ ] System: `systems/<key>/{__init__,system,hpo,info}.py` with `MethodMetadata.system(...)` and `tags` chosen from `with-llm` / `closed-source-api`, plus the extra in `packages/tabarena/pyproject.toml`.
 
 **Implementation**
@@ -45,7 +45,7 @@ Kind: <!-- model or system; if it replaces an entrant already on the leaderboard
 
 **Results** (we need these before we re-run the method)
 
-- [ ] TabArena-Lite (`subset="lite"`) with the official pipeline: the default plus about 25 random HPO configurations where the method has a search space; or the BeyondArena `core` subset. The run used the arena's official validation protocol (the default); a run made with `official_validation_protocol=False` says so here and why.
+- [ ] TabArena-Lite (`subset="lite"`) with the official pipeline: the default plus about 25 random HPO configurations where the method has a search space; or the BeyondArena `core2k` subset. The run used the arena's official validation protocol (the default); a run made with `official_validation_protocol=False` says so here and why.
 - [ ] The hardware (CPU, GPU, RAM) and the entry-point script are stated below.
 - [ ] Optional: a link to the run's output directory (the `expname` folder with the `results.pkl` files, zipped or as a GitHub / Hugging Face release) so we can verify and integrate the results directly.
 - [ ] Who signs off on the maintainer re-run on behalf of the authors: <!-- GitHub handle -->

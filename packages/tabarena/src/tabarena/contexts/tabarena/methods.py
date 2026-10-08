@@ -62,6 +62,11 @@ from tabarena.models.extra_trees.info import extra_trees_new_method_metadata
 from tabarena.models.fastai.info import fastai_method_metadata
 from tabarena.models.iltm.info import iltm_method_metadata
 from tabarena.models.knn.info import knn_method_metadata as knn_metadata
+from tabarena.models.kumo_tabular.info import (
+    kumo_tabular_medium_method_metadata,
+    kumo_tabular_method_metadata,
+    kumo_tabular_small_method_metadata,
+)
 from tabarena.models.lightgbm.info import lightgbm_method_metadata
 from tabarena.models.limix.info import limix_method_metadata as limix_metadata
 from tabarena.models.limix_2.info import limix_2_method_metadata
@@ -234,6 +239,9 @@ tabarena_method_metadata_collection = MethodMetadataCollection(
         tabpfn_3_5_fast_method_metadata,
         limix_2_method_metadata,
         tabdpt_v13_method_metadata,
+        kumo_tabular_method_metadata,
+        kumo_tabular_medium_method_metadata,
+        kumo_tabular_small_method_metadata,
     ],
 )
 

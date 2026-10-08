@@ -68,6 +68,15 @@ Tests live in a single top-level `tests/` dir, organized to mirror `src/`
 The root `pyproject.toml` `[tool.pytest.ini_options]` sets `testpaths = ["tests"]`,
 so a bare `pytest` from the repo root runs the whole suite.
 
+The one exception is a model's or system's own tests. They live next to its code in
+`packages/tabarena/src/tabarena/models/<key>/tests/` (or `systems/<key>/tests/`), with an empty
+`__init__.py`. `testpaths` keeps them out of a bare `pytest` and of CI, and the wheel excludes them;
+run them when changing that model: `pytest packages/tabarena/src/tabarena/models/<key>/tests`. Don't
+mark them `models` (the default `-m` would deselect them on an explicit run too), skip on a missing
+optional dependency with `pytest.importorskip`, and write fit artifacts to `tmp_path`. The registry fit
+test every model shares (`tests/tabarena/models/test_all_models.py` with `smoke_configs.py`) stays in
+`tests/`.
+
 ```bash
 pytest                                      # All tests
 pytest tests/metrics/test_metrics.py        # Single file
@@ -250,7 +259,7 @@ One-time setup, and who can do it:
 
 ## Things to Avoid
 
-- Do not add a `tst/` dir or per-package `tests/` dirs — all tests live in the single top-level `tests/`, grouped by package (`tests/tabarena/`, `tests/bencheval/`, `tests/tabflow_slurm/`, `tests/integration/`).
+- Do not add a `tst/` dir or per-package `tests/` dirs — all tests live in the single top-level `tests/`, grouped by package (`tests/tabarena/`, `tests/bencheval/`, `tests/tabflow_slurm/`, `tests/integration/`). The exception is a model's or system's own tests in `models/<key>/tests/` (see Testing); tests specific to one model never go into `tests/`.
 - Do not import optional model dependencies at the top of shared modules; lazy-import inside the wrapper.
 - Do not skip `from __future__ import annotations` — ruff will fail CI.
 - Do not change the public API of `EvaluationRepository`, `TabularModelPredictions`, or `bencheval.evaluator.BenchmarkEvaluator` without explicit user direction; they are consumed by external scripts and artifacts.
