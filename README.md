@@ -127,7 +127,10 @@ results by re-running them.
 5. A maintainer reviews the pull request, then runs the method on the full task set on the
    benchmark hardware for the final entry. We are happy to help with the integration and the run.
 6. Maintainers verify that run against your Lite results, and the person you name in the template
-   signs off on it, which marks the entry as verified.
+   signs off on it, which marks the entry as verified. A hosted API is also audited before the run:
+   maintainers read what its client sends and probe the API for transduction and label lookup
+   (`tabarena.tools.audit_system`). Its submission provides an evaluation key with quota for the
+   full run, the concurrency the API allows, the hardware behind it, and what runs behind it.
 7. The results are processed, hosted and registered, and the pull request is merged.
 8. The leaderboard is regenerated from the hosted results after the merge, usually within days.
 

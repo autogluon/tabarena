@@ -1,6 +1,6 @@
 ---
 name: benchmark-model
-description: Run one already-integrated model on the TabArena benchmark, from a local smoke fit to the cluster run and the evaluated leaderboard. Use this skill whenever a maintainer wants to benchmark a model that is already in the registry, e.g. "benchmark TabM", "run Nori on the cluster", "create a setup/eval script for DenseLight", "launch <model> on TabArena and evaluate it". It first asks whether Claude should drive the run end-to-end here (launch, monitor, evaluate, report) or hand the launch and monitoring to the maintainer, then scaffolds a single `tmp_scripts/run_<model>.py` at the repo root with `smoke`, `setup` and `eval` subcommands sharing one benchmark_name + paths. Defaults to the full TabArena-v0.1 task set with all configs (0 for foundation models without a search space), resolves the run venv to the one importing this checkout, installs the model's pip extra into it, smoke-fits the model locally (on the CPU when no GPU exists, GPU models included), and requires `fake_memory_for_estimates` set to the partition's VRAM for every GPU model (asks when not inferable). In end-to-end mode it launches the sbatch command(s), reports the percentage of tasks left at regular intervals while checking for failed tasks, then runs the eval with all figures for the default subsets and reports the leaderboard with the new model highlighted (also box-labeled in every Pareto figure). Complements `add-model` (integrate a model) and `upload-method` (publish its results).
+description: Run one already-integrated model on the TabArena benchmark, from a local smoke fit to the cluster run and the evaluated leaderboard. Use this skill whenever a maintainer wants to benchmark a model that is already in the registry, e.g. "benchmark TabM", "run Nori on the cluster", "create a setup/eval script for DenseLight", "launch <model> on TabArena and evaluate it". It first asks whether Claude should drive the run end-to-end here (launch, monitor, evaluate, report) or hand the launch and monitoring to the maintainer, then scaffolds a single `tmp_scripts/run_<model>.py` at the repo root with `smoke`, `setup` and `eval` subcommands sharing one benchmark_name + paths. Defaults to the full TabArena-v0.1 task set with all configs (0 for foundation models without a search space), resolves the run venv to the one importing this checkout, installs the model's pip extra into it, smoke-fits the model locally (on the CPU when no GPU exists, GPU models included), and requires `fake_memory_for_estimates` set to the partition's VRAM for every GPU model (asks when not inferable). In end-to-end mode it launches the sbatch command(s), reports the percentage of tasks left at regular intervals while checking for failed tasks, then runs the eval with all figures for the default subsets and reports the leaderboard with the new model highlighted (also box-labeled in every Pareto figure). Also runs registered systems, and for hosted APIs (`closed-source-api`) audits the client and probes the API for cheating (`tabarena.tools.audit_system`) before a single-node run from an on-demand CPU node. Complements `add-model` (integrate a model) and `upload-method` (publish its results).
 argument-hint: <ModelRegistryName> [<benchmark_name>] [<n_configs>]
 user-invocable: true
 ---
@@ -28,7 +28,9 @@ drift. The file is self-contained (no hidden helpers) so its `setup()` body can 
 `packages/tabflow_slurm/BENCHMARK_LOG.md`, and it lives in `tmp_scripts/`, which `.gitignore` excludes.
 
 The golden template is [`references/run_benchmark_template.py`](references/run_benchmark_template.py).
-Copy it and fill the `<...>` and `# EDIT` markers; do not hand-write the structure. The progress
+Copy it and fill the `<...>` and `# EDIT` markers; do not hand-write the structure. A registered
+system, and in particular a hosted API, follows [Systems and hosted APIs](#systems-and-hosted-apis)
+and its template [`references/run_api_system_template.py`](references/run_api_system_template.py). The progress
 watcher for the cluster run is [`references/slurm_progress.sh`](references/slurm_progress.sh).
 
 ## Step 0: Gather inputs and choose the mode
@@ -63,6 +65,9 @@ Do not ask about the config count or the task scope; the defaults above are the 
 protocol. Mention them in the plan so the maintainer can object.
 
 ## Step 1: Introspect the model registry
+
+When `MODEL` is not in the model registry but in `tabarena.systems` (`systems/<key>/`), it is a system:
+switch to [Systems and hosted APIs](#systems-and-hosted-apis) now.
 
 Given `MODEL`, read the model's folder `packages/tabarena/src/tabarena/models/<key>/` and derive:
 
@@ -383,6 +388,65 @@ verbatim `setup()` plan as run. The log is committed even though the script is n
 offer the entry; in end-to-end mode write it.
 
 Next in the lifecycle is the `upload-method` skill, pointed at `<WORKSPACE>/output/<benchmark_name>/data`.
+
+## Systems and hosted APIs
+
+A system (`packages/tabarena/src/tabarena/systems/<key>/`) runs through the same plan with four
+differences. The job entry is its generator, `ModelJob(models=(gen_<key>, 0))`, which runs every
+manual config (`<Name>_c1_default`, `_c2_default`, ...) and has no search space. The bundle carries
+`system_experiments=True`. The plan sets `prefetch_model_weights=False`. There is no registry smoke
+fit: `smoke` runs the system through the official pipeline on the first split of three small tasks.
+`EvalMethod("<System>")` resolves through the system registry; with several configs give each its
+own `EvalMethod(ag_name_override=f"{name}_c{i}", display_name_override=...)` so each is labelled, and
+remember for `upload-method` that every config is hosted as its own `MethodMetadata` (see
+`systems/autogluon/info.py`). Local systems (AutoGluon, TabFM+) otherwise follow Steps 2 to 8 with
+the model template.
+
+A hosted API (`tags=("closed-source-api",)`) uses
+[`references/run_api_system_template.py`](references/run_api_system_template.py) (`audit`, `smoke`,
+`setup`, `eval`) and these steps instead of Steps 4 to 6. The API gets the training table and the
+test features, and every TabArena dataset is public, so nothing is launched before the client has
+been read and the API probed.
+
+1. Read the client. Read `system.py` for what leaves the process and how: endpoint, key handling,
+   payload, retries, timeouts, which fit inputs it forwards. Then run `audit --offline`: the
+   static scan plus the first request the client tries, with the network blocked, so no key is
+   needed and nothing is sent (the template sets a placeholder key for wrappers that read it before
+   building the request). Report the request outline to the maintainer: hosts, JSON keys, table
+   shapes and columns. A task identifier (dataset name, task id, fold), a target column outside the
+   training table, or a host other than the provider's endpoint stops the run.
+2. Ask for what only the maintainer knows, in one `AskUserQuestion` when it is not in the context:
+   whether the evaluation key is available, and the concurrency the provider allows (`NUM_WORKERS`).
+   The key lives in an environment variable in the maintainer's shell. Never write it into a script,
+   a file in the repo, the job JSON, a log entry or a PR. Without the key, stop after the offline
+   audit and `setup` and say what is pending.
+3. With the key, run `audit` (the live probes: transduction, relabeled and shuffled labels, feature
+   jitter against a local reference, the time limit; about eight calls on each of four datasets).
+   Set `SUBMITTED_RESULTS` to the submitter's per-split CSV to compare it with the hosted methods.
+   Read only CSVs from a submitter's release; never unpickle their `.pkl` files. A `FAIL` stops the
+   run: quote the line and raise it with the maintainer. Read the details of every `WARN` and
+   report them. The JSON lands in `tmp_scripts/eval_output/<benchmark_name>/`; name it in the log entry.
+4. `smoke` (key needed): every config on three small tasks through the official pipeline, one call
+   each. Report the errors and the train and inference times.
+5. `setup` writes the job JSON and prints one `sbatch` command (`SlurmSingleNodeSetup`: an on-demand
+   `cpuhighmem16` node, `NUM_WORKERS` items in flight; the client needs no GPU, and a spot node would
+   restart a multi-day run). `--scheduler array` instead spreads the items over CPU nodes with
+   `array_job_limit=NUM_WORKERS`. Default to hand-off for the launch: the maintainer exports the key
+   in the shell that runs `sbatch` (the job inherits it). Resubmitting the same command resumes.
+6. Monitor the single job with `squeue -j <id>`, the `results.pkl` count under
+   `<WORKSPACE>/output/<benchmark_name>/data` against the expected total, and the runner log
+   `<WORKSPACE>/slurm_out/<benchmark_name>/<id>/run.out` (one START and one OK / FAILED line per item;
+   each item's own log is in `items/`). HTTP 429 or 5xx failures mean too many requests in flight:
+   lower `NUM_WORKERS`, then resubmit after the job ends.
+7. `eval` as in Step 7. Say in the report that API timings are wall-clock at the client, including
+   the network and the provider's queue, and that an API which fits and predicts in one call records
+   its whole fit as `time_infer_s` with `time_train_s` near zero, so its Pareto position against
+   locally timed methods is not comparable.
+8. The log entry (Step 8) adds the audit verdicts and JSON path, `NUM_WORKERS`, the partition, and
+   the API version or model id when the results record one (`method_metadata` in `results.pkl`).
+
+`upload-method` accepts the client node's `compute="cpu"` against the provider hardware that a
+`closed-source-api` system declares in `info.py` (a warning, not an error).
 
 ## Notes
 
