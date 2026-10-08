@@ -107,17 +107,35 @@ def init_aux_metric_env(aux_metric_map: dict[str, str] | None) -> None:
     print(f"Set {AUX_METRIC_ENV_VAR} to: {os.environ[AUX_METRIC_ENV_VAR]}")
 
 
-def resolve_ag_name(name: str, ag_name_override: str | None = None) -> str:
-    """Resolve a model-registry name (e.g. ``"TabPFN-3"``) to its AutoGluon name.
+def _system_info(name: str):
+    """The registered system whose method, display or generator name is ``name``, else ``None``."""
+    from tabarena.systems import get_system_registry
 
-    ``ag_name_override`` short-circuits the registry lookup (for custom methods not registered in
-    ``tabarena.models.utils.get_configs_generator_from_name``).
+    for info in get_system_registry().values():
+        md = info.method_metadata
+        if name in (md.method, md.display_name, info.config_generator.name):
+            return info
+    return None
+
+
+def resolve_ag_name(name: str, ag_name_override: str | None = None) -> str:
+    """Resolve a registry name (e.g. ``"TabPFN-3"``, or a system's ``"AutoGluon"``) to its AutoGluon name.
+
+    A model resolves to its wrapper's ``ag_name``; a system, which has none, to its config generator's
+    ``name``, the prefix of its experiments. ``ag_name_override`` short-circuits the lookup (for custom
+    methods registered in neither registry).
     """
     if ag_name_override is not None:
         return ag_name_override
     from tabarena.models.utils import get_configs_generator_from_name
 
-    return get_configs_generator_from_name(name).model_cls.ag_name
+    try:
+        return get_configs_generator_from_name(name).model_cls.ag_name
+    except ValueError:
+        system = _system_info(name)
+        if system is None:
+            raise
+        return system.config_generator.name
 
 
 def resolve_display_name(
@@ -129,8 +147,8 @@ def resolve_display_name(
 ) -> str | None:
     """Resolve the display name a run's method is labelled with in the leaderboard and figures.
 
-    ``display_name_override`` wins verbatim. Otherwise the model registry's ``display_name`` for
-    ``name`` is used with ``result_suffix`` appended (a re-run labelled ``"TabPFN-3 [Rerun]"`` stays
+    ``display_name_override`` wins verbatim. Otherwise the model (or system) registry's ``display_name``
+    for ``name`` is used with ``result_suffix`` appended (a re-run labelled ``"TabPFN-3 [Rerun]"`` stays
     distinguishable from the hosted ``"TabPFN-3"``). A method the registry does not know (a custom
     method identified through ``ag_name_override``) resolves to ``None``, which keeps the default
     label, the config type.
@@ -142,9 +160,13 @@ def resolve_display_name(
     try:
         display_name = get_model_info_from_name(name).method_metadata.display_name
     except ValueError:
-        if ag_name_override is None:
+        system = _system_info(name)
+        if system is not None:
+            display_name = system.method_metadata.display_name
+        elif ag_name_override is None:
             raise
-        return None
+        else:
+            return None
     return display_name + (result_suffix or "")
 
 
