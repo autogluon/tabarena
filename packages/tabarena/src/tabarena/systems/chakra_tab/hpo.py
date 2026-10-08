@@ -3,7 +3,7 @@ from __future__ import annotations
 from tabarena.systems.chakra_tab.system import ChakraTabSystemModel
 from tabarena.utils.config_utils import SystemConfigGenerator
 
-# One configuration per API preset; the API does its own validation, bagging and ensembling.
+# One configuration per API preset; the API does its own validation, bagging and model selection.
 gen_chakra_tab = SystemConfigGenerator(
     model_cls=ChakraTabSystemModel,
     name="Chakra-Tab",

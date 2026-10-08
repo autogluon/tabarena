@@ -38,16 +38,21 @@ class ChakraTabSystemModel(ExternalSystemModel):
     """Chakra-Tab, YHat Labs' hosted tabular prediction API, benchmarked as a system.
 
     The API fits a table and predicts rows in one call (``fit_predict``): validation, bagging and
-    ensembling happen behind it, so TabArena hands it the raw frames and records what comes back.
+    model selection happen behind it, so TabArena hands it the raw frames and records what comes back.
     The fit stores the training table; the first ``predict`` / ``predict_proba`` on a set of rows
     makes the call, and both share its result.
 
     Init hyperparameters (per-config knobs for the system generator):
 
-    * ``preset`` -- ``"medium"`` (default: 8-fold bagging, every component in-context) or
-      ``"full"`` (8-fold bagging with component fine-tuning).
+    * ``preset`` -- ``"medium"`` (default: 3-fold bagging) or ``"full"`` (8-fold bagging), on every table.
+      Nothing is fine-tuned.
 
-    ``time_limit`` is forwarded to the API as the fit budget. The endpoint is read from
+    ``time_limit`` is forwarded to the API as the fit budget; the API keeps part of it for prediction and
+    aims to end the call inside it (a budget, not a hard kill). The split's ``random_state`` is forwarded
+    as ``seed``. The API reports its own
+    ``fit_s`` / ``predict_s`` / ``total_s`` (measured on the model server) and a ``version`` with every fit:
+    because it fits and predicts in one call, ``time_train_s`` here is near zero and the server-side
+    ``fit_s`` is the fit time. The endpoint is read from
     ``CHAKRA_TAB_URL`` (default: the public API) and the key from ``CHAKRA_TAB_KEY``. Transport
     errors, non-JSON replies, HTTP 429 and 5xx are retried with a growing pause; any other HTTP error
     fails at once. ``get_metadata`` returns what the API reported about its fit and each call's wall
@@ -67,6 +72,7 @@ class ChakraTabSystemModel(ExternalSystemModel):
         self._problem_type: str | None = None
         self._metric: str | None = None
         self._time_limit: float | None = None
+        self._seed: int | None = None
         self._cache: dict[str, dict] = {}
         self.fit_info: dict | None = None
         self._api_calls: list[dict] = []
@@ -94,6 +100,7 @@ class ChakraTabSystemModel(ExternalSystemModel):
         self._problem_type = problem_type
         self._metric = _METRICS.get(getattr(eval_metric, "name", str(eval_metric)))
         self._time_limit = time_limit
+        self._seed = None if random_state is None else int(random_state) % (2**31)
         return self
 
     def _call(self, X_test: pd.DataFrame) -> dict:
@@ -111,6 +118,7 @@ class ChakraTabSystemModel(ExternalSystemModel):
             "problem_type": self._problem_type,
             "eval_metric": self._metric,
             "time_limit": self._time_limit,
+            "seed": self._seed,
         }
         headers = {"Authorization": f"{os.environ.get(_SCHEME_ENV, 'Bearer')} {os.environ[_KEY_ENV]}"}
         out, failure, start = None, None, time.monotonic()
@@ -148,8 +156,22 @@ class ChakraTabSystemModel(ExternalSystemModel):
         return pd.DataFrame(np.asarray(out["probabilities"], dtype=float), index=X.index, columns=out["classes"])
 
     def get_metadata(self) -> dict:
-        """What the API reported about its fit (``fit`` in the response) and each call, for ``results.pkl``."""
-        return {"api_url": self.url, "preset": self.preset, "api_fit_info": self.fit_info, "api_calls": self._api_calls}
+        """What the API reported about its fit (``fit`` in the response) and each call, for ``results.pkl``.
+
+        ``api_fit_s`` / ``api_predict_s`` / ``api_version`` lift the server-side timings and the model version out
+        of the report, so the fit time of this fit-and-predict-in-one-call API can be read without parsing it.
+        """
+        fi = self.fit_info or {}
+        return {
+            "api_url": self.url,
+            "preset": self.preset,
+            "api_fit_info": self.fit_info,
+            "api_calls": self._api_calls,
+            "api_version": fi.get("version"),
+            "api_fit_s": fi.get("fit_s"),
+            "api_predict_s": fi.get("predict_s"),
+            "api_total_s": fi.get("total_s"),
+        }
 
     def cleanup(self):
         self._train = None

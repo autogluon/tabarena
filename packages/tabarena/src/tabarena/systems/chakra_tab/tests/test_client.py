@@ -50,7 +50,8 @@ def _model() -> ChakraTabSystemModel:
 
 def _ok(n: int) -> _Response:
     proba = np.full((n, 2), 0.5).tolist()
-    return _Response(200, {"classes": ["neg", "pos"], "probabilities": proba, "fit": {"model": "chakra-test"}})
+    fit = {"model": "chakra-test", "version": "chakra-tab-test", "fit_s": 4.2, "predict_s": 0.3, "total_s": 4.6}
+    return _Response(200, {"classes": ["neg", "pos"], "probabilities": proba, "fit": fit})
 
 
 def test_payload_retries_and_metadata(frames, monkeypatch):
@@ -66,18 +67,25 @@ def test_payload_retries_and_metadata(frames, monkeypatch):
 
     monkeypatch.setattr(requests, "post", post)
     model = _model()
-    out = model.fit_custom(X, y, X_test, split_seed=0)
+    out = model.fit_custom(X, y, X_test, split_seed=3)
 
     assert out["probabilities"].shape == (len(X_test), 2)
     assert len(sent) == 3
     body = sent[0]
-    assert set(body) == {"op", "train", "target", "test", "preset", "problem_type", "eval_metric", "time_limit"}
+    assert set(body) == {"op", "train", "target", "test", "preset", "problem_type", "eval_metric", "time_limit", "seed"}
+    assert body["seed"] == 3  # the split's random_state
     test_table = pd.read_parquet(io.BytesIO(base64.b64decode(body["test"]["bytes"])))
     train_table = pd.read_parquet(io.BytesIO(base64.b64decode(body["train"]["bytes"])))
     assert "label" not in test_table.columns
     assert "label" in train_table.columns
     meta = model.get_metadata()
-    assert meta["api_fit_info"] == {"model": "chakra-test"}
+    assert meta["api_fit_info"]["model"] == "chakra-test"
+    assert (meta["api_version"], meta["api_fit_s"], meta["api_predict_s"], meta["api_total_s"]) == (
+        "chakra-tab-test",
+        4.2,
+        0.3,
+        4.6,
+    )
     assert meta["api_calls"][0]["attempts"] == 3
 
 
