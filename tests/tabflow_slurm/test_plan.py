@@ -382,3 +382,11 @@ class TestSchedulerAwarePlan:
         monkeypatch.setattr(plan, "build_setups", lambda num_ray_cpus="auto": [])
         assert plan.setup_jobs() == []
         assert len(calls) == (0 if nodes_fetch_themselves else 1)
+
+
+def test_format_models_names_system_generators():
+    from tabarena.systems import get_system_registry
+    from tabflow_slurm.setup.plan import _format_models
+
+    generator = get_system_registry()["TabFM+"].config_generator
+    assert _format_models([("RandomForest", 0), (generator, 0)]) == "RandomForest, TabFM+"
