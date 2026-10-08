@@ -25,6 +25,7 @@ _SCHEME_ENV = (
 )
 _DEFAULT_URL = "https://api.yhatlabs.com/v1/tabular/predict"
 _METRICS = {"log_loss": "log_loss", "roc_auc": "roc_auc", "rmse": "rmse", "root_mean_squared_error": "rmse"}
+_MAX_ATTEMPTS = 4
 
 
 def _parquet_b64(df: pd.DataFrame) -> dict:
@@ -47,7 +48,10 @@ class ChakraTabSystemModel(ExternalSystemModel):
       ``"full"`` (8-fold bagging with component fine-tuning).
 
     ``time_limit`` is forwarded to the API as the fit budget. The endpoint is read from
-    ``CHAKRA_TAB_URL`` (default: the public API) and the key from ``CHAKRA_TAB_KEY``.
+    ``CHAKRA_TAB_URL`` (default: the public API) and the key from ``CHAKRA_TAB_KEY``. Transport
+    errors, non-JSON replies, HTTP 429 and 5xx are retried with a growing pause; any other HTTP error
+    fails at once. ``get_metadata`` returns what the API reported about its fit and each call's wall
+    time, which the runner stores with the result.
 
     API documentation: https://yhatlabs.com
     """
@@ -65,6 +69,7 @@ class ChakraTabSystemModel(ExternalSystemModel):
         self._time_limit: float | None = None
         self._cache: dict[str, dict] = {}
         self.fit_info: dict | None = None
+        self._api_calls: list[dict] = []
 
     def _fit_system(
         self,
@@ -81,6 +86,8 @@ class ChakraTabSystemModel(ExternalSystemModel):
         time_limit: float | None,
         random_state: int | None,
     ):
+        if not os.environ.get(_KEY_ENV):
+            raise RuntimeError(f"Chakra-Tab needs its API key in the {_KEY_ENV} environment variable.")
         X[target_name] = y.to_numpy() if hasattr(y, "to_numpy") else y
         self._train = X
         self._target = target_name
@@ -106,15 +113,26 @@ class ChakraTabSystemModel(ExternalSystemModel):
             "time_limit": self._time_limit,
         }
         headers = {"Authorization": f"{os.environ.get(_SCHEME_ENV, 'Bearer')} {os.environ[_KEY_ENV]}"}
-        out = None
-        for attempt in range(4):
-            r = requests.post(self.url, json=body, headers=headers, timeout=7200)
-            if r.status_code == 200 and "error" not in r.json():
-                out = r.json()
+        out, failure, start = None, None, time.monotonic()
+        for attempt in range(1, _MAX_ATTEMPTS + 1):
+            try:
+                r = requests.post(self.url, json=body, headers=headers, timeout=7200)
+                payload = r.json()
+            except (requests.RequestException, ValueError) as exc:
+                failure, retry = f"{type(exc).__name__}: {str(exc)[:300]}", True
+            else:
+                if r.status_code == 200 and "error" not in payload:
+                    out = payload
+                    break
+                failure, retry = f"HTTP {r.status_code}: {r.text[:300]}", r.status_code == 429 or r.status_code >= 500
+            if not retry or attempt == _MAX_ATTEMPTS:
                 break
-            time.sleep(30 * (attempt + 1))
+            time.sleep(30 * attempt)
+        self._api_calls.append(
+            {"rows": len(X_test), "attempts": attempt, "wall_s": time.monotonic() - start, "failure": failure},
+        )
         if out is None:
-            raise RuntimeError(f"Chakra-Tab API failed: {r.status_code} {r.text[:300]}")
+            raise RuntimeError(f"Chakra-Tab API failed after {attempt} attempt(s): {failure}")
         self.fit_info = out.get("fit")
         self._cache = {key: out}
         return out
@@ -128,6 +146,10 @@ class ChakraTabSystemModel(ExternalSystemModel):
     def _predict_proba(self, X: pd.DataFrame) -> pd.DataFrame:
         out = self._call(X)
         return pd.DataFrame(np.asarray(out["probabilities"], dtype=float), index=X.index, columns=out["classes"])
+
+    def get_metadata(self) -> dict:
+        """What the API reported about its fit (``fit`` in the response) and each call, for ``results.pkl``."""
+        return {"api_url": self.url, "preset": self.preset, "api_fit_info": self.fit_info, "api_calls": self._api_calls}
 
     def cleanup(self):
         self._train = None
