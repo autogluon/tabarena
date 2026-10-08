@@ -144,7 +144,7 @@ maintainer normally hand-edits them — Claude does it now. Read the file first,
 | `cache_kwargs` | `{"bucket": "tabarena", "prefix": "cache"}` | The r2 location (`bucket` + `prefix`). Required when `cache_type="r2"`. |
 | `date` | `"YYYY-MM-DD"` | The run date. Validated as a real calendar date. |
 | `verified` | `False` (until signed off), then `True` | Manual trust flag. Keep `False` until the results are verified; flip to `True` once they are (typically the final step). |
-| `method_class` / `tags` | systems only | `MethodMetadata.system(...)` sets `method_class`; `tags` (`with-llm`, `closed-source-api`) decide which entrant pools the system competes in. Neither is inferable from raw data. |
+| `method_class` / `tags` | systems only | `MethodMetadata.system(...)` sets `method_class`; `tags` (`with-llm`, `closed-source-api`) decide which entrant pools the system competes in. Neither is inferable from raw data. A system with several configs (`<Name>_c1_default`, `_c2_default`, ...) is hosted as one `MethodMetadata` per config, like the AutoGluon presets in `systems/autogluon/info.py`. For a `closed-source-api` system `compute` is the provider's hardware: the raw results record the CPU client node, and the inspect step shows that mismatch as a warning, not an error. |
 | `validation_protocol` | the key the inspect step infers, e.g. `"8x1"` | The inner validation protocol the results record. `--process` requires it for a new run; `run_upload_results.py` refuses an upload whose processed artifact records a key `info.py` does not declare. `MethodMetadata.system(...)` defaults it to `"system"`. |
 
 Leave the other raw-inferable fields (`ag_key`, `config_default`, `can_hpo`, `is_bag`, `compute`,
