@@ -54,8 +54,9 @@ class ChakraTabSystemModel(ExternalSystemModel):
     because it fits and predicts in one call, ``time_train_s`` here is near zero and the server-side
     ``fit_s`` is the fit time. The endpoint is read from
     ``CHAKRA_TAB_URL`` (default: the public API) and the key from ``CHAKRA_TAB_KEY``. Transport
-    errors, non-JSON replies, HTTP 429 and 5xx are retried with a growing pause; any other HTTP error
-    fails at once. ``get_metadata`` returns what the API reported about its fit and each call's wall
+    errors, HTTP 429 and 5xx, and a 200 reply that is not JSON are retried with a growing pause; any
+    other HTTP error fails at once. A failure names the HTTP status and the start of the body, JSON or
+    not (a gateway's error page). ``get_metadata`` returns what the API reported about its fit and each call's wall
     time, which the runner stores with the result.
 
     API documentation: https://yhatlabs.com
@@ -125,14 +126,18 @@ class ChakraTabSystemModel(ExternalSystemModel):
         for attempt in range(1, _MAX_ATTEMPTS + 1):
             try:
                 r = requests.post(self.url, json=body, headers=headers, timeout=7200)
-                payload = r.json()
-            except (requests.RequestException, ValueError) as exc:
+            except requests.RequestException as exc:
                 failure, retry = f"{type(exc).__name__}: {str(exc)[:300]}", True
             else:
-                if r.status_code == 200 and "error" not in payload:
+                try:
+                    payload = r.json()
+                except ValueError:
+                    payload = None  # e.g. a gateway's HTML error page
+                if r.status_code == 200 and isinstance(payload, dict) and "error" not in payload:
                     out = payload
                     break
-                failure, retry = f"HTTP {r.status_code}: {r.text[:300]}", r.status_code == 429 or r.status_code >= 500
+                failure = f"HTTP {r.status_code}{'' if payload is not None else ' (not JSON)'}: {r.text[:300]}"
+                retry = r.status_code == 429 or r.status_code >= 500 or (r.status_code == 200 and payload is None)
             if not retry or attempt == _MAX_ATTEMPTS:
                 break
             time.sleep(30 * attempt)

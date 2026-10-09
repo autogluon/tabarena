@@ -19,10 +19,10 @@ from tabarena.systems.chakra_tab.system import ChakraTabSystemModel
 
 
 class _Response:
-    def __init__(self, status: int, payload: dict | None):
+    def __init__(self, status: int, payload: dict | None, text: str = "fake"):
         self.status_code = status
         self._payload = payload
-        self.text = "fake"
+        self.text = text
 
     def json(self):
         if self._payload is None:
@@ -105,3 +105,26 @@ def test_missing_key_fails_before_any_request(frames, monkeypatch):
     monkeypatch.setattr(requests, "post", lambda *a, **k: pytest.fail("no request without a key"))
     with pytest.raises(RuntimeError, match="CHAKRA_TAB_KEY"):
         _model().fit_custom(X, y, X_test, split_seed=0)
+
+
+def test_a_gateway_page_keeps_its_status(frames, monkeypatch):
+    X, y, X_test = frames
+    monkeypatch.setenv("CHAKRA_TAB_KEY", "test-key")
+    monkeypatch.setattr(chakra.time, "sleep", lambda _s: None)
+    page = "<html>504 Gateway Time-out</html>"
+    calls = []
+    monkeypatch.setattr(requests, "post", lambda *a, **k: calls.append(1) or _Response(504, None, page))
+    with pytest.raises(RuntimeError, match="HTTP 504 \\(not JSON\\): <html>504 Gateway"):
+        _model().fit_custom(X, y, X_test, split_seed=0)
+    assert len(calls) == chakra._MAX_ATTEMPTS  # a 5xx page is retried
+
+
+def test_a_client_error_page_fails_at_once(frames, monkeypatch):
+    X, y, X_test = frames
+    monkeypatch.setenv("CHAKRA_TAB_KEY", "test-key")
+    calls = []
+    page = "<html>413 Request Entity Too Large</html>"
+    monkeypatch.setattr(requests, "post", lambda *a, **k: calls.append(1) or _Response(413, None, page))
+    with pytest.raises(RuntimeError, match="HTTP 413 \\(not JSON\\)"):
+        _model().fit_custom(X, y, X_test, split_seed=0)
+    assert len(calls) == 1
