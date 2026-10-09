@@ -20,7 +20,7 @@ prismboost_method_metadata = MethodMetadata.config(
     date_introduced="2026-09",
     reference_url="https://github.com/PrismBoost/PrismBoost",
     license="MIT",
-    verified=False,
+    verified=True,
     cache_type="r2",
     cache_kwargs={"bucket": "tabarena", "prefix": "cache"},
 )
