@@ -1292,6 +1292,7 @@ class AbstractArenaContext:
         # label from the subset expression so per-subset runs are labeled without extra plumbing.
         if subset is not None and "subset_label" not in kwargs:
             kwargs["subset_label"] = "_".join(str(s) for s in subset)
+        n_results_before_scope = len(df_results)
         df_results = self.subset_results(
             df_results=df_results,
             subset=subset,
@@ -1299,13 +1300,13 @@ class AbstractArenaContext:
             datasets=datasets,
             folds=folds,
         )
-        if df_results.empty:
+        if df_results.empty and n_results_before_scope > 0:
             raise ValueError(
                 f"[{self.benchmark_name}] No results remain after scoping to subset={subset!r}"
                 f"{f', datasets={datasets!r}' if datasets is not None else ''}"
                 f"{f', folds={folds!r}' if folds is not None else ''}"
-                f"{f', tasks={tasks!r}' if tasks is not None else ''}: the scope matches no task the registered "
-                "methods have results on."
+                f"{f', tasks={tasks!r}' if tasks is not None else ''}: the scope matches none of the "
+                f"{n_results_before_scope} results of the registered methods."
             )
 
         # TODO: only methods that exist in runs
