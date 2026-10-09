@@ -61,11 +61,11 @@ def _apply_overrides(base: Any, overrides: dict[str, Any], label: str) -> Any:
 
 @dataclass
 class SingleModel:
-    """One model entry: a name plus the number of configs to run for it.
+    """One model entry: a name, the number of configs to run for it and optional pinned hyperparameters.
 
-    The typed counterpart of the `(name, n_configs)` tuples that
-    `TabArenaExperimentBundle.models` accepts. Construct directly or via
-    `SingleModel.from_input` (which also accepts a bare name or a tuple).
+    The typed counterpart of the `(name, n_configs)` and `(name, n_configs, hyperparameters)` tuples that
+    `TabArenaExperimentBundle.models` accepts. Construct directly or via `SingleModel.from_input` (which
+    also accepts a bare name or a tuple).
     """
 
     name: str
@@ -75,27 +75,33 @@ class SingleModel:
         - "all": `n_random_configs`-many configs (resolved by the bundle).
         - dict: kwargs for an AGExperiment (AutoGluon full-pipeline models).
     """
+    hyperparameters: dict | None = None
+    """Hyperparameters merged into every config of this model (the bundle's optional third tuple element),
+    e.g. `{"num_boost_round": 100}`. `None` adds nothing."""
 
     @classmethod
     def from_input(cls, model: SingleModel | tuple | str) -> SingleModel:
         """Normalize a model spec into a `SingleModel`.
 
-        Accepts a `SingleModel` (returned as-is), a `(name, n_configs)` tuple,
-        or a bare model name string (uses the default `n_configs`).
+        Accepts a `SingleModel` (returned as-is), a `(name, n_configs)` or
+        `(name, n_configs, hyperparameters)` tuple, or a bare model name string (uses the
+        default `n_configs`).
         """
         if isinstance(model, SingleModel):
             return model
         if isinstance(model, str):
             return cls(name=model)
-        if isinstance(model, tuple):
+        if isinstance(model, tuple) and 1 <= len(model) <= 3:
             return cls(*model)
         raise TypeError(
-            f"Cannot interpret {model!r} as a model. Expected a SingleModel, "
-            f"a (name, n_configs) tuple, or a model name string.",
+            f"Cannot interpret {model!r} as a model. Expected a SingleModel, a (name, n_configs) or "
+            f"(name, n_configs, hyperparameters) tuple, or a model name string.",
         )
 
-    def to_entry(self) -> tuple[str, int | str | dict]:
-        """The `(name, n_configs)` tuple consumed by `TabArenaExperimentBundle`."""
+    def to_entry(self) -> tuple:
+        """The `(name, n_configs[, hyperparameters])` tuple consumed by `TabArenaExperimentBundle`."""
+        if self.hyperparameters:
+            return (self.name, self.n_configs, self.hyperparameters)
         return (self.name, self.n_configs)
 
 
