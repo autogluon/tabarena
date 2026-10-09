@@ -193,3 +193,62 @@ def test_with_preset_makes_a_rebuilt_collection_materializable(patched_data_foun
     bound = rebuilt.with_preset("BeyondArena")
     bound.subset_tasks(problem_types=["binary"]).materialize()
     assert patched_data_foundry == ["ds_bin/uuid-ds_bin"]
+
+
+# ---------------------------------------------------------------------------
+# Regenerated reference metadata: invalidated when the collection's containers change
+# ---------------------------------------------------------------------------
+
+
+def _collection_of(name: str, uris: list[str]):
+    import types
+    from pathlib import PurePosixPath
+
+    entries = tuple(types.SimpleNamespace(relative_path=PurePosixPath(uri)) for uri in uris)
+    return types.SimpleNamespace(name=name, entries=entries)
+
+
+@pytest.mark.parametrize(
+    ("cached_uris", "regenerated"),
+    [(["ds_a/uuid-1", "ds_b/uuid-1"], False), (["ds_a/uuid-0", "ds_b/uuid-1"], True)],
+)
+def test_regenerated_reference_metadata_is_rebuilt_for_other_containers(
+    monkeypatch, tmp_path, cached_uris, regenerated
+):
+    """A cached CSV listing other containers than the collection (rebuilt under new UUIDs) is regenerated."""
+    import tabarena.benchmark.task.data_foundry.beyond_arena as ba
+
+    cached = tmp_path / "Custom_tasks_metadata.csv"
+    pd.DataFrame({"data_foundry_uri": cached_uris, "marker": "cached"}).to_csv(cached, index=False)
+    monkeypatch.setattr(ba, "_generated_metadata_cache_path", lambda _name: cached)
+    monkeypatch.setattr(ba, "reference_metadata_package_path", lambda _name: tmp_path / "missing.csv")
+    calls: list = []
+
+    def _fake_generate(*, collection, out_path, **_):
+        calls.append(collection.name)
+        pd.DataFrame({"data_foundry_uri": ["ds_a/uuid-1", "ds_b/uuid-1"], "marker": "fresh"}).to_csv(
+            out_path, index=False
+        )
+        return out_path
+
+    monkeypatch.setattr(ba, "generate_reference_metadata", _fake_generate)
+    df = ba.load_reference_metadata(collection=_collection_of("Custom", ["ds_a/uuid-1", "ds_b/uuid-1"]))
+
+    assert (calls == ["Custom"]) is regenerated
+    assert set(df["marker"]) == {"fresh" if regenerated else "cached"}
+
+
+def test_regenerated_reference_metadata_by_name_only_is_trusted(monkeypatch, tmp_path):
+    """Looked up by name with a lazy factory, the cached CSV is used without building the collection."""
+    import tabarena.benchmark.task.data_foundry.beyond_arena as ba
+
+    cached = tmp_path / "Custom_tasks_metadata.csv"
+    pd.DataFrame({"data_foundry_uri": ["ds_a/uuid-0"]}).to_csv(cached, index=False)
+    monkeypatch.setattr(ba, "_generated_metadata_cache_path", lambda _name: cached)
+    monkeypatch.setattr(ba, "reference_metadata_package_path", lambda _name: tmp_path / "missing.csv")
+
+    def _factory():
+        raise AssertionError("the collection must not be built on the cached path")
+
+    df = ba.load_reference_metadata(collection_name="Custom", collection_factory=_factory)
+    assert list(df["data_foundry_uri"]) == ["ds_a/uuid-0"]

@@ -203,13 +203,18 @@ def _materialize_job_task(batch, job, *, job_batch_dir: str | None = None):
     in ``task_source.json`` (``TaskMetadataCollection.with_preset``), so ``materialize()`` downloads
     exactly this job's task: an OpenML task through ``openml.tasks.get_task``, a data-foundry task
     (BeyondArena) through its HF container plus the bundled text cache. Without a recorded suite the
-    collection's source is in-memory and cannot download; OpenML tasks still load lazily, data-foundry
-    tasks cannot, so those raise here rather than on a missing pickle inside the fit. A ``UserTask``
+    collection's source is in-memory and cannot download; OpenML tasks still load lazily, and a
+    data-foundry task of a custom collection (a local warehouse, no registered suite) runs when its
+    converted task is already in this node's cache, which the SkyPilot setup seeds for every task it
+    materialized. A data-foundry task that is neither raises here rather than on a missing pickle
+    inside the fit. A ``UserTask``
     id that embeds a cache path (the 4-segment form) names a directory of another machine and is
     refused as well.
     """
+    from tabarena.benchmark.task.user_task import UserTask
+
     collection = batch.task_metadata.subset_to_jobs([job])
-    data_foundry_backed = False
+    missing_data_foundry_tasks = []
     for ttm in collection:
         task_id_str = ttm.task_id_str
         if isinstance(task_id_str, str) and task_id_str.startswith("UserTask|") and task_id_str.count("|") != 2:
@@ -217,15 +222,22 @@ def _materialize_job_task(batch, job, *, job_batch_dir: str | None = None):
                 f"Task id {task_id_str!r} of dataset {ttm.tabarena_task_name!r} embeds a cache path, so it cannot be "
                 "materialized on another machine. Rebuild the task with the portable (path-free) id.",
             )
-        data_foundry_backed |= isinstance(ttm.data_foundry_uri, str) and bool(ttm.data_foundry_uri)
+        if not (isinstance(ttm.data_foundry_uri, str) and ttm.data_foundry_uri):
+            continue
+        # A converted task already in this node's cache (seeded by the SkyPilot setup) needs no source.
+        cached = isinstance(task_id_str, str) and UserTask.from_task_id_str(task_id_str).task_path.exists()
+        if not cached:
+            missing_data_foundry_tasks.append(ttm.tabarena_task_name)
     if collection.preset is None:
-        if data_foundry_backed:
+        if missing_data_foundry_tasks:
             raise ValueError(
-                f"The batch{f' at {job_batch_dir!r}' if job_batch_dir else ''} records no task-metadata suite (task_source.json), so its "
-                "data-foundry task cannot be materialized here. Regenerate the batch; a JobBatch built through an "
-                "arena context records the suite.",
+                f"The batch{f' at {job_batch_dir!r}' if job_batch_dir else ''} records no task-metadata suite "
+                f"(task_source.json), and the data-foundry task(s) {missing_data_foundry_tasks} are not in this "
+                "node's cache, so they cannot be materialized here. Regenerate the batch through an arena context "
+                "whose collection is a registered suite, or seed the converted tasks into the cache (the SkyPilot "
+                "setup does this for every task it materialized on the head node).",
             )
-        # OpenML tasks download lazily when loaded; nothing to prefetch without a suite source.
+        # OpenML tasks download lazily when loaded, and data-foundry tasks are cached; nothing to prefetch.
         return collection
     collection.materialize()
     return collection

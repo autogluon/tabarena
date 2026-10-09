@@ -139,13 +139,18 @@ class SkyPilotSetup(SchedulerSetup):
     :mod:`tabflow_slurm.setup.sky_cache`); ``None`` means ``<bucket>/tabarena/cache``, shared across
     users and runs. Workers only read it. Point it at a curated bucket this account cannot write to
     together with ``seed_dataset_cache=False``."""
+    weights_cache_uri: str | None = None
+    """Static prefix holding the model weights (the ``huggingface/``, ``xdg/`` and ``torch/`` trees plus
+    ``weights/<model>.json``); ``None`` means ``dataset_cache_uri``. Set it apart when the datasets go to a
+    private prefix (a gated or unpublished dataset collection) while the weights stay in the shared
+    cache, so they are not seeded a second time."""
     seed_dataset_cache: bool = True
     """Upload the run's datasets from this node's caches into ``dataset_cache_uri`` at setup (only
     what is missing) and verify. ``False`` only verifies; datasets missing remotely are downloaded by
     the workers from OpenML or the Hub as a fallback. A legacy data-foundry task pickle is upgraded
     to the portable format first."""
     seed_model_weights: bool = True
-    """Prefetch the run's model weights on this node into ``dataset_cache_uri`` (once per model; a
+    """Prefetch the run's model weights on this node into ``weights_cache_uri`` (once per model; a
     remote ``weights/<model>.json`` makes later setups skip it) so the workers load them from the
     bucket with ``HF_HUB_OFFLINE=1`` and need no Hugging Face token. ``False`` leaves the download to
     each worker (gated weights then need the token in ``secrets``)."""
@@ -223,6 +228,12 @@ class SkyPilotSetup(SchedulerSetup):
         if self.dataset_cache_uri is not None:
             return self.dataset_cache_uri.rstrip("/")
         return f"{self.bucket.rstrip('/')}/tabarena/cache"
+
+    @property
+    def resolved_weights_cache_uri(self) -> str:
+        if self.weights_cache_uri is not None:
+            return self.weights_cache_uri.rstrip("/")
+        return self.resolved_dataset_cache_uri
 
     def pool_for(self, resources: ResourcesSetup) -> str:
         if self.pool_name is not None:
@@ -397,6 +408,7 @@ class SkyPilotSetup(SchedulerSetup):
                     "run_uri": layout.run_uri,
                     "env_manifest": env.manifest_uri,
                     "dataset_cache_uri": self.resolved_dataset_cache_uri,
+                    "weights_cache_uri": self.resolved_weights_cache_uri,
                     "n_tasks": n_tasks,
                     "n_items": sum(len(job["items"]) for job in all_jobs),
                     "commands": commands,
@@ -414,8 +426,8 @@ class SkyPilotSetup(SchedulerSetup):
         Reads the batch's ``task_metadata.csv`` (the tasks ``setup`` just materialized into this
         node's caches; rebound to the suite in ``task_source.json`` so a legacy pickle can be
         re-materialized) and copies their cache entries into ``dataset_cache_uri`` (see
-        :func:`tabflow_slurm.setup.sky_cache.seed_dataset_cache`), then the models' weights (see
-        :func:`tabflow_slurm.setup.sky_cache.seed_model_weights`). Returns ``None`` when the batch
+        :func:`tabflow_slurm.setup.sky_cache.seed_dataset_cache`), then the models' weights into
+        ``weights_cache_uri`` (see :func:`tabflow_slurm.setup.sky_cache.seed_model_weights`). Returns ``None`` when the batch
         directory carries no task metadata.
         """
         csv_path = job_batch_dir / "task_metadata.csv"
@@ -436,10 +448,15 @@ class SkyPilotSetup(SchedulerSetup):
             entries, storage=self.storage, cache_uri=cache_uri, upload=self.seed_dataset_cache
         )
         print(report.summary())
+        weights_cache_uri = self.resolved_weights_cache_uri
         weights, weights_report = seed_model_weights(
-            model_names, python=python, storage=self.storage, cache_uri=cache_uri, upload=self.seed_model_weights
+            model_names,
+            python=python,
+            storage=self.storage,
+            cache_uri=weights_cache_uri,
+            upload=self.seed_model_weights,
         )
-        manifest.update(weights)
+        manifest.update(weights, weights_cache_uri=weights_cache_uri)
         print(
             f"model weights: {weights_report.datasets} model(s), {weights_report.files} file(s), "
             f"{weights_report.total_bytes / 1e6:.0f} MB, {weights_report.uploaded_files} uploaded now; "

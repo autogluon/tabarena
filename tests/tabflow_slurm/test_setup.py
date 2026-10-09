@@ -47,6 +47,19 @@ class TestPathSetup:
         ps = PathSetup(workspace="/ws", python_path="/py")
         assert ps.submit_script_path.endswith("submit_template.sh")
 
+    def test_path_arguments_are_stored_as_json_ready_strings(self):
+        """`Path` arguments end up in the job JSON (`defaults["python"]`), so they are stored as `str`."""
+        import json
+        from pathlib import Path
+
+        ps = PathSetup(workspace=Path("/ws"), python_path=Path("/venv/bin/python"), run_script=Path("/run.py"))
+        assert json.loads(json.dumps({"python": ps.python_path, "workspace": ps.workspace})) == {
+            "python": "/venv/bin/python",
+            "workspace": "/ws",
+        }
+        assert ps.run_script_path == "/run.py"
+        assert ps.get_output_path("bench") == "/ws/output/bench"
+
     def test_run_script_path_custom(self):
         ps = PathSetup(workspace="/ws", python_path="/py", run_script="/custom/run.py")
         assert ps.run_script_path == "/custom/run.py"

@@ -86,6 +86,13 @@ class TestSingleModel:
     def test_to_entry(self):
         assert SingleModel("X", "all").to_entry() == ("X", "all")
 
+    def test_from_input_with_pinned_hyperparameters(self):
+        """The bundle's `(name, n_configs, hyperparameters)` form round-trips through `SingleModel`."""
+        sm = SingleModel.from_input(("X", 0, {"max_cells": 10}))
+        assert sm == SingleModel(name="X", n_configs=0, hyperparameters={"max_cells": 10})
+        assert sm.to_entry() == ("X", 0, {"max_cells": 10})
+        assert SingleModel("X", 0, {}).to_entry() == ("X", 0)
+
 
 # ---------------------------------------------------------------------------
 # ModelJob normalization

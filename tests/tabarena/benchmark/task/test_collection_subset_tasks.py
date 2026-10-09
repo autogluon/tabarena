@@ -71,9 +71,8 @@ def _task_meta(
         num_features=5,
         num_classes=2,
         num_instance_groups=100,
-        tabarena_task_name=dataset_name,
         task_id_str=task_id_str,
-        **extra_fields,
+        **{"tabarena_task_name": dataset_name, **extra_fields},
     )
 
 
@@ -196,6 +195,17 @@ class TestSubsetTasks:
         meta = [_task_meta(dataset_name="a"), _task_meta(dataset_name="b")]
         result = _collection(meta).subset_tasks(dataset_names=["a"])
         assert [t.dataset_name for t in result] == ["a"]
+
+    def test_dataset_names_filter_accepts_the_tabarena_task_name(self):
+        """A UserTask's ``tabarena_task_name`` (``<name>-<hash>``, what ``dataset_names()`` lists) selects it too."""
+        meta = [
+            _task_meta(dataset_name="a", tabarena_task_name="a-1f2e"),
+            _task_meta(dataset_name="b", tabarena_task_name="b-3c4d"),
+        ]
+        collection = _collection(meta)
+        assert collection.dataset_names() == ["a-1f2e", "b-3c4d"]
+        assert [t.dataset_name for t in collection.subset_tasks(dataset_names=["a-1f2e"])] == ["a"]
+        assert [t.dataset_name for t in collection.subset_tasks(dataset_names=["b"])] == ["b"]
 
     def test_dataset_names_unknown_raises(self):
         with pytest.raises(ValueError, match="not found in task metadata"):
