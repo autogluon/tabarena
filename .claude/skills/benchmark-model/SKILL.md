@@ -367,16 +367,29 @@ maintainer, and post it only after they say so.
 
 ### Results artifact
 
-After the report, publish a Claude artifact (the Artifact tool) with the figures the maintainer copies
-into the PR by hand, without being asked. Those figures are the minimum: usually the Pareto front of
-Elo against inference time for each arena the model ran on, on the subset that represents it (the
-classification subset for a classification-only model). Choose them from what this run shows rather
-than publishing every file `eval` wrote, and add more only when it helps (the train-time front, a
-slice where the model stands out, a few key numbers beside a figure). Publish the PNGs as the
-artifact's own files, give each a copy button (`navigator.clipboard.write` with a `ClipboardItem`,
-falling back to a "right-click, Copy image" hint), and keep PR comment text out of the page.
-Examples: https://claude.ai/artifact/BsG5AXzHAoxVcSyw9626V4 (Kumo-Tabular) and
-https://claude.ai/artifact/UgpHBXd5ExGfai5cBKjMh1 (LightPFN).
+After the report, publish a Claude artifact (the Artifact tool) without being asked. Its minimum is the
+figures the maintainer copies into the PR by hand, usually the Pareto front of Elo against inference
+time for each arena the model ran on, on the subset that represents it (the classification subset for a
+classification-only model). Beyond that, shape the page to what this run shows; the pattern below has
+worked well, take from it what fits:
+
+- A header naming the model and the run, with a row of facts: benchmark name, PR head, items or
+  splits times configs, imputed share, hardware.
+- A "where it lands" table: position and Elo with its interval per subset, one column per variant
+  (default, tuned, tuned + ensemble) when the model has a search space, with a "Copy as Markdown"
+  button, plus a line on the fit and inference times against the closest baselines.
+- A subset switcher (all tasks, binary, multiclass, regression, or the subsets the model ran on) above
+  a grid of that subset's figures: the four Pareto fronts (Elo and improvability against train and
+  inference time), and for a tuned model the tuning-impact plot and the win-rate matrix as full-width
+  figures (a wide one scrolls sideways inside its frame).
+- For each figure a title, a one-line caption on how to read it, a "Copy image" button and an
+  "Open full size" link.
+
+Publish the PNGs as the artifact's own files (for example `figs/<subset>/<figure>.png`) and keep them on
+a white plate in both themes, since they are drawn on white. The copy button uses
+`navigator.clipboard.write` with a `ClipboardItem` inside the click handler and falls back to a
+"right-click, Copy image" hint, because some views block image copying. Keep PR comment and
+description text out of the page.
 
 ### CPU models: check the fit times before they replace hosted results
 
