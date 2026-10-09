@@ -64,8 +64,9 @@ while true; do
     states=""
     running=""
     if [ -n "$launch" ]; then
-        # One "STATUS" word per worker job of this launch, summarized as counts.
-        states=$("$sky_bin" jobs queue 2>/dev/null | awk -v name="$launch" '$0 ~ name {print $0}' \
+        # One "STATUS" word per worker job of this launch, summarized as counts. `--all`: the default view lists
+        # only the latest 50 jobs, so a larger launch would be undercounted.
+        states=$("$sky_bin" jobs queue --all 2>/dev/null | awk -v name="$launch" '$0 ~ name {print $0}' \
             | grep -o -E 'PENDING|STARTING|RUNNING|RECOVERING|SUCCEEDED|FAILED[A-Z_]*|CANCELLED|CANCELLING' \
             | sort | uniq -c | awk '{printf "%s=%s ", $2, $1}')
         running=$(printf '%s' "$states" | grep -c -E 'PENDING|STARTING|RUNNING|RECOVERING' || true)
