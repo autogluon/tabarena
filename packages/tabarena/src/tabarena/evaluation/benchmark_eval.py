@@ -60,6 +60,13 @@ class EvalMethod:
         return resolve_ag_name(self.name, self.ag_name_override)
 
     @property
+    def is_system(self) -> bool:
+        """Whether ``name`` is a registered system (its result rows are renamed to ``display_name``)."""
+        from tabarena.evaluation._eval_common import is_system
+
+        return is_system(self.name)
+
+    @property
     def display_name(self) -> str | None:
         """Label shown in the leaderboard and figures: the override, else the registry's
         ``display_name`` with ``result_suffix`` appended; ``None`` (config-type label) for a custom
@@ -230,6 +237,7 @@ def run_eval(config: TabArenaEvalConfig) -> dict[str, pd.DataFrame]:
             result_suffix=method.result_suffix,
             only_load_cache=method.only_load_cache,
             display_name=method.display_name,
+            system=method.is_system,
         )
         for method in config.methods
     ]

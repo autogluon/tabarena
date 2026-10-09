@@ -50,6 +50,10 @@ class MethodArtifact:
     :func:`resolve_display_name`. Recorded in the method's cached metadata at post-processing and
     applied to the metadata loaded from the cache (so ``only_load_cache`` and caches built without a
     display name get it too). ``None`` keeps the default label, the config type."""
+    system: bool = False
+    """True for a registered system. Its raw results are one baseline named after its config
+    (``<System>_c1_default``); post-processing renames them to ``display_name``, so the leaderboard and
+    the figures label each config the way the hosted systems are labelled."""
 
     @property
     def method_name(self) -> str:
@@ -116,6 +120,11 @@ def _system_info(name: str):
         if name in (md.method, md.display_name, info.config_generator.name):
             return info
     return None
+
+
+def is_system(name: str) -> bool:
+    """Whether ``name`` resolves to a registered system (by method, display or generator name)."""
+    return _system_info(name) is not None
 
 
 def resolve_ag_name(name: str, ag_name_override: str | None = None) -> str:
@@ -199,6 +208,7 @@ def post_process_to_results(
         EndToEnd.from_path_raw(
             path_raw=ma.path_raw,
             name_prefix_raw=ma.ag_name,
+            name=ma.display_name if ma.system else None,
             name_suffix=ma.result_suffix,
             method=ma.method_name,
             suite=ma.suite,

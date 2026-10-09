@@ -15,12 +15,17 @@ from tabarena.benchmark.exec_models import ExternalSystemModel
 from tabarena.tools.audit_system import (
     FAIL,
     PASS,
+    SKIP,
     WARN,
     EgressRecorder,
     audit_system,
+    compare_reproduced_results,
     compare_submitted_results,
+    make_decoys,
     make_synthetic_split,
+    results_frame,
     scan_source,
+    training_copies,
 )
 
 pytest.importorskip("sklearn")
@@ -123,6 +128,17 @@ class _LeakyClient(_HonestSystem):
         body |= {"dataset": "my-secret-dataset", "fold": 0}
         requests.post("https://api.example.invalid/v1/predict", json=body, headers={"Authorization": "x"}, timeout=5)
         return super()._predict_proba(X)
+
+
+class _ProbeRefusingSystem(_HonestSystem):
+    """Serves the real training labels and answers any other labels with an outage."""
+
+    ORIGINAL: pd.Series | None = None
+
+    def _fit_system(self, X, y, **kwargs):
+        if not y.reset_index(drop=True).equals(self.ORIGINAL.reset_index(drop=True)):
+            raise RuntimeError("HTTP 503: model_unavailable")
+        return super()._fit_system(X, y, **kwargs)
 
 
 def _split(problem_type: str, seed: int = 0):
@@ -259,3 +275,136 @@ def test_compare_submitted_results_flags_implausible_gains():
     flagged = [r for r in results if r.verdict == FAIL]
     assert [r.dataset for r in flagged] == ["b"]
     assert results[-1].details["per_split"][0]["rank"] == 2
+
+
+def _per_split(errors: list[float]) -> pd.DataFrame:
+    return pd.DataFrame({"dataset": [f"d{i}" for i in range(len(errors))], "fold": 0, "metric_error": errors})
+
+
+@pytest.mark.parametrize(
+    ("ours", "verdict"),
+    [
+        ([0.20, 0.30, 0.40, 0.50], PASS),  # matches: a seeded system
+        ([0.20002, 0.30, 0.40, 0.50], PASS),  # GPU float noise still matches
+        ([0.201, 0.299, 0.402, 0.499], PASS),  # run-to-run noise
+        ([0.24, 0.30, 0.40, 0.50], PASS),  # one split 1.2x: inside the band, median 1
+        ([0.30, 0.30, 0.40, 0.50], WARN),  # one split outside the band
+        ([0.23, 0.345, 0.46, 0.575], FAIL),  # 15% worse everywhere: the submitted numbers do not reproduce
+    ],
+)
+def test_compare_reproduced_results(ours, verdict):
+    submitted = _per_split([0.20, 0.30, 0.40, 0.50])
+    result = compare_reproduced_results(_per_split(ours), submitted)
+    assert result.verdict == verdict, result.summary
+    assert len(result.details["per_split"]) == 4
+
+
+def test_compare_reproduced_results_matches_on_dataset_and_split():
+    ours = pd.DataFrame({"dataset": ["d0", "d0"], "fold": [0, 1], "metric_error": [0.2, 0.9]})
+    submitted = pd.DataFrame({"dataset": ["d0", "d1"], "fold": [0, 0], "metric_error": [0.2, 0.9]})
+    result = compare_reproduced_results(ours, submitted)
+    assert result.verdict == PASS
+    assert [r["fold"] for r in result.details["per_split"]] == [0]
+    assert compare_reproduced_results(ours.iloc[1:], submitted).verdict == SKIP
+
+
+def test_results_frame_uses_the_split_index():
+    results = [
+        {"framework": "Sys_c1_default", "metric_error": 0.3, "task_metadata": {"name": "d0", "split_idx": 7}},
+    ]
+    frame = results_frame(results)
+    assert frame.to_dict(orient="records") == [
+        {"method": "Sys_c1_default", "dataset": "d0", "fold": 7, "metric_error": 0.3},
+    ]
+
+
+def test_a_refused_probe_is_named():
+    data = _split("binary")
+    _ProbeRefusingSystem.ORIGINAL = data.y_train
+    results = audit_system(
+        _ProbeRefusingSystem,
+        datasets=[data],
+        checks=("transduction", "labels", "time"),
+        log=lambda _msg: None,
+    )
+    (probe,) = _by_check(results, "probe")
+    assert probe.verdict == FAIL
+    assert "on the 'labels' call, after 5 served call(s)" in probe.summary
+    assert [c["probe"] for c in probe.details["calls"] if "error" in c] == ["labels"]
+    (timing,) = _by_check(results, "time")
+    assert timing.summary.startswith("5 calls")
+
+
+def test_decoys_keep_integer_columns_in_their_type():
+    X = pd.DataFrame(
+        {
+            "count": np.arange(40, dtype=np.uint8),
+            "signed": np.arange(-20, 20, dtype=np.int64),
+            "real": np.linspace(0, 1, 40),
+        },
+    )
+    decoys = make_decoys(X.iloc[:10], X, seed=0)
+    assert dict(decoys.dtypes) == dict(X.dtypes)
+    shift = decoys["count"].astype(int).to_numpy() - X["count"].iloc[:10].sample(frac=1.0, random_state=0).to_numpy()
+    assert (shift == round(10 * X["count"].std())).all()  # unsigned: shifted up, never below zero
+    assert (decoys["real"].sub(X["real"].mean()).abs() > 5 * X["real"].std()).mean() > 0.5
+
+
+class _BelowChanceSystem(_HonestSystem):
+    """Given any labels but the real ones, ranks the test rows backwards: far below chance, keeping no skill."""
+
+    def _fit_system(self, X, y, **kwargs):
+        original = _ProbeRefusingSystem.ORIGINAL
+        self._flip = not y.reset_index(drop=True).equals(original.reset_index(drop=True))
+        return super()._fit_system(X, original if self._flip else y, **kwargs)
+
+    def _predict_proba(self, X):
+        proba = super()._predict_proba(X)
+        return proba.iloc[:, ::-1].set_axis(proba.columns, axis=1) if self._flip else proba
+
+
+def test_shuffled_check_judges_the_skill_kept_not_the_distance_from_chance():
+    data = _split("binary")
+    _ProbeRefusingSystem.ORIGINAL = data.y_train
+    results = audit_system(_BelowChanceSystem, datasets=[data], checks=("shuffled",), log=lambda _msg: None)
+    (check,) = _by_check(results, "shuffled")
+    assert check.details["score"] < 0.2  # far below chance, where a strong honest learner can land
+    assert check.verdict == PASS
+
+
+class _MemorizingSystem(_HonestSystem):
+    """Returns the training target of a test row's exact training copy, the model's prediction otherwise."""
+
+    def _fit_system(self, X, y, **kwargs):
+        self._memory = dict(zip(map(tuple, X.astype(str).to_numpy()), y, strict=True))
+        return super()._fit_system(X, y, **kwargs)
+
+    def _predict(self, X):
+        pred = super()._predict(X)
+        keys = map(tuple, X.astype(str).to_numpy())
+        return pd.Series([self._memory.get(k, p) for k, p in zip(keys, pred, strict=True)], index=X.index)
+
+
+def _with_training_copies(data, share: float = 0.5):
+    """Replace a share of the test rows with copies of training rows (and their targets)."""
+    n = int(len(data.X_test) * share)
+    data.X_test = pd.concat([data.X_train.iloc[:n], data.X_test.iloc[n:]], ignore_index=True)
+    data.y_test = pd.concat([data.y_train.iloc[:n], data.y_test.iloc[n:]], ignore_index=True)
+    return data
+
+
+def test_training_copies():
+    X_train = pd.DataFrame({"a": [1.0, 2.0, 3.0], "b": ["x", "y", "z"]})
+    X_test = pd.DataFrame({"a": [2.0, 2.0, 4.0], "b": ["y", "x", "z"]})
+    assert training_copies(X_test, X_train).tolist() == [True, False, False]
+
+
+def test_jitter_is_judged_on_rows_without_a_training_copy():
+    data = _with_training_copies(_split("regression"))
+    results = audit_system(_MemorizingSystem, datasets=[data], checks=("jitter",), log=lambda _msg: None)
+    (check,) = _by_check(results, "jitter")
+    groups = check.details["groups"]
+    assert check.details["judged_on"] == "no_copy"
+    assert groups["copy"]["system"]["change"] > 1.0  # the copies are lost under the noise: a sharp rise there
+    assert groups["all"]["system"]["change"] > 0.25  # judged on all rows, the memorizer would have been flagged
+    assert check.verdict == PASS, check.summary

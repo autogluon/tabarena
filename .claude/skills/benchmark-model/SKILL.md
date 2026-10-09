@@ -448,13 +448,28 @@ been read and the API probed.
    a file in the repo, the job JSON, a log entry or a PR. Without the key, stop after the offline
    audit and `setup` and say what is pending.
 3. With the key, run `audit` (the live probes: transduction, relabeled and shuffled labels, feature
-   jitter against a local reference, the time limit; about eight calls on each of four datasets).
-   Set `SUBMITTED_RESULTS` to the submitter's per-split CSV to compare it with the hosted methods.
-   Read only CSVs from a submitter's release; never unpickle their `.pkl` files. A `FAIL` stops the
-   run: quote the line and raise it with the maintainer. Read the details of every `WARN` and
-   report them. The JSON lands in `tmp_scripts/eval_output/<benchmark_name>/`; name it in the log entry.
+   jitter against a local reference on the test rows without a training copy, the time limit;
+   about eight calls on each of four datasets).
+   Set `SUBMITTED_RESULTS` to the submitter's self-reported TabArena-Lite per-split CSV for each config
+   (`{"<Name>_c1_default": "<path>"}`); `audit` compares each with the hosted methods. Read only CSVs
+   from a submitter's release; never unpickle their `.pkl` files. A `FAIL` stops the
+   run: quote the line and raise it with the maintainer. A `probe` FAIL means the system raised; the
+   line names the call that failed and the calls served before it. An outage fails the first call of
+   a dataset. When only the decoy, relabeled or shuffled calls fail, rebuild that request locally
+   (column types, value ranges) and look for an input the server cannot handle before reading it
+   as a refusal of the probes, then rerun the dataset; the Chakra-Tab audit's 503s on decoys came
+   from `uint8` columns turned into negative floats, which the decoys now avoid. Read the details of
+   every `WARN` and report them. The JSON lands in `tmp_scripts/eval_output/<benchmark_name>/`; name it in the log entry.
 4. `smoke` (key needed): every config on three small tasks through the official pipeline, one call
-   each. Report the errors and the train and inference times.
+   each. Report the errors and the train and inference times. With `SUBMITTED_RESULTS` set, `smoke`
+   then compares each config's errors with the self-reported ones on the same splits (TabArena-Lite
+   is split 0, which the smoke runs): `compare_reproduced_results` in `tabarena.tools.audit_system`,
+   one `SMOKE [verdict] reproduced` line per config and `reproduction_smoke.json`. A system that
+   seeds its fit from the split matches the submitted errors up to float noise (relative 1e-4); an
+   unseeded one passes within noise. A `FAIL` (our errors more than 10% above the submitted ones at
+   the median) stops the launch: the submitted numbers came from something other than what the API
+   serves us, so raise it with the maintainer. Report every `WARN` (median off by more than 2%, or a
+   split outside 0.8x to 1.25x).
 5. `setup` writes the job JSON and prints one `sbatch` command (`SlurmSingleNodeSetup`: an on-demand
    `cpuhighmem16` node, `NUM_WORKERS` items in flight; the client needs no GPU, and a spot node would
    restart a multi-day run). `--scheduler array` instead spreads the items over CPU nodes with
@@ -465,11 +480,13 @@ been read and the API probed.
    `<WORKSPACE>/slurm_out/<benchmark_name>/<id>/run.out` (one START and one OK / FAILED line per item;
    each item's own log is in `items/`). HTTP 429 or 5xx failures mean too many requests in flight:
    lower `NUM_WORKERS`, then resubmit after the job ends.
-7. `eval` as in Step 7. Say in the report that API timings are wall-clock at the client, including
+7. `eval` as in Step 7. It ends with the same comparison on every split the submission covers (all
+   51 TabArena-Lite tasks, `EVAL [verdict] reproduced` lines and `reproduction_eval.json`); report
+   the verdict next to the leaderboard. Say in the report that API timings are wall-clock at the client, including
    the network and the provider's queue, and that an API which fits and predicts in one call records
    its whole fit as `time_infer_s` with `time_train_s` near zero, so its Pareto position against
    locally timed methods is not comparable.
-8. The log entry (Step 8) adds the audit verdicts and JSON path, `NUM_WORKERS`, the partition, and
+8. The log entry (Step 8) adds the audit and reproduction verdicts and JSON paths, `NUM_WORKERS`, the partition, and
    the API version or model id when the results record one (`method_metadata` in `results.pkl`).
 
 `upload-method` accepts the client node's `compute="cpu"` against the provider hardware that a

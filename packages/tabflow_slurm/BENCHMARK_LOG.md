@@ -34,6 +34,58 @@ run against `main`. To reproduce an entry, check out its recorded **git SHA**.
 
 ---
 
+## 2026-10-09 — chakratab_08102026
+
+- **Model(s):** Chakra-Tab (YHat Labs' hosted tabular API, the first `closed-source-api` system), 2 configs:
+  `preset=medium` (c1, 3-fold bagging) and `preset=full` (c2, 8-fold bagging), 1,632 items (2 x 816 splits)
+- **Git SHA:** `98daa8ab` (`add-chakra-tab-system`, PR #654) for job 1262613; `94c192af` (the client keeps the HTTP
+  status of a reply that is not JSON) for job 1263717
+- **Validation protocol:** `system` (the API runs its own validation; recorded as flavour `system`, protocol `None`)
+- **Purpose:** First benchmark of a hosted-API system, from one on-demand CPU node querying the API.
+- **Notes:** SLURM job 1262613, `SlurmSingleNodeSetup` on `cpuhighmem16` (c4-highmem-16, on-demand), `run_local
+  --num_workers 4` (the provider allows 4 requests in flight; each request runs on one A100 80 GB on their side),
+  venv `~/.venvs/tabarena_rerun_16092026`. API version `chakra-tab-2026-10`, seed = the split index, `time_limit`
+  3600 s forwarded as the fit budget. One `fit_predict` call per item at predict time, so `time_train_s` is near
+  zero and the whole fit lands in `time_infer_s`; the server-side `api_fit_s` / `api_predict_s` are in
+  `method_metadata`. The key was exported only in the submitting shell (`--export=ALL`). Before the launch:
+  offline audit clean (one POST to api.yhatlabs.com, no target in the test table, no task identifiers); live
+  audit `tmp_scripts/eval_output/chakratab_08102026/audit_live.json` 17 PASS / 11 INFO after YHat fixed an
+  integer-column casting error that made the first audit's decoy and jitter calls return 503 (that run also led
+  to the type-keeping decoys, the shuffled-probe recalibration and the jitter split by training copies in
+  `audit_system`); smoke 6/6 matching the submitted TabArena-Lite errors (`compare_reproduced_results`, PASS).
+  Provider estimate: about 10 h for both presets.
+  Outcome: job 1262613 (10:42 UTC) was cancelled after 33 min with 198 items done and 4 APSFailure items failed: a
+  proxy in front of the API cut every request longer than about 100 s with HTTP 503 and an HTML page (every
+  request under 80 s passed). YHat raised the limit; one APSFailure request then passed in 283 s, and job 1263717
+  (13:52 UTC, same command) ran the 1,434 missing items in 6 h 08 min without a failure: 1,632 of 1,632. Two calls
+  were retried inside the timed predict, which put the retries into their `time_infer_s`: APSFailure c2 split 7
+  (three dropped responses, 1,987 s against 628 s on the server) and HR_Analytics_Job_Change_of_Data_Scientists c2
+  split 7 (one 503, 71 s against 39 s). Both were rerun alone (job 1263841, a two-item job file, 2 in flight; the
+  old results are kept in `retry_inflated_backup/` next to `data/`): the same errors, 622 s and 40 s, one attempt
+  each. Elsewhere the client's wall time exceeds the server's total by a median 0.9 s.
+  Every result records version `chakra-tab-2026-10`; none exceeded the 3,600 s limit. Eval: full leaderboard #3
+  (full, Elo 1911) and #4 (medium, Elo 1900) of 102; the reproduction check against the submitted TabArena-Lite
+  errors passed for both presets (47 and 50 of 51 splits within 1e-4, the rest within 0.12%). Processed and
+  uploaded as suite `tabarena-2026-10-09`, one method per preset: `Chakra-Tab_medium` (the `Chakra-Tab_c1_default`
+  results, `chakra_tab_medium_metadata`) and `Chakra-Tab_full` (`Chakra-Tab_c2_default`, `chakra_tab_full_metadata`),
+  `verified=True`, registered in `contexts/tabarena/methods.py`.
+
+```python
+plan = TabArenaV0pt1BenchmarkPlan(
+    benchmark_name="chakratab_08102026",
+    model_jobs=[
+        ModelJob(models=(gen_chakra_tab, 0), name="api", resources={"time_limit": 3600}),
+    ],
+    task_subset=TaskSubset(),  # the full task set (all splits)
+    path_setup=PathSetup(workspace=WORKSPACE, python_path=PYTHON_PATH),
+    experiment_bundle=TabArenaV0pt1ExperimentBundle(model_verbosity=2, system_experiments=True),
+    resources_setup=TabArenaV0pt1ResourcesSetup(num_cpus=None, memory_limit=None),
+    scheduler_setup=SlurmSingleNodeSetup(partition="cpuhighmem16", num_workers=4),
+    prefetch_model_weights=False,  # nothing local to prefetch for an API
+)
+plan.setup_jobs()
+```
+
 ## 2026-10-09 — lightpfn_09102026
 
 - **Model(s):** LightPFN (default config only) on every split of the 38 TabArena-v0.1 classification datasets,

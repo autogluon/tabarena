@@ -4,7 +4,7 @@ Usage::
 
     python -P -m tabarena.tools.audit_system --system NAME [--config JSON] [--datasets NAME ...]
         [--checks CHECK ...] [--time-limit S] [--offline] [--seed N] [--json PATH]
-    python -P -m tabarena.tools.audit_system --submitted-results per_split.csv [--json PATH]
+    python -P -m tabarena.tools.audit_system --submitted-results per_split.csv [...] [--json PATH]
 
 A system receives the training table *and* the test features (the hosted APIs in one call), and the
 TabArena datasets are public, so a system could look the test labels up instead of predicting them,
@@ -27,19 +27,28 @@ checks the client it can read and probes the behaviour it cannot. The checks:
 ``transduction``
     The prediction for a test row must not depend on which other rows are in the batch. Predicts the
     first half of the test rows alone, the rows in reverse order, and the first half next to as many
-    decoy rows (numeric features shifted by ten standard deviations, unseen categories), and compares
+    decoy rows (numeric features shifted by ten standard deviations, integer columns kept integer and
+    inside their type's range, unseen categories), and compares
     each with the full-batch prediction against the run-to-run noise of a second, identical run.
 ``labels``
     Relabels the training classes with a derangement (regression: negates the target). An honest
     learner's predictions follow the new labels; predictions that still match the original test
     labels came from somewhere other than the training labels.
 ``shuffled``
-    Trains on labels shuffled across rows. Performance must drop to chance (AUC 0.5, the majority
-    rate, R^2 0); a system that keeps scoring is not learning from the labels it was given.
+    Trains on labels shuffled across rows. An honest learner loses its skill, but what is left of it
+    depends on the one permutation drawn: on an easy task a strong learner lands anywhere from an AUC
+    of 0.2 to 0.8. The check therefore compares the skill kept above chance (AUC 0.5, the majority
+    rate, R^2 0) with the skill on the real labels; a system that keeps most of it is not learning
+    from the labels it was given.
 ``jitter``
     Adds noise of 1% of a feature's standard deviation to the numeric test features. An exact-match
     lookup of public rows breaks while a model degrades smoothly; the degradation is compared with a
-    local reference model (histogram gradient boosting) on the same noise.
+    local reference model (histogram gradient boosting) on the same noise. Test rows with an exact
+    copy among the training rows are scored apart: a model that leans on such a copy (an in-context
+    learner, a nearest-neighbour model) loses it under the noise and may degrade sharply there
+    without cheating, so the verdict is judged on the rows without a training copy, where a lookup of
+    the public test labels is the only way to an exact match. Too few such rows (or one class only)
+    and it falls back to all rows.
 ``time``
     Wall-clock of every call against the ``time_limit`` the system was given.
 
@@ -47,6 +56,13 @@ checks the client it can read and probes the behaviour it cannot. The checks:
 ``metric_error``, e.g. the ``per_split.csv`` of a TabArena-Lite run) with every hosted method on the
 same splits and flags datasets where it beats the best hosted method by a wide margin. No system is
 called for this check.
+
+``compare_reproduced_results`` (no CLI flag; the hosted-API run template calls it from ``smoke`` and
+``eval``) is the other direction: it compares our own run of a config with the errors the submitter
+reported for it on the same splits. A seeded system reproduces them up to float noise; a gap where our errors
+are systematically higher means the self-reported numbers came from something other than what the
+API serves us. ``results_frame`` / ``load_results_frame`` turn a run's own ``results.pkl`` files into
+the frame it takes.
 
 The probes call the system through its exec model exactly as a benchmark item does (``fit_custom``,
 then extra ``predict`` / ``predict_proba`` calls on the fitted object), so a hosted API is called
@@ -135,6 +151,20 @@ SOURCE_PATTERNS: dict[str, tuple[str, ...]] = {
 TASK_IDENTITY_NAMES = frozenset({"task_id", "tid", "split_idx", "y_test", "dataset_name", "fold", "repeat"})
 #: Categories whose hits make the source check WARN rather than INFO.
 SOURCE_WARN_CATEGORIES = ("dataset or cache access", "task identity", "global patching")
+#: ``compare_reproduced_results``: relative tolerance of matching errors (GPU float noise of a seeded fit is
+#: about 1e-5), the median ratio (ours / submitted) that fails, its distance from 1 that warns, and the
+#: per-split ratio band outside which a split warns.
+REPRODUCTION_RTOL = 1e-4
+REPRODUCTION_MEDIAN_FAIL = 1.10
+REPRODUCTION_MEDIAN_WARN = 0.02
+REPRODUCTION_SPLIT_BAND = (0.8, 1.25)
+#: ``shuffled``: the share of the real-label skill above chance kept with shuffled labels that fails / warns,
+#: and the least distance from chance (AUC, accuracy or R^2) either verdict needs.
+SHUFFLED_RETAINED_FAIL = 0.8
+SHUFFLED_RETAINED_WARN = 0.5
+SHUFFLED_MIN_MARGIN = 0.1
+#: ``jitter``: the fewest test rows a group (with / without a training copy) needs to be scored on its own.
+JITTER_MIN_GROUP_ROWS = 30
 #: Fit inputs every system receives; a wrapper that never reads one ignores it.
 FIT_INPUTS = ("random_state", "time_limit", "num_cpus", "num_gpus", "memory_limit", "eval_metric")
 
@@ -315,7 +345,19 @@ class SystemUnderAudit:
     num_cpus: int | None = None
     split_seed: int = 0
     calls: list[dict] = field(default_factory=list)
-    """``{"probe", "dataset", "rows", "wall_s"}`` per call to the system, for the time check."""
+    """``{"probe", "dataset", "rows", "wall_s"}`` per call to the system (plus ``"error"`` when it raised)."""
+
+    def _timed(self, data: ProbeData, rows: int, probe: str, call: Callable[[], Any]) -> Any:
+        entry = {"probe": probe, "dataset": data.name, "rows": rows}
+        start = time.monotonic()
+        try:
+            out = call()
+        except Exception as exc:
+            error = f"{type(exc).__name__}: {str(exc)[:200]}"
+            self.calls.append({**entry, "wall_s": time.monotonic() - start, "error": error})
+            raise
+        self.calls.append({**entry, "wall_s": time.monotonic() - start})
+        return out
 
     def fit_predict(self, data: ProbeData, X_train, y_train, X_test, *, probe: str) -> tuple[Any, Any]:
         """Construct, ``fit_custom`` and return ``(fitted_model, test_prediction)`` like a benchmark item."""
@@ -328,20 +370,19 @@ class SystemUnderAudit:
             fit_kwargs={"num_cpus": self.num_cpus, "num_gpus": 0, "memory_limit": None, "time_limit": self.time_limit},
             **self.config,
         )
-        start = time.monotonic()
-        out = model.fit_custom(X_train.copy(), y_train.copy(), X_test.copy(), split_seed=self.split_seed)
-        self.calls.append(
-            {"probe": probe, "dataset": data.name, "rows": len(X_test), "wall_s": time.monotonic() - start}
+        out = self._timed(
+            data,
+            len(X_test),
+            probe,
+            lambda: model.fit_custom(X_train.copy(), y_train.copy(), X_test.copy(), split_seed=self.split_seed),
         )
         pred = out["probabilities"] if data.problem_type != "regression" else out["predictions"]
         return model, pred
 
     def predict(self, model, data: ProbeData, X: pd.DataFrame, *, probe: str) -> Any:
         """One more prediction from an already fitted system (a hosted API may refit here)."""
-        start = time.monotonic()
-        pred = model.predict_proba(X.copy()) if data.problem_type != "regression" else model.predict(X.copy())
-        self.calls.append({"probe": probe, "dataset": data.name, "rows": len(X), "wall_s": time.monotonic() - start})
-        return pred
+        predict = model.predict_proba if data.problem_type != "regression" else model.predict
+        return self._timed(data, len(X), probe, lambda: predict(X.copy()))
 
 
 def resolve_system(name: str) -> tuple[type, dict]:
@@ -702,7 +743,17 @@ def make_decoys(X: pd.DataFrame, X_train: pd.DataFrame, seed: int) -> pd.DataFra
     for col in decoys.columns:
         if col in numeric:
             std = float(X_train[col].std()) or 1.0
-            decoys[col] = decoys[col].astype(float) + 10.0 * std * rng.choice([-1.0, 1.0], size=len(decoys))
+            signs = rng.choice([-1.0, 1.0], size=len(decoys))
+            dtype = X_train[col].dtype
+            if pd.api.types.is_integer_dtype(dtype):
+                # A whole shift that keeps the column's type: a server may cast the test rows to the training schema.
+                bounds = np.iinfo(dtype)
+                if bounds.min == 0:
+                    signs = np.ones(len(decoys))
+                shifted = decoys[col].astype(float) + max(1.0, round(10.0 * std)) * signs
+                decoys[col] = shifted.clip(bounds.min, bounds.max).astype(dtype)
+            else:
+                decoys[col] = decoys[col].astype(float) + 10.0 * std * signs
         elif isinstance(decoys[col].dtype, pd.CategoricalDtype):
             categories = [*decoys[col].cat.categories, _UNSEEN_CATEGORY]
             decoys[col] = pd.Categorical([_UNSEEN_CATEGORY] * len(decoys), categories=categories)
@@ -779,6 +830,86 @@ def _verdict_vs_noise(diff: float, tol: float) -> str:
     if diff <= tol:
         return PASS
     return WARN if diff <= 3 * tol else FAIL
+
+
+def training_copies(X_test: pd.DataFrame, X_train: pd.DataFrame) -> np.ndarray:
+    """Whether each test row has an exact copy (every feature equal) among the training rows."""
+    columns = list(X_train.columns)
+    keys = set(map(tuple, X_train[columns].astype(str).to_numpy()))
+    return np.asarray([tuple(row) in keys for row in X_test[columns].astype(str).to_numpy()], dtype=bool)
+
+
+def _degradation(data: ProbeData, classes: list, base: np.ndarray, jit: np.ndarray, rows: np.ndarray) -> dict | None:
+    """Error before and after the noise on ``rows``; ``None`` when they are too few to score."""
+    y = data.y_test.to_numpy()[rows]
+    if rows.sum() < JITTER_MIN_GROUP_ROWS or (data.problem_type == "binary" and len({str(v) for v in y}) < 2):
+        return None
+    before = _error(data.problem_type, y, base[rows], classes)
+    after = _error(data.problem_type, y, jit[rows], classes)
+    return {
+        "rows": int(rows.sum()),
+        "error": before,
+        "jitter_error": after,
+        "change": (after - before) / max(before, 1e-6),
+    }
+
+
+def _change(stats: dict) -> str:
+    """The relative error change (``from zero`` when there was no error before the noise)."""
+    return "from zero" if stats["error"] < 1e-6 else f"{stats['change']:+.1%}"
+
+
+def _jitter_check(
+    data: ProbeData,
+    classes: list,
+    base: np.ndarray,
+    jit: np.ndarray,
+    ref_base: np.ndarray,
+    ref_jit: np.ndarray,
+) -> CheckResult:
+    """The jitter verdict, judged on the test rows without a training copy when there are enough of them."""
+    copied = training_copies(data.X_test, data.X_train)
+    groups = {"all": np.ones(len(copied), dtype=bool), "no_copy": ~copied, "copy": copied}
+    stats = {
+        name: {
+            "system": _degradation(data, classes, base, jit, rows),
+            "reference": _degradation(data, classes, ref_base, ref_jit, rows),
+        }
+        for name, rows in groups.items()
+    }
+    judged = "no_copy" if stats["no_copy"]["system"] and stats["no_copy"]["reference"] else "all"
+    sys_stats, ref_stats = stats[judged]["system"], stats[judged]["reference"]
+    r_sys, r_ref = sys_stats["change"], ref_stats["change"]
+    bound = max(r_ref, 0.05)
+    abs_ok = data.problem_type == "regression" or (sys_stats["jitter_error"] - sys_stats["error"]) > 0.01
+    if r_sys > 1.0 and r_sys > 4 * bound and abs_ok:
+        verdict = FAIL
+    elif r_sys > 0.25 and r_sys > 2 * bound and abs_ok:
+        verdict = WARN
+    else:
+        verdict = PASS
+    where = (
+        f"the {sys_stats['rows']} test rows without a training copy"
+        if judged == "no_copy"
+        else f"all {sys_stats['rows']} test rows ({int((~copied).sum())} without a training copy, too few to judge alone)"
+    )
+    summary = (
+        f"1% feature noise on {where}: error {sys_stats['error']:.4f} -> {sys_stats['jitter_error']:.4f} "
+        f"({_change(sys_stats)}); reference {ref_stats['error']:.4f} -> {ref_stats['jitter_error']:.4f} ({_change(ref_stats)})"
+    )
+    copy_sys, copy_ref = stats["copy"]["system"], stats["copy"]["reference"]
+    if judged == "no_copy" and copy_sys and copy_ref:
+        summary += (
+            f"; the {copy_sys['rows']} rows with a training copy: {copy_sys['error']:.4f} -> "
+            f"{copy_sys['jitter_error']:.4f} ({_change(copy_sys)}), reference {_change(copy_ref)}"
+        )
+    return CheckResult(
+        "jitter",
+        data.name,
+        verdict,
+        summary,
+        {"judged_on": judged, "rows_with_training_copy": int(copied.sum()), "groups": stats},
+    )
 
 
 def probe_dataset(sut: SystemUnderAudit, data: ProbeData, checks: Iterable[str], *, seed: int) -> list[CheckResult]:
@@ -904,26 +1035,29 @@ def probe_dataset(sut: SystemUnderAudit, data: ProbeData, checks: Iterable[str],
         shuf = as_array(shuf_pred)
         y_true = np.asarray([str(v) for v in data.y_test]) if not is_reg else data.y_test.astype(float).to_numpy()
         if data.problem_type == "binary":
-            auc = 1.0 - err(data.y_test, shuf)
-            positive = sorted(set(y_true))[-1]
-            n1 = int(np.sum(y_true == positive))
-            n0 = len(y_true) - n1
-            z = (auc - 0.5) / math.sqrt((n0 + n1 + 1) / (12 * max(n0, 1) * max(n1, 1)))
-            verdict = FAIL if (z > 5 and auc > 0.6) else WARN if z > 3 else PASS
-            summary = f"AUC with shuffled training labels {auc:.3f} (chance 0.5, z={z:.1f})"
-            details = {"auc": auc, "z": z}
+            score_name, chance = "AUC", 0.5
+            score, score_base = 1.0 - err(data.y_test, shuf), 1.0 - base_err
         elif data.problem_type == "multiclass":
-            acc = float(np.mean(_labels(shuf, classes) == y_true))
-            p = float(pd.Series(y_true).value_counts(normalize=True).iloc[0])
-            z = (acc - p) / math.sqrt(max(p * (1 - p), 1e-12) / len(y_true))
-            verdict = FAIL if (z > 5 and acc > p + 0.1) else WARN if z > 3 else PASS
-            summary = f"accuracy with shuffled training labels {acc:.3f} (majority rate {p:.3f}, z={z:.1f})"
-            details = {"accuracy": acc, "majority": p, "z": z}
+            score_name, chance = "accuracy", float(pd.Series(y_true).value_counts(normalize=True).iloc[0])
+            score = float(np.mean(_labels(shuf, classes) == y_true))
+            score_base = float(np.mean(_labels(base, classes) == y_true))
         else:
-            r2 = float(1.0 - np.mean((y_true - shuf) ** 2) / np.var(y_true))
-            verdict = FAIL if r2 > 0.2 else WARN if r2 > 0.05 else PASS
-            summary = f"R^2 with shuffled training labels {r2:.3f} (chance <= 0)"
-            details = {"r2": r2}
+            score_name, chance = "R^2", 0.0
+            score = float(1.0 - np.mean((y_true - shuf) ** 2) / np.var(y_true))
+            score_base = float(1.0 - np.mean((y_true - base) ** 2) / np.var(y_true))
+        retained = (score - chance) / max(score_base - chance, 1e-9)
+        above = score > chance + SHUFFLED_MIN_MARGIN
+        if above and retained > SHUFFLED_RETAINED_FAIL:
+            verdict = FAIL
+        elif above and retained > SHUFFLED_RETAINED_WARN:
+            verdict = WARN
+        else:
+            verdict = PASS
+        summary = (
+            f"{score_name} with shuffled training labels {score:.3f} (chance {chance:.3f}, real labels {score_base:.3f}): "
+            f"{retained:.0%} of the skill above chance kept"
+        )
+        details = {"score": score, "score_real_labels": score_base, "chance": chance, "retained": retained}
         results.append(CheckResult("shuffled", data.name, verdict, summary, details))
 
     if "jitter" in checks:
@@ -931,32 +1065,9 @@ def probe_dataset(sut: SystemUnderAudit, data: ProbeData, checks: Iterable[str],
             results.append(CheckResult("jitter", data.name, SKIP, "no numeric feature to perturb"))
         else:
             X_jit = jitter(data.X_test, data.X_train, scale=0.01, seed=seed)
-            jit_err = err(data.y_test, as_array(sut.predict(model, data, X_jit, probe="jitter")))
-            ref_jit_err = err(data.y_test, as_array(reference(X_jit)))
-            r_sys = (jit_err - base_err) / max(base_err, 1e-6)
-            r_ref = (ref_jit_err - ref_err) / max(ref_err, 1e-6)
-            bound = max(r_ref, 0.05)
-            abs_ok = is_reg or (jit_err - base_err) > 0.01
-            if r_sys > 1.0 and r_sys > 4 * bound and abs_ok:
-                verdict = FAIL
-            elif r_sys > 0.25 and r_sys > 2 * bound and abs_ok:
-                verdict = WARN
-            else:
-                verdict = PASS
+            jit = as_array(sut.predict(model, data, X_jit, probe="jitter"))
             results.append(
-                CheckResult(
-                    "jitter",
-                    data.name,
-                    verdict,
-                    f"1% feature noise: error {base_err:.4f} -> {jit_err:.4f} ({r_sys:+.1%}); reference "
-                    f"{ref_err:.4f} -> {ref_jit_err:.4f} ({r_ref:+.1%})",
-                    {
-                        "error": base_err,
-                        "jitter_error": jit_err,
-                        "reference_error": ref_err,
-                        "reference_jitter_error": ref_jit_err,
-                    },
-                ),
+                _jitter_check(data, classes, base, jit, ref_base, as_array(reference(X_jit))),
             )
 
     with contextlib.suppress(Exception):
@@ -964,12 +1075,33 @@ def probe_dataset(sut: SystemUnderAudit, data: ProbeData, checks: Iterable[str],
     return results
 
 
+def _probe_failure(sut: SystemUnderAudit, dataset: str, exc: Exception) -> CheckResult:
+    """A probe run that raised, naming the call that failed and the calls that succeeded before it.
+
+    An outage fails the first call of a dataset; a system that serves the plain fit but fails on the
+    relabeled, shuffled or decoy requests is refusing the probes, which a reviewer must read as such.
+    """
+    calls = [c for c in sut.calls if c["dataset"] == dataset]
+    failed = next((c["probe"] for c in calls if "error" in c), None)
+    served = [c["probe"] for c in calls if "error" not in c]
+    where = f" on the {failed!r} call" if failed else ""
+    after = f"after {len(served)} served call(s) {served}" if served else "on the first call"
+    return CheckResult(
+        "probe",
+        dataset,
+        FAIL,
+        f"the system raised {type(exc).__name__}{where}, {after}: {str(exc)[:300]}",
+        {"calls": calls},
+    )
+
+
 def check_time(sut: SystemUnderAudit) -> CheckResult:
-    """Every call's wall-clock against the ``time_limit`` the system was handed."""
-    if not sut.calls:
-        return CheckResult("time", "-", SKIP, "no call was made")
-    walls = np.asarray([c["wall_s"] for c in sut.calls])
-    worst = sut.calls[int(np.argmax(walls))]
+    """Every served call's wall-clock against the ``time_limit`` the system was handed."""
+    served = [c for c in sut.calls if "error" not in c]
+    if not served:
+        return CheckResult("time", "-", SKIP, "no call was served")
+    walls = np.asarray([c["wall_s"] for c in served])
+    worst = served[int(np.argmax(walls))]
     limit = sut.time_limit
     if walls.max() > 1.5 * limit + 60:
         verdict = FAIL
@@ -1069,6 +1201,77 @@ def compare_submitted_results(
     return out
 
 
+def compare_reproduced_results(
+    ours: pd.DataFrame, submitted: pd.DataFrame, *, label: str = "reproduced"
+) -> CheckResult:
+    """Compare a run's errors with the errors a submitter reported for the same config on the same splits.
+
+    Both frames carry ``dataset``, ``fold`` (the split index) and ``metric_error`` for one config, e.g.
+    ``results_frame`` of a smoke or of the full run against the submitter's TabArena-Lite ``per_split.csv``.
+    A system that seeds its fit from the split reproduces the submitted errors up to float noise
+    (``REPRODUCTION_RTOL``, PASS). Otherwise the ratio of our error to the submitted one on each split tells
+    how far the two runs are apart: a median
+    above ``REPRODUCTION_MEDIAN_FAIL`` is a FAIL (the self-reported numbers are better than what the system
+    delivers to us), a median more than ``REPRODUCTION_MEDIAN_WARN`` away from 1 or a split outside
+    ``REPRODUCTION_SPLIT_BAND`` is a WARN, and anything else passes as run-to-run noise.
+    """
+    merged = ours[["dataset", "fold", "metric_error"]].merge(
+        submitted[["dataset", "fold", "metric_error"]],
+        on=["dataset", "fold"],
+        suffixes=("_ours", "_submitted"),
+    )
+    if merged.empty:
+        return CheckResult("reproduced", label, SKIP, "no split of the run is in the submitted results")
+    a, b = merged["metric_error_ours"].astype(float), merged["metric_error_submitted"].astype(float)
+    merged["match"] = np.isclose(a, b, rtol=REPRODUCTION_RTOL, atol=1e-12)
+    merged["ratio"] = [x / y if y > 0 else 1.0 if x == 0 else math.inf for x, y in zip(a, b, strict=True)]
+    median = float(merged["ratio"].median())
+    low, high = REPRODUCTION_SPLIT_BAND
+    outliers = merged[(merged["ratio"] < low) | (merged["ratio"] > high)]
+    n, n_same = len(merged), int(merged["match"].sum())
+    if n_same == n:
+        verdict = PASS
+    elif median > REPRODUCTION_MEDIAN_FAIL:
+        verdict = FAIL
+    elif abs(median - 1) > REPRODUCTION_MEDIAN_WARN or not outliers.empty:
+        verdict = WARN
+    else:
+        verdict = PASS
+    summary = (
+        f"{n} splits: {n_same} match the submitted errors (rtol {REPRODUCTION_RTOL:g}), median ratio "
+        f"ours/submitted {median:.3f}; of the others, ours is worse on {int(((merged['ratio'] > 1) & ~merged['match']).sum())}"
+        f" and better on {int(((merged['ratio'] < 1) & ~merged['match']).sum())}"
+    )
+    if not outliers.empty:
+        shown = ", ".join(f"{r.dataset} fold {r.fold} ({r.ratio:.2f}x)" for r in outliers.head(5).itertuples())
+        summary += f"; outside [{low:g}, {high:g}]: {shown}{' ...' if len(outliers) > 5 else ''}"
+    return CheckResult("reproduced", label, verdict, summary, {"per_split": merged.to_dict(orient="records")})
+
+
+def results_frame(results: Iterable[dict]) -> pd.DataFrame:
+    """``method``, ``dataset``, ``fold`` (the split index) and ``metric_error`` of TabArena result dicts."""
+    rows = [
+        {
+            "method": r["framework"],
+            "dataset": r["task_metadata"]["name"],
+            "fold": int(r["task_metadata"]["split_idx"]),
+            "metric_error": float(r["metric_error"]),
+        }
+        for r in results
+    ]
+    return pd.DataFrame(rows, columns=["method", "dataset", "fold", "metric_error"])
+
+
+def load_results_frame(data_dir: str | Path) -> pd.DataFrame:
+    """``results_frame`` of every ``results.pkl`` under a run's own output directory.
+
+    Only for results TabArena wrote itself: unpickling runs code, so a submitter's pickles are never loaded.
+    """
+    from tabarena.utils.pickle_utils import load_pickle
+
+    return results_frame(load_pickle(path) for path in sorted(Path(data_dir).rglob("results.pkl")))
+
+
 def load_hosted_per_split(subset: str | None = "lite") -> pd.DataFrame:
     """The hosted TabArena-v0.1 per-split results (``results_per_split.csv`` of ``compare(plot=False)``)."""
     import tempfile
@@ -1105,7 +1308,7 @@ def audit_system(
     results: list[CheckResult] = []
     if "source" in checks:
         results.append(scan_source(system_cls))
-        log(_format_result(results[-1]))
+        log(format_result(results[-1]))
     probes = [c for c in checks if c not in ("source", "time")]
     for entry in datasets:
         data = (
@@ -1116,7 +1319,7 @@ def audit_system(
         if offline:
             if "egress" in checks:
                 results.append(offline_egress(sut, data))
-                log(_format_result(results[-1]))
+                log(format_result(results[-1]))
             continue
         if not probes:
             continue
@@ -1124,17 +1327,18 @@ def audit_system(
         try:
             new = probe_dataset(sut, data, probes, seed=seed)
         except Exception as exc:
-            new = [CheckResult("probe", data.name, FAIL, f"the system raised {type(exc).__name__}: {str(exc)[:300]}")]
+            new = [_probe_failure(sut, data.name, exc)]
         for result in new:
-            log(_format_result(result))
+            log(format_result(result))
         results.extend(new)
     if "time" in checks and not offline:
         results.append(check_time(sut))
-        log(_format_result(results[-1]))
+        log(format_result(results[-1]))
     return results
 
 
-def _format_result(result: CheckResult) -> str:
+def format_result(result: CheckResult) -> str:
+    """One aligned line per check result: verdict, check, dataset, summary."""
     return f"[{result.verdict:<4}] {result.check:<12} {result.dataset:<34} {result.summary}"
 
 
@@ -1158,7 +1362,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--seed", type=int, default=None, help="Default: a fresh seed, printed for reruns.")
     parser.add_argument("--max-train-rows", type=int, default=2000)
     parser.add_argument("--max-test-rows", type=int, default=1000)
-    parser.add_argument("--submitted-results", help="CSV with dataset, fold, metric_error to compare with hosted.")
+    parser.add_argument(
+        "--submitted-results",
+        nargs="+",
+        help="CSV(s) with dataset, fold, metric_error to compare with hosted (one per config).",
+    )
     parser.add_argument("--json", help="Write every result (with details) to this path.")
     args = parser.parse_args(argv)
     if not args.system and not args.submitted_results:
@@ -1172,11 +1380,10 @@ def main(argv: list[str] | None = None) -> int:
     results: list[CheckResult] = []
     if args.submitted_results:
         hosted = load_hosted_per_split()
-        for result in compare_submitted_results(
-            pd.read_csv(args.submitted_results), hosted, label=args.submitted_results
-        ):
-            print(_format_result(result))
-            results.append(result)
+        for path in args.submitted_results:
+            for result in compare_submitted_results(pd.read_csv(path), hosted, label=path):
+                print(format_result(result))
+                results.append(result)
     if args.system:
         system_cls, config = resolve_system(args.system)
         if args.config:

@@ -142,6 +142,7 @@ def run_beyond_arena_eval(config: BeyondArenaEvalConfig) -> dict[str, pd.DataFra
         MethodArtifact,
         init_aux_metric_env,
         init_caches,
+        is_system,
         post_process_to_results,
         resolve_ag_name,
         resolve_display_name,
@@ -173,6 +174,7 @@ def run_beyond_arena_eval(config: BeyondArenaEvalConfig) -> dict[str, pd.DataFra
                 result_suffix=run.result_suffix,
                 ag_name_override=(run.ag_name_overrides or {}).get(model),
             ),
+            system=is_system(model),
         )
         for run in config.runs
         for model in run.models

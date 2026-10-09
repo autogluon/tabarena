@@ -150,9 +150,12 @@ code nobody can inspect, while every TabArena dataset is public. Before it runs,
 outbound request with its JSON outline and tables; `--offline` blocks the network, needs no key and
 sends nothing) and probes the API for blatant cheating: predictions that depend on the other rows of
 the test batch, predictions that track the true labels after the training labels were relabeled or
-shuffled, and a collapse under 1% feature noise that a local reference model does not show.
-`--submitted-results` compares a submitter's per-split errors with the hosted methods. A `FAIL`
-stops the submission. The run itself needs no compute on our side: `SlurmSingleNodeSetup` runs every
+shuffled, and a collapse under 1% feature noise that a local reference model does not show, judged
+on the test rows without an exact copy among the training rows (a model may lean on such a copy).
+`--submitted-results` compares a submitter's per-split errors with the hosted methods, and
+`compare_reproduced_results` (called from the API run template's `smoke` and `eval`) checks that our
+own run reproduces the errors the submitter reported on the same splits. A `FAIL` stops the
+submission. The run itself needs no compute on our side: `SlurmSingleNodeSetup` runs every
 item from one on-demand CPU node with `num_workers` requests in flight (the concurrency the provider
 allows), with the key exported in the submitting shell and never written to a file. `compute` in
 `info.py` is the provider's hardware, so processing only warns when the raw results record the CPU
