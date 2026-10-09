@@ -43,7 +43,12 @@ checks the client it can read and probes the behaviour it cannot. The checks:
 ``jitter``
     Adds noise of 1% of a feature's standard deviation to the numeric test features. An exact-match
     lookup of public rows breaks while a model degrades smoothly; the degradation is compared with a
-    local reference model (histogram gradient boosting) on the same noise.
+    local reference model (histogram gradient boosting) on the same noise. Test rows with an exact
+    copy among the training rows are scored apart: a model that leans on such a copy (an in-context
+    learner, a nearest-neighbour model) loses it under the noise and may degrade sharply there
+    without cheating, so the verdict is judged on the rows without a training copy, where a lookup of
+    the public test labels is the only way to an exact match. Too few such rows (or one class only)
+    and it falls back to all rows.
 ``time``
     Wall-clock of every call against the ``time_limit`` the system was given.
 
@@ -158,6 +163,8 @@ REPRODUCTION_SPLIT_BAND = (0.8, 1.25)
 SHUFFLED_RETAINED_FAIL = 0.8
 SHUFFLED_RETAINED_WARN = 0.5
 SHUFFLED_MIN_MARGIN = 0.1
+#: ``jitter``: the fewest test rows a group (with / without a training copy) needs to be scored on its own.
+JITTER_MIN_GROUP_ROWS = 30
 #: Fit inputs every system receives; a wrapper that never reads one ignores it.
 FIT_INPUTS = ("random_state", "time_limit", "num_cpus", "num_gpus", "memory_limit", "eval_metric")
 
@@ -825,6 +832,86 @@ def _verdict_vs_noise(diff: float, tol: float) -> str:
     return WARN if diff <= 3 * tol else FAIL
 
 
+def training_copies(X_test: pd.DataFrame, X_train: pd.DataFrame) -> np.ndarray:
+    """Whether each test row has an exact copy (every feature equal) among the training rows."""
+    columns = list(X_train.columns)
+    keys = set(map(tuple, X_train[columns].astype(str).to_numpy()))
+    return np.asarray([tuple(row) in keys for row in X_test[columns].astype(str).to_numpy()], dtype=bool)
+
+
+def _degradation(data: ProbeData, classes: list, base: np.ndarray, jit: np.ndarray, rows: np.ndarray) -> dict | None:
+    """Error before and after the noise on ``rows``; ``None`` when they are too few to score."""
+    y = data.y_test.to_numpy()[rows]
+    if rows.sum() < JITTER_MIN_GROUP_ROWS or (data.problem_type == "binary" and len({str(v) for v in y}) < 2):
+        return None
+    before = _error(data.problem_type, y, base[rows], classes)
+    after = _error(data.problem_type, y, jit[rows], classes)
+    return {
+        "rows": int(rows.sum()),
+        "error": before,
+        "jitter_error": after,
+        "change": (after - before) / max(before, 1e-6),
+    }
+
+
+def _change(stats: dict) -> str:
+    """The relative error change (``from zero`` when there was no error before the noise)."""
+    return "from zero" if stats["error"] < 1e-6 else f"{stats['change']:+.1%}"
+
+
+def _jitter_check(
+    data: ProbeData,
+    classes: list,
+    base: np.ndarray,
+    jit: np.ndarray,
+    ref_base: np.ndarray,
+    ref_jit: np.ndarray,
+) -> CheckResult:
+    """The jitter verdict, judged on the test rows without a training copy when there are enough of them."""
+    copied = training_copies(data.X_test, data.X_train)
+    groups = {"all": np.ones(len(copied), dtype=bool), "no_copy": ~copied, "copy": copied}
+    stats = {
+        name: {
+            "system": _degradation(data, classes, base, jit, rows),
+            "reference": _degradation(data, classes, ref_base, ref_jit, rows),
+        }
+        for name, rows in groups.items()
+    }
+    judged = "no_copy" if stats["no_copy"]["system"] and stats["no_copy"]["reference"] else "all"
+    sys_stats, ref_stats = stats[judged]["system"], stats[judged]["reference"]
+    r_sys, r_ref = sys_stats["change"], ref_stats["change"]
+    bound = max(r_ref, 0.05)
+    abs_ok = data.problem_type == "regression" or (sys_stats["jitter_error"] - sys_stats["error"]) > 0.01
+    if r_sys > 1.0 and r_sys > 4 * bound and abs_ok:
+        verdict = FAIL
+    elif r_sys > 0.25 and r_sys > 2 * bound and abs_ok:
+        verdict = WARN
+    else:
+        verdict = PASS
+    where = (
+        f"the {sys_stats['rows']} test rows without a training copy"
+        if judged == "no_copy"
+        else f"all {sys_stats['rows']} test rows ({int((~copied).sum())} without a training copy, too few to judge alone)"
+    )
+    summary = (
+        f"1% feature noise on {where}: error {sys_stats['error']:.4f} -> {sys_stats['jitter_error']:.4f} "
+        f"({_change(sys_stats)}); reference {ref_stats['error']:.4f} -> {ref_stats['jitter_error']:.4f} ({_change(ref_stats)})"
+    )
+    copy_sys, copy_ref = stats["copy"]["system"], stats["copy"]["reference"]
+    if judged == "no_copy" and copy_sys and copy_ref:
+        summary += (
+            f"; the {copy_sys['rows']} rows with a training copy: {copy_sys['error']:.4f} -> "
+            f"{copy_sys['jitter_error']:.4f} ({_change(copy_sys)}), reference {_change(copy_ref)}"
+        )
+    return CheckResult(
+        "jitter",
+        data.name,
+        verdict,
+        summary,
+        {"judged_on": judged, "rows_with_training_copy": int(copied.sum()), "groups": stats},
+    )
+
+
 def probe_dataset(sut: SystemUnderAudit, data: ProbeData, checks: Iterable[str], *, seed: int) -> list[CheckResult]:
     """Run the behaviour probes (and the egress analysis of their requests) on one split."""
     checks = set(checks)
@@ -978,32 +1065,9 @@ def probe_dataset(sut: SystemUnderAudit, data: ProbeData, checks: Iterable[str],
             results.append(CheckResult("jitter", data.name, SKIP, "no numeric feature to perturb"))
         else:
             X_jit = jitter(data.X_test, data.X_train, scale=0.01, seed=seed)
-            jit_err = err(data.y_test, as_array(sut.predict(model, data, X_jit, probe="jitter")))
-            ref_jit_err = err(data.y_test, as_array(reference(X_jit)))
-            r_sys = (jit_err - base_err) / max(base_err, 1e-6)
-            r_ref = (ref_jit_err - ref_err) / max(ref_err, 1e-6)
-            bound = max(r_ref, 0.05)
-            abs_ok = is_reg or (jit_err - base_err) > 0.01
-            if r_sys > 1.0 and r_sys > 4 * bound and abs_ok:
-                verdict = FAIL
-            elif r_sys > 0.25 and r_sys > 2 * bound and abs_ok:
-                verdict = WARN
-            else:
-                verdict = PASS
+            jit = as_array(sut.predict(model, data, X_jit, probe="jitter"))
             results.append(
-                CheckResult(
-                    "jitter",
-                    data.name,
-                    verdict,
-                    f"1% feature noise: error {base_err:.4f} -> {jit_err:.4f} ({r_sys:+.1%}); reference "
-                    f"{ref_err:.4f} -> {ref_jit_err:.4f} ({r_ref:+.1%})",
-                    {
-                        "error": base_err,
-                        "jitter_error": jit_err,
-                        "reference_error": ref_err,
-                        "reference_jitter_error": ref_jit_err,
-                    },
-                ),
+                _jitter_check(data, classes, base, jit, ref_base, as_array(reference(X_jit))),
             )
 
     with contextlib.suppress(Exception):

@@ -421,7 +421,8 @@ been read and the API probed.
    a file in the repo, the job JSON, a log entry or a PR. Without the key, stop after the offline
    audit and `setup` and say what is pending.
 3. With the key, run `audit` (the live probes: transduction, relabeled and shuffled labels, feature
-   jitter against a local reference, the time limit; about eight calls on each of four datasets).
+   jitter against a local reference on the test rows without a training copy, the time limit;
+   about eight calls on each of four datasets).
    Set `SUBMITTED_RESULTS` to the submitter's self-reported TabArena-Lite per-split CSV for each config
    (`{"<Name>_c1_default": "<path>"}`); `audit` compares each with the hosted methods. Read only CSVs
    from a submitter's release; never unpickle their `.pkl` files. A `FAIL` stops the

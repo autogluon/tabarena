@@ -25,6 +25,7 @@ from tabarena.tools.audit_system import (
     make_synthetic_split,
     results_frame,
     scan_source,
+    training_copies,
 )
 
 pytest.importorskip("sklearn")
@@ -369,3 +370,41 @@ def test_shuffled_check_judges_the_skill_kept_not_the_distance_from_chance():
     (check,) = _by_check(results, "shuffled")
     assert check.details["score"] < 0.2  # far below chance, where a strong honest learner can land
     assert check.verdict == PASS
+
+
+class _MemorizingSystem(_HonestSystem):
+    """Returns the training target of a test row's exact training copy, the model's prediction otherwise."""
+
+    def _fit_system(self, X, y, **kwargs):
+        self._memory = dict(zip(map(tuple, X.astype(str).to_numpy()), y, strict=True))
+        return super()._fit_system(X, y, **kwargs)
+
+    def _predict(self, X):
+        pred = super()._predict(X)
+        keys = map(tuple, X.astype(str).to_numpy())
+        return pd.Series([self._memory.get(k, p) for k, p in zip(keys, pred, strict=True)], index=X.index)
+
+
+def _with_training_copies(data, share: float = 0.5):
+    """Replace a share of the test rows with copies of training rows (and their targets)."""
+    n = int(len(data.X_test) * share)
+    data.X_test = pd.concat([data.X_train.iloc[:n], data.X_test.iloc[n:]], ignore_index=True)
+    data.y_test = pd.concat([data.y_train.iloc[:n], data.y_test.iloc[n:]], ignore_index=True)
+    return data
+
+
+def test_training_copies():
+    X_train = pd.DataFrame({"a": [1.0, 2.0, 3.0], "b": ["x", "y", "z"]})
+    X_test = pd.DataFrame({"a": [2.0, 2.0, 4.0], "b": ["y", "x", "z"]})
+    assert training_copies(X_test, X_train).tolist() == [True, False, False]
+
+
+def test_jitter_is_judged_on_rows_without_a_training_copy():
+    data = _with_training_copies(_split("regression"))
+    results = audit_system(_MemorizingSystem, datasets=[data], checks=("jitter",), log=lambda _msg: None)
+    (check,) = _by_check(results, "jitter")
+    groups = check.details["groups"]
+    assert check.details["judged_on"] == "no_copy"
+    assert groups["copy"]["system"]["change"] > 1.0  # the copies are lost under the noise: a sharp rise there
+    assert groups["all"]["system"]["change"] > 0.25  # judged on all rows, the memorizer would have been flagged
+    assert check.verdict == PASS, check.summary
