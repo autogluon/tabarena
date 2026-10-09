@@ -58,9 +58,11 @@ run against `main`. To reproduce an entry, check out its recorded **git SHA**.
   proxy in front of the API cut every request longer than about 100 s with HTTP 503 and an HTML page (every
   request under 80 s passed). YHat raised the limit; one APSFailure request then passed in 283 s, and job 1263717
   (13:52 UTC, same command) ran the 1,434 missing items in 6 h 08 min without a failure: 1,632 of 1,632. Two calls
-  were retried inside the timed predict, so their `time_infer_s` includes the retries: APSFailure c2 split 7 (three
-  dropped responses, 1,987 s against 628 s on the server) and HR_Analytics_Job_Change_of_Data_Scientists c2 split 7
-  (one 503, 71 s against 39 s). Elsewhere the client's wall time exceeds the server's total by a median 0.9 s.
+  were retried inside the timed predict, which put the retries into their `time_infer_s`: APSFailure c2 split 7
+  (three dropped responses, 1,987 s against 628 s on the server) and HR_Analytics_Job_Change_of_Data_Scientists c2
+  split 7 (one 503, 71 s against 39 s). Both were rerun alone (job 1263841, a two-item job file, 2 in flight; the
+  old results are kept in `retry_inflated_backup/` next to `data/`): the same errors, 622 s and 40 s, one attempt
+  each. Elsewhere the client's wall time exceeds the server's total by a median 0.9 s.
   Every result records version `chakra-tab-2026-10`; none exceeded the 3,600 s limit. Eval: full leaderboard #3
   (full, Elo 1911) and #4 (medium, Elo 1900) of 102; the reproduction check against the submitted TabArena-Lite
   errors passed for both presets (47 and 50 of 51 splits within 1e-4, the rest within 0.12%).
