@@ -226,5 +226,9 @@
  "artifacts/tabarena-2026-10-06/methods/Kumo-Tabular-Small/results/hpo_results.parquet": "f8e6465e1a31a3387331cc5f2c106b2c",
  "artifacts/tabarena-2026-10-06/methods/Kumo-Tabular-Small/results/model_results.parquet": "21a9c6711460d5a05d225c319898ad8b",
  "artifacts/tabarena-2026-10-06/methods/Kumo-Tabular/results/hpo_results.parquet": "5ad901c07985c11c89ca29c73e667ce7",
- "artifacts/tabarena-2026-10-06/methods/Kumo-Tabular/results/model_results.parquet": "940de6c610f91bff69e8d94ae11cf7fe"
+ "artifacts/tabarena-2026-10-06/methods/Kumo-Tabular/results/model_results.parquet": "940de6c610f91bff69e8d94ae11cf7fe",
+ "artifacts/tabarena-2026-10-08/methods/PrismBoost/results/hpo_results.parquet": "ffc9c9ece16364fbd70e14d625e762a5",
+ "artifacts/tabarena-2026-10-08/methods/PrismBoost/results/model_results.parquet": "abc3b817b40c28efd0146e3a566880b5",
+ "artifacts/tabarena-2026-10-09/methods/LightPFN/results/hpo_results.parquet": "c11a18c2b8a746a7c5481e8fa55142f3",
+ "artifacts/tabarena-2026-10-09/methods/LightPFN/results/model_results.parquet": "de00e8b97891209a96e7491acf08706b"
 }

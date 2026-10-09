@@ -68,6 +68,7 @@ from tabarena.models.kumo_tabular.info import (
     kumo_tabular_small_method_metadata,
 )
 from tabarena.models.lightgbm.info import lightgbm_method_metadata
+from tabarena.models.lightpfn.info import lightpfn_method_metadata
 from tabarena.models.limix.info import limix_method_metadata as limix_metadata
 from tabarena.models.limix_2.info import limix_2_method_metadata
 from tabarena.models.lr.info import (
@@ -88,6 +89,7 @@ from tabarena.models.orionmsp.info import orionmsp_method_metadata as orionmsp_m
 from tabarena.models.perpetual_booster.info import (
     perpetual_booster_method_metadata as perpetualbooster_metadata,
 )
+from tabarena.models.prismboost.info import prismboost_method_metadata
 from tabarena.models.random_forest.info import random_forest_method_metadata
 from tabarena.models.realmlp.info import realmlp_method_metadata as realmlp_gpu_metadata
 from tabarena.models.sap_rpt_oss.info import (
@@ -203,6 +205,7 @@ tabarena_method_metadata_collection = MethodMetadataCollection(
         lr_2026_09_method_metadata,
         fastai_method_metadata,
         nn_torch_method_metadata,
+        prismboost_method_metadata,
         random_forest_method_metadata,
         xgboost_method_metadata,
         # Neural / GPU / foundation models
@@ -242,6 +245,7 @@ tabarena_method_metadata_collection = MethodMetadataCollection(
         kumo_tabular_method_metadata,
         kumo_tabular_medium_method_metadata,
         kumo_tabular_small_method_metadata,
+        lightpfn_method_metadata,
     ],
 )
 

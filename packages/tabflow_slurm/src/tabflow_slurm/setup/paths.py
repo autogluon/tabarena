@@ -68,6 +68,13 @@ class PathSetup:
     Defaults to the `submit_template.sh` bundled with this package
     (see `get_submit_script_path`)."""
 
+    def __post_init__(self) -> None:
+        # The paths travel into the job JSON and the SLURM command line, so a `Path` is stored as `str`.
+        self.workspace = str(self.workspace)
+        self.python_path = str(self.python_path)
+        self.run_script = str(self.run_script)
+        self.submit_script = str(self.submit_script)
+
     @property
     def _workspace(self) -> Path:
         return Path(self.workspace)

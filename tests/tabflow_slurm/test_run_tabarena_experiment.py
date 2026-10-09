@@ -520,6 +520,27 @@ class TestRunExperimentWorkerFlags:
         with pytest.raises(ValueError, match="task_source.json"):
             self._run("x", tmp_path, materialize_tasks=True)
 
+    def test_materialize_tasks_without_a_suite_runs_a_data_foundry_task_already_cached(self, monkeypatch, tmp_path):
+        """A custom data-foundry collection (no registered suite) runs from the converted task seeded into the cache."""
+        import openml
+
+        from tabarena.benchmark.task.user_task import UserTask
+
+        seen = self._fake_runner(monkeypatch)
+        task_id_str = "UserTask|1|ds_a/uuid"
+        scoped = self._fake_batch_with_task(monkeypatch, task_id_str=task_id_str, data_foundry_uri="ds_a/uuid")
+        saved_openml_root = openml.config._root_cache_directory
+        try:
+            openml.config.set_root_cache_directory(str(tmp_path / "root" / "openml"))
+            task_path = UserTask.from_task_id_str(task_id_str).task_path
+            task_path.parent.mkdir(parents=True)
+            task_path.write_bytes(b"seeded")
+            self._run("x", tmp_path, materialize_tasks=True)
+        finally:
+            openml.config.set_root_cache_directory(str(saved_openml_root))
+        assert scoped.materialized == 0
+        assert seen["task_metadata"] is scoped
+
     def test_materialize_tasks_without_a_suite_lets_openml_tasks_load_lazily(self, monkeypatch, tmp_path):
         seen = self._fake_runner(monkeypatch)
         scoped = self._fake_batch_with_task(monkeypatch, task_id_str="359955", data_foundry_uri=None)

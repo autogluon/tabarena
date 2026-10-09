@@ -211,7 +211,10 @@ class Worker:
             _log(f"dataset cache {self.cache_manifest.get('cache_uri')} covers {n_datasets} dataset(s)")
         weights = (self.cache_manifest or {}).get("weights", {})
         if weights:
-            self.pull_entries([rel for rels in weights.values() for rel in rels])
+            self.pull_entries(
+                [rel for rels in weights.values() for rel in rels],
+                base_uri=(self.cache_manifest or {}).get("weights_cache_uri"),
+            )
         # Models whose weights are not in the seeded cache are prefetched from the Hub as a fallback.
         unseeded = [m for m in self.cfg.models if not weights.get(m)]
         if unseeded and not (self.cache_manifest or {}).get("offline_weights"):
@@ -291,9 +294,13 @@ class Worker:
             return
         self.pull_entries(self.cache_manifest.get("datasets", {}).get(dataset, []))
 
-    def pull_entries(self, rels: list[str]) -> None:
-        """Copy the given cache entries (relative to the cache layout) from the bucket into ``CACHE_ROOT``."""
-        base = str((self.cache_manifest or {}).get("cache_uri", "")).rstrip("/")
+    def pull_entries(self, rels: list[str], *, base_uri: str | None = None) -> None:
+        """Copy the given cache entries (relative to the cache layout) from the bucket into ``CACHE_ROOT``.
+
+        ``base_uri`` is the prefix the entries live under; ``None`` means the manifest's dataset ``cache_uri``
+        (the weights may live in their own ``weights_cache_uri``).
+        """
+        base = str(base_uri or (self.cache_manifest or {}).get("cache_uri", "")).rstrip("/")
         for rel in rels:
             if rel in self._pulled:
                 continue

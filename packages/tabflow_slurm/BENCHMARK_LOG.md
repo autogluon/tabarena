@@ -83,6 +83,120 @@ plan = TabArenaV0pt1BenchmarkPlan(
 plan.setup_jobs()
 ```
 
+## 2026-10-09 — lightpfn_09102026
+
+- **Model(s):** LightPFN (default config only) on every split of the 38 TabArena-v0.1 classification datasets,
+  594 items
+- **Git SHA:** `3d8217c0` (`add-lightpfn`, PR #655) checked out as `pr-655-lightpfn` in `../tabarena-edit-copy-two`,
+  with two uncommitted edits off the fit path (the `[New] ` prefix strip dropped from `website/website_format.py`,
+  `models/lightpfn/tests/` added); archive `tabarena-edit-copy-two-3d8217c0-17ad0eee.tar.gz`. AutoGluon from PyPI,
+  `1.6.4b20261009`.
+- **Validation protocol:** `8x1`
+- **Purpose:** Stage-2 maintainer run of the PR #655 submission (`lightpfn==1.0.0`, weights
+  `ueuegio/LightPFN@bd389ab5`, four estimators, the context cache only in the refit model).
+- **Notes:** SkyPilot pool `lightpfn-0910` (32 spot RTX PRO 6000 workers, `g4-standard-48`, env `4db29623027f`); venv
+  `~/.venvs/tabarena_lightpfn_09102026` (torch 2.14.1+cu130). One item per bundle, `fake_memory_for_estimates=96`.
+  `TaskSubset(subset="classification")` because LightPFN has no regression head and is not in the bundle's
+  `DEFAULT_MODEL_CONSTRAINTS`, so the full task set would schedule the 13 regression datasets. A first launch on
+  SLURM (`gpurtxpro6000flex`, array 1262559) was cancelled before any result landed and replaced by the pool. Workers
+  READY by 10:12 CEST, the last item finished 10:18; no failures or preemptions. Result: 594 of 594; `audit_warmup
+  --results` reports warm-up ok on all 594 and no packages imported inside the timed fit or predict. Eval: Elo 1434
+  (+63/-80), #26 of 99 on the classification subset, on both classification Pareto fronts (median 0.26 s train and
+  0.029 s inference per 1K rows); binary #28 (1411), multiclass #21 (1560); full #46 of 101 (1325, 25.5% imputed, the
+  regression tasks). Processed and uploaded as suite `tabarena-2026-10-09` (`lightpfn_method_metadata` in
+  `models/lightpfn/info.py`), `verified=True`.
+
+```python
+from tabarena.benchmark.experiment import TabArenaV0pt1ExperimentBundle
+from tabarena.benchmark.task.metadata import TaskSubset
+from tabflow_slurm import (
+    ModelJob,
+    PathSetup,
+    SkyPilotSetup,
+    TabArenaV0pt1BenchmarkPlan,
+    TabArenaV0pt1ResourcesSetup,
+)
+
+TabArenaV0pt1BenchmarkPlan(
+    benchmark_name="lightpfn_09102026",
+    model_jobs=[
+        ModelJob(
+            models=("LightPFN", 0),
+            name="gpu",
+            resources={"num_gpus": 1, "fake_memory_for_estimates": 96},
+        ),
+    ],
+    task_subset=TaskSubset(subset="classification"),
+    path_setup=PathSetup(
+        workspace="/home/lennart_priorlabs_ai/workspace/benchmarking/tabarena_workspace",
+        python_path="/home/lennart_priorlabs_ai/.venvs/tabarena_lightpfn_09102026/bin/python",
+    ),
+    experiment_bundle=TabArenaV0pt1ExperimentBundle(model_verbosity=2),
+    resources_setup=TabArenaV0pt1ResourcesSetup(num_cpus=None, memory_limit=None),
+    scheduler_setup=SkyPilotSetup(bundle_size=1, workers=32, use_pool=True, pool_name="lightpfn-0910"),
+).setup_jobs()
+```
+
+---
+
+## 2026-10-08 — prismboost_08102026
+
+- **Model(s):** PrismBoost, default config plus 200 random configs (201 per split) on all 816 TabArena splits, 164,016
+  items
+- **Git SHA:** `212fdf2c` (PR #629 head, contains main `10b1ecb9`) in the detached worktree
+  `../tabarena-run-prismboost-08102026`; AutoGluon worktree `../autogluon-run-prismboost-08102026` at master `8e375c1e`
+- **Validation protocol:** `8x1` (TabArena default, asserted by the context)
+- **Purpose:** Maintainer re-run of PR #629 (PrismBoost, gradient boosting with SEFR oblique splits) on the full
+  TabArena-v0.1 task set, from scratch on prismboost 0.5.0 (`fit(time_limit=...)`). Supersedes the unlogged
+  `prismboost_05102026` attempt (prismboost 0.4.1). Processed and uploaded as suite `tabarena-2026-10-08`
+  (`prismboost_method_metadata`).
+- **Notes:** Run venv `~/.venvs/tabarena_prismboost_08102026` (new, both worktrees editable, prismboost 0.5.0), bundle
+  size 10, no extra deps. Split across two schedulers by dataset, all on spot `n4-standard-16` (16 vCPU, 64 GB):
+  SLURM array 1254851 on `cpun416mtspotinteractive` (300 concurrent, launched 15:24 CEST) kept array tasks 0-5848; its
+  pending tail was cancelled before it started in two steps and run on the SkyPilot pool `prismboost-cpu` (300 workers
+  requested, 200-260 obtained, $0.10/h each, env manifest `a7d0035711b8`): launch
+  `prismboost_08102026_cpu_sky-20261008-144756-4411` (21 datasets, 63,315 items, done 03:05 CEST) and launch
+  `prismboost_08102026_cpu_sky2-20261008-164802-1c43` (14 datasets, 42,210 items, done 02:16 CEST), both with zero
+  failed items. SLURM finished its share at 21:52 CEST; 10 tasks were killed by spot preemption (exit 15, no
+  traceback, not requeued by SLURM) and 5 never-started tasks were cancelled, so 113 items were relaunched on
+  2026-10-09 (array 1262592, 12 tasks, all OK). `slurmctld` socket timeouts around 17:50 CEST made `squeue` return
+  empty, so `slurm_progress.sh` reported a false DONE. The pool idled about 8.5 h after the last launch drained because
+  the head node died overnight. Result: 164,016 of 164,016 items, nothing imputed, no time-limit hits in the SLURM
+  logs. Full leaderboard (103 methods): tuned + ensemble #65 Elo 1212 (+48/-49), tuned #73 Elo 1180, default #82 Elo
+  1124; regression tuned + ensemble #52/100 Elo 1291. Median train time per 1K rows: default 5.2 s, tuned 1193 s.
+
+```python
+# SLURM part (tmp_scripts/run_prismboost.py setup); the relaunch on 2026-10-09 re-ran the same call.
+plan = TabArenaV0pt1BenchmarkPlan(
+    benchmark_name="prismboost_08102026",
+    model_jobs=[ModelJob(models=("PrismBoost", "all"), name="cpu")],
+    task_subset=TaskSubset(),
+    path_setup=PathSetup(
+        workspace="/home/lennart_priorlabs_ai/workspace/benchmarking/tabarena_workspace",
+        python_path="/home/lennart_priorlabs_ai/.venvs/tabarena_prismboost_08102026/bin/python",
+    ),
+    experiment_bundle=TabArenaV0pt1ExperimentBundle(model_verbosity=2),
+    resources_setup=TabArenaV0pt1ResourcesSetup(num_cpus=None, memory_limit=None),
+    scheduler_setup=GCPSlurmSetup(cpu_partition="cpun416mtspotinteractive", bundle_size=10, array_job_limit=300),
+)
+plan.setup_jobs()
+
+# SkyPilot parts (setup --scheduler skypilot-pool --sky-job cpu_sky / cpu_sky2): same plan with
+#   model_jobs=[ModelJob(models=("PrismBoost", "all"), name=<sky_job>)],
+#   task_subset=TaskSubset(dataset_names=list(SKY_LAUNCHES[<sky_job>])),
+#   scheduler_setup=SkyPilotSetup(bundle_size=10, workers=300, use_pool=True, pool_name="prismboost-cpu",
+#                                 api_server_endpoint="http://skypilot-api:46580"),
+# cpu_sky:  kddcup09_appetency, Marketing_Campaign, maternal_health_risk, miami_housing, MIC, NATICUSdroid,
+#           online_shoppers_intention, physiochemical_protein, polish_companies_bankruptcy, qsar-biodeg, QSAR-TID-11,
+#           QSAR_fish_toxicity, SDSS17, seismic-bumps, splice, students_dropout_and_academic_success,
+#           superconductivity, taiwanese_bankruptcy_prediction, website_phishing, wine_quality, jm1
+# cpu_sky2: Diabetes130US, diamonds, E-CommereShippingData, Fitness_Club, Food_Delivery_Time, GiveMeSomeCredit,
+#           hazelnut-spread-contaminant-detection, healthcare_insurance_expenses, heloc, hiva_agnostic, houses,
+#           HR_Analytics_Job_Change_of_Data_Scientists, in_vehicle_coupon_recommendation, Is-this-a-good-customer
+```
+
+---
+
 ## 2026-10-06 — beyondarena_kumotabular_core2k_06102026
 
 - **Model(s):** Kumo-Tabular, Kumo-Tabular-Medium, Kumo-Tabular-Small (default config only) on the 2,000 BeyondArena

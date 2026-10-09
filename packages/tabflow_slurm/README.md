@@ -258,7 +258,8 @@ Runs the bundles as SkyPilot managed jobs draining a **GCS claim queue**. Constr
 
 Knobs: `bucket` / `prefix` (defaults to the org's EU sky-cache bucket and `<user>/tabarena`),
 `api_server_endpoint` (printed as an export; unset means the shell must provide it), `dataset_cache_uri` /
-`seed_dataset_cache` / `seed_model_weights` (the static cache above), `infra` (unset by
+`weights_cache_uri` / `seed_dataset_cache` / `seed_model_weights` (the static cache above; `weights_cache_uri`
+defaults to `dataset_cache_uri` and keeps the weights in the shared cache when the datasets go to a private prefix), `infra` (unset by
 default: the shared server's admin policy expands the regions and rejects an explicit one), `workers`
 (concurrent worker jobs, the `%N` analogue, and the pool size), `use_pool` / `pool_name`,
 `gpu_accelerator` (`RTXPRO6000:1`, a `g4-standard-48` with 96 GB VRAM, 48 vCPU, 180 GB RAM; pair with
