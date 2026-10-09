@@ -38,7 +38,8 @@ run against `main`. To reproduce an entry, check out its recorded **git SHA**.
 
 - **Model(s):** Chakra-Tab (YHat Labs' hosted tabular API, the first `closed-source-api` system), 2 configs:
   `preset=medium` (c1, 3-fold bagging) and `preset=full` (c2, 8-fold bagging), 1,632 items (2 x 816 splits)
-- **Git SHA:** `98daa8ab` (`add-chakra-tab-system`, PR #654)
+- **Git SHA:** `98daa8ab` (`add-chakra-tab-system`, PR #654) for job 1262613; `94c192af` (the client keeps the HTTP
+  status of a reply that is not JSON) for job 1263717
 - **Validation protocol:** `system` (the API runs its own validation; recorded as flavour `system`, protocol `None`)
 - **Purpose:** First benchmark of a hosted-API system, from one on-demand CPU node querying the API.
 - **Notes:** SLURM job 1262613, `SlurmSingleNodeSetup` on `cpuhighmem16` (c4-highmem-16, on-demand), `run_local
@@ -53,6 +54,16 @@ run against `main`. To reproduce an entry, check out its recorded **git SHA**.
   to the type-keeping decoys, the shuffled-probe recalibration and the jitter split by training copies in
   `audit_system`); smoke 6/6 matching the submitted TabArena-Lite errors (`compare_reproduced_results`, PASS).
   Provider estimate: about 10 h for both presets.
+  Outcome: job 1262613 (10:42 UTC) was cancelled after 33 min with 198 items done and 4 APSFailure items failed: a
+  proxy in front of the API cut every request longer than about 100 s with HTTP 503 and an HTML page (every
+  request under 80 s passed). YHat raised the limit; one APSFailure request then passed in 283 s, and job 1263717
+  (13:52 UTC, same command) ran the 1,434 missing items in 6 h 08 min without a failure: 1,632 of 1,632. Two calls
+  were retried inside the timed predict, so their `time_infer_s` includes the retries: APSFailure c2 split 7 (three
+  dropped responses, 1,987 s against 628 s on the server) and HR_Analytics_Job_Change_of_Data_Scientists c2 split 7
+  (one 503, 71 s against 39 s). Elsewhere the client's wall time exceeds the server's total by a median 0.9 s.
+  Every result records version `chakra-tab-2026-10`; none exceeded the 3,600 s limit. Eval: full leaderboard #3
+  (full, Elo 1911) and #4 (medium, Elo 1900) of 102; the reproduction check against the submitted TabArena-Lite
+  errors passed for both presets (47 and 50 of 51 splits within 1e-4, the rest within 0.12%).
 
 ```python
 plan = TabArenaV0pt1BenchmarkPlan(
