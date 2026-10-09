@@ -7,8 +7,8 @@ from tabarena.systems.chakra_tab.system import ChakraTabSystemModel
 
 # Chakra-Tab is served through YHat Labs' API: the benchmark calls the endpoint, so it runs behind
 # a remote API that cannot be inspected (tag closed-source-api). Fits ran on one A100 80 GB on the
-# provider's side; `compute` records that. The API is YHat Labs' paid product, so it is usable
-# commercially. The run is pinned to API version chakra-tab-2026-10, recorded with every result.
+# provider's side; `compute` records that. The run is pinned to API version chakra-tab-2026-10, recorded
+# with every result.
 chakra_tab_method_metadata = MethodMetadata.system(
     method="Chakra-Tab",
     name="Chakra-Tab",
@@ -17,8 +17,8 @@ chakra_tab_method_metadata = MethodMetadata.system(
     date="2026-10-04",
     date_introduced="2026-10",
     reference_url="https://yhatlabs.com",
-    license="Proprietary (hosted API; commercial use under YHat Labs terms of service)",
-    commercial_use=True,
+    license="Proprietary (hosted API; YHat Labs terms of service)",
+    commercial_use=False,
     tags=("closed-source-api",),
     verified=False,
 )
