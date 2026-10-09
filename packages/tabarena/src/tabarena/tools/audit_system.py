@@ -4,7 +4,7 @@ Usage::
 
     python -P -m tabarena.tools.audit_system --system NAME [--config JSON] [--datasets NAME ...]
         [--checks CHECK ...] [--time-limit S] [--offline] [--seed N] [--json PATH]
-    python -P -m tabarena.tools.audit_system --submitted-results per_split.csv [--json PATH]
+    python -P -m tabarena.tools.audit_system --submitted-results per_split.csv [...] [--json PATH]
 
 A system receives the training table *and* the test features (the hosted APIs in one call), and the
 TabArena datasets are public, so a system could look the test labels up instead of predicting them,
@@ -47,6 +47,13 @@ checks the client it can read and probes the behaviour it cannot. The checks:
 ``metric_error``, e.g. the ``per_split.csv`` of a TabArena-Lite run) with every hosted method on the
 same splits and flags datasets where it beats the best hosted method by a wide margin. No system is
 called for this check.
+
+``compare_reproduced_results`` (no CLI flag; the hosted-API run template calls it from ``smoke`` and
+``eval``) is the other direction: it compares our own run of a config with the errors the submitter
+reported for it on the same splits. A seeded system reproduces them up to float noise; a gap where our errors
+are systematically higher means the self-reported numbers came from something other than what the
+API serves us. ``results_frame`` / ``load_results_frame`` turn a run's own ``results.pkl`` files into
+the frame it takes.
 
 The probes call the system through its exec model exactly as a benchmark item does (``fit_custom``,
 then extra ``predict`` / ``predict_proba`` calls on the fitted object), so a hosted API is called
@@ -135,6 +142,13 @@ SOURCE_PATTERNS: dict[str, tuple[str, ...]] = {
 TASK_IDENTITY_NAMES = frozenset({"task_id", "tid", "split_idx", "y_test", "dataset_name", "fold", "repeat"})
 #: Categories whose hits make the source check WARN rather than INFO.
 SOURCE_WARN_CATEGORIES = ("dataset or cache access", "task identity", "global patching")
+#: ``compare_reproduced_results``: relative tolerance of matching errors (GPU float noise of a seeded fit is
+#: about 1e-5), the median ratio (ours / submitted) that fails, its distance from 1 that warns, and the
+#: per-split ratio band outside which a split warns.
+REPRODUCTION_RTOL = 1e-4
+REPRODUCTION_MEDIAN_FAIL = 1.10
+REPRODUCTION_MEDIAN_WARN = 0.02
+REPRODUCTION_SPLIT_BAND = (0.8, 1.25)
 #: Fit inputs every system receives; a wrapper that never reads one ignores it.
 FIT_INPUTS = ("random_state", "time_limit", "num_cpus", "num_gpus", "memory_limit", "eval_metric")
 
@@ -315,7 +329,19 @@ class SystemUnderAudit:
     num_cpus: int | None = None
     split_seed: int = 0
     calls: list[dict] = field(default_factory=list)
-    """``{"probe", "dataset", "rows", "wall_s"}`` per call to the system, for the time check."""
+    """``{"probe", "dataset", "rows", "wall_s"}`` per call to the system (plus ``"error"`` when it raised)."""
+
+    def _timed(self, data: ProbeData, rows: int, probe: str, call: Callable[[], Any]) -> Any:
+        entry = {"probe": probe, "dataset": data.name, "rows": rows}
+        start = time.monotonic()
+        try:
+            out = call()
+        except Exception as exc:
+            error = f"{type(exc).__name__}: {str(exc)[:200]}"
+            self.calls.append({**entry, "wall_s": time.monotonic() - start, "error": error})
+            raise
+        self.calls.append({**entry, "wall_s": time.monotonic() - start})
+        return out
 
     def fit_predict(self, data: ProbeData, X_train, y_train, X_test, *, probe: str) -> tuple[Any, Any]:
         """Construct, ``fit_custom`` and return ``(fitted_model, test_prediction)`` like a benchmark item."""
@@ -328,20 +354,19 @@ class SystemUnderAudit:
             fit_kwargs={"num_cpus": self.num_cpus, "num_gpus": 0, "memory_limit": None, "time_limit": self.time_limit},
             **self.config,
         )
-        start = time.monotonic()
-        out = model.fit_custom(X_train.copy(), y_train.copy(), X_test.copy(), split_seed=self.split_seed)
-        self.calls.append(
-            {"probe": probe, "dataset": data.name, "rows": len(X_test), "wall_s": time.monotonic() - start}
+        out = self._timed(
+            data,
+            len(X_test),
+            probe,
+            lambda: model.fit_custom(X_train.copy(), y_train.copy(), X_test.copy(), split_seed=self.split_seed),
         )
         pred = out["probabilities"] if data.problem_type != "regression" else out["predictions"]
         return model, pred
 
     def predict(self, model, data: ProbeData, X: pd.DataFrame, *, probe: str) -> Any:
         """One more prediction from an already fitted system (a hosted API may refit here)."""
-        start = time.monotonic()
-        pred = model.predict_proba(X.copy()) if data.problem_type != "regression" else model.predict(X.copy())
-        self.calls.append({"probe": probe, "dataset": data.name, "rows": len(X), "wall_s": time.monotonic() - start})
-        return pred
+        predict = model.predict_proba if data.problem_type != "regression" else model.predict
+        return self._timed(data, len(X), probe, lambda: predict(X.copy()))
 
 
 def resolve_system(name: str) -> tuple[type, dict]:
@@ -964,12 +989,33 @@ def probe_dataset(sut: SystemUnderAudit, data: ProbeData, checks: Iterable[str],
     return results
 
 
+def _probe_failure(sut: SystemUnderAudit, dataset: str, exc: Exception) -> CheckResult:
+    """A probe run that raised, naming the call that failed and the calls that succeeded before it.
+
+    An outage fails the first call of a dataset; a system that serves the plain fit but fails on the
+    relabeled, shuffled or decoy requests is refusing the probes, which a reviewer must read as such.
+    """
+    calls = [c for c in sut.calls if c["dataset"] == dataset]
+    failed = next((c["probe"] for c in calls if "error" in c), None)
+    served = [c["probe"] for c in calls if "error" not in c]
+    where = f" on the {failed!r} call" if failed else ""
+    after = f"after {len(served)} served call(s) {served}" if served else "on the first call"
+    return CheckResult(
+        "probe",
+        dataset,
+        FAIL,
+        f"the system raised {type(exc).__name__}{where}, {after}: {str(exc)[:300]}",
+        {"calls": calls},
+    )
+
+
 def check_time(sut: SystemUnderAudit) -> CheckResult:
-    """Every call's wall-clock against the ``time_limit`` the system was handed."""
-    if not sut.calls:
-        return CheckResult("time", "-", SKIP, "no call was made")
-    walls = np.asarray([c["wall_s"] for c in sut.calls])
-    worst = sut.calls[int(np.argmax(walls))]
+    """Every served call's wall-clock against the ``time_limit`` the system was handed."""
+    served = [c for c in sut.calls if "error" not in c]
+    if not served:
+        return CheckResult("time", "-", SKIP, "no call was served")
+    walls = np.asarray([c["wall_s"] for c in served])
+    worst = served[int(np.argmax(walls))]
     limit = sut.time_limit
     if walls.max() > 1.5 * limit + 60:
         verdict = FAIL
@@ -1069,6 +1115,77 @@ def compare_submitted_results(
     return out
 
 
+def compare_reproduced_results(
+    ours: pd.DataFrame, submitted: pd.DataFrame, *, label: str = "reproduced"
+) -> CheckResult:
+    """Compare a run's errors with the errors a submitter reported for the same config on the same splits.
+
+    Both frames carry ``dataset``, ``fold`` (the split index) and ``metric_error`` for one config, e.g.
+    ``results_frame`` of a smoke or of the full run against the submitter's TabArena-Lite ``per_split.csv``.
+    A system that seeds its fit from the split reproduces the submitted errors up to float noise
+    (``REPRODUCTION_RTOL``, PASS). Otherwise the ratio of our error to the submitted one on each split tells
+    how far the two runs are apart: a median
+    above ``REPRODUCTION_MEDIAN_FAIL`` is a FAIL (the self-reported numbers are better than what the system
+    delivers to us), a median more than ``REPRODUCTION_MEDIAN_WARN`` away from 1 or a split outside
+    ``REPRODUCTION_SPLIT_BAND`` is a WARN, and anything else passes as run-to-run noise.
+    """
+    merged = ours[["dataset", "fold", "metric_error"]].merge(
+        submitted[["dataset", "fold", "metric_error"]],
+        on=["dataset", "fold"],
+        suffixes=("_ours", "_submitted"),
+    )
+    if merged.empty:
+        return CheckResult("reproduced", label, SKIP, "no split of the run is in the submitted results")
+    a, b = merged["metric_error_ours"].astype(float), merged["metric_error_submitted"].astype(float)
+    merged["match"] = np.isclose(a, b, rtol=REPRODUCTION_RTOL, atol=1e-12)
+    merged["ratio"] = [x / y if y > 0 else 1.0 if x == 0 else math.inf for x, y in zip(a, b, strict=True)]
+    median = float(merged["ratio"].median())
+    low, high = REPRODUCTION_SPLIT_BAND
+    outliers = merged[(merged["ratio"] < low) | (merged["ratio"] > high)]
+    n, n_same = len(merged), int(merged["match"].sum())
+    if n_same == n:
+        verdict = PASS
+    elif median > REPRODUCTION_MEDIAN_FAIL:
+        verdict = FAIL
+    elif abs(median - 1) > REPRODUCTION_MEDIAN_WARN or not outliers.empty:
+        verdict = WARN
+    else:
+        verdict = PASS
+    summary = (
+        f"{n} splits: {n_same} match the submitted errors (rtol {REPRODUCTION_RTOL:g}), median ratio "
+        f"ours/submitted {median:.3f}; of the others, ours is worse on {int(((merged['ratio'] > 1) & ~merged['match']).sum())}"
+        f" and better on {int(((merged['ratio'] < 1) & ~merged['match']).sum())}"
+    )
+    if not outliers.empty:
+        shown = ", ".join(f"{r.dataset} fold {r.fold} ({r.ratio:.2f}x)" for r in outliers.head(5).itertuples())
+        summary += f"; outside [{low:g}, {high:g}]: {shown}{' ...' if len(outliers) > 5 else ''}"
+    return CheckResult("reproduced", label, verdict, summary, {"per_split": merged.to_dict(orient="records")})
+
+
+def results_frame(results: Iterable[dict]) -> pd.DataFrame:
+    """``method``, ``dataset``, ``fold`` (the split index) and ``metric_error`` of TabArena result dicts."""
+    rows = [
+        {
+            "method": r["framework"],
+            "dataset": r["task_metadata"]["name"],
+            "fold": int(r["task_metadata"]["split_idx"]),
+            "metric_error": float(r["metric_error"]),
+        }
+        for r in results
+    ]
+    return pd.DataFrame(rows, columns=["method", "dataset", "fold", "metric_error"])
+
+
+def load_results_frame(data_dir: str | Path) -> pd.DataFrame:
+    """``results_frame`` of every ``results.pkl`` under a run's own output directory.
+
+    Only for results TabArena wrote itself: unpickling runs code, so a submitter's pickles are never loaded.
+    """
+    from tabarena.utils.pickle_utils import load_pickle
+
+    return results_frame(load_pickle(path) for path in sorted(Path(data_dir).rglob("results.pkl")))
+
+
 def load_hosted_per_split(subset: str | None = "lite") -> pd.DataFrame:
     """The hosted TabArena-v0.1 per-split results (``results_per_split.csv`` of ``compare(plot=False)``)."""
     import tempfile
@@ -1105,7 +1222,7 @@ def audit_system(
     results: list[CheckResult] = []
     if "source" in checks:
         results.append(scan_source(system_cls))
-        log(_format_result(results[-1]))
+        log(format_result(results[-1]))
     probes = [c for c in checks if c not in ("source", "time")]
     for entry in datasets:
         data = (
@@ -1116,7 +1233,7 @@ def audit_system(
         if offline:
             if "egress" in checks:
                 results.append(offline_egress(sut, data))
-                log(_format_result(results[-1]))
+                log(format_result(results[-1]))
             continue
         if not probes:
             continue
@@ -1124,17 +1241,18 @@ def audit_system(
         try:
             new = probe_dataset(sut, data, probes, seed=seed)
         except Exception as exc:
-            new = [CheckResult("probe", data.name, FAIL, f"the system raised {type(exc).__name__}: {str(exc)[:300]}")]
+            new = [_probe_failure(sut, data.name, exc)]
         for result in new:
-            log(_format_result(result))
+            log(format_result(result))
         results.extend(new)
     if "time" in checks and not offline:
         results.append(check_time(sut))
-        log(_format_result(results[-1]))
+        log(format_result(results[-1]))
     return results
 
 
-def _format_result(result: CheckResult) -> str:
+def format_result(result: CheckResult) -> str:
+    """One aligned line per check result: verdict, check, dataset, summary."""
     return f"[{result.verdict:<4}] {result.check:<12} {result.dataset:<34} {result.summary}"
 
 
@@ -1158,7 +1276,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--seed", type=int, default=None, help="Default: a fresh seed, printed for reruns.")
     parser.add_argument("--max-train-rows", type=int, default=2000)
     parser.add_argument("--max-test-rows", type=int, default=1000)
-    parser.add_argument("--submitted-results", help="CSV with dataset, fold, metric_error to compare with hosted.")
+    parser.add_argument(
+        "--submitted-results",
+        nargs="+",
+        help="CSV(s) with dataset, fold, metric_error to compare with hosted (one per config).",
+    )
     parser.add_argument("--json", help="Write every result (with details) to this path.")
     args = parser.parse_args(argv)
     if not args.system and not args.submitted_results:
@@ -1172,11 +1294,10 @@ def main(argv: list[str] | None = None) -> int:
     results: list[CheckResult] = []
     if args.submitted_results:
         hosted = load_hosted_per_split()
-        for result in compare_submitted_results(
-            pd.read_csv(args.submitted_results), hosted, label=args.submitted_results
-        ):
-            print(_format_result(result))
-            results.append(result)
+        for path in args.submitted_results:
+            for result in compare_submitted_results(pd.read_csv(path), hosted, label=path):
+                print(format_result(result))
+                results.append(result)
     if args.system:
         system_cls, config = resolve_system(args.system)
         if args.config:
