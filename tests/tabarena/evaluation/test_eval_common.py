@@ -98,3 +98,24 @@ def test_eval_names_still_fail_for_unknown_methods():
     with pytest.raises(ValueError):
         resolve_display_name("NoSuchMethod")
     assert resolve_display_name("NoSuchMethod", ag_name_override="X") is None
+
+
+def test_a_system_is_renamed_to_its_display_name(monkeypatch, tmp_path):
+    """A system's raw rows carry its config name; post-processing renames them to the display name."""
+    from tabarena.end_to_end import EndToEnd, EndToEndResults
+    from tabarena.evaluation import EvalMethod
+    from tabarena.evaluation._eval_common import MethodArtifact, is_system, post_process_to_results
+
+    assert is_system("TabFM+")
+    assert not is_system("NoSuchMethod")
+    assert EvalMethod("TabFM+").is_system
+
+    calls = []
+    monkeypatch.setattr(EndToEnd, "from_path_raw", classmethod(lambda cls, **kwargs: calls.append(kwargs)))
+    monkeypatch.setattr(EndToEndResults, "from_cache", classmethod(lambda cls, methods: EndToEndResults([])))
+    artifacts = [
+        MethodArtifact(ag_name="Sys_c1", path_raw=tmp_path, suite="run", display_name="Sys (fast)", system=True),
+        MethodArtifact(ag_name="Model", path_raw=tmp_path, suite="run", display_name="Model"),
+    ]
+    post_process_to_results(artifacts)
+    assert [c["name"] for c in calls] == ["Sys (fast)", None]  # a model's configs keep their own names
