@@ -425,8 +425,13 @@ been read and the API probed.
    Set `SUBMITTED_RESULTS` to the submitter's self-reported TabArena-Lite per-split CSV for each config
    (`{"<Name>_c1_default": "<path>"}`); `audit` compares each with the hosted methods. Read only CSVs
    from a submitter's release; never unpickle their `.pkl` files. A `FAIL` stops the
-   run: quote the line and raise it with the maintainer. Read the details of every `WARN` and
-   report them. The JSON lands in `tmp_scripts/eval_output/<benchmark_name>/`; name it in the log entry.
+   run: quote the line and raise it with the maintainer. A `probe` FAIL means the system raised; the
+   line names the call that failed and the calls served before it. An outage fails the first call of
+   a dataset. When only the decoy, relabeled or shuffled calls fail, rebuild that request locally
+   (column types, value ranges) and look for an input the server cannot handle before reading it
+   as a refusal of the probes, then rerun the dataset; the Chakra-Tab audit's 503s on decoys came
+   from `uint8` columns turned into negative floats, which the decoys now avoid. Read the details of
+   every `WARN` and report them. The JSON lands in `tmp_scripts/eval_output/<benchmark_name>/`; name it in the log entry.
 4. `smoke` (key needed): every config on three small tasks through the official pipeline, one call
    each. Report the errors and the train and inference times. With `SUBMITTED_RESULTS` set, `smoke`
    then compares each config's errors with the self-reported ones on the same splits (TabArena-Lite

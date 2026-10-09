@@ -21,6 +21,7 @@ from tabarena.tools.audit_system import (
     audit_system,
     compare_reproduced_results,
     compare_submitted_results,
+    make_decoys,
     make_synthetic_split,
     results_frame,
     scan_source,
@@ -331,3 +332,40 @@ def test_a_refused_probe_is_named():
     assert [c["probe"] for c in probe.details["calls"] if "error" in c] == ["labels"]
     (timing,) = _by_check(results, "time")
     assert timing.summary.startswith("5 calls")
+
+
+def test_decoys_keep_integer_columns_in_their_type():
+    X = pd.DataFrame(
+        {
+            "count": np.arange(40, dtype=np.uint8),
+            "signed": np.arange(-20, 20, dtype=np.int64),
+            "real": np.linspace(0, 1, 40),
+        },
+    )
+    decoys = make_decoys(X.iloc[:10], X, seed=0)
+    assert dict(decoys.dtypes) == dict(X.dtypes)
+    shift = decoys["count"].astype(int).to_numpy() - X["count"].iloc[:10].sample(frac=1.0, random_state=0).to_numpy()
+    assert (shift == round(10 * X["count"].std())).all()  # unsigned: shifted up, never below zero
+    assert (decoys["real"].sub(X["real"].mean()).abs() > 5 * X["real"].std()).mean() > 0.5
+
+
+class _BelowChanceSystem(_HonestSystem):
+    """Given any labels but the real ones, ranks the test rows backwards: far below chance, keeping no skill."""
+
+    def _fit_system(self, X, y, **kwargs):
+        original = _ProbeRefusingSystem.ORIGINAL
+        self._flip = not y.reset_index(drop=True).equals(original.reset_index(drop=True))
+        return super()._fit_system(X, original if self._flip else y, **kwargs)
+
+    def _predict_proba(self, X):
+        proba = super()._predict_proba(X)
+        return proba.iloc[:, ::-1].set_axis(proba.columns, axis=1) if self._flip else proba
+
+
+def test_shuffled_check_judges_the_skill_kept_not_the_distance_from_chance():
+    data = _split("binary")
+    _ProbeRefusingSystem.ORIGINAL = data.y_train
+    results = audit_system(_BelowChanceSystem, datasets=[data], checks=("shuffled",), log=lambda _msg: None)
+    (check,) = _by_check(results, "shuffled")
+    assert check.details["score"] < 0.2  # far below chance, where a strong honest learner can land
+    assert check.verdict == PASS

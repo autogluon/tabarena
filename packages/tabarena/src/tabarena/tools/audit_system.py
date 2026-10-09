@@ -27,15 +27,19 @@ checks the client it can read and probes the behaviour it cannot. The checks:
 ``transduction``
     The prediction for a test row must not depend on which other rows are in the batch. Predicts the
     first half of the test rows alone, the rows in reverse order, and the first half next to as many
-    decoy rows (numeric features shifted by ten standard deviations, unseen categories), and compares
+    decoy rows (numeric features shifted by ten standard deviations, integer columns kept integer and
+    inside their type's range, unseen categories), and compares
     each with the full-batch prediction against the run-to-run noise of a second, identical run.
 ``labels``
     Relabels the training classes with a derangement (regression: negates the target). An honest
     learner's predictions follow the new labels; predictions that still match the original test
     labels came from somewhere other than the training labels.
 ``shuffled``
-    Trains on labels shuffled across rows. Performance must drop to chance (AUC 0.5, the majority
-    rate, R^2 0); a system that keeps scoring is not learning from the labels it was given.
+    Trains on labels shuffled across rows. An honest learner loses its skill, but what is left of it
+    depends on the one permutation drawn: on an easy task a strong learner lands anywhere from an AUC
+    of 0.2 to 0.8. The check therefore compares the skill kept above chance (AUC 0.5, the majority
+    rate, R^2 0) with the skill on the real labels; a system that keeps most of it is not learning
+    from the labels it was given.
 ``jitter``
     Adds noise of 1% of a feature's standard deviation to the numeric test features. An exact-match
     lookup of public rows breaks while a model degrades smoothly; the degradation is compared with a
@@ -149,6 +153,11 @@ REPRODUCTION_RTOL = 1e-4
 REPRODUCTION_MEDIAN_FAIL = 1.10
 REPRODUCTION_MEDIAN_WARN = 0.02
 REPRODUCTION_SPLIT_BAND = (0.8, 1.25)
+#: ``shuffled``: the share of the real-label skill above chance kept with shuffled labels that fails / warns,
+#: and the least distance from chance (AUC, accuracy or R^2) either verdict needs.
+SHUFFLED_RETAINED_FAIL = 0.8
+SHUFFLED_RETAINED_WARN = 0.5
+SHUFFLED_MIN_MARGIN = 0.1
 #: Fit inputs every system receives; a wrapper that never reads one ignores it.
 FIT_INPUTS = ("random_state", "time_limit", "num_cpus", "num_gpus", "memory_limit", "eval_metric")
 
@@ -727,7 +736,17 @@ def make_decoys(X: pd.DataFrame, X_train: pd.DataFrame, seed: int) -> pd.DataFra
     for col in decoys.columns:
         if col in numeric:
             std = float(X_train[col].std()) or 1.0
-            decoys[col] = decoys[col].astype(float) + 10.0 * std * rng.choice([-1.0, 1.0], size=len(decoys))
+            signs = rng.choice([-1.0, 1.0], size=len(decoys))
+            dtype = X_train[col].dtype
+            if pd.api.types.is_integer_dtype(dtype):
+                # A whole shift that keeps the column's type: a server may cast the test rows to the training schema.
+                bounds = np.iinfo(dtype)
+                if bounds.min == 0:
+                    signs = np.ones(len(decoys))
+                shifted = decoys[col].astype(float) + max(1.0, round(10.0 * std)) * signs
+                decoys[col] = shifted.clip(bounds.min, bounds.max).astype(dtype)
+            else:
+                decoys[col] = decoys[col].astype(float) + 10.0 * std * signs
         elif isinstance(decoys[col].dtype, pd.CategoricalDtype):
             categories = [*decoys[col].cat.categories, _UNSEEN_CATEGORY]
             decoys[col] = pd.Categorical([_UNSEEN_CATEGORY] * len(decoys), categories=categories)
@@ -929,26 +948,29 @@ def probe_dataset(sut: SystemUnderAudit, data: ProbeData, checks: Iterable[str],
         shuf = as_array(shuf_pred)
         y_true = np.asarray([str(v) for v in data.y_test]) if not is_reg else data.y_test.astype(float).to_numpy()
         if data.problem_type == "binary":
-            auc = 1.0 - err(data.y_test, shuf)
-            positive = sorted(set(y_true))[-1]
-            n1 = int(np.sum(y_true == positive))
-            n0 = len(y_true) - n1
-            z = (auc - 0.5) / math.sqrt((n0 + n1 + 1) / (12 * max(n0, 1) * max(n1, 1)))
-            verdict = FAIL if (z > 5 and auc > 0.6) else WARN if z > 3 else PASS
-            summary = f"AUC with shuffled training labels {auc:.3f} (chance 0.5, z={z:.1f})"
-            details = {"auc": auc, "z": z}
+            score_name, chance = "AUC", 0.5
+            score, score_base = 1.0 - err(data.y_test, shuf), 1.0 - base_err
         elif data.problem_type == "multiclass":
-            acc = float(np.mean(_labels(shuf, classes) == y_true))
-            p = float(pd.Series(y_true).value_counts(normalize=True).iloc[0])
-            z = (acc - p) / math.sqrt(max(p * (1 - p), 1e-12) / len(y_true))
-            verdict = FAIL if (z > 5 and acc > p + 0.1) else WARN if z > 3 else PASS
-            summary = f"accuracy with shuffled training labels {acc:.3f} (majority rate {p:.3f}, z={z:.1f})"
-            details = {"accuracy": acc, "majority": p, "z": z}
+            score_name, chance = "accuracy", float(pd.Series(y_true).value_counts(normalize=True).iloc[0])
+            score = float(np.mean(_labels(shuf, classes) == y_true))
+            score_base = float(np.mean(_labels(base, classes) == y_true))
         else:
-            r2 = float(1.0 - np.mean((y_true - shuf) ** 2) / np.var(y_true))
-            verdict = FAIL if r2 > 0.2 else WARN if r2 > 0.05 else PASS
-            summary = f"R^2 with shuffled training labels {r2:.3f} (chance <= 0)"
-            details = {"r2": r2}
+            score_name, chance = "R^2", 0.0
+            score = float(1.0 - np.mean((y_true - shuf) ** 2) / np.var(y_true))
+            score_base = float(1.0 - np.mean((y_true - base) ** 2) / np.var(y_true))
+        retained = (score - chance) / max(score_base - chance, 1e-9)
+        above = score > chance + SHUFFLED_MIN_MARGIN
+        if above and retained > SHUFFLED_RETAINED_FAIL:
+            verdict = FAIL
+        elif above and retained > SHUFFLED_RETAINED_WARN:
+            verdict = WARN
+        else:
+            verdict = PASS
+        summary = (
+            f"{score_name} with shuffled training labels {score:.3f} (chance {chance:.3f}, real labels {score_base:.3f}): "
+            f"{retained:.0%} of the skill above chance kept"
+        )
+        details = {"score": score, "score_real_labels": score_base, "chance": chance, "retained": retained}
         results.append(CheckResult("shuffled", data.name, verdict, summary, details))
 
     if "jitter" in checks:
