@@ -54,7 +54,8 @@ run against `main`. To reproduce an entry, check out its recorded **git SHA**.
   --results` reports warm-up ok on all 594 and no packages imported inside the timed fit or predict. Eval: Elo 1434
   (+63/-80), #26 of 99 on the classification subset, on both classification Pareto fronts (median 0.26 s train and
   0.029 s inference per 1K rows); binary #28 (1411), multiclass #21 (1560); full #46 of 101 (1325, 25.5% imputed, the
-  regression tasks). Not yet processed or uploaded.
+  regression tasks). Processed and uploaded as suite `tabarena-2026-10-09` (`lightpfn_method_metadata` in
+  `models/lightpfn/info.py`), `verified=True`.
 
 ```python
 from tabarena.benchmark.experiment import TabArenaV0pt1ExperimentBundle
