@@ -159,8 +159,9 @@ _SUMMARY_BAR = "=" * 78
 
 
 def _format_models(models: list) -> str:
-    """Comma-separated model names for a run (tuples -> name, Experiment -> .name)."""
-    names = [m[0] if isinstance(m, tuple) else getattr(m, "name", str(m)) for m in models]
+    """Comma-separated model names for a run (tuples -> name or generator name, Experiment -> .name)."""
+    heads = [m[0] if isinstance(m, tuple) else m for m in models]
+    names = [h if isinstance(h, str) else getattr(h, "name", str(h)) for h in heads]
     return ", ".join(str(n) for n in names) if names else "(none)"
 
 

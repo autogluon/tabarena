@@ -34,6 +34,62 @@ run against `main`. To reproduce an entry, check out its recorded **git SHA**.
 
 ---
 
+## 2026-10-09 — lightpfn_09102026
+
+- **Model(s):** LightPFN (default config only) on every split of the 38 TabArena-v0.1 classification datasets,
+  594 items
+- **Git SHA:** `3d8217c0` (`add-lightpfn`, PR #655) checked out as `pr-655-lightpfn` in `../tabarena-edit-copy-two`,
+  with two uncommitted edits off the fit path (the `[New] ` prefix strip dropped from `website/website_format.py`,
+  `models/lightpfn/tests/` added); archive `tabarena-edit-copy-two-3d8217c0-17ad0eee.tar.gz`. AutoGluon from PyPI,
+  `1.6.4b20261009`.
+- **Validation protocol:** `8x1`
+- **Purpose:** Stage-2 maintainer run of the PR #655 submission (`lightpfn==1.0.0`, weights
+  `ueuegio/LightPFN@bd389ab5`, four estimators, the context cache only in the refit model).
+- **Notes:** SkyPilot pool `lightpfn-0910` (32 spot RTX PRO 6000 workers, `g4-standard-48`, env `4db29623027f`); venv
+  `~/.venvs/tabarena_lightpfn_09102026` (torch 2.14.1+cu130). One item per bundle, `fake_memory_for_estimates=96`.
+  `TaskSubset(subset="classification")` because LightPFN has no regression head and is not in the bundle's
+  `DEFAULT_MODEL_CONSTRAINTS`, so the full task set would schedule the 13 regression datasets. A first launch on
+  SLURM (`gpurtxpro6000flex`, array 1262559) was cancelled before any result landed and replaced by the pool. Workers
+  READY by 10:12 CEST, the last item finished 10:18; no failures or preemptions. Result: 594 of 594; `audit_warmup
+  --results` reports warm-up ok on all 594 and no packages imported inside the timed fit or predict. Eval: Elo 1434
+  (+63/-80), #26 of 99 on the classification subset, on both classification Pareto fronts (median 0.26 s train and
+  0.029 s inference per 1K rows); binary #28 (1411), multiclass #21 (1560); full #46 of 101 (1325, 25.5% imputed, the
+  regression tasks). Processed and uploaded as suite `tabarena-2026-10-09` (`lightpfn_method_metadata` in
+  `models/lightpfn/info.py`), `verified=True`.
+
+```python
+from tabarena.benchmark.experiment import TabArenaV0pt1ExperimentBundle
+from tabarena.benchmark.task.metadata import TaskSubset
+from tabflow_slurm import (
+    ModelJob,
+    PathSetup,
+    SkyPilotSetup,
+    TabArenaV0pt1BenchmarkPlan,
+    TabArenaV0pt1ResourcesSetup,
+)
+
+TabArenaV0pt1BenchmarkPlan(
+    benchmark_name="lightpfn_09102026",
+    model_jobs=[
+        ModelJob(
+            models=("LightPFN", 0),
+            name="gpu",
+            resources={"num_gpus": 1, "fake_memory_for_estimates": 96},
+        ),
+    ],
+    task_subset=TaskSubset(subset="classification"),
+    path_setup=PathSetup(
+        workspace="/home/lennart_priorlabs_ai/workspace/benchmarking/tabarena_workspace",
+        python_path="/home/lennart_priorlabs_ai/.venvs/tabarena_lightpfn_09102026/bin/python",
+    ),
+    experiment_bundle=TabArenaV0pt1ExperimentBundle(model_verbosity=2),
+    resources_setup=TabArenaV0pt1ResourcesSetup(num_cpus=None, memory_limit=None),
+    scheduler_setup=SkyPilotSetup(bundle_size=1, workers=32, use_pool=True, pool_name="lightpfn-0910"),
+).setup_jobs()
+```
+
+---
+
 ## 2026-10-08 — prismboost_08102026
 
 - **Model(s):** PrismBoost, default config plus 200 random configs (201 per split) on all 816 TabArena splits, 164,016

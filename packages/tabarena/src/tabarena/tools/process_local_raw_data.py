@@ -48,7 +48,7 @@ import pandas as pd
 from tabarena.benchmark.result.raw_loading import fetch_raw_result_paths, scan_raw_info
 from tabarena.benchmark.validation_protocol import ValidationProtocol
 from tabarena.end_to_end import EndToEnd
-from tabarena.models._method_metadata import infer_validation_protocol
+from tabarena.models._method_metadata import MethodTag, infer_validation_protocol
 
 if TYPE_CHECKING:
     from tabarena.end_to_end import EndToEndResults
@@ -249,17 +249,21 @@ def _comparison_rows(method: RawMethod, inferred: dict) -> list[tuple[str, objec
 
       * ``"error"`` — a real raw-signal field; a mismatch fails verification.
       * ``"warn"``  — ``method`` is a naming choice (inferred from name_prefix/framework) the author
-        may legitimately override, so a mismatch only warns.
+        may legitimately override, so a mismatch only warns. So is ``compute`` for a
+        ``closed-source-api`` system: it declares the provider's hardware, the raw results the client's.
       * ``"info"``  — ``model_key`` is derived (defaults to ``ag_key``) and ``name`` has no raw
         signal; shown in the comparison table for context but never gates verification. An
         undeclared ``config_default`` (``None``) is ``"info"`` too: it is resolved from the
         processed repo at use time instead of being checked.
     """
     m = method.method_metadata
+    # A hosted API computes on the provider's hardware, which `compute` declares; the raw results only
+    # record the client node that sent the requests, so a mismatch there is expected and only warns.
+    compute_severity = "warn" if MethodTag.CLOSED_SOURCE_API.value in (m.tags or ()) else "error"
     rows: list[tuple[str, object, object, str]] = [
         ("method", inferred["inferred_method"], m.method, "warn"),
         ("method_type", inferred["inferred_method_type"], m.method_type, "error"),
-        ("compute", inferred["inferred_compute"], m.compute, "error"),
+        ("compute", inferred["inferred_compute"], m.compute, compute_severity),
         # Legacy raw artifacts without a record infer None and skip the check; a recorded protocol must
         # be declared (a missing declaration is a mismatch, not an omission).
         ("validation_protocol", inferred.get("inferred_validation_protocol"), m.validation_protocol, "error"),

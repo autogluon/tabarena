@@ -180,6 +180,8 @@ tabpfn_3_5 = ["tabpfn>=9.0.0"]
 kumo_tabular = [
   "structured-data-models @ git+https://github.com/NVIDIA/structured-data-models.git@98f61289c7a4e1bce3b33771223ac2e123b63f19",
 ]
+# LightPFN: a 4.6M-parameter in-context classifier; keep in sync with `pip_extra` in models/lightpfn/info.py.
+lightpfn = ["lightpfn==1.0.0"]
 
 # Core benchmark set: the always-on models for benchmarking, plus the plotting and
 # preprocessing capabilities split out of the core install. Self-references avoid
@@ -223,6 +225,7 @@ extended = [
   "tabarena[mitra_v2]",
   "tabarena[tabpfn_3_5]",
   "tabarena[kumo_tabular]",
+  "tabarena[lightpfn]",
 ]
 
 # Convenience: everything (core + extended + probmetrics).

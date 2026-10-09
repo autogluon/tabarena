@@ -206,3 +206,28 @@ def test_fold_histogram_labels_the_leave_one_out_child():
     )
     assert _fold_histogram(info_df) == [("8x1", 2), ("8x1 requested; 1 child via use_child_oof", 1)]
     assert _fold_histogram(pd.DataFrame({"is_bag": [True]})) == []
+
+
+def test_api_system_compute_is_the_providers_and_only_warns(capsys):
+    """An API run on a CPU client node infers cpu; the declared provider GPU must not block processing."""
+    inferred = _inferred(
+        inferred_method_type="baseline",
+        inferred_method="Api",
+        inferred_compute="cpu",
+        validation_protocol_keys=["system"],
+        inferred_validation_protocol="system",
+        validation_flavours=["system"],
+        fold_histogram=[],
+    )
+    api = RawMethod(
+        path_raw="/raw",
+        method_metadata=MethodMetadata.system(method="Api", suite="s", compute="gpu", tags=("closed-source-api",)),
+    )
+    verify_method_metadata(api, inferred=inferred)
+    out = capsys.readouterr().out
+    assert "[verify] OK" in out
+    assert "compute" in out
+
+    local = RawMethod(path_raw="/raw", method_metadata=MethodMetadata.system(method="Api", suite="s", compute="gpu"))
+    with pytest.raises(ValueError, match="compute"):
+        verify_method_metadata(local, inferred=inferred)
