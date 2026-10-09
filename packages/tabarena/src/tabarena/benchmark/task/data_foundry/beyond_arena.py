@@ -80,7 +80,10 @@ def load_reference_metadata(
     Resolution order (unless ``force_regenerate``):
 
     1. The git-committed CSV (package data) — no dataset downloads.
-    2. A previously regenerated CSV in the OpenML metadata cache.
+    2. A previously regenerated CSV in the OpenML metadata cache. When the collection object is
+       at hand (passed in, or built because no name was given), a CSV whose ``data_foundry_uri``
+       set differs from the collection's entries is stale (e.g. a local collection whose
+       containers were rebuilt under new UUIDs) and is regenerated.
     3. Regenerate by downloading + converting the whole collection, caching the
        result for next time.
 
@@ -124,9 +127,14 @@ def load_reference_metadata(
 
         cached = _generated_metadata_cache_path(collection_name)
         if cached.exists():
-            if verbose:
-                print(f"Loading regenerated {collection_name} reference metadata from {cached}.")
-            return pd.read_csv(cached)
+            cached_df = pd.read_csv(cached)
+            # The cache is keyed by name only. With the collection at hand (a local warehouse whose containers were
+            # rebuilt pins new UUIDs under the same name), a CSV that describes other containers is regenerated.
+            if collection is None or _describes_collection(cached_df, collection):
+                if verbose:
+                    print(f"Loading regenerated {collection_name} reference metadata from {cached}.")
+                return cached_df
+            print(f"The cached {collection_name} reference metadata at {cached} lists other containers; regenerating.")
 
     out_path = generate_reference_metadata(
         collection=_resolve_collection(),
@@ -135,6 +143,14 @@ def load_reference_metadata(
         force_download=force_regenerate,
     )
     return pd.read_csv(out_path)
+
+
+def _describes_collection(metadata_df: pd.DataFrame, collection: DatasetCollection) -> bool:
+    """Whether a reference-metadata frame lists exactly ``collection``'s containers (by ``data_foundry_uri``)."""
+    if "data_foundry_uri" not in metadata_df.columns:
+        return False
+    listed = set(metadata_df["data_foundry_uri"].dropna().astype(str))
+    return listed == {entry.relative_path.as_posix() for entry in collection.entries}
 
 
 def generate_reference_metadata(

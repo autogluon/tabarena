@@ -1299,6 +1299,14 @@ class AbstractArenaContext:
             datasets=datasets,
             folds=folds,
         )
+        if df_results.empty:
+            raise ValueError(
+                f"[{self.benchmark_name}] No results remain after scoping to subset={subset!r}"
+                f"{f', datasets={datasets!r}' if datasets is not None else ''}"
+                f"{f', folds={folds!r}' if folds is not None else ''}"
+                f"{f', tasks={tasks!r}' if tasks is not None else ''}: the scope matches no task the registered "
+                "methods have results on."
+            )
 
         # TODO: only methods that exist in runs
         #  Pair with (method, suite)

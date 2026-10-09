@@ -83,3 +83,10 @@ def test_shortcut_name_expands_to_its_expressions(full):
 def test_empty_scope_raises():
     with pytest.raises(ValueError, match="matches no task"):
         BeyondArenaContext(task_metadata="BeyondArena", methods=[], subset=["core2k", "!core2k"])
+
+
+def test_compare_on_a_subset_without_results_raises(full):
+    """A compare subset that keeps no result names the scope instead of failing deep inside the scorer."""
+    results = _results(full).assign(method="m", metric_error_val=0.0, time_train_s=1.0, time_infer_s=1.0)
+    with pytest.raises(ValueError, match="No results remain after scoping"):
+        full.compare(output_dir=None, new_results=results, subset=["classification", "regression"])

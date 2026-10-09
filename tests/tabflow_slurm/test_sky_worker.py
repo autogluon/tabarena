@@ -342,6 +342,32 @@ def test_worker_pulls_seeded_weights_at_start_and_loads_them_offline(local_stora
     assert env["HF_HUB_OFFLINE"] == "1"
 
 
+def test_worker_pulls_weights_from_their_own_prefix(local_storage, tmp_path, stub_runner, monkeypatch):
+    """Datasets under a private prefix, weights under the shared one: each entry comes from its own prefix."""
+    queue_uri = _stage_queue(local_storage, tmp_path, [[_item("cfg_0")]])
+    local_storage.write_text("gs://b/shared/cache/xdg/tabpfn/tabpfn-v3.ckpt", "ckpt")
+    local_storage.write_text(
+        f"{queue_uri}/cache_manifest.json",
+        json.dumps(
+            {
+                "cache_uri": "gs://b/me/private/cache",
+                "datasets": {},
+                "weights": {"TabPFN-3": ["xdg/tabpfn/tabpfn-v3.ckpt"]},
+                "offline_weights": True,
+                "weights_cache_uri": "gs://b/shared/cache",
+            }
+        ),
+    )
+    cfg = _config(local_storage, tmp_path, stub_runner, queue_uri)
+    cfg.models = ("TabPFN-3",)
+    worker = Worker(cfg)
+    monkeypatch.setattr(
+        worker, "prefetch_weights", lambda models=None: pytest.fail("seeded weights must not be prefetched")
+    )
+    worker.run()
+    assert (tmp_path / "cache" / "xdg/tabpfn/tabpfn-v3.ckpt").read_text() == "ckpt"
+
+
 def test_worker_prefetches_only_models_without_seeded_weights(local_storage, tmp_path, stub_runner, monkeypatch):
     queue_uri = _stage_queue(local_storage, tmp_path, [[_item("cfg_0")]])
     local_storage.write_text(
