@@ -152,6 +152,7 @@ tabpfnwide = ["tabpfnwide>=0.3.0"]
 iltm = ["iltm>=0.1.1"]
 chimeraboost = ["chimeraboost>=0.30.0"]
 ctboost = ["ctboost==0.1.61"]
+prismboost = ["prismboost>=0.5.0"]
 nori = ["synthefy-nori>=0.10.0"]
 aplr = ["aplr>=10.26.0"]
 # EXAONE Tabular is not published on PyPI; pinned to a commit so the benchmarked code is fixed
@@ -215,6 +216,7 @@ extended = [
   "tabarena[iltm]",
   "tabarena[chimeraboost]",
   "tabarena[ctboost]",
+  "tabarena[prismboost]",
   "tabarena[nori]",
   "tabarena[aplr]",
   "tabarena[tabswift]",
