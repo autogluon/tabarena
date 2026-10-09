@@ -18,7 +18,7 @@ _common_kwargs = dict(
     license="Proprietary (hosted API; YHat Labs terms of service)",
     commercial_use=False,
     tags=("closed-source-api",),
-    verified=False,  # set on upload, once the submitter has signed off on the run
+    verified=True,
 )
 
 # The system as the registry knows it: `--system Chakra-Tab` in the audit and the run scripts.
@@ -26,15 +26,16 @@ chakra_tab_method_metadata = MethodMetadata.system(method="Chakra-Tab", name="Ch
 
 # One hosted entry per preset, like the AutoGluon presets: the run's `Chakra-Tab_c1_default` results are
 # `medium` (3-fold bagging), its `Chakra-Tab_c2_default` results are `full` (8-fold bagging).
+_hosted_kwargs = dict(cache_type="r2", cache_kwargs={"bucket": "tabarena", "prefix": "cache"}, **_common_kwargs)
 chakra_tab_medium_metadata = MethodMetadata.system(
     method="Chakra-Tab_medium",
     name="Chakra-Tab (medium)",
-    **_common_kwargs,
+    **_hosted_kwargs,
 )
 chakra_tab_full_metadata = MethodMetadata.system(
     method="Chakra-Tab_full",
     name="Chakra-Tab (full)",
-    **_common_kwargs,
+    **_hosted_kwargs,
 )
 
 chakra_tab_info = SystemInfo(

@@ -65,7 +65,10 @@ run against `main`. To reproduce an entry, check out its recorded **git SHA**.
   each. Elsewhere the client's wall time exceeds the server's total by a median 0.9 s.
   Every result records version `chakra-tab-2026-10`; none exceeded the 3,600 s limit. Eval: full leaderboard #3
   (full, Elo 1911) and #4 (medium, Elo 1900) of 102; the reproduction check against the submitted TabArena-Lite
-  errors passed for both presets (47 and 50 of 51 splits within 1e-4, the rest within 0.12%).
+  errors passed for both presets (47 and 50 of 51 splits within 1e-4, the rest within 0.12%). Processed and
+  uploaded as suite `tabarena-2026-10-09`, one method per preset: `Chakra-Tab_medium` (the `Chakra-Tab_c1_default`
+  results, `chakra_tab_medium_metadata`) and `Chakra-Tab_full` (`Chakra-Tab_c2_default`, `chakra_tab_full_metadata`),
+  `verified=True`, registered in `contexts/tabarena/methods.py`.
 
 ```python
 plan = TabArenaV0pt1BenchmarkPlan(
