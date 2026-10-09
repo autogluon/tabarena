@@ -18,6 +18,7 @@ from tabarena.website.website_format import (
         ("GBM", Constants.tree),
         ("TA-TABSWIFT", Constants.foundational),
         ("TA-ORION-MSP", Constants.foundational),
+        ("LIGHTPFN", Constants.foundational),
         ("MNCA", Constants.neural_network),
         # Display names (used by the Pareto/trajectory plotting paths).
         ("LightGBM", Constants.tree),
