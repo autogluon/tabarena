@@ -114,8 +114,6 @@ def get_model_family(model_name: str, system_names: Container[str] = frozenset()
     """
     if model_name in system_names:
         return Constants.system
-    # Contexts mark locally evaluated entrants with this display prefix, including config_type.
-    model_name = model_name.removeprefix("[New] ")
     prefixes_mapping = {
         Constants.neural_network: [
             "REALMLP",
