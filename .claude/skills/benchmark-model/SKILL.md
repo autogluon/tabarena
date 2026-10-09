@@ -43,7 +43,7 @@ call, and state the defaults you took in the plan.
 | `MODEL` | `"TabM"` | required, the registry name (Step 1 verifies it) |
 | `BENCHMARK_NAME` | `"tabm_26062026"` | `<model key lowercased, no separators>_<DDMMYYYY>` with today's date |
 | `NUM_CONFIGS` | `"all"`, `0` | `"all"` (default config plus the full HPO search space) when the model has a search space; `0` when it has none (foundation models with a frozen recipe). Only a capped int when the maintainer asks for one. |
-| task scope | full / lite / regression | `TaskSubset()`, the full task set, all splits. `TaskSubset(subset="lite")` only when the maintainer asks for a first-split trial. A regression-only model gets `TaskSubset(subset="regression")`. |
+| task scope | full / lite / regression | `TaskSubset()`, the full task set, all splits. `TaskSubset(subset="lite")` only when the maintainer asks for a first-split trial. A regression-only model gets `TaskSubset(subset="regression")`, a classification-only one `TaskSubset(subset="classification")`. |
 | GPU partition | `"gpurtxpro6000flex"` | the `GCPSlurmSetup` default (RTX PRO 6000, 96 GB). `gpurtxpro6000spotinteractive` is the same card on spot capacity. Ask only when a bigger card is needed. |
 | CPU partition | `"cpun416mtspotinteractive"` | 16 vCPUs / 64 GB, the partition the CPU tree boosters were timed on; `bundle_size=2` |
 | `fake_memory_for_estimates` | `96` | required for every GPU model: the partition's VRAM in GB (Step 1a). Ask when it cannot be determined from context. |
@@ -74,7 +74,7 @@ Given `MODEL`, read the model's folder `packages/tabarena/src/tabarena/models/<k
 | Derived value | Where to read it | Drives |
 |---|---|---|
 | compute (`"cpu"` / `"gpu"`) | `info.py`, `MethodMetadata(compute=...)` | GPU: `resources={"num_gpus": 1, "fake_memory_for_estimates": <VRAM>}`, `name="gpu"`. CPU: no resources dict, `name="cpu"`, `GCPSlurmSetup(cpu_partition=..., bundle_size=2)`. |
-| problem types | `model.py`, the `_supported_problem_types` class attribute (absent means all three) | the eval `subsets`: all types gives `[[], ["binary"], ["multiclass"], ["regression"]]` (`[]` is the full set); regression-only gives `[["regression"]]` plus `task_subset=TaskSubset(subset="regression")` |
+| problem types | `model.py`, the `_supported_problem_types` class attribute (absent means all three) | the eval `subsets`: all types gives `[[], ["binary"], ["multiclass"], ["regression"]]` (`[]` is the full set); regression-only gives `[["regression"]]` plus `task_subset=TaskSubset(subset="regression")`; classification-only gives `[[], ["classification"], ["binary"], ["multiclass"]]` plus `task_subset=TaskSubset(subset="classification")`, since a model missing from the bundle's `DEFAULT_MODEL_CONSTRAINTS` is otherwise scheduled on the regression tasks and fails there (`[]` then imputes it on regression; `["classification"]` is the view it ran on) |
 | HPO search space | `info.py`, `search_space` (a `gen_<key>` generator); empty or absent means no HPO | `NUM_CONFIGS`: `"all"` with a search space, `0` without |
 | pip extra | `info.py`, `ModelInfo(pip_extra=...)`, and the matching extra in `packages/tabarena/pyproject.toml` | Step 2 installs it |
 | weights prefetch | `info.py`, `ModelInfo(prefetch_weights=...)`; not `None` means foundation model (so does a `shared_weights` declaration on the class) | a docstring note; `setup` prefetches the checkpoint on the head node before emitting jobs |
@@ -359,10 +359,24 @@ Report to the maintainer, in this order:
 3. The figure paths, PNG first, with the Pareto figures called out.
 4. Anything the numbers hide: imputed tasks, failed splits that were left out, time-limit hits,
    the `flash-attn` kind of "installed without X" caveat.
+5. The link to the results artifact (below).
 
 The report goes to the chat. Never comment on the PR or edit its description on your own initiative,
 not even for the stage-2 results comment the PR template describes: draft the text, show it to the
 maintainer, and post it only after they say so.
+
+### Results artifact
+
+After the report, publish a Claude artifact (the Artifact tool) with the figures the maintainer copies
+into the PR by hand, without being asked. Those figures are the minimum: usually the Pareto front of
+Elo against inference time for each arena the model ran on, on the subset that represents it (the
+classification subset for a classification-only model). Choose them from what this run shows rather
+than publishing every file `eval` wrote, and add more only when it helps (the train-time front, a
+slice where the model stands out, a few key numbers beside a figure). Publish the PNGs as the
+artifact's own files, give each a copy button (`navigator.clipboard.write` with a `ClipboardItem`,
+falling back to a "right-click, Copy image" hint), and keep PR comment text out of the page.
+Examples: https://claude.ai/artifact/BsG5AXzHAoxVcSyw9626V4 (Kumo-Tabular) and
+https://claude.ai/artifact/UgpHBXd5ExGfai5cBKjMh1 (LightPFN).
 
 ### CPU models: check the fit times before they replace hosted results
 
