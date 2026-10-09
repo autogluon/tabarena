@@ -88,6 +88,7 @@ from tabarena.models.orionmsp.info import orionmsp_method_metadata as orionmsp_m
 from tabarena.models.perpetual_booster.info import (
     perpetual_booster_method_metadata as perpetualbooster_metadata,
 )
+from tabarena.models.prismboost.info import prismboost_method_metadata
 from tabarena.models.random_forest.info import random_forest_method_metadata
 from tabarena.models.realmlp.info import realmlp_method_metadata as realmlp_gpu_metadata
 from tabarena.models.sap_rpt_oss.info import (
@@ -203,6 +204,7 @@ tabarena_method_metadata_collection = MethodMetadataCollection(
         lr_2026_09_method_metadata,
         fastai_method_metadata,
         nn_torch_method_metadata,
+        prismboost_method_metadata,
         random_forest_method_metadata,
         xgboost_method_metadata,
         # Neural / GPU / foundation models

@@ -15,13 +15,14 @@ prismboost_method_metadata = MethodMetadata.config(
     can_hpo=True,
     config_default="PrismBoost_c1_default_BAG_L1",
     validation_protocol="8x1",
-    suite="tabarena-2026-09-19",
-    date="2026-09-19",
+    suite="tabarena-2026-10-08",
+    date="2026-10-08",
     date_introduced="2026-09",
     reference_url="https://github.com/PrismBoost/PrismBoost",
     license="MIT",
     verified=False,
-    cache_type="local",
+    cache_type="r2",
+    cache_kwargs={"bucket": "tabarena", "prefix": "cache"},
 )
 
 prismboost_info = ModelInfo(
