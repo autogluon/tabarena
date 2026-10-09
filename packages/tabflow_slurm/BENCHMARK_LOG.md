@@ -34,6 +34,42 @@ run against `main`. To reproduce an entry, check out its recorded **git SHA**.
 
 ---
 
+## 2026-10-09 — chakratab_08102026
+
+- **Model(s):** Chakra-Tab (YHat Labs' hosted tabular API, the first `closed-source-api` system), 2 configs:
+  `preset=medium` (c1, 3-fold bagging) and `preset=full` (c2, 8-fold bagging), 1,632 items (2 x 816 splits)
+- **Git SHA:** `98daa8ab` (`add-chakra-tab-system`, PR #654)
+- **Validation protocol:** `system` (the API runs its own validation; recorded as flavour `system`, protocol `None`)
+- **Purpose:** First benchmark of a hosted-API system, from one on-demand CPU node querying the API.
+- **Notes:** SLURM job 1262613, `SlurmSingleNodeSetup` on `cpuhighmem16` (c4-highmem-16, on-demand), `run_local
+  --num_workers 4` (the provider allows 4 requests in flight; each request runs on one A100 80 GB on their side),
+  venv `~/.venvs/tabarena_rerun_16092026`. API version `chakra-tab-2026-10`, seed = the split index, `time_limit`
+  3600 s forwarded as the fit budget. One `fit_predict` call per item at predict time, so `time_train_s` is near
+  zero and the whole fit lands in `time_infer_s`; the server-side `api_fit_s` / `api_predict_s` are in
+  `method_metadata`. The key was exported only in the submitting shell (`--export=ALL`). Before the launch:
+  offline audit clean (one POST to api.yhatlabs.com, no target in the test table, no task identifiers); live
+  audit `tmp_scripts/eval_output/chakratab_08102026/audit_live.json` 17 PASS / 11 INFO after YHat fixed an
+  integer-column casting error that made the first audit's decoy and jitter calls return 503 (that run also led
+  to the type-keeping decoys, the shuffled-probe recalibration and the jitter split by training copies in
+  `audit_system`); smoke 6/6 matching the submitted TabArena-Lite errors (`compare_reproduced_results`, PASS).
+  Provider estimate: about 10 h for both presets.
+
+```python
+plan = TabArenaV0pt1BenchmarkPlan(
+    benchmark_name="chakratab_08102026",
+    model_jobs=[
+        ModelJob(models=(gen_chakra_tab, 0), name="api", resources={"time_limit": 3600}),
+    ],
+    task_subset=TaskSubset(),  # the full task set (all splits)
+    path_setup=PathSetup(workspace=WORKSPACE, python_path=PYTHON_PATH),
+    experiment_bundle=TabArenaV0pt1ExperimentBundle(model_verbosity=2, system_experiments=True),
+    resources_setup=TabArenaV0pt1ResourcesSetup(num_cpus=None, memory_limit=None),
+    scheduler_setup=SlurmSingleNodeSetup(partition="cpuhighmem16", num_workers=4),
+    prefetch_model_weights=False,  # nothing local to prefetch for an API
+)
+plan.setup_jobs()
+```
+
 ## 2026-10-06 — beyondarena_kumotabular_core2k_06102026
 
 - **Model(s):** Kumo-Tabular, Kumo-Tabular-Medium, Kumo-Tabular-Small (default config only) on the 2,000 BeyondArena
