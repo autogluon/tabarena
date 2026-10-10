@@ -6,7 +6,13 @@ from typing import TYPE_CHECKING
 import pandas as pd
 
 from tabarena.benchmark.exec_models import ExternalSystemModel
-from tabarena.models.tabfm.model import _build_tabfm_estimator, _resolve_device
+from tabarena.models.tabfm.model import (
+    _build_tabfm_estimator,
+    _load_tabfm_network,
+    _resolve_device,
+    _TabFMOutputCodeEstimator,
+)
+from tabarena.utils.wrapper_utils import import_many_class_classifier
 
 if TYPE_CHECKING:
     from autogluon.core.metrics import Scorer
@@ -57,6 +63,10 @@ class TabFMPlusSystemModel(ExternalSystemModel):
     * ``interface`` — ``"ensemble"`` (default) or ``"default"`` (plain constructor).
     * ``device`` — ``None`` (default: a GPU when available/allocated, else CPU), ``"cpu"`` to force
       CPU, or ``"gpu"`` / ``"cuda"`` to require a GPU.
+    * ``many_class_threshold`` — the checkpoint's classification head width (ten). With more classes
+      the fit wraps the ``interface`` estimator in the ``ManyClassClassifier`` output coding of
+      tabpfn-extensions, as the TabFM model does: the labels are coded over that many symbols and one
+      estimator per code row is fit on the same network, so a wide fit costs several narrow ones.
 
     The TabFM estimator's ensemble seed is not an init knob: it is the per-split ``random_state``
     the runner threads into :meth:`_fit_system` (see the base ``ExternalSystemModel``), so each split
@@ -70,11 +80,13 @@ class TabFMPlusSystemModel(ExternalSystemModel):
         *,
         interface: str = "ensemble",
         device: str | None = None,
+        many_class_threshold: int = 10,
         **kwargs,
     ):
         super().__init__(**kwargs)
         self.interface = interface
         self.device = device
+        self.many_class_threshold = many_class_threshold
         self._estimator = None
 
     def _fit_system(
@@ -110,16 +122,39 @@ class TabFMPlusSystemModel(ExternalSystemModel):
             f"fit start: interface={self.interface!r} problem_type={problem_type} "
             f"X={X.shape} device={device} (num_gpus={num_gpus}, cuda_available={cuda_available})",
         )
-        estimator = _build_tabfm_estimator(
-            problem_type=problem_type,
-            device=device,
-            interface=self.interface,
-            random_state=random_state if random_state is not None else 0,
-            verbose=True,
-        )
+        seed = random_state if random_state is not None else 0
+        n_classes = y.nunique() if problem_type in ("binary", "multiclass") else 0
+        if n_classes > self.many_class_threshold:
+            _log(
+                f"{n_classes} classes exceed the checkpoint's {self.many_class_threshold}-class head: "
+                "fitting ManyClassClassifier (output coding) around the estimator",
+            )
+            network = _load_tabfm_network(problem_type=problem_type, device=device)
+            ManyClassClassifier = import_many_class_classifier()
+            estimator = ManyClassClassifier(
+                estimator=_TabFMOutputCodeEstimator(
+                    network=network,
+                    columns=X.columns,
+                    dtypes=X.dtypes,
+                    device=device,
+                    hps={"random_state": seed, "verbose": True},
+                    interface=self.interface,
+                ),
+                alphabet_size=self.many_class_threshold,
+                random_state=seed,
+            )
+        else:
+            estimator = _build_tabfm_estimator(
+                problem_type=problem_type,
+                device=device,
+                interface=self.interface,
+                random_state=seed,
+                verbose=True,
+            )
+            network = estimator.model
         # Confirm where the network actually lives -- the whole system runs where the model's
         # parameters are, so this is the ground truth for "did the fit use the GPU?".
-        param = next(estimator.model.parameters(), None)
+        param = next(network.parameters(), None)
         _log(f"weights loaded; model on device={param.device if param is not None else 'unknown'}")
 
         # TabFM does its own preprocessing/label handling, so the raw frames are passed through.
