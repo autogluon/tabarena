@@ -98,9 +98,8 @@ SMOKE_OVERRIDES: dict[str, ModelSmokeTest] = {
     "iLTM": ModelSmokeTest({"finetuning_max_steps": 1, "n_ensemble": 1, "tree_n_estimators": 1}),
     "OrionMSP": ModelSmokeTest({"n_estimators": 1}),
     "EXAONE-Tabular": ModelSmokeTest({"ensemble_count": 1}),
-    # Default n_estimators=8 forward passes through the foundation model per fold
-    # (enhance_candidates defaults to False, so the enhanced estimator's other
-    # ensembling/calibration knobs are inactive); drop to 1 for a fast smoke fit.
+    # The upstream default enables candidate enhancement; reduce its base foundation-model
+    # ensemble to one estimator so the GPU smoke fit remains practical.
     "Xiaomi-TabLDM": ModelSmokeTest({"n_estimators": 1}),
     "Mitra-v2": ModelSmokeTest({"fine_tune_steps": 2}),
     "aplr": ModelSmokeTest({"cv_folds": 2}, use_larger_toy_datasets=True),

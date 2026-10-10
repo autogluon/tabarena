@@ -17,8 +17,8 @@ _REGRESSOR_CHECKPOINT = "checkpoints/reg_default.ckpt"
 class TabLDMModel(AbstractTorchModel):
     """TabLDM: a tabular foundation model with a dual-stream column embedder and MoE backbone.
 
-    Uses the enhanced sklearn estimators (``TabLDMEnhancedClassifier``/``TabLDMEnhancedRegressor``),
-    which wrap the base MoE1 model with an ensemble/calibration pipeline on top.
+    Uses TabLDM's current sklearn-compatible classifier and regressor, including the upstream
+    candidate-enhancement defaults.
 
     Codebase: pip name ``Xiaomi-TabLDM``, import name ``tabldm``, installed from GitHub since
     it is not on PyPI.
@@ -39,7 +39,7 @@ class TabLDMModel(AbstractTorchModel):
     #: and device per process. A key-value cache writes into the network, so that configuration
     #: builds its own.
     shared_weights: ClassVar[SharedWeights] = SharedWeights(
-        loader=("tabldm:TabLDMEnhancedClassifier._load_model", "tabldm:TabLDMEnhancedRegressor._load_model"),
+        loader=("tabldm:TabLDMClassifier._load_model", "tabldm:TabLDMRegressor._load_model"),
         key=("checkpoint_version", "model_path"),
         disabled_by=("kv_cache",),
     )
@@ -55,12 +55,12 @@ class TabLDMModel(AbstractTorchModel):
 
     def get_model_cls(self):
         if self.problem_type in ("binary", "multiclass"):
-            from tabldm import TabLDMEnhancedClassifier
+            from tabldm import TabLDMClassifier
 
-            return TabLDMEnhancedClassifier
-        from tabldm import TabLDMEnhancedRegressor
+            return TabLDMClassifier
+        from tabldm import TabLDMRegressor
 
-        return TabLDMEnhancedRegressor
+        return TabLDMRegressor
 
     def _fit(
         self,
@@ -122,7 +122,7 @@ class TabLDMModel(AbstractTorchModel):
         ``_load_model()`` directly (matching ``tabicl``'s wrapper), rather than reimplementing the
         cache-first/download-fallback logic that ``_load_model()`` already provides.
         """
-        from tabldm import TabLDMEnhancedClassifier, TabLDMEnhancedRegressor
+        from tabldm import TabLDMClassifier, TabLDMRegressor
 
-        TabLDMEnhancedClassifier(checkpoint_version=_CLASSIFIER_CHECKPOINT)._load_model()
-        TabLDMEnhancedRegressor(checkpoint_version=_REGRESSOR_CHECKPOINT)._load_model()
+        TabLDMClassifier(checkpoint_version=_CLASSIFIER_CHECKPOINT)._load_model()
+        TabLDMRegressor(checkpoint_version=_REGRESSOR_CHECKPOINT)._load_model()

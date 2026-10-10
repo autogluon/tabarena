@@ -167,8 +167,17 @@ exaone_tabular = [
 # are already in the base tree, so this extra is intentionally empty.
 tabswift = []
 # TabLDM is not published on PyPI; pinned to a commit so the benchmarked code is fixed.
-# Keep in sync with `pip_extra` in models/tabldm/info.py.
+# Keep in sync with `pip_extra` in models/tabldm/info.py. Mutually exclusive with `tabldm_plus`
+# below: both install the `Xiaomi-TabLDM` distribution at a different commit, and the estimator
+# APIs are not interchangeable (`TabLDMEnhanced*` here vs `TabLDM*` there). Install one or the
+# other, never both.
 tabldm = ["Xiaomi-TabLDM @ git+https://github.com/xiaomi-research/xiaomi-tabldm.git@6773a30d43e43fad3e8b474e20ca8c7ec40dcd76"]
+# Xiaomi-TabLDM+ (systems/tabldm_plus) runs the newer upstream commit, which renames the
+# estimators and defaults candidate enhancement on. Keep in sync with `pip_extra` in
+# systems/tabldm_plus/info.py. Deliberately absent from `extended` and `all`: those must stay
+# installable alongside `tabldm`, so opting into the system is `pip install 'tabarena[tabldm_plus]'`
+# in an environment without `tabldm`.
+tabldm_plus = ["Xiaomi-TabLDM @ git+https://github.com/xiaomi-research/xiaomi-tabldm.git@61e3523d68184f5610bf045def9f93ba79ab3f4b"]
 # Mitra-v2 runs on AutoGluon's Mitra implementation; this is AutoGluon's own `mitra` extra
 # (loguru, einops, transformers, huggingface_hub, ...). Keep in sync with models/mitra_v2/info.py.
 # flash-attn is optional (faster attention, same results) and needs a prebuilt wheel:
