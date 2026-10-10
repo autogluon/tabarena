@@ -35,6 +35,8 @@ tabfm_plus_info = SystemInfo(
     # Shares TabFM's checkpoint and its install, so the extra matches the model's.
     pip_extra=(
         "tabfm[pytorch] @ git+https://github.com/google-research/tabfm.git@633cd265f498e1d20c9625be0639f6305d8e2541",
+        # More than ten classes: the output coding (see TabFMPlusSystemModel).
+        "tabpfn-extensions[many_class]>=0.6.1",
     ),
     prefetch_weights=prefetch_weights,
 )

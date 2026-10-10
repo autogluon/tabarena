@@ -122,19 +122,35 @@ class _TabFMOutputCodeEstimator:
     network is one, and the wrapper validates the frame into a NumPy array while TabFM's own
     preprocessing reads the column dtypes. This estimator holds the network with the training
     frame's columns and dtypes, clones by sharing them, and rebuilds the frame around every array it
-    is given.
+    is given. ``interface`` is the construction preset of every per-row estimator
+    (:func:`_build_tabfm_estimator`); the TabFM+ system passes ``"ensemble"``.
     """
 
-    def __init__(self, *, network: torch.nn.Module, columns: pd.Index, dtypes: pd.Series, device: str, hps: dict):
+    def __init__(
+        self,
+        *,
+        network: torch.nn.Module,
+        columns: pd.Index,
+        dtypes: pd.Series,
+        device: str,
+        hps: dict,
+        interface: str = "default",
+    ):
         self._network = network
         self._columns = columns
         self._dtypes = dtypes
         self._device = device
         self._hps = hps
+        self._interface = interface
 
     def __sklearn_clone__(self) -> _TabFMOutputCodeEstimator:
         return _TabFMOutputCodeEstimator(
-            network=self._network, columns=self._columns, dtypes=self._dtypes, device=self._device, hps=self._hps
+            network=self._network,
+            columns=self._columns,
+            dtypes=self._dtypes,
+            device=self._device,
+            hps=self._hps,
+            interface=self._interface,
         )
 
     def _frame(self, X) -> pd.DataFrame:
@@ -142,7 +158,7 @@ class _TabFMOutputCodeEstimator:
 
     def fit(self, X, y) -> _TabFMOutputCodeEstimator:
         self._estimator = _build_tabfm_estimator(
-            problem_type=MULTICLASS, device=self._device, interface="default", network=self._network, **self._hps
+            problem_type=MULTICLASS, device=self._device, interface=self._interface, network=self._network, **self._hps
         ).fit(X=self._frame(X), y=np.asarray(y))
         self.classes_ = self._estimator.classes_
         return self
