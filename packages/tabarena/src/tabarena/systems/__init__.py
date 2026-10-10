@@ -25,6 +25,7 @@ from tabarena.systems._system_info import SystemInfo
 if TYPE_CHECKING:
     from tabarena.systems.autogluon.system import AutoGluonSystemModel
     from tabarena.systems.tabfm_plus.system import TabFMPlusSystemModel
+    from tabarena.systems.tabldm_plus.system import TabLDMPlusSystemModel
 
 
 # Maps top-level public name -> module to import it from. Resolved lazily by `__getattr__`
@@ -33,6 +34,7 @@ if TYPE_CHECKING:
 _LAZY_CLASSES: dict[str, str] = {
     "AutoGluonSystemModel": "tabarena.systems.autogluon.system",
     "TabFMPlusSystemModel": "tabarena.systems.tabfm_plus.system",
+    "TabLDMPlusSystemModel": "tabarena.systems.tabldm_plus.system",
 }
 
 
