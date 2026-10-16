@@ -126,7 +126,10 @@ tabfm = [
   "tabfm[pytorch] @ git+https://github.com/google-research/tabfm.git@fbb665569425fd2f490c6576b3af967876fe11ff",
   "tabpfn-extensions[many_class]>=0.6.1",  # the output coding of datasets with more than ten classes
 ]
-tabstar = ["tabstar==1.1.15"]
+# Both TabSTAR generations ship in one package; 1.2.0 adds the v1.1 estimator and leaves the
+# v1 code path intact.
+tabstar = ["tabstar==1.2.0"]
+tabstar_v1p1 = ["tabstar==1.2.0"]
 # Chakra-Tab is a hosted API (systems/chakra_tab): the extra is only the HTTP client and the table encoding.
 chakra-tab = ["requests>=2.31", "pyarrow>=14"]
 perpetualboosting = ["perpetual"] # We used version 2.1.0
@@ -214,6 +217,7 @@ extended = [
   "tabarena[sap-rpt-oss]",
   "tabarena[tabfm]",
   "tabarena[tabstar]",
+  "tabarena[tabstar_v1p1]",
   "tabarena[perpetualboosting]",
   "tabarena[orionmsp]",
   "tabarena[limix]",

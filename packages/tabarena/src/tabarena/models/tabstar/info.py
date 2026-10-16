@@ -26,6 +26,6 @@ tabstar_info = ModelInfo(
     model_cls=TabSTARModel,
     search_space=gen_tabstar,
     method_metadata=tabstar_method_metadata,
-    pip_extra=("tabstar==1.1.15",),
+    pip_extra=("tabstar==1.2.0",),
     prefetch_weights=prefetch_weights,
 )
