@@ -1486,6 +1486,7 @@ class AbstractArenaContext:
         save_composite_leaderboard: bool | None = None,
         composite_leaderboard_kwargs: dict | None = None,
         save_composite_pareto_explorer: bool | None = None,
+        save_per_dataset_explorer: bool | None = None,
         trajectory_extra_results: pd.DataFrame | None = None,
         max_workers: int | None = None,
     ) -> None:
@@ -1522,6 +1523,15 @@ class AbstractArenaContext:
         explorer over every subset with a selector for the subset to view, from the per-subset
         ``pareto_front_points.csv`` the compare pass wrote (a subset without them is left out).
 
+        ``save_per_dataset_explorer`` (``None`` by default: on whenever ``plot_compare`` is) additionally writes
+        each subset's ``<suffix>/per_dataset_explorer.html``, the leaderboard website's "Dataset by dataset"
+        browser: one row per dataset with a contender's error, rank and improvability against the field (opening
+        on the subset's leader), filters by task and size, and for a selected dataset its ranking. It is built
+        from the ``results_per_split.csv`` and ``method_info.csv`` the compare pass wrote (methods of
+        ``new_results`` appear under their own names); with ``plot_tuning_trajectories`` the trajectory pass also
+        computes each dataset's tuning trajectories (``per_dataset_trajectories``), which the browser charts for
+        the selected dataset. See :func:`tabarena.plot.interactive.per_dataset_explorer.build_per_dataset_explorer_html`.
+
         ``max_workers`` parallelizes the per-subset passes across processes (capped at the subset
         count; 1 = sequential). ``None`` (the default) uses one process per available CPU less one,
         leaving a core for everything else. Each subset's compare/plots are independent and write to
@@ -1554,6 +1564,15 @@ class AbstractArenaContext:
                 "save_composite_leaderboard=True requires plot_compare=True: the composite is "
                 "aggregated from the per-subset leaderboards computed by the compare pass.",
             )
+        if save_per_dataset_explorer and not plot_compare:
+            raise ValueError(
+                "save_per_dataset_explorer=True requires plot_compare=True: the browser reads the per-split "
+                "results the compare pass writes.",
+            )
+        if save_per_dataset_explorer is None:
+            save_per_dataset_explorer = plot_compare
+        if save_per_dataset_explorer and plot_tuning_trajectories:
+            tuning_trajectory_kwargs = {"per_dataset_trajectories": True, **tuning_trajectory_kwargs}
         # Default to writing it whenever the leaderboards it aggregates are being produced, rather
         # than making a trajectories-only run (`plot_compare=False`) fail on a default it never set.
         if save_composite_leaderboard is None:
@@ -1578,6 +1597,7 @@ class AbstractArenaContext:
             website_leaderboard_kwargs=website_leaderboard_kwargs,
             website_leaderboard_filename=website_leaderboard_filename,
             collect_composite=save_composite_leaderboard,
+            save_per_dataset_explorer=save_per_dataset_explorer,
             trajectory_extra_results=trajectory_extra_results,
         )
         if max_workers is None:
@@ -1652,7 +1672,8 @@ class AbstractArenaContext:
         website_leaderboard_kwargs: dict,
         website_leaderboard_filename: str,
         collect_composite: bool,
-        trajectory_extra_results: pd.DataFrame | None,
+        save_per_dataset_explorer: bool = False,
+        trajectory_extra_results: pd.DataFrame | None = None,
     ) -> tuple[str, pd.DataFrame | None]:
         """One subset's pass of :meth:`generate_all_figs` (compare + figures under
         ``output_dir/<suffix>/``). Returns ``(output_suffix, compact_leaderboard_or_None)`` —
@@ -1675,6 +1696,7 @@ class AbstractArenaContext:
         output_dir_subset = output_dir / output_suffix
 
         lb_compact = None
+        lb_df = None
         # FIXME: new_results
         if plot_compare:
             lb_df = self.compare(
@@ -1724,7 +1746,58 @@ class AbstractArenaContext:
                 # new_results=new_results,
                 subset=subset,
             )
+        if save_per_dataset_explorer and plot_compare:
+            # After the trajectory pass, whose per-dataset frame the browser charts.
+            self._save_per_dataset_explorer(output_dir_subset, leaderboard=lb_df, subset_label=output_suffix)
         return output_suffix, lb_compact
+
+    @property
+    def _per_dataset_size_buckets(self) -> list[tuple[str, str, float]] | None:
+        """The per-dataset browser's size filter, ``(key, label, max_train_rows)`` per size subset of this arena.
+
+        See `build_per_dataset_explorer_html`; None: TabArena's small / medium / large.
+        """
+        return None
+
+    def _save_per_dataset_explorer(
+        self,
+        output_dir_subset: Path,
+        *,
+        leaderboard: pd.DataFrame | None,
+        subset_label: str,
+    ) -> Path | None:
+        """``<output_dir_subset>/per_dataset_explorer.html``, the dataset-by-dataset browser over the subset's
+        ``results_per_split.csv`` and ``method_info.csv`` (see :meth:`generate_all_figs`), opening on
+        ``leaderboard``'s leader. Returns the page, or ``None`` when the compare pass wrote neither file.
+        """
+        from tabarena.plot.interactive.per_dataset_explorer import (
+            PER_DATASET_TRAJECTORIES_FILE,
+            build_per_dataset_explorer_html,
+        )
+        from tabarena.website.process_artifacts_to_website import leader_name
+
+        results_path = output_dir_subset / "results_per_split.csv"
+        method_info_path = output_dir_subset / "method_info.csv"
+        if not (results_path.is_file() and method_info_path.is_file()):
+            return None
+        method_info = pd.read_csv(method_info_path)
+        # A method without metadata (one of `new_results`) is shown under its own name.
+        unnamed = method_info["display_name"].isna() & method_info["config_type"].isna()
+        method_info.loc[unnamed, "display_name"] = method_info.loc[unnamed, "method"]
+        trajectories = sorted((output_dir_subset / "tuning_trajectories").rglob(PER_DATASET_TRAJECTORIES_FILE))
+        contender = None
+        if leaderboard is not None and not leaderboard.empty:
+            contender = leader_name(self.leaderboard_to_website_format(leaderboard=leaderboard))
+        return build_per_dataset_explorer_html(
+            results_per_split=pd.read_csv(results_path, low_memory=False),
+            method_info=method_info,
+            trajectories=pd.read_csv(trajectories[0]) if trajectories else None,
+            dataset_metadata=self.task_metadata_collection.per_dataset_frame(),
+            default_contender=contender,
+            size_buckets=self._per_dataset_size_buckets,
+            save_path=output_dir_subset / "per_dataset_explorer.html",
+            page_title=f"{self.benchmark_name} per-dataset results — {subset_label}",
+        )
 
     def load_repo(
         self,

@@ -22,6 +22,7 @@ from tabarena.evaluation.subset_grid import (
 )
 from tabarena.nips2025_utils.compare import subset_tasks
 from tabarena.plot.interactive.pareto_explorer import build_pareto_explorer_html
+from tabarena.plot.interactive.per_dataset_explorer import PER_DATASET_TRAJECTORIES_FILE
 from tabarena.plot.plot_pareto_focus import MUTED_COLOR, color_of, legend_swatches
 from tabarena.plot.plot_pareto_frontier import get_pareto_frontier, plot_optimal_arrow
 from tabarena.utils.parallel_for import parallel_for
@@ -1558,7 +1559,7 @@ def _plot_tuning_trajectories_from_prepared(
                 hidden_methods=hidden_methods,
             )
             fig_save_dir_subset.mkdir(parents=True, exist_ok=True)
-            per_dataset.to_csv(fig_save_dir_subset / "tuning_trajectories_per_dataset.csv", index=False)
+            per_dataset.to_csv(fig_save_dir_subset / PER_DATASET_TRAJECTORIES_FILE, index=False)
 
         # Build the coverage-counts metadata for the second legend whenever
         # *either* the titles or the dedicated coverage-legend toggle is

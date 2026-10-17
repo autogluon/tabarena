@@ -996,8 +996,12 @@ class LeaderboardReporter:
         method_info: pd.DataFrame = self.get_method_info(df=df_results_rank_compare)
         if save_artifacts:
             if self.method_metadata_info is not None:
+                # A left join, so methods without metadata (`new_results`) keep their rows.
                 method_info_full = pd.merge(
-                    left=method_info.reset_index(), right=self.method_metadata_info, on=["ta_name", "ta_suite"]
+                    left=method_info.reset_index(),
+                    right=self.method_metadata_info,
+                    on=["ta_name", "ta_suite"],
+                    how="left",
                 )
                 save_pd.save(path=self.output_dir / "method_info.csv", df=method_info_full)
             save_pd.save(path=self.output_dir / "results_per_split.csv", df=df_results_rank_compare)

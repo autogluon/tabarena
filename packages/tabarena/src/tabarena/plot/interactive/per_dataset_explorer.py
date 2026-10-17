@@ -55,6 +55,9 @@ BEYONDARENA_SIZE_BUCKETS: list[tuple[str, str, float]] = [
     ("large", "> 100k", math.inf),
 ]
 
+#: The per-dataset trajectory frame's file name, as the tuning-trajectory pass writes it next to its figures.
+PER_DATASET_TRAJECTORIES_FILE = "tuning_trajectories_per_dataset.csv"
+
 #: Columns of ``CONFIG.trajectory.rows``, kept as positional arrays rather than records: the
 #: frame is one row per (dataset, method, tuning budget) and the key names would outweigh the
 #: numbers several times over. ``x`` is the median training time in seconds on that dataset;

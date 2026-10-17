@@ -20,14 +20,16 @@ import pandas as pd
 
 from tabarena.plot.interactive.leaderboard_explorer import _parse_model, build_leaderboard_explorer_html
 from tabarena.plot.interactive.leaderboard_table import build_leaderboard_table_html
-from tabarena.plot.interactive.per_dataset_explorer import build_per_dataset_explorer_html
+from tabarena.plot.interactive.per_dataset_explorer import (
+    PER_DATASET_TRAJECTORIES_FILE,
+    build_per_dataset_explorer_html,
+)
 
 #: Emitted by the trajectory stage next to the aggregate trajectory artifacts, and the marker
 #: for "this cell gets a per-dataset browser".
-_PER_DATASET_TRAJECTORIES = "tuning_trajectories_per_dataset.csv"
 
 
-def _leader_name(website_leaderboard: pd.DataFrame) -> str | None:
+def leader_name(website_leaderboard: pd.DataFrame) -> str | None:
     """Display name of the top row of a website leaderboard, without its link or imputed tag."""
     if website_leaderboard.empty or "Model" not in website_leaderboard.columns:
         return None
@@ -119,7 +121,7 @@ def process_one_folder(
     # dataset's own numbers do not depend on which other datasets share its leaderboard, so the
     # evaluation only emits that frame for the unrestricted task/dataset cell and the browser
     # filters by task and size itself (see `plot_tuning_trajectories_all`).
-    trajectory_path = base_input_path / "tuning_trajectories" / "placeholder_name" / _PER_DATASET_TRAJECTORIES
+    trajectory_path = base_input_path / "tuning_trajectories" / "placeholder_name" / PER_DATASET_TRAJECTORIES_FILE
     method_info_path = base_input_path / "method_info.csv"
     if trajectory_path.is_file() and method_info_path.is_file():
         build_per_dataset_explorer_html(
@@ -128,7 +130,7 @@ def process_one_folder(
             trajectories=pd.read_csv(trajectory_path),
             dataset_metadata=dataset_metadata,
             # The published table is already sorted by Elo, so its first row is the leader.
-            default_contender=_leader_name(website_leaderboard),
+            default_contender=leader_name(website_leaderboard),
             size_buckets=size_buckets,
             save_path=base_output_path / "per_dataset_explorer.html",
             page_title=f"{benchmark_name} per-dataset results — {subset_label}"

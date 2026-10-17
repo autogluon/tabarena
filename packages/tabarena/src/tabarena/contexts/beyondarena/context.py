@@ -282,6 +282,12 @@ class BeyondArenaContext(AbstractArenaContext):
         return copy.deepcopy(beyond_method_metadata_collection.method_metadata_lst)
 
     @property
+    def _per_dataset_size_buckets(self) -> list[tuple[str, str, float]]:
+        from tabarena.plot.interactive.per_dataset_explorer import BEYONDARENA_SIZE_BUCKETS
+
+        return BEYONDARENA_SIZE_BUCKETS
+
+    @property
     def _default_subsets(self):
         return [
             [],
