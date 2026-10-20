@@ -180,6 +180,10 @@ mitra_v2 = ["autogluon.tabular[mitra]>=1.6,<1.7"]
 # TabPFN-3.5 / TabPFN-3.5-Fast need the release that ships the v3.5 checkpoints; the shared
 # `tabpfn` extra above stays at the floor the earlier TabPFN versions were benchmarked with.
 tabpfn_3_5 = ["tabpfn>=9.0.0"]
+# CompactTab: Parameter-efficient tabular deep learning & hybrid model; keep in sync with `pip_extra` in models/compacttab/info.py.
+compacttab = [
+  "compacttab @ git+https://github.com/DakshBhalala/TBDML.git@88107b3",
+]
 # Kumo Tabular's library is not on PyPI yet (only a placeholder release); pinned to a commit so the
 # benchmarked code is fixed (empty extra on PyPI). Keep in sync with `pip_extra` in models/kumo_tabular/info.py.
 kumo_tabular = [
@@ -232,6 +236,7 @@ extended = [
   "tabarena[tabldm]",
   "tabarena[mitra_v2]",
   "tabarena[tabpfn_3_5]",
+  "tabarena[compacttab]",
   "tabarena[kumo_tabular]",
   "tabarena[lightpfn]",
   "tabarena[ftfm]",
