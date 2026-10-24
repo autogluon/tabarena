@@ -11,9 +11,12 @@ fit with sharing switched off predicts the same as a shared one.
 
 from __future__ import annotations
 
+import importlib.metadata
 import importlib.util
 import inspect
 import pickle
+import tomllib
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -44,8 +47,46 @@ def _cuda_available() -> bool:
     return torch.cuda.is_available()
 
 
+def _requirements() -> list[str]:
+    """TabArena's requirements, its extras included, as written in the source tree's ``pyproject.toml``.
+
+    An editable install's metadata keeps the pins of the day it was installed, so the source tree is
+    read where there is one; an installed wheel's metadata is current and stands in otherwise.
+    """
+    import tabarena
+
+    pyproject = Path(tabarena.__file__).resolve().parents[2] / "pyproject.toml"
+    if pyproject.is_file():
+        project = tomllib.loads(pyproject.read_text(encoding="utf-8"))["project"]
+        extras = project.get("optional-dependencies", {}).values()
+        return [*project.get("dependencies", []), *(r for group in extras for r in group)]
+    return importlib.metadata.requires("tabarena") or []
+
+
+def _outdated_install(module: str) -> str | None:
+    """Why the installed library behind ``module`` is not one TabArena's pins allow, or ``None``.
+
+    A loader missing from an outdated install says nothing about the declaration, so the check
+    skips there and fails only where the pinned version lacks it.
+    """
+    from packaging.requirements import Requirement
+    from packaging.utils import canonicalize_name
+
+    top = module.split(".", maxsplit=1)[0]
+    for dist in importlib.metadata.packages_distributions().get(top, []):
+        version = importlib.metadata.version(dist)
+        for text in _requirements():
+            req = Requirement(text)
+            if canonicalize_name(req.name) == canonicalize_name(dist) and req.specifier:
+                if not req.specifier.contains(version, prereleases=True):
+                    return f"{dist} {version} is installed, TabArena pins {req.name}{req.specifier}"
+    return None
+
+
 def _loader_callables(spec) -> list[tuple[str, Any, str]]:
-    """``(reference, owner, kind)`` per loader, importing the library; skips the test when it is absent."""
+    """``(reference, owner, kind)`` per loader, importing the library; skips the test when it is absent
+    or older than TabArena pins.
+    """
     sw = _sw()
     out = []
     for text in spec.loaders():
@@ -54,6 +95,8 @@ def _loader_callables(spec) -> list[tuple[str, Any, str]]:
             owner, name = ref.owner_and_name()
         except ImportError as err:
             pytest.skip(f"{text}: library not installed ({err})")
+        if not hasattr(owner, name) and (outdated := _outdated_install(ref.module)):
+            pytest.skip(f"{text}: {outdated}")
         assert hasattr(owner, name), f"{text}: {owner!r} has no attribute {name!r}"
         out.append((text, owner, ref.kind()))
     return out
