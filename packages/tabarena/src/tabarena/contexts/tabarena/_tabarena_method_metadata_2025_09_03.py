@@ -34,6 +34,7 @@ tabflex_metadata = MethodMetadata.tabarena_legacy_s3(
     is_bag=False,
     verified=False,
     reference_url="https://arxiv.org/abs/2506.05584",
+    organization="Microsoft",
     **_common_kwargs,
 )
 betatabpfn_metadata = MethodMetadata.tabarena_legacy_s3(

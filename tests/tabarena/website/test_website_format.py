@@ -176,6 +176,17 @@ def test_add_metadata_treats_missing_license_columns_as_commercial():
     assert with_nan["License"] == ""
 
 
+def test_add_metadata_emits_the_organization():
+    """A declared organization is passed on; an absent or NaN one (frames written before the
+    field existed, or a method that never declared it) becomes an empty cell.
+    """
+    declared = add_metadata(pd.Series({"method": "M"}), metadata_df=_metadata_frame(organization="Amazon"))
+    assert declared["Organization"] == "Amazon"
+    assert add_metadata(pd.Series({"method": "M"}), metadata_df=_metadata_frame())["Organization"] == ""
+    with_nan = add_metadata(pd.Series({"method": "M"}), metadata_df=_metadata_frame(organization=float("nan")))
+    assert with_nan["Organization"] == ""
+
+
 def test_add_metadata_emits_fits_at_predict():
     declared = add_metadata(pd.Series({"method": "M"}), metadata_df=_metadata_frame(fits_at_predict=True))
     assert bool(declared["FitsAtPredict"]) is True

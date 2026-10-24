@@ -20,6 +20,7 @@ tabfm_plus_method_metadata = MethodMetadata.system(
     date="2026-07-09",
     date_introduced="2026-06-30",
     reference_url="https://github.com/google-research/tabfm",
+    organization="Google Research",
     commercial_use=False,
     license="TabFM Non-Commercial License v1.0",
     verified=True,

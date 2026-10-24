@@ -809,6 +809,9 @@ from tabarena.models.{ModelKey}.model import {ClassName}Model
     cache_kwargs={"bucket": "tabarena", "prefix": "cache"},
     verified=False,                         # flip to True once benchmark run is signed off
     reference_url="{doc_url}",
+    # Who develops the model, as the leaderboard names it next to its logo; spell an existing
+    # organization exactly as other info.py files do. Leave unset for a solo author's package.
+    organization="{Organization}",
     # The license that governs *using* the model: the pretrained weights for a foundation model
     # (check the Hugging Face model card, not just the repo), else the library. SPDX id where one
     # exists. `commercial_use=False` for research-only / non-commercial weights; the leaderboard's

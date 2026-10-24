@@ -197,3 +197,11 @@ def test_host_metric_echo_does_not_undo_a_local_pick(tmp_path):
     html = out.read_text(encoding="utf-8")
     assert "let lastHostMetric = null;" in html
     assert "if (d.metric === lastHostMetric) return;" in html
+
+
+def test_a_narrow_chart_shortens_its_axis_title(tmp_path):
+    """A chart half the page wide cannot hold the full time-axis title; it drops the aggregation, then
+    falls back to the selector's label.
+    """
+    html = build_pareto_explorer_html(_scatter_points(), save_path=tmp_path / "explorer.html").read_text()
+    assert 'const titles = [full, full.replace(", median over datasets", ""), xAxis().label];' in html

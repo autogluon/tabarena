@@ -304,6 +304,7 @@ def add_metadata(
                 "Commercial": True,
                 "License": "",
                 "FitsAtPredict": False,
+                "Organization": "",
             },
         )
     metadata = metadata_df.loc[method]
@@ -335,6 +336,10 @@ def add_metadata(
     fits_at_predict = metadata.get("fits_at_predict", False)
     if fits_at_predict is None or pd.isna(fits_at_predict):
         fits_at_predict = False
+    # Likewise for frames written before the organization field; "" when unknown.
+    organization = metadata.get("organization", None)
+    if organization is None or pd.isna(organization):
+        organization = ""
 
     # Add Model Family Information
     out_dict = {
@@ -348,6 +353,8 @@ def add_metadata(
         "License": str(license_name),
         # Whether the train time includes the prediction call (`MethodMetadata.fits_at_predict`).
         "FitsAtPredict": bool(fits_at_predict),
+        # Who develops the method (`MethodMetadata.organization`); the leaderboard shows its logo.
+        "Organization": str(organization),
     }
 
     display_name = MethodMetadata.compute_method_name(
@@ -390,6 +397,7 @@ def legacy_formatting(df_leaderboard: pd.DataFrame) -> pd.DataFrame:
     df_leaderboard["Commercial"] = True
     df_leaderboard["License"] = ""
     df_leaderboard["FitsAtPredict"] = False
+    df_leaderboard["Organization"] = ""
 
     # Add Model Family Information
     df_leaderboard["Type"] = df_leaderboard.loc[:, "method"].apply(
@@ -437,6 +445,7 @@ def format_leaderboard(
                 "Commercial",
                 "License",
                 "FitsAtPredict",
+                "Organization",
             ]
         ] = df_leaderboard.apply(
             partial(add_metadata, metadata_df=method_info_map, include_url=include_url),
@@ -503,6 +512,7 @@ def format_leaderboard(
             "Commercial",
             "License",
             "FitsAtPredict",
+            "Organization",
         ],
     ]
 
@@ -523,7 +533,16 @@ def format_leaderboard(
 
     if not include_type:
         df_leaderboard = df_leaderboard.drop(
-            columns=["Type", "TypeName", "MethodClass", "Tags", "Commercial", "License", "FitsAtPredict"]
+            columns=[
+                "Type",
+                "TypeName",
+                "MethodClass",
+                "Tags",
+                "Commercial",
+                "License",
+                "FitsAtPredict",
+                "Organization",
+            ]
         )
 
     if compact:

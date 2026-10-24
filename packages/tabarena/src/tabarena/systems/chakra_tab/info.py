@@ -16,6 +16,7 @@ _common_kwargs = dict(
     date="2026-10-09",
     date_introduced="2026-10",
     reference_url="https://yhatlabs.com",
+    organization="Yhat Labs",
     license="Proprietary (hosted API; YHat Labs terms of service)",
     commercial_use=False,
     tags=("closed-source-api",),

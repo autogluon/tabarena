@@ -156,8 +156,9 @@ def _scope(selector: str, *bodies: str, indent: str = "  ") -> str:
 #:
 #: Four scopes, in this order: the base (light) scope carries the family colors
 #: and their marker-edge tokens; the media query follows the OS preference;
-#: ``[data-theme="dark"]`` lets an embedding page force dark (the always-dark
-#: leaderboard Space does); and ``[data-theme="light"]`` forces light for the
+#: ``[data-theme="dark"]`` lets an embedding page force dark (the leaderboard
+#: Space passes its theme in the frame URL's hash, see ``HASH_THEME`` in
+#: EXPLORER_BASE_JS); and ``[data-theme="light"]`` forces light for the
 #: paper view, beating both the media query (lower specificity) and the dark
 #: stamp (same specificity, later). It repeats the family tokens so the light
 #: edge tokens win there too.
@@ -318,6 +319,12 @@ EXPLORER_BASE_CSS = "".join(
 #: above the splice point), so a template can use both before its own setup runs.
 EXPLORER_BASE_JS = r"""
   const NS = "http://www.w3.org/2000/svg";
+  // The embedding page's theme. The leaderboard loads each page from its URL with `#theme=dark` or
+  // `#theme=light`, read here before any chart is drawn; a page embedded as srcdoc carries a
+  // `data-theme` stamp instead, and standalone there is neither, so the viewer's OS preference
+  // applies (see the scopes in EXPLORER_BASE_CSS).
+  const HASH_THEME = (/(?:^#|&)theme=(dark|light)\b/.exec(location.hash) || [])[1];
+  if (HASH_THEME) document.documentElement.setAttribute("data-theme", HASH_THEME);
   // Baseline and Other are one bucket, as in the site's own type legend: they
   // already share a color, and each holds only a handful of methods.
   const FAM_MERGED = "Baseline / Other";
@@ -539,8 +546,9 @@ EXPLORER_BASE_JS = r"""
     // The embedding page's choice, read before this function touches the stamp. Captured here
     // and not on entering paper view: a page that opens *out* of paper view (the tables, where
     // the controls are the point) would otherwise clear the stamp on its very first call and
-    // then follow the viewer's OS preference — rendering light inside the always-dark site.
-    const hostTheme = root.getAttribute("data-theme");
+    // then follow the viewer's OS preference rather than the site's theme. A
+    // `tabarena-explorer-theme` message replaces it when the reader switches the site's theme.
+    let hostTheme = root.getAttribute("data-theme");
     const btn = document.getElementById("btn-paper");
     const embedded = window.parent !== window;
 
@@ -566,6 +574,11 @@ EXPLORER_BASE_JS = r"""
     window.addEventListener("message", ev => {
       const d = ev.data;
       if (d && d.type === "tabarena-explorer-paper" && typeof d.on === "boolean") setPaper(d.on);
+      if (d && d.type === "tabarena-explorer-theme" && (d.theme === "dark" || d.theme === "light")) {
+        hostTheme = d.theme;
+        // Paper view stays white; the edit view takes the new theme at once.
+        if (!document.body.classList.contains("paper")) setPaper(false);
+      }
     });
     // Only standalone: embedded, the host owns the button and would not see the
     // key press, so its label would fall out of step with the frame.
@@ -811,10 +824,6 @@ EXPLORER_BASE_JS = r"""
     });
   }
 
-  // When embedded, report the content height so the host page can size the
-  // iframe to fit (avoids an inner scrollbar). Works from a sandboxed frame.
-  // Measure the body (viewport-independent) — documentElement.scrollHeight is
-  // clamped to at least the iframe's current viewport, which turns the
   // Embedded, the host can take methods out of the page altogether: the leaderboard's
   // "Include non-commercial methods" toggle. This is stronger than a chip toggle, which only
   // greys a method out and leaves it one click away: an excluded method is dropped from the
@@ -835,6 +844,56 @@ EXPLORER_BASE_JS = r"""
     });
   }
 
+  // Embedded, the host can ask every chart of the page to follow some methods (the leaderboard's
+  // "Follow" picker): each chart keeps them highlighted, whatever its own controls select, and
+  // marks them in its own way. Names as in `onExcludeMessage`; a repeat of the current set is
+  // ignored, so the host can re-send it with every height report.
+  function onFollowMessage(apply) {
+    let current = null;
+    window.addEventListener("message", ev => {
+      const d = ev.data;
+      if (!d || d.type !== "tabarena-explorer-follow" || !Array.isArray(d.methods)) return;
+      const names = d.methods.filter(m => typeof m === "string").sort();
+      const key = names.join("\u0000");
+      if (key === current) return;
+      current = key;
+      apply(new Set(names));
+    });
+  }
+
+  // Linked hover. The method under the reader's pointer goes up to the host, which hands it to the
+  // other charts of the page as `tabarena-explorer-hovered`, so one method lights up in each of
+  // them at once; `null` when the pointer leaves. Posted only on a change, since pointer events
+  // fire per pixel.
+  let lastHover = null;
+  function postHover(method) {
+    if (window.parent === window || method === lastHover) return;
+    lastHover = method;
+    window.parent.postMessage({ type: "tabarena-explorer-hover", method: method }, "*");
+  }
+  function onHoverMessage(apply) {
+    window.addEventListener("message", ev => {
+      const d = ev.data;
+      if (d && d.type === "tabarena-explorer-hovered") apply(typeof d.method === "string" ? d.method : null);
+    });
+  }
+
+  // A click on a method's marks (a point, a bar, a label, a row). Embedded, it asks the host to
+  // follow the method, or to stop following it, on every chart of the page; the host answers with
+  // `tabarena-explorer-follow` to every frame, this one included. Standalone there is no host, and
+  // `local` (the chart's own toggle) runs instead. The chips keep their local role either way.
+  const EMBEDDED = window.parent !== window;
+  function pickMethod(method, local) {
+    if (EMBEDDED) window.parent.postMessage({ type: "tabarena-explorer-pick", method: method }, "*");
+    else if (local) local();
+  }
+  // The tooltip line saying so, empty standalone.
+  const PICK_HINT = EMBEDDED ? '<div class="t-var">Click to follow it in every chart</div>' : "";
+
+  // When embedded, report the content height so the host page can size the
+  // iframe to fit (avoids an inner scrollbar). Works from a sandboxed frame.
+  // Measure the body (viewport-independent) — documentElement.scrollHeight is
+  // clamped to at least the iframe's current viewport, which turns the
   // resize round-trip into a grow-forever feedback loop. The change guard
   // stops re-posting once the height settles.
   let lastPostedHeight = 0;

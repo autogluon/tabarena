@@ -137,6 +137,7 @@ __BASE_JS__
   const tip = makeTooltip(box);
   // Matches the point labels drawn in `render` — see the side/overlap logic there.
   const textWidth = makeTextMeasurer(svg, { size: 13, weight: 700 });
+  const axisTitleWidth = makeTextMeasurer(svg, { size: 14, weight: 650 });
 
   // Marker glyph per variant at (cx, cy); trajectories use circles everywhere. `edge`
   // (a color, or null for none) outlines the glyph; the X glyph has no fill, so its edge
@@ -273,6 +274,13 @@ __BASE_JS__
   // methods drawn on the front but greyed out. `followFront` drops as soon as the
   // reader picks methods themselves, so their selection is never overwritten.
   const state = { active: new Set(computeFront(metricByKey[metricKey]).methods), followFront: true };
+  // Methods the host asks every chart to follow (`onFollowMessage`): drawn as active whatever the
+  // chips select, and ringed. `hovered` is the method under the pointer in another chart of the
+  // page (`onHoverMessage`), and `scale` the last render's axes, to ring it without a redraw.
+  let followed = new Set();
+  let hovered = null;
+  let scale = null;
+  let hoverMark = null;
 
   // ---------- chart ----------
   // A flat, fixed-height plot: two of these panels then fit on one screen.
@@ -327,10 +335,15 @@ __BASE_JS__
         .textContent = fmtNum(yv, Number.isInteger(yv) ? 0 : metric.decimals);
     }
     el("rect", { x: M.l, y: M.t, width: W - M.l - M.r, height: H - M.t - M.b, fill: "none", stroke: "var(--line)" }, grid);
+    // The axis title shortens where the chart is too narrow for it (a tile half the page wide):
+    // first without the aggregation, then to the selector's own label.
+    const full = xAxis().axisLabel;
+    const titles = [full, full.replace(", median over datasets", ""), xAxis().label];
+    const xTitle = titles.find(t => axisTitleWidth(t) <= W - M.l - M.r) || titles[titles.length - 1];
     el("text", {
       x: (M.l + W - M.r) / 2, y: H - 10, "text-anchor": "middle", "font-size": 14,
       "font-weight": 650, fill: "var(--ink)",
-    }, grid).textContent = xAxis().axisLabel;
+    }, grid).textContent = xTitle;
     el("text", {
       x: 0, y: 0, "text-anchor": "middle", "font-size": 14, "font-weight": 650, fill: "var(--ink)",
       transform: `translate(16 ${(M.t + H - M.b) / 2}) rotate(-90)`,
@@ -348,7 +361,7 @@ __BASE_JS__
       el("path", { d, fill: "none", stroke: "var(--ink)", "stroke-width": 1.6, "stroke-dasharray": "7 5", opacity: 0.85 }, svg);
     }
 
-    const isOn = m => state.active.has(m);
+    const isOn = m => state.active.has(m) || followed.has(m);
 
     // connectors: variant links (scatter) / the trajectory itself
     const conn = el("g", {}, svg);
@@ -389,6 +402,20 @@ __BASE_JS__
         if (p.imputed && (!TRAJECTORY || p === pts[pts.length - 1])) {
           drawImputedRing(on ? ptsOn : ptsOff, X(p[xKey]), Y(mval(p, metric)), size, color, op, p.method);
         }
+      }
+    }
+
+    // Followed methods keep their family colour and gain a ring, on every chart of the page at
+    // once; a trajectory rings its end point only, as the imputation ring does.
+    const rings = el("g", { "pointer-events": "none" }, svg);
+    for (const method of followed) {
+      const pts = byMethod.get(method);
+      if (!pts) continue;
+      for (const p of TRAJECTORY ? pts.slice(-1) : pts) {
+        el("circle", {
+          cx: X(p[xKey]), cy: Y(mval(p, metric)), r: 10.5, fill: "none",
+          stroke: "var(--accent)", "stroke-width": 2.2,
+        }, rings);
       }
     }
 
@@ -440,12 +467,39 @@ __BASE_JS__
     const hits = el("g", {}, svg);
     for (const p of SHOWN) {
       const h = el("circle", { cx: X(p[xKey]), cy: Y(mval(p, metric)), r: 12, fill: "transparent", cursor: "pointer" }, hits);
-      h.addEventListener("mouseenter", ev => showTip(p, ev));
+      h.addEventListener("mouseenter", ev => { showTip(p, ev); postHover(p.method); });
       h.addEventListener("mousemove", ev => tip.move(ev));
-      h.addEventListener("mouseleave", () => hideTip(p.method));
-      h.addEventListener("click", () => toggle(p.method));
+      h.addEventListener("mouseleave", () => { hideTip(p.method); postHover(null); });
+      h.addEventListener("click", () => pickMethod(p.method, () => toggle(p.method)));
+    }
+    scale = { X, Y, metric };
+    hoverMark = null;
+    markHovered();
+  }
+
+  // Ring the method under the pointer in another chart of the page, dashed so it does not read
+  // as followed. Drawn on top, but without hit area, so it never takes this chart's own hover.
+  function markHovered() {
+    if (hoverMark) hoverMark.remove();
+    hoverMark = null;
+    const pts = hovered && scale ? byMethod.get(hovered) : null;
+    if (!pts) return;
+    hoverMark = el("g", { "pointer-events": "none" }, svg);
+    for (const p of pts) {
+      el("circle", {
+        cx: scale.X(p[xKey]), cy: scale.Y(mval(p, scale.metric)), r: 9.5, fill: "none",
+        stroke: "var(--ink)", "stroke-width": 1.8, "stroke-dasharray": "3 2.5",
+      }, hoverMark);
     }
   }
+  onHoverMessage(method => {
+    hovered = method;
+    markHovered();
+  });
+  onFollowMessage(names => {
+    followed = names;
+    render();
+  });
 
   // Temporary hover emphasis without a re-render (a re-render would replace
   // the hit node under the cursor mid-hover).
@@ -471,7 +525,7 @@ __BASE_JS__
     }
     html += `<div>${xAxis().short}: <b>${fmtTime(p[xKey])}</b></div>`;
     if (p.imputed) html += `<div class="t-imp">Imputed on ${fmtNum(p.imputed_pct, 0)}% of datasets</div>`;
-    tip.show(html, ev);
+    tip.show(html + PICK_HINT, ev);
   }
   function hideTip(method) {
     emphasize(method, false);

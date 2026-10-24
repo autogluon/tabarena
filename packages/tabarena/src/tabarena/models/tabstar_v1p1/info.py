@@ -16,6 +16,7 @@ tabstar_v1p1_method_metadata = MethodMetadata.config(
     date="2026-10-19",
     date_introduced="2026-10",
     reference_url="https://arxiv.org/abs/2505.18125",
+    organization="Technion",
     license="MIT (code); CC-BY-4.0 (weights)",
     display_name="TabSTAR-v1.1",
     verified=True,

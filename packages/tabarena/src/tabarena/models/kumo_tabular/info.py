@@ -18,6 +18,7 @@ def _descriptor(display_name: str) -> ModelDescriptor:
         compute="gpu",
         is_bag=False,
         reference_url="https://huggingface.co/blog/nvidia/kumo-tabular",
+        organization="NVIDIA",
         license="OpenMDW-1.1",
         date_introduced="2026-09-25",  # the Hub release commit of the v1.0.0 checkpoints
     )

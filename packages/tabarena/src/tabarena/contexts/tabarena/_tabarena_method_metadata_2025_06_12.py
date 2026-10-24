@@ -130,6 +130,15 @@ methods_to_url_map = {
     "TabPFNv2_GPU": "https://www.nature.com/articles/s41586-024-08328-6",
 }
 
+methods_to_organization_map = {
+    "ExplainableBM": "Microsoft",
+    "KNeighbors": "scikit-learn",
+    "LinearModel": "scikit-learn",
+    "RealMLP_GPU": "University of Stuttgart & Inria",
+    "TabDPT_GPU": "Layer 6 AI",
+    "TabPFNv2_GPU": "University of Freiburg",
+}
+
 # Date each method was first introduced (paper or library release) — for the methods built by
 # the loop below. `Dummy` is intentionally unset (no invention date).
 methods_to_date_introduced_map = {
@@ -198,6 +207,7 @@ for method in methods:
         is_bag=is_bag,
         can_hpo=can_hpo,
         reference_url=reference_url,
+        organization=methods_to_organization_map.get(method),
         date_introduced=methods_to_date_introduced_map.get(method),
         **method_kwargs,
     )

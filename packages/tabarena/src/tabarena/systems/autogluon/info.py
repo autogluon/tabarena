@@ -22,6 +22,7 @@ _AUTOGLUON_PAPER = "https://arxiv.org/abs/2003.06505"
 _system_kwargs = dict(
     method_class="system",
     reference_url=_AUTOGLUON_PAPER,
+    organization="Amazon",
     validation_protocol="system",
     # The 1.4 / 1.5 `extreme` presets bundle TabPFN-v2, whose Prior Labs License is Apache-2.0
     # with an attribution clause, so every run here stays free for commercial use.
@@ -165,6 +166,7 @@ _common_kwargs_2026_08_05 = dict(
     compute="gpu",
     date_introduced="2026-08",  # AutoGluon 1.6 release
     reference_url=_AUTOGLUON_PAPER,
+    organization="Amazon",
     verified=True,
     cache_type="r2",
     cache_kwargs={"bucket": "tabarena", "prefix": "cache"},

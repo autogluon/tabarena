@@ -79,7 +79,9 @@ only part maintainers can inspect, so it is held to this contract:
 In `info.py`, `compute` is the provider's hardware (processing accepts the CPU client node that the
 raw results record, with a warning), `license` is the terms of service plus the licenses of any
 models served behind the API, and `commercial_use` is False when one of those models is
-non-commercial: ask the submitter what runs behind the endpoint.
+non-commercial: ask the submitter what runs behind the endpoint. `organization` is who develops the
+system (a company, lab or university, spelled as in other `info.py` files so the leaderboard finds
+its logo); ask the submitter when the paper or repository does not settle it.
 
 Maintainers also need, before the benchmark run: an evaluation key with quota for every config on
 every split (816 per config on TabArena-v0.1, plus about 30 calls for the audit), the concurrency the
@@ -113,6 +115,7 @@ Each config becomes one benchmarked variant. Prefer a small set of meaningful pr
     date="<YYYY-MM-DD>",
     date_introduced="<YYYY-MM>",
     reference_url="...",
+    organization="...",              # who develops the system, as the leaderboard names it by its logo
     license="Apache-2.0",            # what governs using the system, incl. every bundled model's weights
     commercial_use=True,             # False when any bundled component is non-commercial (e.g. TabPFN-3)
     tags=(),                         # see below

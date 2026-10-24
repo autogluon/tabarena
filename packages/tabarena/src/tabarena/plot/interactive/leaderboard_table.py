@@ -37,7 +37,8 @@ _FAMILY_SYMBOL = {
 }
 
 #: One entry per rendered column, in display order. ``key`` is the field on the
-#: point records; ``always`` columns cannot be switched off; ``heatmap`` columns
+#: point records; ``always`` columns cannot be switched off; ``on: False`` ones
+#: start switched off (the Columns menu brings them in); ``heatmap`` columns
 #: are shaded per column; ``logScale`` ones are shaded in log space because
 #: runtimes span orders of magnitude. ``hint`` is the header's hover text — kept
 #: to the direction and the unit, since the page embedding this one carries the
@@ -47,7 +48,7 @@ _COLUMNS: list[dict] = [
         "key": "position",
         "label": "#",
         "always": True,
-        "hint": "Position in this subset's published ranking.",
+        "hint": "Position in this subset's published ranking, 1 being the first.",
     },
     {
         "key": "family",
@@ -57,10 +58,10 @@ _COLUMNS: list[dict] = [
     },
     {
         "key": "model",
-        "label": "Model",
+        "label": "Method",
         "always": True,
         "hint": (
-            "The model, its tuning variant in brackets, ✔️ when the implementation was "
+            "The method, its tuning variant in brackets, ✔️ when the implementation was "
             "verified, and ‡ when some results are imputed."
         ),
     },
@@ -78,6 +79,7 @@ _COLUMNS: list[dict] = [
         "label": "Score",
         "decimals": 3,
         "heatmap": True,
+        "on": False,
         "hint": "Error rescaled per dataset to 1 (best) … 0 (median), then averaged. Higher is better.",
     },
     {
@@ -87,6 +89,7 @@ _COLUMNS: list[dict] = [
         "decimals": 2,
         "lowerBetter": True,
         "heatmap": True,
+        "on": False,
         "hint": "Mean rank across datasets. Lower is better.",
     },
     {
@@ -97,6 +100,7 @@ _COLUMNS: list[dict] = [
         "decimals": 2,
         "lowerBetter": True,
         "heatmap": True,
+        "on": False,
         "hint": "Harmonic mean of per-dataset ranks; rewards being excellent somewhere. Lower is better.",
     },
     {
@@ -139,6 +143,7 @@ _COLUMNS: list[dict] = [
         "decimals": 1,
         "lowerBetter": True,
         "heatmap": True,
+        "on": False,
         "hint": "Share of datasets whose score was imputed because the model could not run on them.",
     },
     {
@@ -146,6 +151,7 @@ _COLUMNS: list[dict] = [
         "column": "Hardware",
         "label": "Hardware",
         "text": True,
+        "on": False,
         "hint": "The hardware the reported runtimes were measured on.",
     },
 ]
