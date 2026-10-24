@@ -283,6 +283,23 @@ def test_build_per_dataset_explorer_without_trajectories(tmp_path):
     assert config["trajectory"]["rows"] == []
 
 
+def test_the_list_sits_beside_the_detail_with_counted_filters(tmp_path):
+    """From 1100px the dataset list and the chosen dataset share a row; each filter chip counts the
+    datasets it would leave, and the two choices on the page are numbered.
+    """
+    html = build_per_dataset_explorer_html(
+        results_per_split=_results_per_split(),
+        method_info=_METHOD_INFO,
+        trajectories=None,
+        dataset_metadata=None,
+        save_path=tmp_path / "per_dataset_explorer.html",
+    ).read_text(encoding="utf-8")
+    assert "@media (min-width: 1100px)" in html
+    assert '<div class="pd-main" id="main">' in html
+    assert "function syncFilterCounts()" in html
+    assert html.count('<span class="pd-step">') == 2
+
+
 def _paired_splits(errors_by_method: dict[str, list[float]], dataset: str = "gamma") -> pd.DataFrame:
     rows = []
     for method, errors in errors_by_method.items():
