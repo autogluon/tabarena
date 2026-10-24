@@ -62,6 +62,12 @@ __BASE_CSS__
   table.lbt td.num { font-weight: 600; }
   table.lbt td.na { color: var(--pt-muted); }
   table.lbt tbody tr:hover td { filter: brightness(1.12); }
+  /* A method the host page follows (its "Follow" picker) and one under the pointer in another
+     chart of the page. */
+  table.lbt tbody tr.followed td:first-child { box-shadow: inset 4px 0 0 var(--accent); }
+  table.lbt tbody tr.followed td.name { background: color-mix(in srgb, var(--accent) 16%, transparent); }
+  table.lbt tbody tr.hovered td { box-shadow: inset 0 2px 0 var(--ink), inset 0 -2px 0 var(--ink); }
+  body.embedded table.lbt tbody tr { cursor: pointer; }
   .ci { opacity: 0.5; font-weight: 400; font-size: 0.82em; }
   .pill { padding: 1px 7px; border-radius: 999px; font-size: 0.95em; white-space: nowrap; }
   .verified { font-size: 0.85em; }
@@ -171,6 +177,10 @@ __BASE_JS__
     sortKey: null,
     sortAsc: false,
   };
+  // Methods the host asks every chart to follow (`onFollowMessage`), and the method under the
+  // pointer in another chart of the page (`onHoverMessage`).
+  let followed = new Set();
+  let hovered = null;
 
   const tblwrap = document.getElementById("tblwrap");
   const chipsBox = document.getElementById("chips");
@@ -179,19 +189,27 @@ __BASE_JS__
 
   // ---------- heat shading ----------
   // Green (best) through olive to red (worst), matching the website's
-  // cross-subset overview so a reader moving between them reads one scale.
+  // cross-subset overview so a reader moving between them reads one scale. On a
+  // light surface each stop is lifted to the pastel the website's light theme uses,
+  // under dark digits.
   const RAMP = [[0, [28, 120, 62]], [0.5, [138, 122, 36]], [1, [160, 58, 58]]];
+  const LIGHT_RAMP = [[0, [135, 201, 160]], [0.5, [224, 204, 123]], [1, [223, 144, 144]]];
+  function lightSurface() {
+    const theme = document.documentElement.getAttribute("data-theme");
+    return theme ? theme === "light" : !window.matchMedia("(prefers-color-scheme: dark)").matches;
+  }
   function heatColor(frac) {
+    const ramp = lightSurface() ? LIGHT_RAMP : RAMP;
     const f = Math.max(0, Math.min(1, frac));
-    for (let i = 0; i < RAMP.length - 1; i++) {
-      const [f0, c0] = RAMP[i], [f1, c1] = RAMP[i + 1];
+    for (let i = 0; i < ramp.length - 1; i++) {
+      const [f0, c0] = ramp[i], [f1, c1] = ramp[i + 1];
       if (f <= f1) {
         const t = f1 === f0 ? 0 : (f - f0) / (f1 - f0);
         const mix = c0.map((v, j) => Math.round(v + t * (c1[j] - v)));
         return "rgb(" + mix.join(",") + ")";
       }
     }
-    return "rgb(" + RAMP[RAMP.length - 1][1].join(",") + ")";
+    return "rgb(" + ramp[ramp.length - 1][1].join(",") + ")";
   }
   // Runtimes span orders of magnitude; shading them linearly paints every model
   // the same green and only the slowest one red, so those normalize in log space.
@@ -243,7 +261,7 @@ __BASE_JS__
   function visibleRows() {
     const term = state.search.trim().toLowerCase();
     return POINTS.filter(p => {
-      if (!state.methods.has(p.method) || state.excluded.has(p.method)) return false;
+      if (!(state.methods.has(p.method) || followed.has(p.method)) || state.excluded.has(p.method)) return false;
       if (p.variant && !state.variants.has(p.variant)) return false;
       if (!state.imputed && p.imputed) return false;
       if (term && !(p.method + " " + (p.variant || "") + " " + p.family).toLowerCase().includes(term)) return false;
@@ -295,7 +313,8 @@ __BASE_JS__
     }
     html += "</tr></thead><tbody>";
     for (const p of rows) {
-      html += "<tr>";
+      const marks = (followed.has(p.method) ? " followed" : "") + (p.method === hovered ? " hovered" : "");
+      html += '<tr data-m="' + escapeHtml(p.method) + '"' + (marks ? ' class="' + marks.trim() + '"' : "") + ">";
       for (const col of cols) {
         if (col.key === "position") {
           html += '<td class="pos num" data-sort="' + p.position + '">' + p.position + "</td>";
@@ -337,7 +356,7 @@ __BASE_JS__
     if (span) {
       let frac = (scaleOf(col, v) - span[0]) / (span[1] - span[0]);
       if (!col.lowerBetter) frac = 1 - frac;
-      style = ' style="background:' + heatColor(frac) + ';color:#f7f7f7;"';
+      style = ' style="background:' + heatColor(frac) + ";color:" + (lightSurface() ? "#14161a" : "#f7f7f7") + ';"';
     }
     let text = fmtNum(v, col.decimals) + (col.suffix || "");
     if (col.key === "train_time" && p.fits_at_predict) {
@@ -531,8 +550,29 @@ __BASE_JS__
       if (ev.data && ev.data.type === "tabarena-leaderboard-csv") downloadCsv();
     });
   }
+  // Linked hover: the row under the pointer names its method to the host, and a method hovered
+  // in another chart of the page marks its rows here.
+  tblwrap.addEventListener("mouseover", ev => {
+    const row = ev.target.closest("tbody tr");
+    postHover(row ? row.dataset.m : null);
+  });
+  tblwrap.addEventListener("mouseleave", () => postHover(null));
+  // A click on a row follows its method on every chart of the page; its link still opens.
+  tblwrap.addEventListener("click", ev => {
+    const row = ev.target.closest("tbody tr");
+    if (row && EMBEDDED && !ev.target.closest("a")) pickMethod(row.dataset.m);
+  });
+  onHoverMessage(method => {
+    hovered = method;
+    for (const row of tblwrap.querySelectorAll("tbody tr")) row.classList.toggle("hovered", row.dataset.m === method);
+  });
+  onFollowMessage(names => {
+    followed = names;
+    render();
+  });
   // Opens with the controls: the filters are the point of this page, not chrome
   // around a figure.
+  if (EMBEDDED) document.body.classList.add("embedded");
   setUpPaperView(render, { openInPaper: false });
   buildVariantBtns();
   buildColumnBtns();

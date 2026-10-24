@@ -128,6 +128,13 @@ __BASE_JS__
     // screen, and the shape of the heatmap is what most readers want first.
     zoom: "fit",
   };
+  // Models the host asks every chart to follow (`onFollowMessage`), shown whatever the chips
+  // select; `hovered` is the model under the pointer in another chart of the page
+  // (`onHoverMessage`), and `layout` the last render's grid, to mark it without a redraw.
+  let followed = new Set();
+  let hovered = null;
+  let layout = null;
+  let hoverMark = null;
   // Ceiling on the fitted height. Fitting is normally width-driven; this only bites
   // on very tall selections, and it is set where the labels are still readable
   // rather than at half a screen, which would shrink 30 rows to 8px type.
@@ -191,7 +198,7 @@ __BASE_JS__
   function shown() {
     let list = METHODS.filter(label => {
       const p = info.get(label);
-      if (!p || !state.models.has(p.model) || state.excluded.has(p.model)) return false;
+      if (!p || !(state.models.has(p.model) || followed.has(p.model)) || state.excluded.has(p.model)) return false;
       return !p.variant || state.variants.has(p.variant);
     });
     if (state.best) {
@@ -216,6 +223,8 @@ __BASE_JS__
   function render() {
     const list = shown();
     svg.innerHTML = "";
+    layout = null;
+    hoverMark = null;
     if (list.length < 2) {
       svg.setAttribute("width", 0);
       svg.setAttribute("height", 0);
@@ -274,7 +283,9 @@ __BASE_JS__
         transform: "rotate(-60 " + x + " " + (headerH - 8) + ")", cursor: "pointer",
       }, svg);
       text.textContent = labelText(label);
-      text.addEventListener("click", () => toggleModel(info.get(label).model));
+      if (followed.has(info.get(label).model)) text.setAttribute("text-decoration", "underline");
+      const model = info.get(label).model;
+      text.addEventListener("click", () => pickMethod(model, () => toggleModel(model)));
     });
 
     list.forEach((rowLabel, i) => {
@@ -285,7 +296,9 @@ __BASE_JS__
         cursor: "pointer",
       }, svg);
       text.textContent = labelText(rowLabel);
-      text.addEventListener("click", () => toggleModel(info.get(rowLabel).model));
+      if (followed.has(info.get(rowLabel).model)) text.setAttribute("text-decoration", "underline");
+      const rowModel = info.get(rowLabel).model;
+      text.addEventListener("click", () => pickMethod(rowModel, () => toggleModel(rowModel)));
 
       list.forEach((colLabel, j) => {
         const rate = valueAt(rowLabel, colLabel);
@@ -302,16 +315,61 @@ __BASE_JS__
           fill: Math.abs(rate - 0.5) > 0.3 ? "#ffffff" : "#14161a", "pointer-events": "none",
         }, svg);
         value.textContent = rate == null || !isFinite(rate) ? "" : Math.round(rate * 100);
-        rect.addEventListener("mousemove", ev => showTip(ev, rowLabel, colLabel, rate));
+        rect.addEventListener("mousemove", ev => {
+          showTip(ev, rowLabel, colLabel, rate);
+          postHover(info.get(rowLabel).model);
+        });
         rect.addEventListener("mouseleave", () => { tooltip.style.display = "none"; });
+        // A cell is the row's model, as its tooltip leads with it.
+        if (EMBEDDED) {
+          rect.style.cursor = "pointer";
+          rect.addEventListener("click", () => pickMethod(rowModel));
+        }
       });
     });
 
     drawScale(barX, headerH, n * CELL - 2, tickW);
+    layout = { list, labelW, headerH, n };
+    // Followed models: their row and their column outlined, on every chart of the page at once.
+    outline(new Set(list.filter(label => followed.has(info.get(label).model))), "var(--accent)", 3, "");
+    markHovered();
     nomW = width;
     nomH = height;
     applyZoom();
   }
+
+  // Outline the row and the column of each label in `labels`; returns the group drawn.
+  function outline(labels, stroke, strokeWidth, dash) {
+    const group = el("g", { "pointer-events": "none" }, svg);
+    if (!layout) return group;
+    const span = layout.n * CELL - 1;
+    layout.list.forEach((label, i) => {
+      if (!labels.has(label)) return;
+      const attrs = { fill: "none", stroke: stroke, "stroke-width": strokeWidth, rx: 3 };
+      if (dash) attrs["stroke-dasharray"] = dash;
+      el("rect", { ...attrs, x: layout.labelW, y: layout.headerH + i * CELL, width: span, height: CELL - 1 }, group);
+      el("rect", { ...attrs, x: layout.labelW + i * CELL, y: layout.headerH, width: CELL - 1, height: span }, group);
+    });
+    return group;
+  }
+
+  // Outline the model under the pointer in another chart of the page, dashed so it does not
+  // read as followed.
+  function markHovered() {
+    if (hoverMark) hoverMark.remove();
+    hoverMark = null;
+    if (!hovered || !layout) return;
+    hoverMark = outline(new Set(layout.list.filter(label => info.get(label).model === hovered)), "var(--ink)", 2, "5 4");
+  }
+  svg.addEventListener("mouseleave", () => postHover(null));
+  onHoverMessage(model => {
+    hovered = model;
+    markHovered();
+  });
+  onFollowMessage(names => {
+    followed = names;
+    render();
+  });
 
   // Scale the figure for display only: the width/height *attributes* stay nominal,
   // so the export helpers keep building full-size figures, and the CSS box drives
@@ -381,7 +439,7 @@ __BASE_JS__
     tooltip.innerHTML =
       '<div class="t-name">' + rowLabel + " vs " + colLabel + "</div>" +
       "<div>" + rowLabel + " wins " + fmtNum(rate * 100, 1) + "% of tasks</div>" +
-      '<div class="t-var">' + colLabel + " wins " + fmtNum((1 - rate) * 100, 1) + "%</div>";
+      '<div class="t-var">' + colLabel + " wins " + fmtNum((1 - rate) * 100, 1) + "%</div>" + PICK_HINT;
     const box = document.body.getBoundingClientRect();
     tooltip.style.left = (ev.clientX - box.left + 14) + "px";
     tooltip.style.top = (ev.clientY - box.top + 12) + "px";
