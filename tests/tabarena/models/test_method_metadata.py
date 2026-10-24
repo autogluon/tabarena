@@ -345,3 +345,17 @@ def test_descriptor_forwards_the_license_fields():
     assert mm.commercial_use is False
     assert mm.license == "CC-BY-NC-4.0"
     assert ModelDescriptor(display_name="M").method_metadata(method="M", suite="s").commercial_use is True
+
+
+def test_organization_is_optional_forwarded_and_round_trips_through_yaml():
+    """The organization a leaderboard logo is chosen by: unset by default, declared once on the
+    descriptor, and kept through the cached ``metadata.yaml``; an empty name is rejected.
+    """
+    from tabarena.models._method_metadata import ModelDescriptor
+
+    assert MethodMetadata(method="M", suite="s").organization is None
+    mm = ModelDescriptor(display_name="M", organization="Prior Labs").method_metadata(method="M", suite="s")
+    assert mm.organization == "Prior Labs"
+    assert MethodMetadata(**yaml.safe_load(mm.to_yaml_fileobj())).organization == "Prior Labs"
+    with pytest.raises(AssertionError, match="organization must be a non-empty string"):
+        MethodMetadata(method="M", suite="s", organization="")

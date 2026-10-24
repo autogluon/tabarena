@@ -158,6 +158,8 @@ The search-space generator. By default use an **empty search space** (like TabPF
 
 Defines `{ModelKey}_method_metadata: MethodMetadata` and `{ModelKey}_info: ModelInfo`. `info.py` is the single source the auto-discovery registry walks — populating it correctly is how the model becomes visible to `discover_models()`. See template in `references/model_patterns.md` section "info.py template".
 
+Set `organization` to who develops the model (the company, lab or university, as the leaderboard should name it next to its logo, e.g. `"Prior Labs"`, `"Yandex Research"`). Take it from the paper's affiliations or the code's GitHub organization; when neither settles it, ask the user rather than guess, and leave it unset for a solo author's package. Reuse the exact spelling of an organization that already exists in another `info.py` so the leaderboard finds its logo.
+
 **When you set `ag_key`/`model_key` here, also classify the model in `get_model_family` (Step 4d)** — those keys decide the model's leaderboard family, and skipping this makes it show as ❓ Other on the website.
 
 ### 3e. Multi-file support code (optional)

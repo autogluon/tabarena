@@ -22,6 +22,7 @@ tabstar_metadata = MethodMetadata.config(
     date="2026-03-02",
     date_introduced="2025-05",
     reference_url="https://arxiv.org/abs/2505.18125",
+    organization="Technion",
     license="MIT (code); CC-BY-4.0 (weights)",
     display_name="TabSTAR",
 )

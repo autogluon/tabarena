@@ -10,6 +10,7 @@ tabdpt_descriptor = ModelDescriptor(
     compute="gpu",
     is_bag=False,
     reference_url="https://arxiv.org/abs/2410.18164",
+    organization="Layer 6 AI",
     license="Apache-2.0",
     date_introduced="2024-10",
 )
@@ -19,6 +20,7 @@ tabdpt_turbo_descriptor = ModelDescriptor(
     compute="gpu",
     is_bag=False,
     reference_url="https://openreview.net/pdf?id=Y00pwFyrHR",
+    organization="Layer 6 AI",
     license="Apache-2.0",
     date_introduced="2026-06-05",  # tabdpt1_2.safetensors upload to Layer6/TabDPT
 )
@@ -28,6 +30,7 @@ tabdpt_v13_descriptor = ModelDescriptor(
     compute="gpu",
     is_bag=False,
     reference_url="https://github.com/layer6ai-labs/TabDPT-inference/releases/tag/v1.3.0",
+    organization="Layer 6 AI",
     license="Apache-2.0",
     date_introduced="2026-09-08",  # tabdpt 1.3.0 on PyPI and tabdpt1_3.safetensors upload to Layer6/TabDPT
 )

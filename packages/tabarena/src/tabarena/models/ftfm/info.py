@@ -10,6 +10,7 @@ ftfm_descriptor = ModelDescriptor(
     compute="gpu",
     is_bag=False,
     reference_url="https://github.com/machinelearningnuremberg/ftfm-official",
+    organization="University of Technology Nuremberg",
     commercial_use=False,
     license="CC-BY-NC-4.0",  # the weights; the inference code is Apache-2.0
     date_introduced="2026-10-03",  # first public release of the code and weights

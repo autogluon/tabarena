@@ -19,6 +19,7 @@ ebm_method_metadata = MethodMetadata.config(
     date="2025-09-03",
     date_introduced="2019-09",
     reference_url="https://www.cs.cornell.edu/~yinlou/papers/lou-kdd13.pdf",
+    organization="Microsoft",
     license="MIT",
     display_name="EBM",
 )
@@ -36,6 +37,7 @@ ebm_new_method_metadata = MethodMetadata.config(
     date="2026-07-15",
     date_introduced="2019-09",
     reference_url="https://www.cs.cornell.edu/~yinlou/papers/lou-kdd13.pdf",
+    organization="Microsoft",
     license="MIT",
     display_name="EBM",
 )

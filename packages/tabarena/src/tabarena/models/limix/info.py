@@ -18,6 +18,7 @@ limix_method_metadata = MethodMetadata.config(
     date="2026-05-13",
     date_introduced="2025-09",
     reference_url="https://arxiv.org/abs/2509.03505",
+    organization="Stable AI & Tsinghua University",
     commercial_use=False,
     license="LimiX Model License (commercial use needs authorization)",
     display_name="LimiX",

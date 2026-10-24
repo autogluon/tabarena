@@ -11,6 +11,7 @@ causilo_descriptor = ModelDescriptor(
     compute="gpu",
     is_bag=False,
     reference_url="https://github.com/nums-ai/causilo",
+    organization="Nums AI",
     commercial_use=False,
     license="Causilo License v1.0 (non-commercial weights)",
     date_introduced="2026-09-13",
@@ -37,6 +38,7 @@ causilo_method_metadata = MethodMetadata.config(
     cache_type="r2",
     cache_kwargs={"bucket": "tabarena", "prefix": "cache"},
     reference_url="https://github.com/nums-ai/causilo",
+    organization="Nums AI",
     commercial_use=False,
     license="Causilo License v1.0 (non-commercial weights)",
 )
@@ -63,6 +65,7 @@ causilo_new_method_metadata = MethodMetadata.config(
     cache_type="r2",
     cache_kwargs={"bucket": "tabarena", "prefix": "cache"},
     reference_url="https://github.com/nums-ai/causilo",
+    organization="Nums AI",
     commercial_use=False,
     license="Causilo License v1.0 (non-commercial weights)",
 )

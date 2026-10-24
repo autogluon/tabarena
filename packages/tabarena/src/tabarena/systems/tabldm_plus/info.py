@@ -22,6 +22,7 @@ tabldm_plus_method_metadata = MethodMetadata.system(
     date="2026-10-13",
     date_introduced="2026-10",
     reference_url="https://huggingface.co/occams/Xiaomi-TabLDM",
+    organization="Xiaomi",
     commercial_use=True,
     license="Apache-2.0",
     tags=(),

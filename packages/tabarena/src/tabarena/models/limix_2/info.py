@@ -10,6 +10,7 @@ limix_2_descriptor = ModelDescriptor(
     compute="gpu",
     is_bag=False,
     reference_url="https://arxiv.org/abs/2609.17488",
+    organization="Stable AI & Tsinghua University",
     commercial_use=False,
     license="StableAI LimiX Non-Commercial License v1.0",
     date_introduced="2026-09-15",

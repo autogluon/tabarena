@@ -290,6 +290,12 @@ class MethodMetadata:
     #: anchored to :attr:`reference_url`. Validated in :meth:`__post_init__` when set.
     date_introduced: str | None = None
     reference_url: str | None = None
+    #: Who develops the method: a company, lab or university, as a reader would name it
+    #: (``"Prior Labs"``, ``"Yandex"``, ``"University of Washington"``); a classical method names
+    #: where it was introduced, a library baseline the library. The leaderboard shows it as a logo
+    #: next to the method's name. ``None`` (the default) when unknown, e.g. a solo author's
+    #: package.
+    organization: str | None = None
     display_name: str | None = None
     #: Whether this method's results are verified / signed-off. Default ``True``; set ``False`` for
     #: methods that are not yet verified (e.g. newly-added or not-yet-released models). A manual
@@ -354,6 +360,10 @@ class MethodMetadata:
         if self.license is not None and not (isinstance(self.license, str) and self.license):
             raise AssertionError(
                 f"license must be a non-empty string or None, got {self.license!r} (method={self.method!r})."
+            )
+        if self.organization is not None and not (isinstance(self.organization, str) and self.organization):
+            raise AssertionError(
+                f"organization must be a non-empty string or None, got {self.organization!r} (method={self.method!r})."
             )
         # When set, `date` must be a real calendar date in YYYY-MM-DD format.
         if self.date is not None:
@@ -1463,13 +1473,15 @@ class ModelDescriptor:
     #: the model (the same weights and code are benchmarked in every run), so declared here once.
     commercial_use: bool = True
     license: str | None = None
+    #: See :attr:`MethodMetadata.organization`.
+    organization: str | None = None
 
     def method_metadata(self, *, method: str, **kwargs) -> MethodMetadata:
         """Build a :class:`MethodMetadata` for one benchmark run of this model.
 
         The descriptor's intrinsic fields (``display_name``, ``compute``, ``is_bag``,
-        ``reference_url``, ``date_introduced``, ``commercial_use``, ``license``) are supplied as
-        defaults; pass any of them in ``**kwargs`` to
+        ``reference_url``, ``date_introduced``, ``commercial_use``, ``license``, ``organization``)
+        are supplied as defaults; pass any of them in ``**kwargs`` to
         override for a variant (e.g. a CPU build of a GPU model, which keeps the same paper
         but a different ``display_name`` and ``compute``). All other (run-specific)
         :class:`MethodMetadata` fields come from ``**kwargs``.
@@ -1491,6 +1503,7 @@ class ModelDescriptor:
             date_introduced=self.date_introduced,
             commercial_use=self.commercial_use,
             license=self.license,
+            organization=self.organization,
         )
         # Caller-provided values win, so a variant can override an intrinsic default.
         return MethodMetadata.config(method=method, **{**fields_from_descriptor, **kwargs})
