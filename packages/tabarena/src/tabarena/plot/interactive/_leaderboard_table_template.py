@@ -1,8 +1,8 @@
 """HTML/CSS/JS template for the interactive full leaderboard table.
 
 The interactive twin of the website's leaderboard table: every column sortable,
-per-column heat shading, family and per-method chips, tuning-variant toggles, a
-column picker, search, and CSV export of exactly what is on screen.
+per-column heat shading, family toggles, a methods menu, tuning-variant toggles, a
+columns menu, search, and CSV export of exactly what is on screen.
 
 It exists here rather than in the leaderboard Space so that it shares the
 explorers' tokens and components — the family and variant colors, ``.chip`` /
@@ -59,7 +59,7 @@ __BASE_CSS__
   table.lbt td.name { text-align: left; white-space: nowrap; }
   table.lbt td.pos { color: var(--muted); font-variant-numeric: tabular-nums; }
   table.lbt td.type { white-space: nowrap; width: 1%; }
-  table.lbt td.num { font-weight: 600; }
+  table.lbt td.num { font-weight: 600; white-space: nowrap; }
   table.lbt td.na { color: var(--pt-muted); }
   table.lbt tbody tr:hover td { filter: brightness(1.12); }
   /* A method the host page follows (its "Follow" picker) and one under the pointer in another
@@ -95,12 +95,34 @@ __BASE_CSS__
   }
   .lbt-cap { font-size: 12.5px; color: var(--muted); margin: 7px 0 0; }
   .lbt-empty { padding: 34px 0; text-align: center; color: var(--muted); font-size: 13px; }
-  .chips-head { flex: 1 1 100%; font-size: 12.5px; color: var(--muted); font-weight: 600; }
-  /* The model selector sits above the table it filters. Families pack side by
-     side rather than stacking: one row each would leave the small ones (Baseline,
-     Other) wasting a line. */
-  .chips { margin: 2px 0 10px; flex-direction: row; flex-wrap: wrap; gap: 12px 28px; align-items: flex-start; }
-  .chiprow { flex: 0 1 auto; min-width: 0; }
+  /* One toolbar above the rows: search, the family toggles, the variant toggles and two menus.
+     The per-method chips live in the Methods menu, not in a wall above the table. */
+  .lbt-tools { gap: 8px 10px; }
+  .lbt-fams { display: flex; flex-wrap: wrap; gap: 6px; }
+  .lbt-gap { flex: 1 1 auto; }
+  .lbt-pop { position: relative; }
+  .lbt-pop > summary { list-style: none; }
+  .lbt-pop > summary::-webkit-details-marker { display: none; }
+  .lbt-pop > summary::after { content: " \25BE"; color: var(--muted); }
+  .lbt-pop[open] > summary { border-color: var(--muted); }
+  /* Opens rightwards: the menus sit at the start of the toolbar's second line, where the frame's left
+     edge would cut a menu that opened the other way. */
+  .lbt-menu {
+    position: absolute; top: calc(100% + 6px); left: 0; z-index: 20;
+    width: max-content; max-width: min(640px, 92vw); max-height: 440px; overflow-y: auto;
+    padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px;
+    background: var(--card); box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28);
+  }
+  .lbt-menu .chips { gap: 10px; }
+  .lbt-menu .famname { font-size: 12px; font-weight: 650; color: var(--muted); }
+  .lbt-menu-head { display: flex; gap: 6px; margin-bottom: 9px; }
+  #col-btns { display: flex; flex-direction: column; align-items: stretch; gap: 6px; }
+  /* A method the latest releases added (the host's `tabarena-explorer-new`). */
+  .new-tag {
+    margin-left: 5px; padding: 0 6px; border-radius: 999px; vertical-align: 1px;
+    font-size: 0.7em; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
+    color: var(--accent); border: 1px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  }
 
   /* The data export, in the same green the website's figure-export controls use,
      so "this downloads something" reads the same across the site. */
@@ -117,22 +139,32 @@ __BASE_CSS__
     <button class="btn" id="btn-paper" title="White background, table only, for slides and papers">Paper view</button>
   </div>
   <p class="explorer-title" id="title"></p>
-  <div class="controls">
-    <span class="grouplabel">Variants</span>
+  <div class="controls lbt-tools">
+    <input class="lbt-search" id="search" type="search" placeholder="Find a method" aria-label="Find a method">
+    <div class="lbt-fams" id="fam-btns"></div>
+    <span class="lbt-gap"></span>
     <div class="btnrow" id="variant-btns"></div>
     <button class="btn" id="btn-imputed" title="Models whose score is partly imputed, marked &#8225;"></button>
-    <input class="lbt-search" id="search" type="search" placeholder="Search model or family" aria-label="Search">
-    <span class="grouplabel">Columns</span>
-    <div class="btnrow" id="col-btns"></div>
+    <details class="lbt-pop" id="methods-pop">
+      <summary class="btn" id="methods-sum">Methods</summary>
+      <div class="lbt-menu">
+        <div class="lbt-menu-head">
+          <button class="btn" id="btn-all-methods">All</button>
+          <button class="btn" id="btn-no-methods">None</button>
+        </div>
+        <div class="chips" id="chips"></div>
+      </div>
+    </details>
+    <details class="lbt-pop" id="columns-pop">
+      <summary class="btn">Columns</summary>
+      <div class="lbt-menu" id="col-btns"></div>
+    </details>
     <button class="btn export" id="btn-csv" title="Download the rows and columns shown, in the current sort order">Download CSV</button>
   </div>
   <!-- The shared paper-view helper reveals this bar; a table has no figure to
        export as SVG/PNG/PDF, and its CSV button belongs beside the filters that
        shape the export, so it stays empty here. -->
   <div class="exportbar" id="exportbar" hidden></div>
-  <!-- The model selector belongs above the table it filters. It doubles as the
-       family key, which is why there is no separate legend strip. -->
-  <div class="chips" id="chips"></div>
   <div class="lbt-scroll" id="tblwrap"></div>
   <p class="lbt-cap" id="caption"></p>
 
@@ -181,6 +213,9 @@ __BASE_JS__
   // pointer in another chart of the page (`onHoverMessage`).
   let followed = new Set();
   let hovered = null;
+  // Methods the latest releases added, each with its hover text (the host's
+  // `tabarena-explorer-new`), badged "new" beside the name.
+  let fresh = new Map();
 
   const tblwrap = document.getElementById("tblwrap");
   const chipsBox = document.getElementById("chips");
@@ -233,6 +268,7 @@ __BASE_JS__
     let inner = escapeHtml(p.method);
     if (p.variant) inner += ' <span class="variant-tag">(' + escapeHtml(variantText(p.variant)) + ")</span>";
     if (p.verified) inner += ' <span class="verified" title="Verified implementation">&#10004;&#65039;</span>';
+    if (fresh.has(p.method)) inner += '<span class="new-tag" title="' + escapeHtml(fresh.get(p.method)) + '">new</span>';
     for (const tag of (p.tags || [])) {
       const spec = (CONFIG.tagSpecs || {})[tag];
       if (!spec) continue;
@@ -317,7 +353,7 @@ __BASE_JS__
       html += '<tr data-m="' + escapeHtml(p.method) + '"' + (marks ? ' class="' + marks.trim() + '"' : "") + ">";
       for (const col of cols) {
         if (col.key === "position") {
-          html += '<td class="pos num" data-sort="' + p.position + '">' + p.position + "</td>";
+          html += '<td class="pos num" data-sort="' + p.position + '">' + (p.position + 1) + "</td>";
         } else if (col.key === "family") {
           const mark = famColor(p) || "var(--fam-baseline)";
           html += '<td class="type" data-sort="' + escapeHtml(p.family) + '" data-export="' + escapeHtml(p.family) +
@@ -387,25 +423,28 @@ __BASE_JS__
     if (!values.length) return Infinity;
     return col.lowerBetter ? Math.min(...values) : -Math.max(...values);
   }
+  // The family toggles sit in the toolbar; each method's chip sits in the Methods menu, under
+  // its family's name.
   function buildChips() {
-    const head = document.createElement("div");
-    head.className = "chips-head";
-    head.textContent = "Models shown. Click to remove, or click a family to toggle the whole group";
-    chipsBox.appendChild(head);
+    const famBox = document.getElementById("fam-btns");
     for (const fam of FAM_ORDER) {
       const members = familyMembers(fam);
       if (!members.length) continue;
       members.sort((a, b) => methodRank(a) - methodRank(b));
-      const row = document.createElement("div");
-      row.className = "chiprow";
       const famBtn = document.createElement("button");
       famBtn.className = "famchip";
       famBtn.style.setProperty("--fam", FAM_VAR[fam]);
       famBtn.innerHTML = famChipLabel(fam, members.length);
-      famBtn.title = "Toggle all " + members.length + " " + fam + " models";
+      famBtn.title = "Show or hide all " + members.length + " " + fam + " methods";
       famBtn.addEventListener("click", () => toggleFamily(fam));
-      row.appendChild(famBtn);
+      famBox.appendChild(famBtn);
       famChips.set(fam, famBtn);
+      const row = document.createElement("div");
+      row.className = "chiprow";
+      const name = document.createElement("span");
+      name.className = "famname";
+      name.textContent = fam;
+      row.appendChild(name);
       const set = document.createElement("div");
       set.className = "chipset";
       for (const name of members) {
@@ -435,6 +474,16 @@ __BASE_JS__
       b.setAttribute("aria-pressed", String(members.every(m => state.methods.has(m))));
       b.innerHTML = famChipLabel(fam, members.length);
     }
+    // The menu's button says how many of the methods are shown, when not all of them are.
+    const all = [...chipByMethod.keys()].filter(m => !state.excluded.has(m));
+    const shown = all.filter(m => state.methods.has(m)).length;
+    document.getElementById("methods-sum").textContent =
+      shown === all.length ? "Methods" : "Methods " + shown + "/" + all.length;
+  }
+  function setMethods(names) {
+    state.methods = new Set(names);
+    syncChips();
+    render();
   }
   onExcludeMessage(excluded => {
     state.excluded = excluded;
@@ -488,8 +537,9 @@ __BASE_JS__
       if (col.always) continue;
       const b = document.createElement("button");
       b.className = "btn toggle";
-      b.textContent = col.short || col.label;
-      b.title = "Show or hide " + col.label;
+      // The menu has the room for the full name.
+      b.textContent = col.label;
+      b.title = col.hint || col.label;
       b.style.setProperty("--fam", "var(--accent)");
       b.addEventListener("click", () => {
         if (state.columns.has(col.key)) state.columns.delete(col.key); else state.columns.add(col.key);
@@ -518,6 +568,7 @@ __BASE_JS__
       const values = [];
       for (const col of cols) {
         if (col.key === "model") values.push(plainName(p));
+        else if (col.key === "position") values.push(p.position + 1);
         else values.push(p[col.key]);
         if (col.key === "elo" && rows.some(q => q.elo_ci)) values.push(p.elo_ci || "");
       }
@@ -541,6 +592,29 @@ __BASE_JS__
     render();
   });
   document.getElementById("btn-csv").addEventListener("click", downloadCsv);
+  document.getElementById("btn-all-methods").addEventListener("click", () => setMethods(POINTS.map(p => p.method)));
+  document.getElementById("btn-no-methods").addEventListener("click", () => setMethods([]));
+  // A menu closes on a click anywhere outside it, and on Escape.
+  const menus = [...document.querySelectorAll(".lbt-pop")];
+  document.addEventListener("click", ev => {
+    for (const menu of menus) if (menu.open && !menu.contains(ev.target)) menu.open = false;
+  });
+  document.addEventListener("keydown", ev => {
+    if (ev.key === "Escape") for (const menu of menus) menu.open = false;
+  });
+  // The host names the methods its latest releases added, with the hover text for each; a repeat
+  // of the same set (sent with every height report) is ignored.
+  let freshKey = "";
+  window.addEventListener("message", ev => {
+    const d = ev.data;
+    if (!d || d.type !== "tabarena-explorer-new" || !d.methods || typeof d.methods !== "object") return;
+    const next = new Map(Object.entries(d.methods).filter(([, hint]) => typeof hint === "string"));
+    const key = [...next.keys()].sort().join("\u0000");
+    if (key === freshKey) return;
+    freshKey = key;
+    fresh = next;
+    render();
+  });
   // Embedded, the host page puts its own CSV button in the panel header (next to
   // the title) and asks for the download over postMessage, the same way it drives
   // the figure exports. Standalone, this page needs its own button.
