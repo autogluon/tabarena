@@ -1766,12 +1766,15 @@ _DISPLAY_TIME_COLUMNS = {
 
 
 def _trajectory_time_columns(columns) -> dict[str, str]:
-    """Explorer time axis -> leaderboard column, opening on train time (the tuning budget), then in `X_AXIS_KEYS` order."""
+    """The leaderboard column behind each explorer time axis, in `X_AXIS_KEYS` order.
+
+    The page opens on the first, total time per 1K samples (median), as the Pareto explorer does.
+    """
     found = {
         **{k: c for k, c in _DISPLAY_TIME_COLUMNS.items() if c in set(columns)},
         **leaderboard_time_columns(columns),
     }
-    return {key: found[key] for key in sorted(found, key=lambda k: (k != "x_train", X_AXIS_KEYS.index(k)))}
+    return {key: found[key] for key in X_AXIS_KEYS if key in found}
 
 
 def plot_tuning_trajectories_from_leaderboard(
@@ -1816,11 +1819,11 @@ def plot_tuning_trajectories_from_leaderboard(
             },
         )
 
-    # Interactive explorer + underlying data export, mirroring the
-    # ``pareto_n_configs_imp`` figure (improvability vs train time, with an
-    # Elo y-axis toggle and the time axes of the Pareto explorer: train,
-    # inference and total time, per 1K samples or per task, median or mean).
-    # Self-contained HTML embedded by the website.
+    # Interactive explorer + underlying data export: the trajectories of the
+    # ``pareto_n_configs_imp`` figure, with an Elo y-axis toggle and the time
+    # axes of the Pareto explorer (train, inference and total time, per 1K
+    # samples or per task, median or mean), opening on total time per 1K
+    # samples as that explorer does. Self-contained HTML embedded by the website.
     x_columns = _trajectory_time_columns(leaderboard.columns)
     explorer_points = pd.DataFrame(
         {

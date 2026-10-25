@@ -99,14 +99,14 @@ def _explorer_x_axes(path) -> list[str]:
 
 
 def test_the_explorer_offers_the_time_axes_the_leaderboard_carries(tmp_path):
-    """Train time (the tuning budget) first, then the leaderboard's other time axes in the selector's order: the
-    display columns alone, or every aggregated ``time_*`` column when the leaderboard has them.
+    """The time axes the leaderboard carries in the Pareto explorer's order, opening on total time per 1K samples:
+    the display columns alone, or every aggregated ``time_*`` column when the leaderboard has them.
     """
     plot_tuning_trajectories_from_leaderboard(
         leaderboard=_toy_leaderboard(), fig_save_dir=tmp_path / "display", file_ext=".png", website_only=True
     )
     assert _explorer_x_axes(tmp_path / "display" / "tuning_trajectories_explorer.html") == [
-        "x_train", "x_total", "x_infer", "x_total_task_mean", "x_infer_task_mean", "x_train_task_mean",
+        "x_total", "x_infer", "x_train", "x_total_task_mean", "x_infer_task_mean", "x_train_task_mean",
     ]  # fmt: skip
     leaderboard = _toy_leaderboard()
     for kind in ("train", "infer", "total"):
@@ -117,7 +117,7 @@ def test_the_explorer_offers_the_time_axes_the_leaderboard_carries(tmp_path):
         leaderboard=leaderboard, fig_save_dir=tmp_path / "all", file_ext=".png", website_only=True
     )
     axes = _explorer_x_axes(tmp_path / "all" / "tuning_trajectories_explorer.html")
-    assert axes[0] == "x_train" and len(axes) == 12
+    assert axes[0] == "x_total" and len(axes) == 12
 
 
 def test_the_explorer_title_is_passed_through(tmp_path):
