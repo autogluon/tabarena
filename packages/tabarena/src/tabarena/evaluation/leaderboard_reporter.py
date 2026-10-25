@@ -23,7 +23,7 @@ from tabarena.evaluation.framework_naming import (
     get_method_rename_map,
 )
 from tabarena.plot.dataset_analysis import plot_train_time_deep_dive
-from tabarena.plot.interactive.pareto_explorer import X_AXIS_KEYS, build_pareto_explorer_html
+from tabarena.plot.interactive.pareto_explorer import build_pareto_explorer_html, leaderboard_time_columns
 from tabarena.plot.interactive.winrate_explorer import build_winrate_explorer_html
 from tabarena.plot.plot_ens_weights import create_heatmap
 from tabarena.plot.plot_pareto_focus import plot_pareto_focus
@@ -2325,15 +2325,8 @@ class LeaderboardReporter:
 
         ``explorer_kwargs`` go to :func:`build_pareto_explorer_html`, e.g. ``dim_off_front=True``.
         """
-        # explorer x column -> leaderboard column, in the selector's order (`X_AXIS_KEYS`); a leaderboard
-        # scored without some of the columns (e.g. no total) offers the axes it has
-        x_columns = {
-            key: ("" if key.endswith("_mean") else "median_")
-            + f"time_{key.split('_')[1]}_s"
-            + ("" if "_task" in key else "_per_1K")
-            for key in X_AXIS_KEYS
-        }
-        x_columns = {key: col for key, col in x_columns.items() if col in leaderboard.columns}
+        # explorer x column -> leaderboard column, in the selector's order (`X_AXIS_KEYS`)
+        x_columns = leaderboard_time_columns(leaderboard.columns)
         points = pd.DataFrame(
             {
                 "method": leaderboard["Method"],

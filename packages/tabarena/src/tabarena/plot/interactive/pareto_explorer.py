@@ -84,6 +84,23 @@ _X_AXIS_SPECS: dict[str, dict] = {
 X_AXIS_KEYS: tuple[str, ...] = tuple(_X_AXIS_SPECS)
 
 
+def leaderboard_time_columns(columns) -> dict[str, str]:
+    """The leaderboard column behind each time axis of `X_AXIS_KEYS` that ``columns`` holds, in that order.
+
+    A leaderboard aggregates a task's ``time_<kind>_s`` (per task) and ``time_<kind>_s_per_1K`` (per 1K samples)
+    into a mean over datasets, named as the column, and a median, prefixed ``median_``; a leaderboard scored without
+    some of them (e.g. no total) offers the axes it has.
+    """
+    columns = set(columns)
+    candidates = {
+        key: ("" if key.endswith("_mean") else "median_")
+        + f"time_{key.split('_')[1]}_s"
+        + ("" if "_task" in key else "_per_1K")
+        for key in X_AXIS_KEYS
+    }
+    return {key: col for key, col in candidates.items() if col in columns}
+
+
 def build_pareto_explorer_html(
     points: pd.DataFrame,
     *,
@@ -95,6 +112,7 @@ def build_pareto_explorer_html(
     subsets: list[tuple[str, str]] | None = None,
     chips_side: str = "left",
     dim_off_front: bool = False,
+    method_names: dict[str, str] | None = None,
     page_title: str = "TabArena Pareto explorer",
 ) -> Path:
     """Render the interactive explorer HTML for a set of method points.
@@ -138,6 +156,10 @@ def build_pareto_explorer_html(
     dim_off_front
         Draw the active points that are not vertices of the current Pareto front
         smaller and fainter, so the front members stand out among a large selection.
+    method_names
+        Display names by ``method``, for the chart's labels, the chips, the
+        tooltips and the data table; the page's rename buttons edit them, and
+        a method without one shows its own name.
     """
     if chips_side not in ("left", "right"):
         raise ValueError(f"Unknown chips_side: {chips_side!r}")
@@ -200,6 +222,7 @@ def build_pareto_explorer_html(
         "subsets": [{"key": key, "label": label} for key, label in subsets] if subsets else None,
         "chipsSide": chips_side,
         "dimOffFront": dim_off_front,
+        "methodNames": dict(method_names or {}),
     }
 
     html = render_explorer_html(EXPLORER_TEMPLATE, page_title=page_title, config=config, points=data)
