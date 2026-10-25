@@ -115,6 +115,11 @@ def build_pareto_explorer_html(
         ``"scatter"`` (one point per method-variant, connectors link a
         method's variants) or ``"trajectory"`` (one line per method over
         ``n_configs``).
+    title
+        The figure title drawn above the chart, joined with the shown
+        subset's label when the page holds ``subsets``; the page's title box
+        edits it per subset, and an emptied box draws none. ``None`` (the
+        default) leaves only the subset label, or no title.
     metric_keys
         Which metrics of :data:`_METRIC_SPECS` to offer on the y-axis
         selector; defaults to every metric whose column is present.

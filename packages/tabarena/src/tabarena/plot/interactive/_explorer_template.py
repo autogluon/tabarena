@@ -16,8 +16,9 @@ selector (e.g. train, inference or total time; per 1K samples or per task;
 median or mean) that re-anchor the Pareto front, a subset selector when the
 page holds several task subsets (each point names its ``subset``), hover
 tooltips with exact values, dashed-ring marking of partially imputed methods,
-typed axis limits kept per view (subset, metric and time axis), and a
-collapsible data table.
+typed axis limits kept per view (subset, metric and time axis), an editable
+figure title drawn above the chart (by default the page's title and subset),
+and a collapsible data table.
 """
 
 from __future__ import annotations
@@ -74,16 +75,28 @@ __BASE_CSS__
   .limits input[aria-invalid="true"] { border: 1.5px dashed var(--muted); }
   .limits input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .limits .btnrow { grid-column: 1 / -1; }
+
+  /* The figure title box spans the panel. */
+  .titlepick { width: 100%; }
+  .titlepick input {
+    flex: 1 1 auto; min-width: 0; box-sizing: border-box;
+    font: 600 12.5px/1.2 system-ui, sans-serif; color: var(--ink);
+    background: var(--chip-bg); border: 1px solid var(--line); border-radius: 7px; padding: 5px 7px;
+  }
+  .titlepick input::placeholder { color: var(--muted); font-weight: 500; }
+  .titlepick input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 </style>
 </head>
 <body>
   <div class="viewbar">
     <button class="btn" id="btn-paper" title="White background, chart and legend only — for slides and papers">Paper view</button>
   </div>
-  <p class="explorer-title" id="title"></p>
   <div class="explorer-grid" id="grid">
     <div class="sidebox">
       <div class="controls">
+        <label class="metricpick titlepick">Title
+          <input id="fig-title" type="text" spellcheck="false" placeholder="No title" aria-label="Figure title">
+        </label>
         <label class="metricpick" id="subsetpick" hidden>Subset
           <select id="subset-select"></select>
         </label>
@@ -148,13 +161,17 @@ __BASE_JS__
   const SUBSETS = CONFIG.subsets || null;
   let subsetKey = SUBSETS ? SUBSETS[0].key : null;
 
-  const titleEl = document.getElementById("title");
-  function showTitle() {
+  // The figure title, drawn at the top of the chart so that paper view and the exports carry it. Each
+  // subset opens on its own default (the page's title and the subset's label); a title typed for a
+  // subset stays with it, and an emptied box draws no title.
+  const titleInput = document.getElementById("fig-title");
+  const titleBySubset = new Map();
+  function defaultTitle() {
     const subset = SUBSETS ? SUBSETS.find(s => s.key === subsetKey).label : null;
-    const text = [CONFIG.title, subset].filter(Boolean).join(" · ");
-    titleEl.textContent = text;
-    titleEl.hidden = !text;
+    return [CONFIG.title, subset].filter(Boolean).join(" · ");
   }
+  function figTitle() { return titleBySubset.has(subsetKey) ? titleBySubset.get(subsetKey) : defaultTitle(); }
+  function showTitle() { titleInput.value = figTitle(); }
   showTitle();
 
   // Column order: chips/controls left of the chart, or mirrored.
@@ -168,6 +185,7 @@ __BASE_JS__
   // Matches the point labels drawn in `render` — see the side/overlap logic there.
   const textWidth = makeTextMeasurer(svg, { size: 13, weight: 700 });
   const axisTitleWidth = makeTextMeasurer(svg, { size: 14, weight: 650 });
+  const figTitleWidth = makeTextMeasurer(svg, { size: 16, weight: 700 });
 
   // Marker glyph per variant at (cx, cy); trajectories use circles everywhere. `edge`
   // (a color, or null for none) outlines the glyph; the X glyph has no fill, so its edge
@@ -358,6 +376,10 @@ __BASE_JS__
       render();
     });
   }
+  titleInput.addEventListener("input", ev => {
+    titleBySubset.set(subsetKey, ev.target.value);
+    render();
+  });
   document.getElementById("btn-auto-limits").addEventListener("click", () => {
     limitsByView.delete(viewKey());
     for (const k of LIMIT_KEYS) {
@@ -370,7 +392,10 @@ __BASE_JS__
   // ---------- chart ----------
   // A flat, fixed-height plot: two of these panels then fit on one screen.
   const CHART_H = 400;
-  const M = { l: 62, r: 18, t: 14, b: 52 };
+  const M_PLOT = { l: 62, r: 18, t: 14, b: 52 };
+  // The figure title's row above the plot, when there is a title.
+  const TITLE_H = 30;
+  let M = M_PLOT;
 
   function render() {
     // Nothing usable to measure yet: the frame is in a collapsed or hidden container, where
@@ -382,7 +407,9 @@ __BASE_JS__
     const metric = metricByKey[metricKey];
     svg.textContent = "";
     const W = Math.max(360, Math.round(box.clientWidth));
-    const H = CHART_H;
+    const title = figTitle().trim();
+    M = title ? { ...M_PLOT, t: M_PLOT.t + TITLE_H } : M_PLOT;
+    const H = CHART_H + (title ? TITLE_H : 0);
     svg.setAttribute("width", W);
     svg.setAttribute("height", H);
     // Keep the chip list from outgrowing the chart beside it.
@@ -449,6 +476,16 @@ __BASE_JS__
       x: 0, y: 0, "text-anchor": "middle", "font-size": 14, "font-weight": 650, fill: "var(--ink)",
       transform: `translate(16 ${(M.t + H - M.b) / 2}) rotate(-90)`,
     }, grid).textContent = metric.axisLabel;
+
+    if (title) {
+      // Centred over the plot, and set smaller where the chart is too narrow for it.
+      const room = W - M.l - M.r;
+      const size = Math.max(11, Math.min(16, 16 * room / Math.max(1, figTitleWidth(title))));
+      el("text", {
+        x: (M.l + W - M.r) / 2, y: M_PLOT.t + 12, "text-anchor": "middle", "font-size": size,
+        "font-weight": 700, fill: "var(--ink)",
+      }, grid).textContent = title;
+    }
 
     drawOptimalArrow(grid, metric.lowerBetter, M, W, H);
 
@@ -894,7 +931,7 @@ __BASE_JS__
 
   // ---------- paper view ----------
   setUpPaperView(render);
-  setUpExport(() => [{ svg: svg, dx: 0 }], () => slugify(document.title));
+  setUpExport(() => [{ svg: svg, dx: 0 }], () => slugify(figTitle().trim() || document.title));
 
   // ---------- data table ----------
   function buildTable() {

@@ -1454,6 +1454,7 @@ class LeaderboardReporter:
                 pareto_focus_kwargs=pareto_focus_kwargs,
                 pareto_focus_methods=pareto_focus_methods,
                 pareto_explorer_kwargs=pareto_explorer_kwargs,
+                subset_label=subset_label,
             )
 
         return leaderboard
@@ -2040,6 +2041,7 @@ class LeaderboardReporter:
         pareto_focus_kwargs: dict | None = None,
         pareto_explorer_kwargs: dict | None = None,
         pareto_focus_methods: list[str] | None = None,
+        subset_label: str | None = None,
     ):
         """Render the four ``pareto_front_*`` figures and the two interactive explorer pages.
 
@@ -2047,7 +2049,8 @@ class LeaderboardReporter:
         Pareto-front members (see :func:`plot_pareto_focus`'s ``focus_methods``). They are resolved
         to the rendered display names by :meth:`_resolve_pareto_focus_methods` and unioned with any
         ``focus_methods`` already present in ``pareto_focus_kwargs``. The explorer pages do not
-        take a focus list; they keep their own front-based styling.
+        take a focus list; they keep their own front-based styling. They open titled with
+        ``subset_label`` unless ``pareto_explorer_kwargs`` gives a ``title``.
         """
         _f_map, f_map_type, f_map_inverse, f_map_type_name = self.get_framework_type_method_names(
             framework_types=framework_types,
@@ -2143,7 +2146,10 @@ class LeaderboardReporter:
         self.plot_pareto_elo_vs_time_train(leaderboard=leaderboard_pareto, **plot_pareto_kwargs)
         self.plot_pareto_improvability_vs_time_infer(leaderboard=leaderboard_pareto, **plot_pareto_kwargs)
         self.plot_pareto_improvability_vs_time_train(leaderboard=leaderboard_pareto, **plot_pareto_kwargs)
-        self.build_pareto_explorer(leaderboard=leaderboard_pareto, **(pareto_explorer_kwargs or {}))
+        explorer_kwargs = pareto_explorer_kwargs or {}
+        if subset_label:
+            explorer_kwargs = {"title": subset_label, **explorer_kwargs}
+        self.build_pareto_explorer(leaderboard=leaderboard_pareto, **explorer_kwargs)
 
     @staticmethod
     def _resolve_pareto_focus_methods(leaderboard_pareto: pd.DataFrame, names: list[str]) -> set[str]:

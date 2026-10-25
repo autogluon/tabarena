@@ -236,6 +236,30 @@ class TestParetoFocusKwargs:
         assert [kwargs["x_keys"] for kwargs in calls] == [["x_infer", "x_train"], ["x_train"]]
         assert all(kwargs["dim_off_front"] is True for kwargs in calls)
 
+    def test_explorer_pages_open_titled_with_the_subset(self, monkeypatch, tmp_path):
+        calls: list[dict] = []
+        monkeypatch.setattr(module, "plot_pareto_focus", lambda **kwargs: None)
+        monkeypatch.setattr(module, "build_pareto_explorer_html", lambda **kwargs: calls.append(kwargs))
+        monkeypatch.setattr(module, "_init_global_rcparams", lambda: None)
+        reporter = LeaderboardReporter(output_dir=tmp_path, task_metadata=[])
+        leaderboard = pd.DataFrame(
+            {
+                "method": ["GBM (default)", "TabPFN-3"],
+                "config_type": ["GBM", None],
+                "elo": [1000.0, 1300.0],
+                "improvability": [0.2, 0.05],
+                "median_time_train_s_per_1K": [1.0, 5.0],
+                "median_time_infer_s_per_1K": [0.1, 0.5],
+            }
+        )
+
+        reporter.plot_pareto(leaderboard, framework_types=["GBM"], subset_label="classification")
+        reporter.plot_pareto(
+            leaderboard, framework_types=["GBM"], subset_label="classification", pareto_explorer_kwargs={"title": None}
+        )
+
+        assert [kwargs.get("title") for kwargs in calls] == ["classification", "classification", None, None]
+
     def test_explorer_offers_every_time_view_the_leaderboard_carries(self, monkeypatch, tmp_path):
         calls: list[dict] = []
         monkeypatch.setattr(module, "plot_pareto_focus", lambda **kwargs: None)
