@@ -18,7 +18,7 @@ page holds several task subsets (each point names its ``subset``), hover
 tooltips with exact values, dashed-ring marking of partially imputed methods,
 typed axis limits kept per view (subset, metric and time axis), an editable
 figure title drawn above the chart (by default the page's title and subset),
-and a collapsible data table.
+methods renamed from their chips, and a collapsible data table.
 """
 
 from __future__ import annotations
@@ -85,6 +85,23 @@ __BASE_CSS__
   }
   .titlepick input::placeholder { color: var(--muted); font-weight: 500; }
   .titlepick input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  /* A method chip's rename button sits on the chip's corner while the chip is hovered or focused,
+     so the chips keep their layout; the rename box takes the chip's place while it is open. */
+  .chipwrap { position: relative; display: inline-flex; }
+  .chip-edit {
+    position: absolute; top: -7px; right: -6px; width: 18px; height: 18px; padding: 0;
+    display: none; align-items: center; justify-content: center;
+    font: 600 11px/1 system-ui, sans-serif; color: var(--ink); cursor: pointer;
+    background: var(--card); border: 1px solid var(--line); border-radius: 50%;
+  }
+  .chipwrap:hover .chip-edit, .chipwrap:focus-within .chip-edit { display: inline-flex; }
+  .chip-edit:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .chip-rename {
+    font: 500 12.5px/1 system-ui, sans-serif; color: var(--ink); background: var(--card);
+    border: 1px solid var(--accent); border-radius: 999px; padding: 4px 9px; min-width: 9ch; max-width: 100%;
+  }
+  .chip-rename:focus-visible { outline: none; }
 </style>
 </head>
 <body>
@@ -110,6 +127,7 @@ __BASE_CSS__
           <button class="btn" id="btn-front">Pareto front</button>
           <button class="btn" id="btn-all">All</button>
           <button class="btn" id="btn-none">Clear</button>
+          <button class="btn" id="btn-reset-names" hidden title="Back to the methods' own names">Reset names</button>
         </div>
         <div class="limits" id="limits" role="group" aria-label="Axis limits for this view">
           <span>Axis limits</span><span class="limits-head">min</span><span class="limits-head">max</span>
@@ -123,7 +141,7 @@ __BASE_CSS__
             <button class="btn" id="btn-auto-limits" title="Back to the automatic limits for this view">Auto limits</button>
           </div>
         </div>
-        <span class="hint">Click methods or family buttons to highlight &middot; hover points for details</span>
+        <span class="hint">Click methods or family buttons to highlight &middot; &#9998; on a method renames it &middot; hover points for details</span>
       </div>
       <div class="chips" id="chips"></div>
     </div>
@@ -279,6 +297,16 @@ __BASE_JS__
     indexPoints();
   }
   refilter();
+
+  // Display names: what the chart, chips, tooltips and table call a method. `p.method` stays the
+  // method's key everywhere else (the front, the selection, the host's messages). The builder can
+  // preset names (`CONFIG.methodNames`); a method renamed on its chip keeps the name on every subset
+  // and view, and an empty name gives the method its own back.
+  const names = new Map(Object.entries(CONFIG.methodNames || {}));
+  function displayName(method) { return names.get(method) || method; }
+  function escHtml(text) {
+    return String(text).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+  }
 
   const METRICS = CONFIG.metrics;
   let metricKey = METRICS[0].key;
@@ -574,7 +602,7 @@ __BASE_JS__
         (metric.lowerBetter ? mval(a, metric) < mval(b, metric) : mval(a, metric) > mval(b, metric)) ? a : b);
       if (!inView(best)) continue;
       const px = X(best[xKey]);
-      const w = textWidth(method);
+      const w = textWidth(displayName(method));
       const toRight = px + 10 + w <= W - M.r;
       labels.push({
         method, family: best.family, shade: best.shade, w,
@@ -605,7 +633,7 @@ __BASE_JS__
         fill: famColor(l), "paint-order": "stroke", stroke: "var(--card)", "stroke-width": 3.5,
         "text-anchor": l.anchor,
       }, lg);
-      t.textContent = l.method;
+      t.textContent = displayName(l.method);
     }
 
     // invisible hit targets on top (bigger than marks)
@@ -663,7 +691,8 @@ __BASE_JS__
   function showTip(p, ev) {
     emphasize(p.method, true);
     const sub = TRAJECTORY ? (p.n_configs != null ? `${p.n_configs} configs` : "") : (p.variant || "");
-    let html = `<div class="t-name">${p.method}` + (sub ? ` <span class="t-var">(${sub})</span>` : "") + "</div>" +
+    let html = `<div class="t-name">${escHtml(displayName(p.method))}` + (sub ? ` <span class="t-var">(${sub})</span>` : "") + "</div>" +
+      (names.has(p.method) ? `<div class="t-var">${escHtml(p.method)}</div>` : "") +
       `<div>${famLabel(p)}</div>`;
     for (const m of METRICS) {
       html += `<div>${m.label}: <b>${fmtMetric(m, mval(p, m))}</b></div>`;
@@ -711,33 +740,103 @@ __BASE_JS__
       const set = document.createElement("div");
       set.className = "chipset";
       for (const m of methods) {
+        const wrap = document.createElement("span");
+        wrap.className = "chipwrap";
         const b = document.createElement("button");
         b.className = "chip";
         b.style.setProperty("--fam", famColor(byMethod.get(m)[0]));
-        const imputed = byMethod.get(m).some(p => p.imputed);
         const label = document.createElement("span");
-        label.textContent = m;
+        label.className = "chip-label";
         b.appendChild(Object.assign(document.createElement("span"), { className: "dot" }));
         b.appendChild(label);
-        if (imputed) {
+        if (byMethod.get(m).some(p => p.imputed)) {
           const mark = document.createElement("span");
           mark.className = "imp-mark";
           mark.textContent = "‡";
           b.appendChild(mark);
         }
-        b.title = m + (imputed ? " — partially imputed" : "");
         b.addEventListener("click", () => toggle(m));
-        set.appendChild(b);
+        const edit = document.createElement("button");
+        edit.className = "chip-edit";
+        edit.textContent = "✎";
+        edit.addEventListener("click", ev => { ev.stopPropagation(); startRename(m, wrap, b, edit); });
+        wrap.appendChild(b);
+        wrap.appendChild(edit);
+        set.appendChild(wrap);
         chipByMethod.set(m, b);
+        nameChip(m);
       }
       row.appendChild(set);
       chipsBox.appendChild(row);
     }
   }
+  // A chip's label and hover text from the method's display name.
+  function nameChip(m) {
+    const b = chipByMethod.get(m);
+    const imputed = byMethod.has(m) && byMethod.get(m).some(p => p.imputed);
+    b.querySelector(".chip-label").textContent = displayName(m);
+    b.title = displayName(m) + (names.has(m) ? ` (${m})` : "") + (imputed ? " — partially imputed" : "");
+    b.parentElement.querySelector(".chip-edit").title = `Rename ${displayName(m)}`;
+    b.parentElement.querySelector(".chip-edit").setAttribute("aria-label", `Rename ${displayName(m)}`);
+  }
+  // The rename box opens in the chip's place: Enter or leaving the box applies the name, Escape
+  // keeps the old one. Both keys stop at the box (Escape elsewhere opens paper view, and an Enter
+  // reaching the chip would toggle it); closed from the keyboard, the box hands the focus back to its
+  // chip on the next frame.
+  function startRename(m, wrap, chip, edit) {
+    const input = document.createElement("input");
+    input.className = "chip-rename";
+    input.type = "text";
+    input.spellcheck = false;
+    input.value = displayName(m);
+    input.placeholder = m;
+    input.size = Math.max(9, input.value.length + 1);
+    input.setAttribute("aria-label", `New name for ${m}`);
+    chip.hidden = true;
+    edit.hidden = true;
+    wrap.insertBefore(input, chip);
+    input.focus();
+    input.select();
+    let open = true;
+    function close(apply, refocus) {
+      if (!open) return;
+      open = false;
+      input.remove();
+      chip.hidden = false;
+      edit.hidden = false;
+      if (apply) setName(m, input.value);
+      if (refocus) requestAnimationFrame(() => chip.focus());
+    }
+    input.addEventListener("keydown", ev => {
+      if (ev.key !== "Enter" && ev.key !== "Escape") return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      close(ev.key === "Enter", true);
+    });
+    input.addEventListener("blur", () => close(true, false));
+  }
+  const resetNamesBtn = document.getElementById("btn-reset-names");
+  function setName(m, text) {
+    const name = text.trim();
+    if (!name || name === m) names.delete(m); else names.set(m, name);
+    refreshNames();
+  }
+  function refreshNames() {
+    for (const m of chipByMethod.keys()) nameChip(m);
+    resetNamesBtn.hidden = !names.size;
+    buildTable();
+    render();
+  }
+  resetNamesBtn.addEventListener("click", () => {
+    names.clear();
+    refreshNames();
+  });
+  resetNamesBtn.hidden = !names.size;
+
   function syncChips() {
     for (const [m, b] of chipByMethod) {
       b.setAttribute("aria-pressed", String(state.active.has(m)));
-      b.hidden = !byMethod.has(m);
+      b.parentElement.hidden = !byMethod.has(m);
     }
     for (const [fam, b] of famChips) {
       const methods = familyMethods(fam);
@@ -944,7 +1043,7 @@ __BASE_JS__
     for (const m of METRICS) html += `<th>${m.label}</th>`;
     html += `<th>${xAxis().short}</th><th>Imputed</th></tr></thead><tbody>`;
     for (const p of rows) {
-      html += `<tr><td>${p.method}</td><td>${TRAJECTORY ? (p.n_configs != null ? p.n_configs : "—") : p.variant}</td><td>${p.family}</td>`;
+      html += `<tr><td>${escHtml(displayName(p.method))}</td><td>${TRAJECTORY ? (p.n_configs != null ? p.n_configs : "—") : p.variant}</td><td>${p.family}</td>`;
       for (const m of METRICS) html += `<td>${fmtMetric(m, mval(p, m))}</td>`;
       html += `<td>${fmtNum(p[xKey], 3)}</td>`;
       html += `<td>${p.imputed ? fmtNum(p.imputed_pct, 0) + "%" : "—"}</td></tr>`;

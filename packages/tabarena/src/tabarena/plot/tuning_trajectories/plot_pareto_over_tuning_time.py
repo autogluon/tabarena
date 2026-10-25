@@ -21,7 +21,7 @@ from tabarena.evaluation.subset_grid import (
     get_website_folder_name,
 )
 from tabarena.nips2025_utils.compare import filter_to_valid_tasks, subset_tasks
-from tabarena.plot.interactive.pareto_explorer import build_pareto_explorer_html
+from tabarena.plot.interactive.pareto_explorer import X_AXIS_KEYS, build_pareto_explorer_html, leaderboard_time_columns
 from tabarena.plot.interactive.per_dataset_explorer import PER_DATASET_TRAJECTORIES_FILE
 from tabarena.plot.plot_pareto_focus import MUTED_COLOR, color_of, legend_swatches
 from tabarena.plot.plot_pareto_frontier import get_pareto_frontier, plot_optimal_arrow
@@ -1643,6 +1643,8 @@ def _plot_tuning_trajectories_from_prepared(
             system_shades=system_shades(tabarena_context.method_metadata_collection.info()),
             focus_mode=focus_mode,
             website_only=website_only,
+            # Titled with the subset, as the Pareto explorer pages are (`generate_all_figs` names them alike).
+            explorer_title=subset_name or ("&".join(subset) if subset else "all"),
         )
 
 
@@ -1751,6 +1753,27 @@ def _test_error_ylabel(metric: str | None) -> str:
     return f"Test Error ({friendly})"
 
 
+#: The display columns `compute_tuning_trajectories_leaderboard` names after the explorer time
+#: axes, for a leaderboard that carries them without the aggregated ``time_*`` columns.
+_DISPLAY_TIME_COLUMNS = {
+    "x_train": "Train time per 1K samples (s) (median)",
+    "x_infer": "Inference time per 1K samples (s) (median)",
+    "x_total": "Total time per 1K samples (s) (median)",
+    "x_train_task_mean": "Train time (s)",
+    "x_infer_task_mean": "Infer time (s)",
+    "x_total_task_mean": "Total time (s)",
+}
+
+
+def _trajectory_time_columns(columns) -> dict[str, str]:
+    """Explorer time axis -> leaderboard column, opening on train time (the tuning budget), then in `X_AXIS_KEYS` order."""
+    found = {
+        **{k: c for k, c in _DISPLAY_TIME_COLUMNS.items() if c in set(columns)},
+        **leaderboard_time_columns(columns),
+    }
+    return {key: found[key] for key in sorted(found, key=lambda k: (k != "x_train", X_AXIS_KEYS.index(k)))}
+
+
 def plot_tuning_trajectories_from_leaderboard(
     leaderboard: pd.DataFrame,
     fig_save_dir: Path,
@@ -1766,7 +1789,9 @@ def plot_tuning_trajectories_from_leaderboard(
     website_only: bool = False,
     system_names: frozenset[str] = frozenset(),
     system_shades: dict[str, str] | None = None,
+    explorer_title: str | None = None,
 ):
+    # ``explorer_title`` is the interactive explorer's figure title (by default none).
     fig_save_dir = Path(fig_save_dir)
     system_shades = system_shades or {}
     if plot_kwargs is None:
@@ -1792,16 +1817,17 @@ def plot_tuning_trajectories_from_leaderboard(
         )
 
     # Interactive explorer + underlying data export, mirroring the
-    # ``pareto_n_configs_imp`` figure (improvability vs train time, with
-    # Elo y-axis and inference-time x-axis toggles). Self-contained HTML
-    # embedded by the website.
+    # ``pareto_n_configs_imp`` figure (improvability vs train time, with an
+    # Elo y-axis toggle and the time axes of the Pareto explorer: train,
+    # inference and total time, per 1K samples or per task, median or mean).
+    # Self-contained HTML embedded by the website.
+    x_columns = _trajectory_time_columns(leaderboard.columns)
     explorer_points = pd.DataFrame(
         {
             "method": leaderboard[method_col],
             "family": [get_model_family(m, system_names=system_names) for m in leaderboard[method_col]],
             "shade": leaderboard[method_col].map(system_shades),
-            "x_train": leaderboard["Train time per 1K samples (s) (median)"],
-            "x_infer": leaderboard["Inference time per 1K samples (s) (median)"],
+            **{key: leaderboard[col] for key, col in x_columns.items()},
             "imp": leaderboard["Improvability (%)"],
             "elo": leaderboard["Elo"],
         }
@@ -1815,17 +1841,16 @@ def plot_tuning_trajectories_from_leaderboard(
         imputed_frac = leaderboard["imputed"].fillna(0.0).astype(float)
         explorer_points["imputed"] = imputed_frac > 0
         explorer_points["imputed_pct"] = imputed_frac * 100
-    explorer_points = explorer_points.dropna(subset=["x_train", "x_infer", "imp", "elo"])
+    explorer_points = explorer_points.dropna(subset=[*x_columns, "imp", "elo"])
     if not explorer_points.empty:
         build_pareto_explorer_html(
             points=explorer_points,
             mode="trajectory",
-            # Single time axis (train time = tuning budget); inference time
-            # stays available in the CSV export.
-            x_keys=["x_train"],
+            x_keys=list(x_columns),
             # Mirrored against the Pareto scatter explorer (chips left there).
             chips_side="right",
             save_path=fig_save_dir / "tuning_trajectories_explorer.html",
+            title=explorer_title,
             page_title=f"{benchmark_name} tuning trajectories",
         )
         explorer_points.to_csv(fig_save_dir / "tuning_trajectories.csv", index=False)

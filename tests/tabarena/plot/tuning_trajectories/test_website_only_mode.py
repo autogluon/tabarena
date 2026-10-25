@@ -90,3 +90,40 @@ def test_a_shaded_system_carries_its_shade_into_the_explorer(tmp_path):
     html = (tmp_path / "tuning_trajectories_explorer.html").read_text(encoding="utf-8")
     points = json.loads(re.search(r"const POINTS = (\[.*?\]);\n", html, re.S).group(1))
     assert {p["method"]: p["shade"] for p in points} == {"A": None, "B": "closed-source-api"}
+
+
+def _explorer_x_axes(path) -> list[str]:
+    html = path.read_text(encoding="utf-8")
+    config = json.loads(re.search(r"const CONFIG = (\{.*?\});\n", html, re.S).group(1))
+    return [axis["key"] for axis in config["xAxes"]]
+
+
+def test_the_explorer_offers_the_time_axes_the_leaderboard_carries(tmp_path):
+    """Train time (the tuning budget) first, then the leaderboard's other time axes in the selector's order: the
+    display columns alone, or every aggregated ``time_*`` column when the leaderboard has them.
+    """
+    plot_tuning_trajectories_from_leaderboard(
+        leaderboard=_toy_leaderboard(), fig_save_dir=tmp_path / "display", file_ext=".png", website_only=True
+    )
+    assert _explorer_x_axes(tmp_path / "display" / "tuning_trajectories_explorer.html") == [
+        "x_train", "x_total", "x_infer", "x_total_task_mean", "x_infer_task_mean", "x_train_task_mean",
+    ]  # fmt: skip
+    leaderboard = _toy_leaderboard()
+    for kind in ("train", "infer", "total"):
+        for prefix in ("", "median_"):
+            for suffix in ("", "_per_1K"):
+                leaderboard[f"{prefix}time_{kind}_s{suffix}"] = leaderboard["Total time (s)"] + len(prefix + suffix)
+    plot_tuning_trajectories_from_leaderboard(
+        leaderboard=leaderboard, fig_save_dir=tmp_path / "all", file_ext=".png", website_only=True
+    )
+    axes = _explorer_x_axes(tmp_path / "all" / "tuning_trajectories_explorer.html")
+    assert axes[0] == "x_train" and len(axes) == 12
+
+
+def test_the_explorer_title_is_passed_through(tmp_path):
+    plot_tuning_trajectories_from_leaderboard(
+        leaderboard=_toy_leaderboard(), fig_save_dir=tmp_path, file_ext=".png", website_only=True,
+        explorer_title="classification",
+    )  # fmt: skip
+    html = (tmp_path / "tuning_trajectories_explorer.html").read_text(encoding="utf-8")
+    assert json.loads(re.search(r"const CONFIG = (\{.*?\});\n", html, re.S).group(1))["title"] == "classification"

@@ -236,3 +236,19 @@ def test_the_figure_title_is_drawn_in_the_chart_and_edited_per_subset(tmp_path):
     assert "const H = CHART_H + (title ? TITLE_H : 0);" in html
     titled = build_pareto_explorer_html(_scatter_points(), save_path=tmp_path / "titled.html", title="classification")
     assert '"title": "classification"' in titled.read_text()
+
+
+def test_methods_are_renamed_for_display_only(tmp_path):
+    """A rename (preset by the builder or typed on a chip) changes what the chart, chips, tooltips and table call a
+    method; the method stays the key, and typed names are escaped where they become markup.
+    """
+    html = build_pareto_explorer_html(
+        _scatter_points(), save_path=tmp_path / "explorer.html", method_names={"A": "Alpha <tuned>"}
+    ).read_text()
+    assert '"methodNames": {"A": "Alpha <tuned>"}' in html
+    assert "const names = new Map(Object.entries(CONFIG.methodNames || {}));" in html
+    assert "t.textContent = displayName(l.method);" in html
+    assert "<td>${escHtml(displayName(p.method))}</td>" in html
+    assert 'id="btn-reset-names"' in html
+    plain = build_pareto_explorer_html(_scatter_points(), save_path=tmp_path / "plain.html").read_text()
+    assert '"methodNames": {}' in plain
