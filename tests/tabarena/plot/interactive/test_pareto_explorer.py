@@ -205,3 +205,34 @@ def test_a_narrow_chart_shortens_its_axis_title(tmp_path):
     """
     html = build_pareto_explorer_html(_scatter_points(), save_path=tmp_path / "explorer.html").read_text()
     assert 'const titles = [full, full.replace(", median over datasets", ""), xAxis().label];' in html
+
+
+def test_axis_limits_are_typed_per_view_and_reset(tmp_path):
+    """Each (subset, metric, time axis) keeps its own typed limits; unusable ones fall back to the automatic limits,
+    which the empty boxes show, and the data is drawn inside the plot's clip.
+    """
+    html = build_pareto_explorer_html(_scatter_points(), save_path=tmp_path / "explorer.html").read_text()
+    for k in ("xmin", "xmax", "ymin", "ymax"):
+        assert f'id="lim-{k}"' in html
+    assert 'id="btn-auto-limits"' in html
+    assert "function viewKey() { return JSON.stringify([subsetKey, metricKey, xKey]); }" in html
+    assert "const xr = axisRange(typed.xmin, typed.xmax, auto.xmin, auto.xmax, true);" in html
+    assert "input.placeholder = fmtLimit(auto[k]);" in html
+    assert 'const plot = el("g", { "clip-path": "url(#plotclip)" }, svg);' in html
+
+
+def test_the_figure_title_is_drawn_in_the_chart_and_edited_per_subset(tmp_path):
+    """The title opens on the page's title and the shown subset's label, sits in the chart (so paper view and the
+    exports carry it), and a title typed for a subset stays with it.
+    """
+    points = pd.concat([_scatter_points().assign(subset=key) for key in ("all", "binary")])
+    html = build_pareto_explorer_html(
+        points, save_path=tmp_path / "explorer.html", subsets=[("all", "all"), ("binary", "binary")]
+    ).read_text()
+    assert 'id="fig-title"' in html
+    assert 'id="title"' not in html
+    assert 'return [CONFIG.title, subset].filter(Boolean).join(" · ");' in html
+    assert "titleBySubset.set(subsetKey, ev.target.value);" in html
+    assert "const H = CHART_H + (title ? TITLE_H : 0);" in html
+    titled = build_pareto_explorer_html(_scatter_points(), save_path=tmp_path / "titled.html", title="classification")
+    assert '"title": "classification"' in titled.read_text()
