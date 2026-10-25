@@ -16,7 +16,8 @@ selector (e.g. train, inference or total time; per 1K samples or per task;
 median or mean) that re-anchor the Pareto front, a subset selector when the
 page holds several task subsets (each point names its ``subset``), hover
 tooltips with exact values, dashed-ring marking of partially imputed methods,
-and a collapsible data table.
+typed axis limits kept per view (subset, metric and time axis), and a
+collapsible data table.
 """
 
 from __future__ import annotations
@@ -56,6 +57,23 @@ __BASE_CSS__
   .sidebox .chips::-webkit-scrollbar-thumb {
     background: var(--pt-muted); border-radius: 8px; border: 3px solid transparent; background-clip: content-box;
   }
+
+  /* Typed axis limits: one row per axis, min and max side by side. An empty box shows the
+     automatic limit as its placeholder; a value the axis cannot use is outlined dashed. */
+  .limits {
+    display: grid; grid-template-columns: auto minmax(0, 1fr) minmax(0, 1fr); align-items: center;
+    gap: 5px 7px; width: 100%; font-size: 12.5px; font-weight: 600; color: var(--muted);
+  }
+  .limits .limits-head { font-size: 11.5px; font-weight: 600; }
+  .limits input {
+    width: 100%; box-sizing: border-box; min-width: 0;
+    font: 600 12.5px/1.2 system-ui, sans-serif; color: var(--ink);
+    background: var(--chip-bg); border: 1px solid var(--line); border-radius: 7px; padding: 5px 7px;
+  }
+  .limits input::placeholder { color: var(--muted); font-weight: 500; }
+  .limits input[aria-invalid="true"] { border: 1.5px dashed var(--muted); }
+  .limits input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .limits .btnrow { grid-column: 1 / -1; }
 </style>
 </head>
 <body>
@@ -79,6 +97,18 @@ __BASE_CSS__
           <button class="btn" id="btn-front">Pareto front</button>
           <button class="btn" id="btn-all">All</button>
           <button class="btn" id="btn-none">Clear</button>
+        </div>
+        <div class="limits" id="limits" role="group" aria-label="Axis limits for this view">
+          <span>Axis limits</span><span class="limits-head">min</span><span class="limits-head">max</span>
+          <span>X</span>
+          <input id="lim-xmin" type="number" step="any" min="0" aria-label="X-axis minimum">
+          <input id="lim-xmax" type="number" step="any" min="0" aria-label="X-axis maximum">
+          <span>Y</span>
+          <input id="lim-ymin" type="number" step="any" aria-label="Y-axis minimum">
+          <input id="lim-ymax" type="number" step="any" aria-label="Y-axis maximum">
+          <div class="btnrow">
+            <button class="btn" id="btn-auto-limits" title="Back to the automatic limits for this view">Auto limits</button>
+          </div>
         </div>
         <span class="hint">Click methods or family buttons to highlight &middot; hover points for details</span>
       </div>
@@ -282,6 +312,61 @@ __BASE_JS__
   let scale = null;
   let hoverMark = null;
 
+  // ---------- axis limits ----------
+  // Typed per view: each (subset, metric, time axis) keeps its own limits, so a range set for one
+  // view stays with it while another is shown. A side left empty, or one the axis cannot use (x
+  // must be above 0 on the log axis, and min below max), falls back to the automatic limit.
+  const LIMIT_KEYS = ["xmin", "xmax", "ymin", "ymax"];
+  const limitInputs = {};
+  for (const k of LIMIT_KEYS) limitInputs[k] = document.getElementById("lim-" + k);
+  const limitsByView = new Map();
+  function viewKey() { return JSON.stringify([subsetKey, metricKey, xKey]); }
+  function typedLimits() { return limitsByView.get(viewKey()) || {}; }
+  // [lo, hi] from the typed limits where they make a range, else the automatic ones, and which
+  // typed sides went unused.
+  function axisRange(lo, hi, autoLo, autoHi, positive) {
+    const usable = v => v != null && isFinite(v) && (!positive || v > 0);
+    const a = usable(lo) ? lo : autoLo, b = usable(hi) ? hi : autoHi;
+    if (a < b) return { lo: a, hi: b, badLo: lo != null && !usable(lo), badHi: hi != null && !usable(hi) };
+    return { lo: autoLo, hi: autoHi, badLo: lo != null, badHi: hi != null };
+  }
+  function fmtLimit(v) {
+    const a = Math.abs(v);
+    return a >= 100 ? v.toFixed(0) : a >= 1 ? v.toFixed(2) : v.toPrecision(2);
+  }
+  // The boxes show the current view: its typed values and, as placeholders, the automatic limits
+  // they would replace. A box holding text not yet entered (Enter or leaving it) keeps that text.
+  function showLimits(auto, xr, yr) {
+    const typed = typedLimits();
+    const bad = { xmin: xr.badLo, xmax: xr.badHi, ymin: yr.badLo, ymax: yr.badHi };
+    for (const k of LIMIT_KEYS) {
+      const input = limitInputs[k];
+      input.placeholder = fmtLimit(auto[k]);
+      if (!input.dataset.editing) input.value = typed[k] == null ? "" : String(typed[k]);
+      input.setAttribute("aria-invalid", String(bad[k]));
+      input.title = bad[k] ? "Not used: x must be above 0, and min below max" : "";
+    }
+  }
+  for (const k of LIMIT_KEYS) {
+    limitInputs[k].addEventListener("input", ev => { ev.target.dataset.editing = "1"; });
+    limitInputs[k].addEventListener("change", ev => {
+      delete ev.target.dataset.editing;
+      const text = ev.target.value.trim();
+      const typed = { ...typedLimits(), [k]: text === "" ? null : Number(text) };
+      if (LIMIT_KEYS.every(key => typed[key] == null)) limitsByView.delete(viewKey());
+      else limitsByView.set(viewKey(), typed);
+      render();
+    });
+  }
+  document.getElementById("btn-auto-limits").addEventListener("click", () => {
+    limitsByView.delete(viewKey());
+    for (const k of LIMIT_KEYS) {
+      delete limitInputs[k].dataset.editing;
+      limitInputs[k].value = "";
+    }
+    render();
+  });
+
   // ---------- chart ----------
   // A flat, fixed-height plot: two of these panels then fit on one screen.
   const CHART_H = 400;
@@ -303,28 +388,44 @@ __BASE_JS__
     // Keep the chip list from outgrowing the chart beside it.
     chipsBox.style.maxHeight = Math.max(170, H - controlsBox.offsetHeight + 20) + "px";
 
-    // x scale (log)
+    // Automatic limits from the points shown, replaced by the view's typed ones where usable.
     const xsAll = SHOWN.map(p => p[xKey]);
-    const xmin = Math.min(...xsAll) * 0.65, xmax = Math.max(...xsAll) * 1.6;
-    const lx0 = Math.log10(xmin), lx1 = Math.log10(xmax);
-    const X = v => M.l + (Math.log10(v) - lx0) / (lx1 - lx0) * (W - M.l - M.r);
-
     const vals = SHOWN.map(p => mval(p, metric));
-    let y0, y1;
+    const auto = { xmin: Math.min(...xsAll) * 0.65, xmax: Math.max(...xsAll) * 1.6 };
     if (metric.fromZero) {
-      y0 = 0; y1 = Math.max(...vals) * 1.07;
+      auto.ymin = 0; auto.ymax = Math.max(...vals) * 1.07;
     } else {
       const pad = (Math.max(...vals) - Math.min(...vals)) * 0.07;
-      y0 = Math.min(...vals) - pad; y1 = Math.max(...vals) + pad;
+      auto.ymin = Math.min(...vals) - pad; auto.ymax = Math.max(...vals) + pad;
     }
+    const typed = typedLimits();
+    const xr = axisRange(typed.xmin, typed.xmax, auto.xmin, auto.xmax, true);
+    const yr = axisRange(typed.ymin, typed.ymax, auto.ymin, auto.ymax, false);
+    showLimits(auto, xr, yr);
+
+    // x scale (log)
+    const xmin = xr.lo, xmax = xr.hi;
+    const lx0 = Math.log10(xmin), lx1 = Math.log10(xmax);
+    const X = v => M.l + (Math.log10(v) - lx0) / (lx1 - lx0) * (W - M.l - M.r);
+    const y0 = yr.lo, y1 = yr.hi;
     const Y = v => M.t + (1 - (v - y0) / (y1 - y0)) * (H - M.t - M.b);
+    const inView = p => p[xKey] >= xmin && p[xKey] <= xmax && mval(p, metric) >= y0 && mval(p, metric) <= y1;
 
     // grid + axes
     const grid = el("g", {}, svg);
-    for (let e = Math.ceil(lx0); Math.pow(10, e) < xmax; e++) {
-      const gx = X(Math.pow(10, e));
+    // Decades; on a range under two decades wide (e.g. a narrow typed range), 2x and 5x too.
+    const steps = lx1 - lx0 < 2 ? [1, 2, 5] : [1];
+    const xTicks = [];
+    for (let e = Math.floor(lx0); e <= Math.ceil(lx1); e++) {
+      for (const d of steps) {
+        const v = d * Math.pow(10, e);
+        if (v >= xmin && v <= xmax) xTicks.push({ v, e });
+      }
+    }
+    for (const t of xTicks) {
+      const gx = X(t.v);
       el("line", { x1: gx, y1: M.t, x2: gx, y2: H - M.b, stroke: "var(--line)", "stroke-width": 1 }, grid);
-      const lbl = fmtNum(Math.pow(10, e), e >= 0 ? 0 : -e);
+      const lbl = fmtNum(t.v, t.e >= 0 ? 0 : -t.e);
       el("text", { x: gx, y: H - M.b + 20, "text-anchor": "middle", "font-size": 12.5, fill: "var(--muted)" }, grid)
         .textContent = lbl;
     }
@@ -351,6 +452,12 @@ __BASE_JS__
 
     drawOptimalArrow(grid, metric.lowerBetter, M, W, H);
 
+    // Everything drawn from the data sits in the plot's clip, so typed limits cut it at the frame
+    // (and points outside them take no hover).
+    const clip = el("clipPath", { id: "plotclip" }, el("defs", {}, svg));
+    el("rect", { x: M.l, y: M.t, width: W - M.l - M.r, height: H - M.t - M.b }, clip);
+    const plot = el("g", { "clip-path": "url(#plotclip)" }, svg);
+
     // pareto front (always shown)
     const front = computeFront(metric);
     const fv = front.verts;
@@ -358,13 +465,13 @@ __BASE_JS__
       let d = `M${X(fv[0][0])},${metric.lowerBetter ? M.t : H - M.b}`;
       for (const [fx, fy] of fv) d += ` L${X(fx)},${Y(fy)}`;
       d += ` L${W - M.r},${Y(fv[fv.length - 1][1])}`;
-      el("path", { d, fill: "none", stroke: "var(--ink)", "stroke-width": 1.6, "stroke-dasharray": "7 5", opacity: 0.85 }, svg);
+      el("path", { d, fill: "none", stroke: "var(--ink)", "stroke-width": 1.6, "stroke-dasharray": "7 5", opacity: 0.85 }, plot);
     }
 
     const isOn = m => state.active.has(m) || followed.has(m);
 
     // connectors: variant links (scatter) / the trajectory itself
-    const conn = el("g", {}, svg);
+    const conn = el("g", {}, plot);
     for (const [method, pts] of byMethod) {
       if (pts.length < 2) continue;
       const on = isOn(method);
@@ -380,8 +487,8 @@ __BASE_JS__
     }
 
     // points: inactive first, active on top
-    const ptsOff = el("g", {}, svg);
-    const ptsOn = el("g", {}, svg);
+    const ptsOff = el("g", {}, plot);
+    const ptsOn = el("g", {}, plot);
     for (const [method, pts] of byMethod) {
       const on = isOn(method);
       for (const p of pts) {
@@ -407,7 +514,7 @@ __BASE_JS__
 
     // Followed methods keep their family colour and gain a ring, on every chart of the page at
     // once; a trajectory rings its end point only, as the imputation ring does.
-    const rings = el("g", { "pointer-events": "none" }, svg);
+    const rings = el("g", { "pointer-events": "none" }, plot);
     for (const method of followed) {
       const pts = byMethod.get(method);
       if (!pts) continue;
@@ -428,6 +535,7 @@ __BASE_JS__
       if (!isOn(method)) continue;
       const best = pts.reduce((a, b) =>
         (metric.lowerBetter ? mval(a, metric) < mval(b, metric) : mval(a, metric) > mval(b, metric)) ? a : b);
+      if (!inView(best)) continue;
       const px = X(best[xKey]);
       const w = textWidth(method);
       const toRight = px + 10 + w <= W - M.r;
@@ -464,7 +572,7 @@ __BASE_JS__
     }
 
     // invisible hit targets on top (bigger than marks)
-    const hits = el("g", {}, svg);
+    const hits = el("g", {}, plot);
     for (const p of SHOWN) {
       const h = el("circle", { cx: X(p[xKey]), cy: Y(mval(p, metric)), r: 12, fill: "transparent", cursor: "pointer" }, hits);
       h.addEventListener("mouseenter", ev => { showTip(p, ev); postHover(p.method); });
@@ -472,7 +580,7 @@ __BASE_JS__
       h.addEventListener("mouseleave", () => { hideTip(p.method); postHover(null); });
       h.addEventListener("click", () => pickMethod(p.method, () => toggle(p.method)));
     }
-    scale = { X, Y, metric };
+    scale = { X, Y, metric, plot };
     hoverMark = null;
     markHovered();
   }
@@ -484,7 +592,7 @@ __BASE_JS__
     hoverMark = null;
     const pts = hovered && scale ? byMethod.get(hovered) : null;
     if (!pts) return;
-    hoverMark = el("g", { "pointer-events": "none" }, svg);
+    hoverMark = el("g", { "pointer-events": "none" }, scale.plot);
     for (const p of pts) {
       el("circle", {
         cx: scale.X(p[xKey]), cy: scale.Y(mval(p, scale.metric)), r: 9.5, fill: "none",
