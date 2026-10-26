@@ -193,3 +193,38 @@ def test_static_figures_reach_the_compare_and_trajectory_passes(monkeypatch):
 
     with pytest.raises(ValueError, match="static_figures"):
         AbstractArenaContext.generate_all_figs(context, output_dir="unused", max_workers=1, static_figures="none")
+
+
+def test_the_composite_diagnostics_explorer_holds_every_subset(tmp_path):
+    import json
+    import re
+    from types import SimpleNamespace
+
+    import pandas as pd
+
+    for suffix in ("all", "tiny"):
+        (tmp_path / suffix / "tuning_trajectories").mkdir(parents=True)
+        pd.DataFrame(
+            {
+                "method": ["A", "A", "B"],
+                "family": ["Tree-based", "Tree-based", "System"],
+                "x_train": [1.0, 20.0, 5.0],
+                "err": [0.3, 0.25, 0.2],
+                "elo_val": [1000.0, 1100.0, None],
+                "imp": [10.0, 8.0, 5.0],
+                "elo": [1200.0, 1250.0, 1300.0],
+                "x_elo_val": [1000.0, 1100.0, None],
+                "n_configs": [1, 8, 1],
+            }
+        ).to_csv(tmp_path / suffix / "tuning_trajectories" / "tuning_diagnostics.csv", index=False)
+
+    page = AbstractArenaContext._save_composite_diagnostics_explorer(
+        SimpleNamespace(benchmark_name="Arena"), tmp_path, ["all", "large", "tiny"]
+    )
+
+    html = page.read_text(encoding="utf-8")
+    config = json.loads(re.search(r"const CONFIG = (\{.*?\});\n", html).group(1))
+    assert page == tmp_path / "tuning_diagnostics_explorer.html"
+    assert [s["key"] for s in config["subsets"]] == ["all", "tiny"]
+    assert [m["key"] for m in config["metrics"]] == ["err", "elo_val", "imp", "elo"]
+    assert [a["key"] for a in config["xAxes"]] == ["x_train", "x_elo_val"]

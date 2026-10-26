@@ -1546,14 +1546,15 @@ class AbstractArenaContext:
 
         ``save_composite_trajectories_explorer`` (``None`` by default: on whenever ``plot_tuning_trajectories``
         is) likewise writes ``<output_dir>/tuning_trajectories_explorer.html``, one tuning-trajectories explorer
-        over every subset, from the per-subset ``tuning_trajectories/tuning_trajectories.csv``.
+        over every subset, from the per-subset ``tuning_trajectories/tuning_trajectories.csv``, and
+        ``<output_dir>/tuning_diagnostics_explorer.html`` from the per-subset ``tuning_diagnostics.csv``.
 
         ``static_figures`` (``"uncovered"`` by default) leaves out the static figures an interactive page
         shows and exports: each subset's four ``pareto_front_*`` figures (``pareto_front_explorer.html``), its
-        win-rate matrix figure (``winrate_explorer.html``), and the tuning-trajectory figures of Improvability
-        or Elo against train, inference or total time (``tuning_trajectories_explorer.html``). ``"all"`` writes
-        them too. Static figures with no interactive page (the tuning-impact bar plots, the composite
-        leaderboard, the trajectory diagnostics) are written either way.
+        win-rate matrix figure (``winrate_explorer.html``), and the tuning-trajectory figures
+        (``tuning_trajectories_explorer.html`` and ``tuning_diagnostics_explorer.html``). ``"all"`` writes them
+        too. Static figures with no interactive page (the tuning-impact bar plots, the composite leaderboard) are
+        written either way.
 
         ``save_per_dataset_explorer`` (``None`` by default: on whenever ``plot_compare`` is) additionally writes
         each subset's ``<suffix>/per_dataset_explorer.html``, the leaderboard website's "Dataset by dataset"
@@ -1670,6 +1671,7 @@ class AbstractArenaContext:
             self._save_composite_pareto_explorer(output_dir, [suffix for suffix, _ in subset_results])
         if save_composite_trajectories_explorer:
             self._save_composite_trajectories_explorer(output_dir, [suffix for suffix, _ in subset_results])
+            self._save_composite_diagnostics_explorer(output_dir, [suffix for suffix, _ in subset_results])
 
     def _save_composite_pareto_explorer(self, output_dir: Path, suffixes: list[str]) -> Path | None:
         """``<output_dir>/pareto_front_explorer.html``: the subsets' Pareto points (each subset's
@@ -1708,6 +1710,24 @@ class AbstractArenaContext:
             chips_side="right",
             save_path=output_dir / "tuning_trajectories_explorer.html",
             page_title=f"{self.benchmark_name} tuning trajectories",
+        )
+
+    def _save_composite_diagnostics_explorer(self, output_dir: Path, suffixes: list[str]) -> Path | None:
+        """``<output_dir>/tuning_diagnostics_explorer.html``: the subsets' tuning diagnostics (each subset's
+        ``<suffix>/tuning_trajectories/tuning_diagnostics.csv``) on one diagnostics explorer page, with a selector for
+        the subset to view, in ``suffixes``' order. Returns the page, or ``None`` when no subset wrote any.
+        """
+        from tabarena.plot.tuning_trajectories.plot_pareto_over_tuning_time import build_tuning_diagnostics_explorer
+
+        composite = _composite_points(output_dir, suffixes, "tuning_trajectories/tuning_diagnostics.csv")
+        if composite is None:
+            return None
+        points, subsets = composite
+        return build_tuning_diagnostics_explorer(
+            points,
+            subsets=subsets,
+            save_path=output_dir / "tuning_diagnostics_explorer.html",
+            page_title=f"{self.benchmark_name} tuning diagnostics",
         )
 
     def _generate_subset_figs(

@@ -1783,6 +1783,54 @@ def _trajectory_time_columns(columns) -> dict[str, str]:
     return {key: found[key] for key in X_AXIS_KEYS if key in found}
 
 
+#: The leaderboard column behind each value of the tuning diagnostics explorer: its metrics (y-axes) and its metric
+#: x-axes, which `build_tuning_diagnostics_explorer` offers in this order after the time axes.
+_DIAGNOSTIC_COLUMNS = {
+    "err": "Metric Error",
+    "elo_val": "Elo (Val)",
+    "adv": "Baseline Advantage (%)",
+    "adv_gap": "Baseline Advantage (%) (Test - Val)",
+    "elo_gap": "Elo (Test) - Elo (Val)",
+    "imp_gap": "Improvability (%) (Test) - Improvability (%) (Val)",
+    "imp": "Improvability (%)",
+    "elo": "Elo",
+    "x_elo_val": "Elo (Val)",
+    "x_imp_val": "Improvability (%) (Val)",
+    "x_adv_val": "Baseline Advantage (%) (Val)",
+    "x_elo": "Elo (Test)",
+    "x_adv": "Baseline Advantage (%) (Test)",
+}
+#: The diagnostics proper; the explorer's Improvability and Elo are there for the test - validation views.
+_DIAGNOSTIC_METRIC_KEYS = ("err", "elo_val", "adv", "adv_gap", "elo_gap", "imp_gap")
+
+
+def build_tuning_diagnostics_explorer(points: pd.DataFrame, *, save_path: str | Path, **kwargs) -> Path | None:
+    """The tuning diagnostics explorer: a trajectories explorer over the `_DIAGNOSTIC_COLUMNS` values of ``points``
+    that hold any, on the time axes and then the metric x-axes. A method missing a value (e.g. a system without
+    validation results) still shows on the views it has. Returns the page, or ``None`` when no diagnostic has a value.
+    ``kwargs`` go to :func:`build_pareto_explorer_html` (``title``, ``page_title``, ``subsets``).
+    """
+
+    def has(key: str) -> bool:
+        return key in points.columns and bool(points[key].notna().any())
+
+    metric_keys = [k for k in _DIAGNOSTIC_COLUMNS if not k.startswith("x_") and has(k)]
+    if not any(k in metric_keys for k in _DIAGNOSTIC_METRIC_KEYS):
+        return None
+    x_keys = [k for k in X_AXIS_KEYS if has(k)] + [k for k in _DIAGNOSTIC_COLUMNS if k.startswith("x_") and has(k)]
+    return build_pareto_explorer_html(
+        points=points,
+        mode="trajectory",
+        metric_keys=metric_keys,
+        x_keys=x_keys,
+        # As the trajectories explorer's.
+        chips_side="right",
+        drop_incomplete=False,
+        save_path=save_path,
+        **kwargs,
+    )
+
+
 def plot_tuning_trajectories_from_leaderboard(
     leaderboard: pd.DataFrame,
     fig_save_dir: Path,
@@ -1801,7 +1849,10 @@ def plot_tuning_trajectories_from_leaderboard(
     system_shades: dict[str, str] | None = None,
     explorer_title: str | None = None,
 ):
-    # ``explorer_title`` is the interactive explorer's figure title (by default none).
+    # ``explorer_title`` is the interactive explorer's figure title (by default none). ``static_figures`` "uncovered"
+    # writes the explorers alone: every static figure below is a view of the trajectories or diagnostics explorer.
+    if static_figures not in ("all", "uncovered"):
+        raise ValueError(f"static_figures must be 'all' or 'uncovered', not {static_figures!r}")
     fig_save_dir = Path(fig_save_dir)
     system_shades = system_shades or {}
     if plot_kwargs is None:
@@ -1832,10 +1883,11 @@ def plot_tuning_trajectories_from_leaderboard(
     # samples or per task, median or mean), opening on total time per 1K
     # samples as that explorer does. Self-contained HTML embedded by the website.
     x_columns = _trajectory_time_columns(leaderboard.columns)
+    explorer_points_family = [get_model_family(m, system_names=system_names) for m in leaderboard[method_col]]
     explorer_points = pd.DataFrame(
         {
             "method": leaderboard[method_col],
-            "family": [get_model_family(m, system_names=system_names) for m in leaderboard[method_col]],
+            "family": explorer_points_family,
             "shade": leaderboard[method_col].map(system_shades),
             **{key: leaderboard[col] for key, col in x_columns.items()},
             "imp": leaderboard["Improvability (%)"],
@@ -1864,6 +1916,37 @@ def plot_tuning_trajectories_from_leaderboard(
             page_title=f"{benchmark_name} tuning trajectories",
         )
         explorer_points.to_csv(fig_save_dir / "tuning_trajectories.csv", index=False)
+
+    # The diagnostics the website does not ship: metric error, Elo on validation, baseline advantage and the test -
+    # validation gaps against time, and each metric on test against validation, from the columns the leaderboard has.
+    if not website_only:
+        diagnostic_points = pd.DataFrame(
+            {
+                "method": leaderboard[method_col],
+                "family": explorer_points_family,
+                "shade": leaderboard[method_col].map(system_shades),
+                **{key: leaderboard[col] for key, col in x_columns.items()},
+                **{key: leaderboard[col] for key, col in _DIAGNOSTIC_COLUMNS.items() if col in leaderboard.columns},
+            }
+        )
+        for col in ("n_configs", "imputed"):
+            if col in leaderboard.columns:
+                diagnostic_points[col] = leaderboard[col]
+        if "imputed" in diagnostic_points.columns:
+            imputed_frac = diagnostic_points["imputed"].fillna(0.0).astype(float)
+            diagnostic_points["imputed"] = imputed_frac > 0
+            diagnostic_points["imputed_pct"] = imputed_frac * 100
+        page = build_tuning_diagnostics_explorer(
+            diagnostic_points,
+            save_path=fig_save_dir / "tuning_diagnostics_explorer.html",
+            title=explorer_title,
+            page_title=f"{benchmark_name} tuning diagnostics",
+        )
+        if page is not None:
+            diagnostic_points.to_csv(fig_save_dir / "tuning_diagnostics.csv", index=False)
+
+    if static_figures == "uncovered":
+        return
 
     # Single shared title across every ``plot_hpo`` call in this set.
     # ``<benchmark_name>-<subset>`` prefix matches the format used by the winrate
@@ -1894,50 +1977,42 @@ def plot_tuning_trajectories_from_leaderboard(
 
     ylim_imp = plot_kwargs.pop("ylim_imp")
     err_ylabel = _test_error_ylabel(error_ylabel_metric)
-    # The figures the tuning-trajectories explorer shows and exports (Improvability or Elo against
-    # train, inference or total time), skipped when `static_figures` is "uncovered".
-    if static_figures not in ("all", "uncovered"):
-        raise ValueError(f"static_figures must be 'all' or 'uncovered', not {static_figures!r}")
-    draw_covered = static_figures == "all"
 
     # The one trajectory figure the website ships (improvability vs train
     # time); in website_only mode every other figure variant below is skipped.
-    if draw_covered:
-        plot_hpo(
-            df=leaderboard,
-            xlabel="Train time per 1K samples (s) (median)",
-            ylabel="Improvability (%)",
-            save_path=fig_save_dir / f"pareto_n_configs_imp{file_ext}",
-            max_Y=False,
-            ylim=ylim_imp,
-            clamp_negative_ymin=True,
-            **plot_kwargs,
-        )
+    plot_hpo(
+        df=leaderboard,
+        xlabel="Train time per 1K samples (s) (median)",
+        ylabel="Improvability (%)",
+        save_path=fig_save_dir / f"pareto_n_configs_imp{file_ext}",
+        max_Y=False,
+        ylim=ylim_imp,
+        clamp_negative_ymin=True,
+        **plot_kwargs,
+    )
     if website_only:
         return
 
-    if draw_covered:
-        plot_hpo(
-            df=leaderboard,
-            xlabel="Train time (s)",
-            ylabel="Improvability (%)",
-            save_path=fig_save_dir / f"pareto_n_configs_imp_tot_train{file_ext}",
-            max_Y=False,
-            ylim=ylim_imp,
-            clamp_negative_ymin=True,
-            **plot_kwargs,
-        )
-    if draw_covered:
-        plot_hpo(
-            df=leaderboard,
-            xlabel="Infer time (s)",
-            ylabel="Improvability (%)",
-            save_path=fig_save_dir / f"pareto_n_configs_imp_tot_infer{file_ext}",
-            max_Y=False,
-            ylim=ylim_imp,
-            clamp_negative_ymin=True,
-            **plot_kwargs,
-        )
+    plot_hpo(
+        df=leaderboard,
+        xlabel="Train time (s)",
+        ylabel="Improvability (%)",
+        save_path=fig_save_dir / f"pareto_n_configs_imp_tot_train{file_ext}",
+        max_Y=False,
+        ylim=ylim_imp,
+        clamp_negative_ymin=True,
+        **plot_kwargs,
+    )
+    plot_hpo(
+        df=leaderboard,
+        xlabel="Infer time (s)",
+        ylabel="Improvability (%)",
+        save_path=fig_save_dir / f"pareto_n_configs_imp_tot_infer{file_ext}",
+        max_Y=False,
+        ylim=ylim_imp,
+        clamp_negative_ymin=True,
+        **plot_kwargs,
+    )
     plot_hpo(
         df=leaderboard,
         xlabel="Train time (s)",
@@ -1960,15 +2035,14 @@ def plot_tuning_trajectories_from_leaderboard(
         clamp_negative_ymin=True,
         **plot_kwargs,
     )
-    if draw_covered:
-        plot_hpo(
-            df=leaderboard,
-            xlabel="Train time per 1K samples (s) (median)",
-            ylabel="Elo",
-            save_path=fig_save_dir / f"pareto_n_configs_elo{file_ext}",
-            max_Y=True,
-            **plot_kwargs,
-        )
+    plot_hpo(
+        df=leaderboard,
+        xlabel="Train time per 1K samples (s) (median)",
+        ylabel="Elo",
+        save_path=fig_save_dir / f"pareto_n_configs_elo{file_ext}",
+        max_Y=True,
+        **plot_kwargs,
+    )
     plot_hpo(
         df=leaderboard,
         xlabel="Train time per 1K samples (s) (median)",
@@ -1978,26 +2052,24 @@ def plot_tuning_trajectories_from_leaderboard(
         optimal_arrow=False,
         **plot_kwargs,
     )
-    if draw_covered:
-        plot_hpo(
-            df=leaderboard,
-            xlabel="Inference time per 1K samples (s) (median)",
-            ylabel="Elo",
-            save_path=fig_save_dir / f"pareto_n_configs_elo_infer{file_ext}",
-            max_Y=True,
-            **plot_kwargs,
-        )
-    if draw_covered:
-        plot_hpo(
-            df=leaderboard,
-            xlabel="Inference time per 1K samples (s) (median)",
-            ylabel="Improvability (%)",
-            save_path=fig_save_dir / f"pareto_n_configs_imp_infer{file_ext}",
-            max_Y=False,
-            ylim=ylim_imp,
-            clamp_negative_ymin=True,
-            **plot_kwargs,
-        )
+    plot_hpo(
+        df=leaderboard,
+        xlabel="Inference time per 1K samples (s) (median)",
+        ylabel="Elo",
+        save_path=fig_save_dir / f"pareto_n_configs_elo_infer{file_ext}",
+        max_Y=True,
+        **plot_kwargs,
+    )
+    plot_hpo(
+        df=leaderboard,
+        xlabel="Inference time per 1K samples (s) (median)",
+        ylabel="Improvability (%)",
+        save_path=fig_save_dir / f"pareto_n_configs_imp_infer{file_ext}",
+        max_Y=False,
+        ylim=ylim_imp,
+        clamp_negative_ymin=True,
+        **plot_kwargs,
+    )
 
     plot_hpo(
         df=leaderboard,
@@ -2022,17 +2094,16 @@ def plot_tuning_trajectories_from_leaderboard(
     # row-level total runtime (train + inference).  Useful when ranking
     # methods by end-to-end deployment cost rather than either phase
     # in isolation.
-    if draw_covered:
-        plot_hpo(
-            df=leaderboard,
-            xlabel="Total time (s)",
-            ylabel="Improvability (%)",
-            save_path=fig_save_dir / f"pareto_n_configs_imp_tot_total{file_ext}",
-            max_Y=False,
-            ylim=ylim_imp,
-            clamp_negative_ymin=True,
-            **plot_kwargs,
-        )
+    plot_hpo(
+        df=leaderboard,
+        xlabel="Total time (s)",
+        ylabel="Improvability (%)",
+        save_path=fig_save_dir / f"pareto_n_configs_imp_tot_total{file_ext}",
+        max_Y=False,
+        ylim=ylim_imp,
+        clamp_negative_ymin=True,
+        **plot_kwargs,
+    )
     plot_hpo(
         df=leaderboard,
         xlabel="Total time (s)",
@@ -2043,26 +2114,24 @@ def plot_tuning_trajectories_from_leaderboard(
         clamp_negative_ymin=True,
         **plot_kwargs,
     )
-    if draw_covered:
-        plot_hpo(
-            df=leaderboard,
-            xlabel="Total time per 1K samples (s) (median)",
-            ylabel="Elo",
-            save_path=fig_save_dir / f"pareto_n_configs_elo_total{file_ext}",
-            max_Y=True,
-            **plot_kwargs,
-        )
-    if draw_covered:
-        plot_hpo(
-            df=leaderboard,
-            xlabel="Total time per 1K samples (s) (median)",
-            ylabel="Improvability (%)",
-            save_path=fig_save_dir / f"pareto_n_configs_imp_total{file_ext}",
-            max_Y=False,
-            ylim=ylim_imp,
-            clamp_negative_ymin=True,
-            **plot_kwargs,
-        )
+    plot_hpo(
+        df=leaderboard,
+        xlabel="Total time per 1K samples (s) (median)",
+        ylabel="Elo",
+        save_path=fig_save_dir / f"pareto_n_configs_elo_total{file_ext}",
+        max_Y=True,
+        **plot_kwargs,
+    )
+    plot_hpo(
+        df=leaderboard,
+        xlabel="Total time per 1K samples (s) (median)",
+        ylabel="Improvability (%)",
+        save_path=fig_save_dir / f"pareto_n_configs_imp_total{file_ext}",
+        max_Y=False,
+        ylim=ylim_imp,
+        clamp_negative_ymin=True,
+        **plot_kwargs,
+    )
     plot_hpo(
         df=leaderboard,
         xlabel="Total time per 1K samples (s) (median)",

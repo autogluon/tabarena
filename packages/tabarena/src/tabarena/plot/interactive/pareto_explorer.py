@@ -42,6 +42,64 @@ _METRIC_SPECS: dict[str, dict] = {
         "decimals": 0,
         "suffix": "",
     },
+    # The tuning diagnostics (`plot_tuning_trajectories_from_leaderboard`): a gap has no Pareto front (`front`).
+    "err": {
+        "key": "err",
+        "label": "Metric error",
+        "axisLabel": "Metric error, mean over datasets — lower is better",
+        "lowerBetter": True,
+        "fromZero": True,
+        "decimals": 3,
+        "suffix": "",
+    },
+    "elo_val": {
+        "key": "elo_val",
+        "label": "Elo (validation)",
+        "axisLabel": "Elo on validation — higher is better",
+        "lowerBetter": False,
+        "fromZero": False,
+        "decimals": 0,
+        "suffix": "",
+    },
+    "adv": {
+        "key": "adv",
+        "label": "Baseline advantage (%)",
+        "axisLabel": "Baseline advantage (%) — higher is better",
+        "lowerBetter": False,
+        "fromZero": False,
+        "decimals": 1,
+        "suffix": "%",
+    },
+    "adv_gap": {
+        "key": "adv_gap",
+        "label": "Baseline advantage, test - validation (%)",
+        "axisLabel": "Baseline advantage (%), test - validation — higher is better",
+        "lowerBetter": False,
+        "fromZero": False,
+        "decimals": 1,
+        "suffix": "%",
+        "front": False,
+    },
+    "elo_gap": {
+        "key": "elo_gap",
+        "label": "Elo, test - validation",
+        "axisLabel": "Elo, test - validation — higher is better",
+        "lowerBetter": False,
+        "fromZero": False,
+        "decimals": 0,
+        "suffix": "",
+        "front": False,
+    },
+    "imp_gap": {
+        "key": "imp_gap",
+        "label": "Improvability, test - validation (%)",
+        "axisLabel": "Improvability (%), test - validation — lower is better",
+        "lowerBetter": True,
+        "fromZero": False,
+        "decimals": 1,
+        "suffix": "%",
+        "front": False,
+    },
 }
 
 #: The explorer's time measures: column stem, selector label, axis-label stem, short (tooltip / table) stem.
@@ -84,6 +142,35 @@ _X_AXIS_SPECS: dict[str, dict] = {
 X_AXIS_KEYS: tuple[str, ...] = tuple(_X_AXIS_SPECS)
 
 
+def _metric_x_axis_spec(key: str, label: str, short: str, diagonal_with: str | None = None) -> dict:
+    """The spec of an x-axis that is a metric (``scale`` linear): no Pareto front or optimal arrow is drawn on it, and
+    a y = x line when the y-axis shows the metric ``diagonal_with``.
+    """
+    return {
+        "key": key,
+        "label": label,
+        "group": "Validation and test",
+        "axisLabel": label,
+        "short": short,
+        "scale": "linear",
+        "diagonalWith": diagonal_with,
+    }
+
+
+#: Metric x-axes, for the tuning diagnostics: a metric on validation against itself on test (the y-axis), and a
+#: metric on test against its test - validation gap.
+_METRIC_X_AXIS_SPECS: dict[str, dict] = {
+    spec["key"]: spec
+    for spec in (
+        _metric_x_axis_spec("x_elo_val", "Elo on validation", "Elo (val)", diagonal_with="elo"),
+        _metric_x_axis_spec("x_imp_val", "Improvability on validation (%)", "Imp. (val)", diagonal_with="imp"),
+        _metric_x_axis_spec("x_adv_val", "Baseline advantage on validation (%)", "Adv. (val)", diagonal_with="adv"),
+        _metric_x_axis_spec("x_elo", "Elo on test", "Elo (test)"),
+        _metric_x_axis_spec("x_adv", "Baseline advantage on test (%)", "Adv. (test)"),
+    )
+}
+
+
 def leaderboard_time_columns(columns) -> dict[str, str]:
     """The leaderboard column behind each time axis of `X_AXIS_KEYS` that ``columns`` holds, in that order.
 
@@ -114,6 +201,7 @@ def build_pareto_explorer_html(
     dim_off_front: bool = False,
     hide_unselected: bool = False,
     method_names: dict[str, str] | None = None,
+    drop_incomplete: bool = True,
     page_title: str = "TabArena Pareto explorer",
 ) -> Path:
     """Render the interactive explorer HTML for a set of method points.
@@ -123,9 +211,10 @@ def build_pareto_explorer_html(
     points
         One row per plotted point. Required columns: ``method`` (display
         name), ``family`` (model family, e.g. "Foundation Model"), at least
-        one x column (a key of :data:`_X_AXIS_SPECS`, e.g. ``x_infer`` or
-        ``x_train``; positive, plotted on a log axis) and at least one metric
-        column (``imp`` and/or ``elo``).
+        one x column (a time axis of :data:`_X_AXIS_SPECS`, e.g. ``x_infer``
+        or ``x_train``, positive and plotted on a log axis; or a metric axis of
+        :data:`_METRIC_X_AXIS_SPECS`, on a linear axis) and at least one metric
+        column (a key of :data:`_METRIC_SPECS`, e.g. ``imp`` and/or ``elo``).
         Optional columns: ``variant`` (scatter mode:
         "Default"/"Tuned"/"Tuned + Ens."), ``n_configs`` (trajectory mode),
         ``imputed`` (bool), ``imputed_pct`` (0-100) and ``shade`` (a system's
@@ -143,9 +232,9 @@ def build_pareto_explorer_html(
         Which metrics of :data:`_METRIC_SPECS` to offer on the y-axis
         selector; defaults to every metric whose column is present.
     x_keys
-        Which time axes of :data:`_X_AXIS_SPECS` the page's x-axis selector
-        offers, the first shown at load (one axis hides the selector);
-        defaults to every axis whose column is present.
+        Which axes of :data:`_X_AXIS_SPECS` and :data:`_METRIC_X_AXIS_SPECS`
+        the page's x-axis selector offers, the first shown at load (one axis
+        hides the selector); defaults to every axis whose column is present.
     subsets
         ``(key, label)`` pairs of the task subsets ``points`` holds (its
         ``subset`` column names each point's key): the page's subset
@@ -165,6 +254,11 @@ def build_pareto_explorer_html(
         Display names by ``method``, for the chart's labels, the chips, the
         tooltips and the data table; the page's rename buttons edit them, and
         a method without one shows its own name.
+    drop_incomplete
+        Drop the points that lack a value on any offered axis (the default).
+        ``False`` keeps them: each view then draws the points that have a value
+        on both of its axes, so a method missing one metric still shows on
+        the others.
     """
     if chips_side not in ("left", "right"):
         raise ValueError(f"Unknown chips_side: {chips_side!r}")
@@ -176,8 +270,9 @@ def build_pareto_explorer_html(
     missing = [k for k in metric_keys if k not in points.columns]
     if not metric_keys or missing:
         raise ValueError(f"points must contain at least one metric column; missing={missing}, available={metric_keys}")
+    x_specs = {**_X_AXIS_SPECS, **_METRIC_X_AXIS_SPECS}
     if x_keys is None:
-        x_keys = [k for k in _X_AXIS_SPECS if k in points.columns]
+        x_keys = [k for k in x_specs if k in points.columns]
     missing_x = [k for k in x_keys if k not in points.columns]
     if not x_keys or missing_x:
         raise ValueError(f"points must contain at least one x column; missing={missing_x}, available={x_keys}")
@@ -197,10 +292,14 @@ def build_pareto_explorer_html(
     data["imputed"] = data["imputed"].fillna(False).astype(bool)
     data["imputed_pct"] = data["imputed_pct"].fillna(0.0).astype(float)
 
-    # The x-axes are logarithmic: rows without positive times cannot be placed.
-    data = data.dropna(subset=[*x_keys, *metric_keys])
-    for x_key in x_keys:
-        data = data[data[x_key] > 0]
+    # The time axes are logarithmic: a time that is not positive cannot be placed.
+    log_keys = [k for k in x_keys if x_specs[k].get("scale", "log") == "log"]
+    for x_key in log_keys:
+        data[x_key] = data[x_key].where(data[x_key] > 0)
+    if drop_incomplete:
+        data = data.dropna(subset=[*x_keys, *metric_keys])
+    else:
+        data = data.dropna(subset=x_keys, how="all").dropna(subset=metric_keys, how="all")
 
     # Point order per method defines the connector/trajectory line direction.
     if mode == "scatter":
@@ -223,7 +322,7 @@ def build_pareto_explorer_html(
         "mode": mode,
         "title": title,
         "metrics": [_METRIC_SPECS[k] for k in metric_keys],
-        "xAxes": [_X_AXIS_SPECS[k] for k in x_keys],
+        "xAxes": [x_specs[k] for k in x_keys],
         "subsets": [{"key": key, "label": label} for key, label in subsets] if subsets else None,
         "chipsSide": chips_side,
         "dimOffFront": dim_off_front,

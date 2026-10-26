@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import json
+import re
+
 import pandas as pd
 import pytest
 
@@ -216,7 +219,7 @@ def test_axis_limits_are_typed_per_view_and_reset(tmp_path):
         assert f'id="lim-{k}"' in html
     assert 'id="btn-auto-limits"' in html
     assert "function viewKey() { return JSON.stringify([subsetKey, metricKey, xKey]); }" in html
-    assert "const xr = axisRange(typed.xmin, typed.xmax, auto.xmin, auto.xmax, true);" in html
+    assert "const xr = axisRange(typed.xmin, typed.xmax, auto.xmin, auto.xmax, !linearX);" in html
     assert "input.placeholder = fmtLimit(auto[k]);" in html
     assert 'const plot = el("g", { "clip-path": "url(#plotclip)" }, svg);' in html
 
@@ -274,8 +277,30 @@ def test_unselected_methods_can_be_hidden(tmp_path):
     html = build_pareto_explorer_html(_scatter_points(), save_path=tmp_path / "explorer.html").read_text()
     assert '"hideUnselected": false' in html
     assert 'id="btn-hide-off"' in html
-    assert "const visible = state.hideOff ? SHOWN.filter(p => isOn(p.method)) : SHOWN;" in html
+    assert "const visible = state.hideOff ? VIEW.filter(p => isOn(p.method)) : VIEW;" in html
     assert "const front = computeFront(metric, visible);" in html
     assert "for (const p of visible) {" in html
     hidden = build_pareto_explorer_html(_scatter_points(), save_path=tmp_path / "hidden.html", hide_unselected=True)
     assert '"hideUnselected": true' in hidden.read_text()
+
+
+def test_a_metric_x_axis_is_linear_and_keeps_incomplete_points_on_request(tmp_path):
+    """A metric x-axis is linear (negative values stay) and draws no front; ``drop_incomplete=False`` keeps a point
+    that lacks a value, which each view then skips where it has none.
+    """
+    points = _scatter_points().assign(x_adv=[-2.0, 1.0, 3.0])
+    points.loc[points.index[0], "elo"] = float("nan")
+    html = build_pareto_explorer_html(
+        points, save_path=tmp_path / "explorer.html", x_keys=["x_infer", "x_adv"], drop_incomplete=False
+    ).read_text()
+    config = json.loads(re.search(r"const CONFIG = (\{.*?\});\n", html).group(1))
+    assert [a.get("scale", "log") for a in config["xAxes"]] == ["log", "linear"]
+    assert len(json.loads(re.search(r"const POINTS = (\[.*?\]);\n", html, re.S).group(1))) == len(points)
+    assert "const drawFront = !linearX && metric.front !== false;" in html
+    assert "if (xAxis().diagonalWith === metricKey) {" in html
+    assert "const VIEW = SHOWN.filter(p => onView(p, metric));" in html
+    dropped = build_pareto_explorer_html(points, save_path=tmp_path / "dropped.html", x_keys=["x_infer", "x_adv"])
+    assert (
+        len(json.loads(re.search(r"const POINTS = (\[.*?\]);\n", dropped.read_text(), re.S).group(1)))
+        == len(points) - 1
+    )
