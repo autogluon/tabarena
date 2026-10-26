@@ -104,6 +104,26 @@ def bounded_inverse(artifacts: dict, y_train: np.ndarray) -> dict:
     return {**artifacts, "inverse_transform": lambda values: inverse(np.clip(values, lo - pad, hi + pad))}
 
 
+def finite_fallback(y_train: np.ndarray, problem_type: str, n_classes: int) -> np.ndarray:
+    """What a prediction that is not finite is replaced with: the training mean (regression) or the training class
+    frequencies (classification).
+    """
+    if problem_type == "regression":
+        return np.array(float(np.mean(y_train)))
+    counts = np.bincount(np.asarray(y_train).astype(np.int64), minlength=n_classes)[:n_classes].astype(np.float64)
+    return (counts + 1.0) / (counts.sum() + n_classes)
+
+
+def replace_non_finite(predictions: np.ndarray, fallback: np.ndarray, problem_type: str) -> np.ndarray:
+    """Replace each row with a non-finite value by ``fallback`` (see ``finite_fallback``)."""
+    predictions = np.array(predictions, dtype=np.float64)
+    if problem_type == "regression":
+        return np.where(np.isfinite(predictions), predictions, fallback)
+    bad = ~np.isfinite(predictions).reshape(len(predictions), -1).all(axis=1)
+    predictions[bad] = fallback[1] if predictions.ndim == 1 else fallback
+    return predictions
+
+
 class AgenticTabMImplementation:
     """One fitted agentic TabM (a single bag child)."""
 
@@ -223,6 +243,10 @@ class AgenticTabMImplementation:
             finally:
                 self.model_.__dict__.pop("forward", None)  # the bf16 closure; see ``bf16_forward``
             self.trial_params_["patience"] = patience
+        # A model that predicts non-finite values on the validation rows goes back to the guard's best epoch.
+        self.fallback_ = finite_fallback(self.y_fit_["train"], self.problem_type, self.n_classes)
+        if not np.isfinite(self._predict_raw(X_val)).all():
+            self.model_.load_state_dict(guard.best_state)
 
     def _predict_raw(self, X: pd.DataFrame) -> np.ndarray:
         """Predictions on the target scale for regression, logits for classification."""
@@ -239,10 +263,12 @@ class AgenticTabMImplementation:
         return np.asarray(predictions["test"])
 
     def predict(self, X: pd.DataFrame) -> np.ndarray:
-        return self._predict_raw(X).reshape(-1)
+        return replace_non_finite(self._predict_raw(X).reshape(-1), self.fallback_, self.problem_type)
 
     def predict_proba(self, X: pd.DataFrame) -> np.ndarray:
-        proba = logits_to_probs(self._predict_raw(X), self.task_type)
+        proba = replace_non_finite(
+            logits_to_probs(self._predict_raw(X), self.task_type), self.fallback_, self.problem_type
+        )
         if self.problem_type == "binary":
             return np.column_stack([1.0 - proba, proba])
         return proba
