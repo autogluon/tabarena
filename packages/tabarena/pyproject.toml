@@ -151,7 +151,7 @@ limix_2 = [
   "nvtx",
 ]
 tabpfnwide = ["tabpfnwide>=0.3.0"]
-iltm = ["iltm>=0.1.1"]
+iltm = ["iltm==0.1.5"]
 chimeraboost = ["chimeraboost>=0.30.0"]
 ctboost = ["ctboost==0.1.61"]
 prismboost = ["prismboost>=0.5.1"]

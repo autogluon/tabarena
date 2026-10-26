@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-import logging
 import os
 import sys
+import time
 from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar
@@ -15,8 +15,6 @@ from tabarena.models.prefetch import WeightsUnavailableError
 if TYPE_CHECKING:
     import pandas as pd
 
-
-logger = logging.getLogger(__name__)
 
 #: Hugging Face repository the library downloads its checkpoints from (``iltm.model_checkpoints.HF_REPO_ID``).
 HF_REPO_ID = "dbonet/iLTM"
@@ -155,6 +153,8 @@ class ILTMModel(AbstractTorchModel):
         num_gpus: int = 0,
         **kwargs,
     ):
+        fit_start = time.monotonic()
+
         import torch
 
         available_num_gpus = ResourceManager.get_gpu_count_torch(cuda_only=True)
@@ -170,17 +170,8 @@ class ILTMModel(AbstractTorchModel):
                 "Please switch to CPU usage instead.",
             )
 
-        # iLTM leaks torch backend flags and root logger handlers on import / fit;
-        # see _isolate_iltm_global_state docstring for details.
         with _isolate_iltm_global_state():
             from iltm import iLTMClassifier, iLTMRegressor
-
-            # Developer fix: ``import iltm`` turns TF32 matmuls on as a module-level side effect, which
-            # only the fit that first imports the library in a process would see (a later import is a
-            # no-op). Every fit runs at full fp32 precision instead, whatever imported iltm first
-            # (maintainer decision 2026-09-16); the context manager restores the caller's value after.
-            torch.backends.cuda.matmul.allow_tf32 = False
-            _ensure_iltm_logger_patched()
 
             if self.problem_type in ["binary", "multiclass"]:
                 model_cls = iLTMClassifier
@@ -204,23 +195,20 @@ class ILTMModel(AbstractTorchModel):
                 cat_features=self._categorical_indices,
             )
 
+            remaining_time = None if time_limit is None else max(0.0, time_limit - (time.monotonic() - fit_start))
             self.model = self.model.fit(
                 X=X,
                 y=y,
                 eval_set=eval_set,
-                fit_max_time=time_limit,
+                fit_max_time=remaining_time,
             )
 
-    def _predict_proba(self, X, **kwargs):
-        # See _ensure_iltm_logger_patched docstring: bagged child models are
-        # unpickled in the parent process without running iLTM's __init__, so
-        # the module-level `logger` referenced inside predict() is undefined
-        # unless we patch it here.
-        _ensure_iltm_logger_patched()
-        return super()._predict_proba(X, **kwargs)
+    def _predict_proba(self, X: pd.DataFrame, **kwargs):
+        with _isolate_iltm_global_state():
+            return super()._predict_proba(X, **kwargs)
 
     def prepare_for_inference(self) -> None:
-        """Untimed, idempotent: patch the library logger, keep the network in eval mode, synchronize CUDA.
+        """Untimed, idempotent: keep the network in eval mode and synchronize CUDA.
 
         Never touches data and runs no forward pass. The network attribute is ``None`` on an estimator
         that released it after the fit (iltm 0.1.4 and later); the fitted predictors then carry
@@ -228,7 +216,6 @@ class ILTMModel(AbstractTorchModel):
         """
         if self.model is None:
             return
-        _ensure_iltm_logger_patched()
         network = getattr(self.model, "_model", None)
         if network is None:
             return
@@ -257,68 +244,18 @@ class ILTMModel(AbstractTorchModel):
             self.model._model = self.model._model.to(device)
 
 
-def _ensure_iltm_logger_patched() -> None:
-    """Developer fix. Workaround for upstream bug in iltm==0.1.0.
-
-    `iltm/inference_interface.py` declares `logger` only inside the predictor's
-    `__init__` (via `global logger; logger = logging.getLogger(__name__)`).
-    Any call path that reaches `_preprocess_test_data` (and other methods that
-    log via `logger.debug(...)`) without first running `__init__` in the same
-    process crashes with `NameError: name 'logger' is not defined`.
-
-    This is exactly what happens with AutoGluon bagging: child models are fit
-    in a Ray worker and pickled back to the parent; predict in the parent
-    unpickles them but never re-runs `__init__`, so the parent's
-    `iltm.inference_interface` module has no `logger` attribute.
-
-    Setting the attribute on the module is idempotent and safe to call from
-    anywhere iLTM might be used. Remove when fixed upstream.
-    """
-    import iltm.inference_interface as _ifi
-
-    if not hasattr(_ifi, "logger"):
-        _ifi.logger = logging.getLogger(_ifi.__name__)
-
-
 @contextmanager
 def _isolate_iltm_global_state():
-    """Save/restore process-wide globals that the iLTM library mutates during fit.
-
-    Upstream bugs in iltm==0.1.0 (https://github.com/AI-sandbox/iLTM) that leak
-    out of fit() and pollute the host process:
-
-    1. `iltm/inference_interface.py` sets `torch.backends.cuda.matmul.allow_tf32 = True`
-       at module import time (not under a context manager / not reset).
-    2. `iltm/utils.py::set_seed` sets `torch.backends.cudnn.deterministic = True`
-       (and `cudnn.benchmark = False`) every time a predictor is generated.
-    3. `iltm/log_config.py::setup_logging` calls `logging.getLogger().handlers = []`
-       and then `logging.basicConfig(...)`, wiping the root logger's handlers and
-       replacing them with its own `StreamHandler`.
-
-    A library should not silently mutate global torch backend flags or the host
-    application's root logger. AutoGluon's `FitHelper.verify_model` snapshots
-    these globals and asserts they're unchanged after fit, so without this guard
-    the model fails the test suite. Developer fix: remove this wrapper if iLTM
-    upstream stops leaking these settings. For (1) the fit does not rely on the
-    import-time value at all: ``_fit`` pins ``allow_tf32`` off itself right after
-    the import, so every fit computes at fp32 whether or not it was the one that
-    imported the library, and this guard only has to hand the caller's value back.
-    """
     import torch
 
     saved_allow_tf32 = torch.backends.cuda.matmul.allow_tf32
     saved_cudnn_deterministic = torch.backends.cudnn.deterministic
     saved_cudnn_benchmark = torch.backends.cudnn.benchmark
 
-    root_logger = logging.getLogger()
-    saved_handlers = list(root_logger.handlers)
-    saved_root_level = root_logger.level
-
     try:
+        torch.backends.cuda.matmul.allow_tf32 = True
         yield
     finally:
         torch.backends.cuda.matmul.allow_tf32 = saved_allow_tf32
         torch.backends.cudnn.deterministic = saved_cudnn_deterministic
         torch.backends.cudnn.benchmark = saved_cudnn_benchmark
-        root_logger.handlers = saved_handlers
-        root_logger.setLevel(saved_root_level)
