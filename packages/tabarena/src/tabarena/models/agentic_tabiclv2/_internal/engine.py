@@ -10,11 +10,14 @@ memory, with three differences:
   temperature) does not use them;
 - no metrics, and the class probabilities are widened to AutoGluon's ``n_classes`` (a bag fold can miss a
   rare class);
-- attention runs in float32 on CUDA as well (``fp32_attention``).
+- attention runs in float32 on CUDA as well (``fp32_attention``);
+- the default recipe (every index 0) builds its ensemble as TabICLv2 does (``reference_members``) and, for
+  classification, averages logits.
 """
 
 from __future__ import annotations
 
+import itertools
 import types
 from contextlib import contextmanager
 from typing import TYPE_CHECKING
@@ -26,7 +29,13 @@ from bin.tabicl.modules.ensemble import aggregate_prediction_pool
 from bin.tabicl.modules.nanotabicl import MODEL_REGISTRY
 from bin.tabicl.modules.nanotabicl.model import _SDPA_MAX_BATCH, TransformerBlock
 from bin.tabicl.modules.postproc_clf import ClassificationTargetEncoder
-from bin.tabicl.pipeline import build_evaluator_from_indices, build_members
+from bin.tabicl.pipeline import (
+    EvaluationMember,
+    build_class_permutations,
+    build_evaluator_from_indices,
+    build_members,
+    build_permutations,
+)
 from torch.nn.attention import SDPBackend, sdpa_kernel
 
 if TYPE_CHECKING:
@@ -79,6 +88,37 @@ def fp32_attention(model: torch.nn.Module):
             block.__dict__.pop("attn", None)
 
 
+#: The package's geometric-mean aggregation: for softmax outputs at one temperature it equals averaging the
+#: members' logits, which is what TabICLv2 does.
+LOGIT_AVERAGE_IDX = 2
+
+
+def reference_members(spec, *, n_features: int, seed: int, n_classes: int | None = None) -> list:
+    """TabICLv2's ensemble layout (``tabicl``'s ``EnsembleGenerator``): every pair of a feature permutation and a
+    class permutation, shuffled; the first ``n_members / len(feature_preprocs)`` pairs, each with every feature
+    preprocessing of the basket.
+    """
+    n_pairs = spec.n_members // len(spec.feature_preprocs)
+    feature_perms = list(dict.fromkeys(build_permutations(n_features, spec.feature_permutation, n_features, seed)))
+    class_perms = list(
+        dict.fromkeys(build_class_permutations(n_classes or 0, spec.class_permutation, n_classes or 1, seed))
+    )
+    pairs = list(itertools.product(feature_perms, class_perms))
+    pairs = [pairs[i] for i in np.random.default_rng(seed).permutation(len(pairs))]
+    pairs = (pairs * n_pairs)[:n_pairs]
+    return [
+        EvaluationMember(
+            feature_preproc=preproc,
+            postproc=spec.postprocs[0],
+            augmentation=spec.augmentations[0],
+            feature_permutation=feature_perm,
+            class_permutation=class_perm,
+        )
+        for feature_perm, class_perm in pairs
+        for preproc in spec.feature_preprocs
+    ]
+
+
 class AgenticTabICLv2Implementation:
     """One agentic TabICLv2 (a single bag child): the frozen network, the context, and the recipe."""
 
@@ -90,6 +130,8 @@ class AgenticTabICLv2Implementation:
         self.indices = indices
         self.seed = seed
         self.evaluator = build_evaluator_from_indices(self.task_type, indices)
+        self.reference = all(v == 0 for v in indices.values())
+        self.build_members = reference_members if self.reference else build_members
         self.model_ = None
 
     def fit(self, X: pd.DataFrame, y: pd.Series):
@@ -108,7 +150,7 @@ class AgenticTabICLv2Implementation:
         dataset, ev = self._dataset(X), self.evaluator
         with torch_state(self.n_threads), fp32_attention(self.model_), torch.no_grad():
             encoded = ev._encode_parts(dataset, ("test",))
-            ev.members_ = build_members(ev.spec, n_features=encoded["train"].shape[1], seed=self.seed)
+            ev.members_ = self.build_members(ev.spec, n_features=encoded["train"].shape[1], seed=self.seed)
             per_member, spread = ev._regression_member_pool(
                 dataset=dataset,
                 encoded=encoded,
@@ -132,7 +174,7 @@ class AgenticTabICLv2Implementation:
             raise ValueError(f"{target.n_classes} classes, the model supports {self.model_.max_classes}.")
         with torch_state(self.n_threads), fp32_attention(self.model_), torch.no_grad():
             encoded = ev._encode_parts(dataset, ("test",))
-            ev.members_ = build_members(
+            ev.members_ = self.build_members(
                 ev.spec, n_features=encoded["train"].shape[1], n_classes=target.n_classes, seed=self.seed
             )
             logits = {
@@ -152,7 +194,7 @@ class AgenticTabICLv2Implementation:
             )
         proba = aggregate_prediction_pool(
             task_type=self.task_type,
-            ensemble_idx=ev.spec.ensemble,
+            ensemble_idx=LOGIT_AVERAGE_IDX if self.reference else ev.spec.ensemble,
             per_member=per_member,
             n_classes=target.n_classes,
             uncertainty=uncertainty,
