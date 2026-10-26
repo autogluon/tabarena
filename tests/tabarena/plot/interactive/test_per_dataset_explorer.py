@@ -105,6 +105,21 @@ def test_imputed_counts_are_per_dataset():
     assert counts["alpha"] == 0
 
 
+@pytest.mark.parametrize("gap", ["imputed", "missing"])
+def test_a_method_without_a_measured_result_on_every_split_is_dropped_for_that_dataset(gap):
+    """One measured split of two is no mean to set against methods measured on both."""
+    df = _results_per_split()
+    split = (df["dataset"] == "beta") & (df["method"] == "AutoGluon 1.6 (extreme, 4h)") & (df["fold"] == 1)
+    df = df.assign(imputed=split) if gap == "imputed" else df[~split]
+    points = per_dataset_points(df).set_index(["dataset", "method"])
+    assert ("beta", "AutoGluon 1.6 (extreme, 4h)") not in points.index
+    assert ("alpha", "AutoGluon 1.6 (extreme, 4h)") in points.index
+    assert points.loc[("beta", "CAT (tuned)"), "rank"] == pytest.approx(1.0)
+    counts = imputed_counts(df)
+    assert counts["beta"] == 1
+    assert counts["alpha"] == 0
+
+
 def test_explorer_reports_the_smaller_field(tmp_path):
     out = build_per_dataset_explorer_html(
         results_per_split=_results_with_imputation(),
@@ -298,6 +313,23 @@ def test_the_list_sits_beside_the_detail_with_counted_filters(tmp_path):
     assert '<div class="pd-main" id="main">' in html
     assert "function syncFilterCounts()" in html
     assert html.count('<span class="pd-step">') == 2
+
+
+def test_the_list_beside_the_detail_keeps_the_size_and_winner_columns(tmp_path):
+    """Beside the detail the list still shows each dataset's training rows, features and winner, the
+    counts in their short form; only the tie count is left to the row's hover and the detail.
+    """
+    html = build_per_dataset_explorer_html(
+        results_per_split=_results_per_split(),
+        method_info=_METHOD_INFO,
+        trajectories=None,
+        dataset_metadata=None,
+        save_path=tmp_path / "per_dataset_explorer.html",
+    ).read_text(encoding="utf-8")
+    hidden_beside_the_detail = re.findall(r'\{ key: "(\w+)"[^}]*?wide: true', html)
+    assert hidden_beside_the_detail == ["tied"]
+    assert '{ key: "train_rows", label: "Train rows", short: "Rows"' in html
+    assert "function fmtCount(v)" in html
 
 
 def _paired_splits(errors_by_method: dict[str, list[float]], dataset: str = "gamma") -> pd.DataFrame:
