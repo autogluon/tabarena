@@ -179,6 +179,7 @@ __BASE_CSS__
     border-radius: 4px; padding: 0 4px; margin-left: 5px; color: #14161a; background: var(--vc);
   }
   .pd-stripcell { width: 250px; padding-top: 0; padding-bottom: 0; }
+  .pd-short { display: none; }
   .pd-namecell .pd-name { display: inline-block; vertical-align: bottom; }
   /* A system carries its configuration in its name, so the winner cell is bounded and clipped
      rather than allowed to push the table wider than the frame. */
@@ -267,20 +268,26 @@ __BASE_CSS__
   /* --- List beside detail ----------------------------------------------------
      From 1100px the list sits on the left and the chosen dataset on the right, so a click or an
      arrow key changes what is beside it rather than something further down. The list is taken
-     out of the flow and fills its column, as tall as the detail is; its own columns narrow to
-     what reads at a glance (the rest is in the row's hover and the detail), and the detail puts
-     the dataset's facts on top and the ranking under the chart. Narrower, the two stack as
-     before, with the resize handle. */
+     out of the flow and fills its column, as tall as the detail is; its cells tighten and its
+     long headers shorten so the dataset's size and winner stay in view (the tie count is in the
+     row's hover and the detail), and the detail puts the dataset's facts on top and the ranking
+     under the chart. Narrower, the two stack as before, with the resize handle. */
   @media (min-width: 1100px) {
-    .pd-main { display: grid; grid-template-columns: minmax(0, 45fr) minmax(0, 55fr); gap: 14px; align-items: stretch; }
+    .pd-main { display: grid; grid-template-columns: minmax(0, 54fr) minmax(0, 46fr); gap: 14px; align-items: stretch; }
+    .pd-main table.pd-table thead th { padding-left: 5px; padding-right: 5px; }
+    .pd-main table.pd-table thead th.sortable::after { margin-left: 2px; }
+    .pd-main table.pd-table td { padding-left: 5px; padding-right: 5px; }
+    .pd-main .pd-full { display: none; }
+    .pd-main .pd-short { display: inline; }
     .pd-left { position: relative; min-height: 460px; }
     .pd-left .pd-listbox { position: absolute; inset: 0; }
     .pd-left .pd-listwrap { height: 100% !important; }
     .pd-griprow { display: none !important; }
     .pd-main .pd-wide { display: none; }
-    .pd-namecell .pd-name { max-width: 190px; overflow: hidden; text-overflow: ellipsis; }
+    .pd-namecell .pd-name { max-width: 130px; overflow: hidden; text-overflow: ellipsis; }
     .pd-stripcell { width: 180px; }
     .pd-stripsvg { width: 180px; height: auto; }
+    table.pd-table td.pd-winner { max-width: 110px; }
     .pd-detail { margin-top: 0; }
     .pd-dbody { flex-direction: column; align-items: stretch; }
     .pd-rankcol { flex: none; width: 100%; min-width: 0; }
@@ -577,6 +584,18 @@ __BASE_JS__
     if (v == null || !isFinite(v)) return "—";
     return Math.round(v).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
   }
+  // A count in at most four characters (950, 9.5k, 95k, 1.2M), for the narrow list.
+  function fmtCount(v) {
+    if (v == null || !isFinite(v)) return "—";
+    const scaled = (x, unit) => (x < 10 ? x.toFixed(1).replace(/\.0$/, "") : Math.round(x).toString()) + unit;
+    if (v < 1000) return Math.round(v).toString();
+    if (v < 999500) return scaled(v / 1000, "k");
+    return scaled(v / 1e6, "M");
+  }
+  // Both forms of a count; the stylesheet shows the short one in the narrow list.
+  function countHtml(v) {
+    return `<span class="pd-full">${fmtInt(v)}</span><span class="pd-short">${fmtCount(v)}</span>`;
+  }
   const TASK_SHORT = { binary: "binary", multiclass: "multi", regression: "reg" };
   function metricName(ds) { return METRIC_DISPLAY[ds.metric] || ds.metric || "error"; }
   function escapeHtml(text) {
@@ -688,9 +707,9 @@ __BASE_JS__
     { key: "pos", label: "#", cls: "pd-pos", sortable: false },
     { key: "name", label: "Dataset", hint: "Sort alphabetically" },
     { key: "task", label: "Task" },
-    { key: "train_rows", label: "Train rows", num: true, wide: true,
+    { key: "train_rows", label: "Train rows", short: "Rows", num: true,
       hint: "Rows a model actually fits here — the largest training split, not the dataset's size" },
-    { key: "features", label: "Feat.", num: true, wide: true },
+    { key: "features", label: "Feat.", num: true },
     { key: "rank", label: "Rank", num: true, hint: "The contender's mean rank on this dataset" },
     { key: "gap", label: "Margin", num: true,
       hint: "The contender's lead over the runner-up (+) or its deficit against the best method (\u2212)" },
@@ -699,7 +718,7 @@ __BASE_JS__
       hint: "How many methods are statistically tied with the best here (not significantly worse, " +
         "one-sided Wilcoxon signed-rank test over the splits, \u03b1 = 0.05). " +
         "The shaded band on the strip spans them; many tied methods means this dataset does not separate the field" },
-    { key: "winner", label: "Winner", wide: true, hint: "The method with the lowest error here" },
+    { key: "winner", label: "Winner", hint: "The method with the lowest error here" },
   ];
 
   function sortValue(d, sortKey) {
@@ -857,7 +876,10 @@ __BASE_JS__
       const sortable = col.sortable !== false;
       const cls = (col.num ? "pd-num " : "") + (col.wide ? "pd-wide " : "") + (sortable ? "sortable" : "");
       const title = col.hint ? ` title="${escapeHtml(col.hint)}"` : "";
-      html += `<th class="${cls}" data-k="${col.key}"${title}>${col.label}</th>`;
+      const label = col.short
+        ? `<span class="pd-full">${col.label}</span><span class="pd-short">${col.short}</span>`
+        : col.label;
+      html += `<th class="${cls}" data-k="${col.key}"${title}>${label}</th>`;
     }
     document.getElementById("thead").innerHTML = html + "</tr>";
     for (const th of document.querySelectorAll("#thead th.sortable")) {
@@ -893,7 +915,7 @@ __BASE_JS__
       tr.dataset.d = String(d);
       if (d === state.selected) tr.className = "sel";
       const meta = [ds.domain, ds.source, ds.year].filter(Boolean).join(" · ");
-      // What the narrow list (beside the detail) leaves out, said on the row's hover.
+      // The row's facts on hover, with what the narrow list (beside the detail) leaves out or clips.
       tr.title = [
         ds.name,
         `${fmtInt(trainRows(ds))} train rows · ${fmtInt(ds.features)} features`,
@@ -905,15 +927,15 @@ __BASE_JS__
         `<td class="pd-pos">${i + 1}</td>` +
         `<td class="pd-namecell"><span class="pd-name">${escapeHtml(ds.name)}</span></td>` +
         `<td><span class="pd-tag">${escapeHtml(TASK_SHORT[ds.task] || ds.task || "?")}</span></td>` +
-        `<td class="pd-num pd-wide">${fmtInt(trainRows(ds))}</td>` +
-        `<td class="pd-num pd-wide">${fmtInt(ds.features)}</td>` +
+        `<td class="pd-num">${countHtml(trainRows(ds))}</td>` +
+        `<td class="pd-num">${countHtml(ds.features)}</td>` +
         `<td class="pd-num">${c ? fmtNum(c.r, 1) : "—"}` +
-        `<span class="pd-pos"> / ${st.n}</span></td>` +
+        `<span class="pd-pos pd-full"> / ${st.n}</span></td>` +
         `<td class="pd-num pd-margin${margin > 0.05 ? " is-ahead" : ""}${c && c.b === 1 && st.tiedKnown && st.best !== c ? " is-tied" : ""}">` +
         `${fmtMargin(margin)}${tieMark(c, st)}</td>` +
         `<td class="pd-stripcell"></td>` +
         `<td class="pd-num pd-tiedcell pd-wide">${st.tiedKnown ? `<b>${st.tied}</b> / ${st.n}` : "—"}</td>` +
-        `<td class="pd-wide">${st.best ? methodHtml(st.best.m) : "—"}</td>`;
+        `<td class="pd-winner">${st.best ? methodHtml(st.best.m) : "—"}</td>`;
       tr.querySelector(".pd-stripcell").appendChild(buildStrip(d));
       tr.addEventListener("click", () => select(d));
       frag.appendChild(tr);
@@ -982,7 +1004,7 @@ __BASE_JS__
         // Imputed results are left out of this page, so the size of the field varies by dataset;
         // naming the missing ones is what makes that legible rather than puzzling.
         ["Ran", ds.skipped ? `${fmtInt(n)} of ${fmtInt(n + ds.skipped)} methods` : `${fmtInt(n)} methods`,
-          ds.skipped ? `${fmtInt(ds.skipped)} methods could not run on this dataset` : ""],
+          ds.skipped ? `${fmtInt(ds.skipped)} methods could not run on every split of this dataset` : ""],
         ["Tied with the best", STATS[d].tiedKnown ? `${STATS[d].tied} of ${n}` : "—"],
       ]],
     ];
