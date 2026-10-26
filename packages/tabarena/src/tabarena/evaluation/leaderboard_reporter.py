@@ -825,6 +825,7 @@ class LeaderboardReporter:
         pareto_focus_methods: list[str] | None = None,
         pareto_explorer_kwargs: dict | None = None,
         website_only: bool = False,
+        static_figures: str = "all",
     ) -> pd.DataFrame:
         """Compute the leaderboard for ``df_results`` and render the TabArena figures.
 
@@ -842,6 +843,10 @@ class LeaderboardReporter:
         ``tuning-impact-elo`` bar plot, the win-rate matrix, and the Pareto
         figures + interactive explorer), skipping the rest of the paper
         figure suite (LaTeX tables, the horizontal Elo bar plot).
+
+        ``static_figures`` (default ``"all"``) set to ``"uncovered"`` skips the static figures an
+        interactive page shows and exports: the four ``pareto_front_*`` figures (the Pareto explorer)
+        and the win-rate matrix figure (the win-rate explorer). The pages are still written.
 
         ``plot_winrate_matrix`` (default ``True``) draws the win-rate matrix figure and its
         interactive page. The matrix itself is still computed and written to ``winrate_matrix.csv``
@@ -903,6 +908,8 @@ class LeaderboardReporter:
         # skipped. `plot` gates the figures alone (the CSVs still get written).
         save_artifacts = self.output_dir is not None
         plot = plot and save_artifacts
+        if static_figures not in ("all", "uncovered"):
+            raise ValueError(f"static_figures must be 'all' or 'uncovered', not {static_figures!r}")
         # Both only produce a CSV, so without an output_dir there is nothing for them to do.
         compute_fold_stability_curves = compute_fold_stability_curves and save_artifacts
         compute_fold_similarity = compute_fold_similarity and save_artifacts
@@ -1392,7 +1399,7 @@ class LeaderboardReporter:
                         winrate_title = f"{self.benchmark_name}-{subset_label} Win-rate Matrix"
                     else:
                         winrate_title = f"{self.benchmark_name} Win-rate Matrix"
-                if plot and plot_winrate_matrix:
+                if plot and plot_winrate_matrix and static_figures == "all":
                     try:
                         tabarena.plot_winrate_matrix(
                             winrate_matrix=winrate_matrix_best,
@@ -1421,6 +1428,8 @@ class LeaderboardReporter:
                     build_winrate_explorer_html(
                         winrate_matrix=winrate_matrix,
                         save_path=Path(self.output_dir) / "winrate_explorer.html",
+                        # The page's editable figure title opens on the subset, as the Pareto explorer's does.
+                        title=subset_label,
                         page_title=winrate_title or f"{self.benchmark_name} win-rate matrix",
                         system_names=system_display_names(self.method_metadata_info),
                         system_shades=system_shades(self.method_metadata_info),
@@ -1455,6 +1464,7 @@ class LeaderboardReporter:
                 pareto_focus_methods=pareto_focus_methods,
                 pareto_explorer_kwargs=pareto_explorer_kwargs,
                 subset_label=subset_label,
+                static_figures=static_figures == "all",
             )
 
         return leaderboard
@@ -2042,8 +2052,10 @@ class LeaderboardReporter:
         pareto_explorer_kwargs: dict | None = None,
         pareto_focus_methods: list[str] | None = None,
         subset_label: str | None = None,
+        static_figures: bool = True,
     ):
-        """Render the four ``pareto_front_*`` figures and the two interactive explorer pages.
+        """Render the four ``pareto_front_*`` figures and the two interactive explorer pages; with
+        ``static_figures=False`` the explorer pages only, which show and export every view of the four.
 
         ``pareto_focus_methods`` are emphasized in the four static figures in addition to the
         Pareto-front members (see :func:`plot_pareto_focus`'s ``focus_methods``). They are resolved
@@ -2142,10 +2154,11 @@ class LeaderboardReporter:
         if not with_baselines:
             leaderboard_pareto = leaderboard_pareto[leaderboard_pareto["Type"] != "End-to-end"]
 
-        self.plot_pareto_elo_vs_time_infer(leaderboard=leaderboard_pareto, **plot_pareto_kwargs)
-        self.plot_pareto_elo_vs_time_train(leaderboard=leaderboard_pareto, **plot_pareto_kwargs)
-        self.plot_pareto_improvability_vs_time_infer(leaderboard=leaderboard_pareto, **plot_pareto_kwargs)
-        self.plot_pareto_improvability_vs_time_train(leaderboard=leaderboard_pareto, **plot_pareto_kwargs)
+        if static_figures:
+            self.plot_pareto_elo_vs_time_infer(leaderboard=leaderboard_pareto, **plot_pareto_kwargs)
+            self.plot_pareto_elo_vs_time_train(leaderboard=leaderboard_pareto, **plot_pareto_kwargs)
+            self.plot_pareto_improvability_vs_time_infer(leaderboard=leaderboard_pareto, **plot_pareto_kwargs)
+            self.plot_pareto_improvability_vs_time_train(leaderboard=leaderboard_pareto, **plot_pareto_kwargs)
         explorer_kwargs = pareto_explorer_kwargs or {}
         if subset_label:
             explorer_kwargs = {"title": subset_label, **explorer_kwargs}

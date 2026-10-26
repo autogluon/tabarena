@@ -107,6 +107,25 @@ def _default_max_workers() -> int:
     return max(1, available - 1)
 
 
+def _composite_points(
+    output_dir: Path, suffixes: list[str], filename: str
+) -> tuple[pd.DataFrame, list[tuple[str, str]]] | None:
+    """Each subset's explorer points (``<output_dir>/<suffix>/<filename>``) tagged with their ``subset``, and the
+    ``(key, label)`` of the subsets that wrote them, in ``suffixes``' order; ``None`` when none did.
+    """
+    frames = []
+    for suffix in suffixes:
+        path = output_dir / suffix / filename
+        if path.exists():
+            frames.append(pd.read_csv(path).assign(subset=suffix))
+    if not frames:
+        return None
+    points = pd.concat(frames, ignore_index=True)
+    if "shade" in points.columns:
+        points["shade"] = points["shade"].astype(object).where(points["shade"].notna(), None)
+    return points, [(suffix, suffix) for suffix in suffixes if suffix in set(points["subset"])]
+
+
 class AbstractArenaContext:
     """Arena-agnostic base: task/method metadata + artifact loading, simulation, comparison,
     runner, and leaderboard plumbing. Directly instantiable; subclasses add named presets.
@@ -1486,9 +1505,11 @@ class AbstractArenaContext:
         save_composite_leaderboard: bool | None = None,
         composite_leaderboard_kwargs: dict | None = None,
         save_composite_pareto_explorer: bool | None = None,
+        save_composite_trajectories_explorer: bool | None = None,
         save_per_dataset_explorer: bool | None = None,
         trajectory_extra_results: pd.DataFrame | None = None,
         max_workers: int | None = None,
+        static_figures: Literal["uncovered", "all"] = "uncovered",
     ) -> None:
         """Generate the compare / tuning-trajectory / runtime figures for each subset.
 
@@ -1523,6 +1544,17 @@ class AbstractArenaContext:
         explorer over every subset with a selector for the subset to view, from the per-subset
         ``pareto_front_points.csv`` the compare pass wrote (a subset without them is left out).
 
+        ``save_composite_trajectories_explorer`` (``None`` by default: on whenever ``plot_tuning_trajectories``
+        is) likewise writes ``<output_dir>/tuning_trajectories_explorer.html``, one tuning-trajectories explorer
+        over every subset, from the per-subset ``tuning_trajectories/tuning_trajectories.csv``.
+
+        ``static_figures`` (``"uncovered"`` by default) leaves out the static figures an interactive page
+        shows and exports: each subset's four ``pareto_front_*`` figures (``pareto_front_explorer.html``), its
+        win-rate matrix figure (``winrate_explorer.html``), and the tuning-trajectory figures of Improvability
+        or Elo against train, inference or total time (``tuning_trajectories_explorer.html``). ``"all"`` writes
+        them too. Static figures with no interactive page (the tuning-impact bar plots, the composite
+        leaderboard, the trajectory diagnostics) are written either way.
+
         ``save_per_dataset_explorer`` (``None`` by default: on whenever ``plot_compare`` is) additionally writes
         each subset's ``<suffix>/per_dataset_explorer.html``, the leaderboard website's "Dataset by dataset"
         browser: one row per dataset with a contender's error, rank and improvability against the field (opening
@@ -1544,6 +1576,11 @@ class AbstractArenaContext:
             compare_kwargs = {}
         if tuning_trajectory_kwargs is None:
             tuning_trajectory_kwargs = {}
+        if static_figures not in ("uncovered", "all"):
+            raise ValueError(f"static_figures must be 'uncovered' or 'all', not {static_figures!r}")
+        # Explicit `compare_kwargs` / `tuning_trajectory_kwargs` entries win.
+        compare_kwargs = {"static_figures": static_figures, **compare_kwargs}
+        tuning_trajectory_kwargs = {"static_figures": static_figures, **tuning_trajectory_kwargs}
         if website_leaderboard_kwargs is None:
             website_leaderboard_kwargs = {}
         # Hoist the shared task scope out of either kwargs dict so both passes get the same grid.
@@ -1579,6 +1616,8 @@ class AbstractArenaContext:
             save_composite_leaderboard = plot_compare
         if save_composite_pareto_explorer is None:
             save_composite_pareto_explorer = plot_compare
+        if save_composite_trajectories_explorer is None:
+            save_composite_trajectories_explorer = plot_tuning_trajectories
         if subsets == "auto":
             subsets = self._default_subsets
         output_dir = Path(output_dir)
@@ -1629,6 +1668,8 @@ class AbstractArenaContext:
             )
         if save_composite_pareto_explorer:
             self._save_composite_pareto_explorer(output_dir, [suffix for suffix, _ in subset_results])
+        if save_composite_trajectories_explorer:
+            self._save_composite_trajectories_explorer(output_dir, [suffix for suffix, _ in subset_results])
 
     def _save_composite_pareto_explorer(self, output_dir: Path, suffixes: list[str]) -> Path | None:
         """``<output_dir>/pareto_front_explorer.html``: the subsets' Pareto points (each subset's
@@ -1637,22 +1678,36 @@ class AbstractArenaContext:
         """
         from tabarena.plot.interactive.pareto_explorer import build_pareto_explorer_html
 
-        frames = []
-        for suffix in suffixes:
-            path = output_dir / suffix / "pareto_front_points.csv"
-            if path.exists():
-                frames.append(pd.read_csv(path).assign(subset=suffix))
-        if not frames:
+        composite = _composite_points(output_dir, suffixes, "pareto_front_points.csv")
+        if composite is None:
             return None
-        points = pd.concat(frames, ignore_index=True)
-        if "shade" in points.columns:
-            points["shade"] = points["shade"].astype(object).where(points["shade"].notna(), None)
-        subsets = [(suffix, suffix) for suffix in suffixes if suffix in set(points["subset"])]
+        points, subsets = composite
         return build_pareto_explorer_html(
             points=points,
             subsets=subsets,
             save_path=output_dir / "pareto_front_explorer.html",
             page_title=f"{self.benchmark_name} Pareto explorer",
+        )
+
+    def _save_composite_trajectories_explorer(self, output_dir: Path, suffixes: list[str]) -> Path | None:
+        """``<output_dir>/tuning_trajectories_explorer.html``: the subsets' tuning trajectories (each subset's
+        ``<suffix>/tuning_trajectories/tuning_trajectories.csv``) on one trajectories explorer page, with a selector
+        for the subset to view, in ``suffixes``' order. Returns the page, or ``None`` when no subset wrote any.
+        """
+        from tabarena.plot.interactive.pareto_explorer import build_pareto_explorer_html
+
+        composite = _composite_points(output_dir, suffixes, "tuning_trajectories/tuning_trajectories.csv")
+        if composite is None:
+            return None
+        points, subsets = composite
+        return build_pareto_explorer_html(
+            points=points,
+            mode="trajectory",
+            subsets=subsets,
+            # Mirrored against the Pareto explorer, as on the subsets' own pages.
+            chips_side="right",
+            save_path=output_dir / "tuning_trajectories_explorer.html",
+            page_title=f"{self.benchmark_name} tuning trajectories",
         )
 
     def _generate_subset_figs(

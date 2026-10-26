@@ -77,6 +77,23 @@ def test_full_mode_renders_more_figures(tmp_path):
     assert (tmp_path / "pareto_n_configs_imp_tot_train.png").is_file()
 
 
+def test_uncovered_static_figures_leave_out_the_explorer_views(tmp_path):
+    """Improvability and Elo against train, inference and total time are the explorer's views; the figures of
+    quantities it does not show (baseline advantage, metric error, validation against test) are still drawn.
+    """
+    plot_tuning_trajectories_from_leaderboard(
+        leaderboard=_toy_leaderboard(),
+        fig_save_dir=tmp_path,
+        file_ext=".png",
+        static_figures="uncovered",
+    )
+    assert (tmp_path / "tuning_trajectories_explorer.html").is_file()
+    for name in ("imp", "elo", "imp_infer", "elo_infer", "imp_total", "elo_total", "imp_tot_train"):
+        assert not (tmp_path / f"pareto_n_configs_{name}.png").exists(), name
+    for name in ("adv", "err_tot_train", "elo_val", "imp_vs", "elo_overfit"):
+        assert (tmp_path / f"pareto_n_configs_{name}.png").is_file(), name
+
+
 def test_a_shaded_system_carries_its_shade_into_the_explorer(tmp_path):
     plot_tuning_trajectories_from_leaderboard(
         leaderboard=_toy_leaderboard(),

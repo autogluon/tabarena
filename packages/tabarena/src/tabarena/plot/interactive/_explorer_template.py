@@ -16,9 +16,10 @@ selector (e.g. train, inference or total time; per 1K samples or per task;
 median or mean) that re-anchor the Pareto front, a subset selector when the
 page holds several task subsets (each point names its ``subset``), hover
 tooltips with exact values, dashed-ring marking of partially imputed methods,
-typed axis limits kept per view (subset, metric and time axis), an editable
-figure title drawn above the chart (by default the page's title and subset),
-methods renamed from their chips, and a collapsible data table.
+typed axis limits kept per view (subset, metric and time axis), unselected
+methods greyed out or hidden, a typed chart size, an editable figure title drawn above the chart (by default the page's title
+and subset), methods renamed from their chips, a collapsible data table, and a
+"Save view" button that downloads the page opening on the current view.
 """
 
 from __future__ import annotations
@@ -47,6 +48,8 @@ __BASE_CSS__
   }
 
   .legendstrip .legendbreak { flex-basis: 100%; height: 0; }
+  /* A typed chart width caps the legend's width, padding included, so the exports match the chart. */
+  .mainbox .legendstrip { box-sizing: border-box; }
   .chartbox { position: relative; }
   /* The chart is sized in device pixels by render() rather than scaled from a
      viewBox: scaling stretched the type along with the plot, and a viewBox tall
@@ -107,6 +110,8 @@ __BASE_CSS__
 <body>
   <div class="viewbar">
     <button class="btn" id="btn-paper" title="White background, chart and legend only — for slides and papers">Paper view</button>
+    <button class="btn" id="btn-save-view"
+      title="Download this page opening on the current view (subset, axes, selection, title, limits, size and names); it stays editable">Save view</button>
   </div>
   <div class="explorer-grid" id="grid">
     <div class="sidebox">
@@ -127,6 +132,8 @@ __BASE_CSS__
           <button class="btn" id="btn-front">Pareto front</button>
           <button class="btn" id="btn-all">All</button>
           <button class="btn" id="btn-none">Clear</button>
+          <button class="btn toggle" id="btn-hide-off"
+            title="Hide the unselected methods instead of greying them out; the dashed front then joins the shown points">Hide unselected</button>
           <button class="btn" id="btn-reset-names" hidden title="Back to the methods' own names">Reset names</button>
         </div>
         <div class="limits" id="limits" role="group" aria-label="Axis limits for this view">
@@ -139,6 +146,15 @@ __BASE_CSS__
           <input id="lim-ymax" type="number" step="any" aria-label="Y-axis maximum">
           <div class="btnrow">
             <button class="btn" id="btn-auto-limits" title="Back to the automatic limits for this view">Auto limits</button>
+          </div>
+        </div>
+        <div class="limits" id="chart-size" role="group" aria-label="Chart size in pixels">
+          <span>Chart size</span><span class="limits-head">width</span><span class="limits-head">height</span>
+          <span>px</span>
+          <input id="size-w" type="number" step="10" min="240" aria-label="Chart width in pixels">
+          <input id="size-h" type="number" step="10" min="200" aria-label="Chart height in pixels">
+          <div class="btnrow">
+            <button class="btn" id="btn-auto-size" title="Back to the panel's width and the default height">Auto size</button>
           </div>
         </div>
         <span class="hint">Click methods or family buttons to highlight &middot; &#9998; on a method renames it &middot; hover points for details</span>
@@ -165,11 +181,14 @@ __BASE_CSS__
     <div class="tblwrap" id="tblwrap"></div>
   </details>
 
+<script type="application/json" id="saved-view">null</script>
 <script>
 (function () {
   "use strict";
   const CONFIG = __CONFIG_JSON__;
   const POINTS = __POINTS_JSON__;
+  // The page as it loaded, before any script changed it: "Save view" writes a view into a copy of it.
+  const PRISTINE = document.documentElement.cloneNode(true);
 
 __BASE_JS__
 
@@ -197,6 +216,7 @@ __BASE_JS__
 
   const svg = document.getElementById("chart");
   const box = document.getElementById("chartbox");
+  const legendStrip = document.getElementById("legendstrip");
   const chipsBox = document.getElementById("chips");
   const controlsBox = document.querySelector(".controls");
   const tip = makeTooltip(box);
@@ -323,9 +343,9 @@ __BASE_JS__
 
   function mval(p, metric) { return p[metric.key]; }
 
-  function computeFront(metric) {
+  function computeFront(metric, among = SHOWN) {
     const xk = xKey;
-    const pts = [...SHOWN].sort((a, b) =>
+    const pts = [...among].sort((a, b) =>
       a[xk] - b[xk] || (metric.lowerBetter ? mval(a, metric) - mval(b, metric) : mval(b, metric) - mval(a, metric)));
     const verts = [];
     const methods = new Set();
@@ -349,7 +369,10 @@ __BASE_JS__
   // mid-field on Elo), so a set carried over from the previous metric would leave
   // methods drawn on the front but greyed out. `followFront` drops as soon as the
   // reader picks methods themselves, so their selection is never overwritten.
-  const state = { active: new Set(computeFront(metricByKey[metricKey]).methods), followFront: true };
+  // `hideOff` hides the unselected methods' points rather than greying them out.
+  const state = {
+    active: new Set(computeFront(metricByKey[metricKey]).methods), followFront: true, hideOff: !!CONFIG.hideUnselected,
+  };
   // Methods the host asks every chart to follow (`onFollowMessage`): drawn as active whatever the
   // chips select, and ringed. `hovered` is the method under the pointer in another chart of the
   // page (`onHoverMessage`), and `scale` the last render's axes, to ring it without a redraw.
@@ -417,6 +440,42 @@ __BASE_JS__
     render();
   });
 
+  // ---------- chart size ----------
+  // Typed for the page rather than per view, so a figure keeps its size whichever subset or axes it
+  // shows. An empty box takes the automatic size (the panel's width, `CHART_H` tall, both shown as
+  // placeholders); a size below the minimum is not used and is outlined dashed. The height is the
+  // plot's: a figure title adds its row above it.
+  const SIZE_KEYS = ["w", "h"];
+  const SIZE_MIN = { w: 240, h: 200 };
+  const sizeInputs = { w: document.getElementById("size-w"), h: document.getElementById("size-h") };
+  const typedSize = { w: null, h: null };
+  function usableSize(k) {
+    const v = typedSize[k];
+    return v != null && isFinite(v) && v >= SIZE_MIN[k] ? Math.round(v) : null;
+  }
+  function showSize(auto) {
+    for (const k of SIZE_KEYS) {
+      const bad = typedSize[k] != null && usableSize(k) == null;
+      sizeInputs[k].placeholder = String(auto[k]);
+      sizeInputs[k].setAttribute("aria-invalid", String(bad));
+      sizeInputs[k].title = bad ? `Not used: at least ${SIZE_MIN[k]} px` : "";
+    }
+  }
+  for (const k of SIZE_KEYS) {
+    sizeInputs[k].addEventListener("change", ev => {
+      const text = ev.target.value.trim();
+      typedSize[k] = text === "" ? null : Number(text);
+      render();
+    });
+  }
+  document.getElementById("btn-auto-size").addEventListener("click", () => {
+    for (const k of SIZE_KEYS) {
+      typedSize[k] = null;
+      sizeInputs[k].value = "";
+    }
+    render();
+  });
+
   // ---------- chart ----------
   // A flat, fixed-height plot: two of these panels then fit on one screen.
   const CHART_H = 400;
@@ -434,12 +493,16 @@ __BASE_JS__
     if (!box.clientWidth) return;
     const metric = metricByKey[metricKey];
     svg.textContent = "";
-    const W = Math.max(360, Math.round(box.clientWidth));
+    const autoW = Math.max(360, Math.round(box.clientWidth));
+    const W = usableSize("w") || autoW;
     const title = figTitle().trim();
     M = title ? { ...M_PLOT, t: M_PLOT.t + TITLE_H } : M_PLOT;
-    const H = CHART_H + (title ? TITLE_H : 0);
+    const H = (usableSize("h") || CHART_H) + (title ? TITLE_H : 0);
+    showSize({ w: autoW, h: CHART_H });
     svg.setAttribute("width", W);
     svg.setAttribute("height", H);
+    // The legend wraps to a typed width too: the exports are as wide as the wider of the two.
+    legendStrip.style.maxWidth = usableSize("w") ? W + "px" : "";
     // Keep the chip list from outgrowing the chart beside it.
     chipsBox.style.maxHeight = Math.max(170, H - controlsBox.offsetHeight + 20) + "px";
 
@@ -523,8 +586,13 @@ __BASE_JS__
     el("rect", { x: M.l, y: M.t, width: W - M.l - M.r, height: H - M.t - M.b }, clip);
     const plot = el("g", { "clip-path": "url(#plotclip)" }, svg);
 
-    // pareto front (always shown)
-    const front = computeFront(metric);
+    const isOn = m => state.active.has(m) || followed.has(m);
+    // The points drawn: every point, or with `hideOff` the selected methods' only. The axes'
+    // automatic limits stay those of every point, so they hold still while methods are toggled.
+    const visible = state.hideOff ? SHOWN.filter(p => isOn(p.method)) : SHOWN;
+
+    // pareto front (always shown), of the points drawn
+    const front = computeFront(metric, visible);
     const fv = front.verts;
     if (fv.length) {
       let d = `M${X(fv[0][0])},${metric.lowerBetter ? M.t : H - M.b}`;
@@ -533,14 +601,12 @@ __BASE_JS__
       el("path", { d, fill: "none", stroke: "var(--ink)", "stroke-width": 1.6, "stroke-dasharray": "7 5", opacity: 0.85 }, plot);
     }
 
-    const isOn = m => state.active.has(m) || followed.has(m);
-
     // connectors: variant links (scatter) / the trajectory itself
     const conn = el("g", {}, plot);
     for (const [method, pts] of byMethod) {
       if (pts.length < 2) continue;
       const on = isOn(method);
-      if (!TRAJECTORY && !on) continue; // scatter: connectors only for active methods
+      if (!on && (!TRAJECTORY || state.hideOff)) continue; // scatter: connectors only for active methods
       const dd = pts.map((p, i) => `${i ? "L" : "M"}${X(p[xKey])},${Y(mval(p, metric))}`).join(" ");
       el("path", {
         d: dd, fill: "none",
@@ -556,6 +622,7 @@ __BASE_JS__
     const ptsOn = el("g", {}, plot);
     for (const [method, pts] of byMethod) {
       const on = isOn(method);
+      if (!on && state.hideOff) continue;
       for (const p of pts) {
         const color = on ? famColor(p) : "var(--pt-muted)";
         // An active marker's edge is a darker shade of its face on the light surface and
@@ -638,7 +705,7 @@ __BASE_JS__
 
     // invisible hit targets on top (bigger than marks)
     const hits = el("g", {}, plot);
-    for (const p of SHOWN) {
+    for (const p of visible) {
       const h = el("circle", { cx: X(p[xKey]), cy: Y(mval(p, metric)), r: 12, fill: "transparent", cursor: "pointer" }, hits);
       h.addEventListener("mouseenter", ev => { showTip(p, ev); postHover(p.method); });
       h.addEventListener("mousemove", ev => tip.move(ev));
@@ -911,6 +978,14 @@ __BASE_JS__
   document.getElementById("btn-front").addEventListener("click", showFront);
   document.getElementById("btn-all").addEventListener("click", () => setActive([...byMethod.keys()]));
   document.getElementById("btn-none").addEventListener("click", () => setActive([]));
+  const hideOffBtn = document.getElementById("btn-hide-off");
+  hideOffBtn.style.setProperty("--fam", "var(--accent)");
+  hideOffBtn.setAttribute("aria-pressed", String(state.hideOff));
+  hideOffBtn.addEventListener("click", () => {
+    state.hideOff = !state.hideOff;
+    hideOffBtn.setAttribute("aria-pressed", String(state.hideOff));
+    render();
+  });
 
   // metric selector (hidden when only one metric is configured)
   const metricPick = document.getElementById("metricpick");
@@ -1063,6 +1138,44 @@ __BASE_JS__
   // the viewport, and that is the case that leaves a chart stuck at its minimum width.
   redrawOnResize(box, render);
   window.addEventListener("load", postHeight);
+
+  // ---------- saved view ----------
+  // Everything the reader set: the subset and axes, the selection (or following the front), the
+  // hidden-unselected toggle, and the titles, limits, size and names typed on the page.
+  function currentView() {
+    return {
+      subset: subsetKey, metric: metricKey, xAxis: xKey, active: [...state.active], followFront: state.followFront,
+      hideOff: state.hideOff, titles: [...titleBySubset], limits: [...limitsByView], size: { ...typedSize },
+      names: [...names],
+    };
+  }
+  // A saved view, applied before the first render; parts the page cannot use (a subset or axis it
+  // does not have, a method missing from the subset) are dropped.
+  function restoreView(v) {
+    if (SUBSETS && SUBSETS.some(s => s.key === v.subset)) subsetKey = v.subset;
+    if (metricByKey[v.metric]) metricKey = v.metric;
+    if (xAxisByKey[v.xAxis]) xKey = v.xAxis;
+    refilter();
+    for (const [k, t] of v.titles || []) titleBySubset.set(k, t);
+    for (const [k, l] of v.limits || []) limitsByView.set(k, l);
+    for (const k of SIZE_KEYS) {
+      typedSize[k] = v.size && v.size[k] != null ? Number(v.size[k]) : null;
+      sizeInputs[k].value = typedSize[k] == null ? "" : String(typedSize[k]);
+    }
+    for (const [m, n] of v.names || []) names.set(m, n);
+    state.hideOff = !!v.hideOff;
+    state.followFront = !!v.followFront;
+    state.active = state.followFront
+      ? new Set(computeFront(metricByKey[metricKey]).methods)
+      : new Set((v.active || []).filter(m => byMethod.has(m)));
+    subsetSelect.value = subsetKey;
+    metricSelect.value = metricKey;
+    xAxisSelect.value = xKey;
+    hideOffBtn.setAttribute("aria-pressed", String(state.hideOff));
+    resetNamesBtn.hidden = !names.size;
+    showTitle();
+  }
+  setUpSaveView(PRISTINE, currentView, restoreView, () => slugify(figTitle().trim() || document.title) + "-view");
 
   buildChips();
   buildLegend();

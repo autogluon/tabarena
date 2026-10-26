@@ -213,6 +213,35 @@ class TestParetoFocusKwargs:
         # The plain figure options still arrive alongside.
         assert all(kwargs["variant_markers"] is reporter.style_markers for kwargs in calls)
 
+    def test_without_static_figures_only_the_explorer_pages_are_written(self, monkeypatch, tmp_path):
+        """``static_figures=False`` skips the four static figures, whose views the explorer pages show and export."""
+        figures: list[dict] = []
+        pages: list[dict] = []
+        monkeypatch.setattr(module, "plot_pareto_focus", lambda **kwargs: figures.append(kwargs))
+        monkeypatch.setattr(module, "build_pareto_explorer_html", lambda **kwargs: pages.append(kwargs))
+        monkeypatch.setattr(module, "_init_global_rcparams", lambda: None)
+        reporter = LeaderboardReporter(output_dir=tmp_path, task_metadata=[])
+        leaderboard = pd.DataFrame(
+            {
+                "method": ["GBM (default)", "TabPFN-3"],
+                "config_type": ["GBM", None],
+                "elo": [1000.0, 1300.0],
+                "improvability": [0.2, 0.05],
+                "median_time_train_s_per_1K": [1.0, 5.0],
+                "median_time_infer_s_per_1K": [0.1, 0.5],
+            }
+        )
+
+        reporter.plot_pareto(leaderboard, framework_types=["GBM"], static_figures=False)
+
+        assert figures == []
+        assert len(pages) == 2
+
+    def test_eval_draws_every_static_figure_by_default(self):
+        import inspect
+
+        assert inspect.signature(LeaderboardReporter.eval).parameters["static_figures"].default == "all"
+
     def test_explorer_kwargs_reach_both_explorer_pages(self, monkeypatch, tmp_path):
         calls: list[dict] = []
         monkeypatch.setattr(module, "plot_pareto_focus", lambda **kwargs: None)

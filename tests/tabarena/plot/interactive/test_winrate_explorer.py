@@ -76,3 +76,34 @@ def test_win_rates_are_rounded_for_the_page(tmp_path):
 
 def test_a_single_method_has_nothing_to_compare(tmp_path):
     assert build_winrate_explorer_html(_matrix(["A (default)"]), save_path=tmp_path / "w.html") is None
+
+
+def test_the_figure_title_is_drawn_in_the_matrix_and_edited(tmp_path):
+    """The title opens on the builder's, sits in the figure above the column labels (so paper view and the exports
+    carry it), and the page's box edits it.
+    """
+    html = build_winrate_explorer_html(
+        _matrix(["A (default)", "B (default)"]), save_path=tmp_path / "winrate_explorer.html", title="large"
+    ).read_text()
+    assert '"title": "large"' in html
+    assert 'id="fig-title"' in html
+    assert 'id="title"' not in html
+    assert "const headerH = Math.max(Math.ceil(longest * 0.866) + 14, 2 * CAPTION_SIZE + 26) + titleH;" in html
+    assert "slugify(figTitle.trim() || document.title)" in html
+
+
+def test_models_are_renamed_for_display_only(tmp_path):
+    """A rename (preset by the builder or typed on a chip) changes what the matrix, chips and tooltips call a model, on
+    every variant; the model stays the key, and typed names are escaped where they become markup.
+    """
+    html = build_winrate_explorer_html(
+        _matrix(["A (default)", "A (tuned)", "B (default)"]),
+        save_path=tmp_path / "winrate_explorer.html",
+        method_names={"A": "Alpha <x>"},
+    ).read_text()
+    assert '"methodNames": {"A": "Alpha <x>"}' in html
+    assert "return names.has(model) ? names.get(model) + label.slice(model.length) : label;" in html
+    assert "const row = escHtml(labelText(rowLabel)), col = escHtml(labelText(colLabel));" in html
+    assert 'id="btn-reset-names"' in html
+    plain = build_winrate_explorer_html(_matrix(["A (default)", "B (default)"]), save_path=tmp_path / "plain.html")
+    assert '"methodNames": {}' in plain.read_text()

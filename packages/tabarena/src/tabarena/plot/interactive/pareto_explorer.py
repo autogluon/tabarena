@@ -112,6 +112,7 @@ def build_pareto_explorer_html(
     subsets: list[tuple[str, str]] | None = None,
     chips_side: str = "left",
     dim_off_front: bool = False,
+    hide_unselected: bool = False,
     method_names: dict[str, str] | None = None,
     page_title: str = "TabArena Pareto explorer",
 ) -> Path:
@@ -156,6 +157,10 @@ def build_pareto_explorer_html(
     dim_off_front
         Draw the active points that are not vertices of the current Pareto front
         smaller and fainter, so the front members stand out among a large selection.
+    hide_unselected
+        Open with the unselected methods hidden rather than greyed out, and the
+        dashed front drawn through the shown points only; the page's "Hide
+        unselected" button toggles it.
     method_names
         Display names by ``method``, for the chart's labels, the chips, the
         tooltips and the data table; the page's rename buttons edit them, and
@@ -222,6 +227,7 @@ def build_pareto_explorer_html(
         "subsets": [{"key": key, "label": label} for key, label in subsets] if subsets else None,
         "chipsSide": chips_side,
         "dimOffFront": dim_off_front,
+        "hideUnselected": hide_unselected,
         "methodNames": dict(method_names or {}),
     }
 

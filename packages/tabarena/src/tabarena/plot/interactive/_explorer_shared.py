@@ -699,6 +699,27 @@ EXPLORER_BASE_JS = r"""
     a.remove();
   }
 
+  // "Save view" (`#btn-save-view`) downloads the page as it loaded (`pristine`: a copy of the
+  // document taken before any script changed it) with `getView()` written into its `#saved-view`
+  // block, so the file opens on the current view and stays editable; at load, a saved view is handed
+  // to `applyView`. The JSON escapes "<", so no view can close the block's script element early.
+  function setUpSaveView(pristine, getView, applyView, filename) {
+    let saved = null;
+    try {
+      saved = JSON.parse(document.getElementById("saved-view").textContent);
+    } catch (e) {
+      saved = null;
+    }
+    if (saved) applyView(saved);
+    document.getElementById("btn-save-view").addEventListener("click", () => {
+      const page = pristine.cloneNode(true);
+      page.querySelector("#saved-view").textContent = JSON.stringify(getView()).replace(/</g, "\\u003c");
+      const url = URL.createObjectURL(new Blob(["<!doctype html>\n" + page.outerHTML], { type: "text/html" }));
+      downloadUrl(url, filename() + ".html");
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    });
+  }
+
   // Rasterize the export SVG into a canvas at `scale`, then hand it to `done`.
   function rasterize(svg, scale, done, fail) {
     const width = Number(svg.getAttribute("width")), height = Number(svg.getAttribute("height"));
