@@ -73,3 +73,19 @@ def test_every_chart_follows_and_relays_hover(tmp_path, kind):
     # A click on a method's marks asks the host to follow it on every chart.
     assert '"tabarena-explorer-pick"' in html
     assert html.count("pickMethod(") >= 2
+
+
+@pytest.mark.parametrize("kind", ["pareto", "trajectory", "winrate"])
+def test_a_view_is_saved_into_a_copy_of_the_page_as_it_loaded(tmp_path, kind):
+    """The "Save view" button writes the reader's view into the `#saved-view` block of a copy of the page taken before
+    any script changed it (before the theme stamp and every chart), and the page applies a saved view before its first
+    render.
+    """
+    html = BUILDERS[kind](tmp_path / f"{kind}.html").read_text(encoding="utf-8")
+    assert '<script type="application/json" id="saved-view">null</script>' in html
+    assert 'id="btn-save-view"' in html
+    pristine = html.index("const PRISTINE = document.documentElement.cloneNode(true);")
+    assert pristine < html.index('document.documentElement.setAttribute("data-theme", HASH_THEME)')
+    saved = html.index("setUpSaveView(PRISTINE, currentView, restoreView,")
+    assert saved < html.rindex("render();")
+    assert r'.replace(/</g, "\\u003c")' in EXPLORER_BASE_JS

@@ -233,7 +233,7 @@ def test_the_figure_title_is_drawn_in_the_chart_and_edited_per_subset(tmp_path):
     assert 'id="title"' not in html
     assert 'return [CONFIG.title, subset].filter(Boolean).join(" · ");' in html
     assert "titleBySubset.set(subsetKey, ev.target.value);" in html
-    assert "const H = CHART_H + (title ? TITLE_H : 0);" in html
+    assert 'const H = (usableSize("h") || CHART_H) + (title ? TITLE_H : 0);' in html
     titled = build_pareto_explorer_html(_scatter_points(), save_path=tmp_path / "titled.html", title="classification")
     assert '"title": "classification"' in titled.read_text()
 
@@ -252,3 +252,30 @@ def test_methods_are_renamed_for_display_only(tmp_path):
     assert 'id="btn-reset-names"' in html
     plain = build_pareto_explorer_html(_scatter_points(), save_path=tmp_path / "plain.html").read_text()
     assert '"methodNames": {}' in plain
+
+
+def test_the_chart_size_is_typed_for_the_page(tmp_path):
+    """A typed width and height replace the panel's width and the default height on every view, and the legend wraps
+    to a typed width, so the exports are as narrow as the chart.
+    """
+    html = build_pareto_explorer_html(_scatter_points(), save_path=tmp_path / "explorer.html").read_text()
+    assert 'id="size-w"' in html
+    assert 'id="size-h"' in html
+    assert 'id="btn-auto-size"' in html
+    assert 'const W = usableSize("w") || autoW;' in html
+    assert 'const H = (usableSize("h") || CHART_H) + (title ? TITLE_H : 0);' in html
+    assert 'legendStrip.style.maxWidth = usableSize("w") ? W + "px" : "";' in html
+
+
+def test_unselected_methods_can_be_hidden(tmp_path):
+    """Hidden rather than greyed out, unselected methods draw no points, connectors or hover targets, and the dashed
+    front joins the shown points; the builder can open the page that way.
+    """
+    html = build_pareto_explorer_html(_scatter_points(), save_path=tmp_path / "explorer.html").read_text()
+    assert '"hideUnselected": false' in html
+    assert 'id="btn-hide-off"' in html
+    assert "const visible = state.hideOff ? SHOWN.filter(p => isOn(p.method)) : SHOWN;" in html
+    assert "const front = computeFront(metric, visible);" in html
+    assert "for (const p of visible) {" in html
+    hidden = build_pareto_explorer_html(_scatter_points(), save_path=tmp_path / "hidden.html", hide_unselected=True)
+    assert '"hideUnselected": true' in hidden.read_text()

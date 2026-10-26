@@ -122,3 +122,74 @@ def test_the_composite_pareto_explorer_holds_every_subset_with_points(tmp_path):
 def test_the_composite_pareto_explorer_is_written_by_default():
     default = inspect.signature(AbstractArenaContext.generate_all_figs).parameters["save_composite_pareto_explorer"]
     assert default.default is None
+
+
+def test_the_composite_trajectories_explorer_holds_every_subset(tmp_path):
+    """One trajectories page over the subsets' `tuning_trajectories.csv`, in the subsets' order; a subset without
+    trajectories is left out.
+    """
+    import json
+    import re
+    from types import SimpleNamespace
+
+    import pandas as pd
+
+    for suffix, elo in (("all", 1500.0), ("tiny", 1400.0)):
+        (tmp_path / suffix / "tuning_trajectories").mkdir(parents=True)
+        pd.DataFrame(
+            {
+                "method": ["A", "A", "B"],
+                "family": ["Tree-based", "Tree-based", "Foundation Model"],
+                "shade": [None, None, None],
+                "x_train": [1.0, 20.0, 5.0],
+                "imp": [10.0, 8.0, 5.0],
+                "elo": [elo, elo + 50, elo + 100],
+                "n_configs": [1, 8, 1],
+            }
+        ).to_csv(tmp_path / suffix / "tuning_trajectories" / "tuning_trajectories.csv", index=False)
+    (tmp_path / "large").mkdir()  # no trajectories there
+
+    page = AbstractArenaContext._save_composite_trajectories_explorer(
+        SimpleNamespace(benchmark_name="Arena"), tmp_path, ["all", "large", "tiny"]
+    )
+
+    assert page == tmp_path / "tuning_trajectories_explorer.html"
+    html = page.read_text(encoding="utf-8")
+    config = json.loads(re.search(r"const CONFIG = (\{.*?\});\n", html).group(1))
+    assert [s["key"] for s in config["subsets"]] == ["all", "tiny"]
+    assert config["mode"] == "trajectory"
+    assert "<title>Arena tuning trajectories</title>" in html
+
+
+def test_the_composite_trajectories_explorer_follows_the_trajectories():
+    default = inspect.signature(AbstractArenaContext.generate_all_figs).parameters[
+        "save_composite_trajectories_explorer"
+    ]
+    assert default.default is None
+
+
+def test_static_figures_reach_the_compare_and_trajectory_passes(monkeypatch):
+    """By default the static figures an explorer covers are left out; explicit pass kwargs win."""
+    captured = []
+
+    def fake_subset_figs(self, subset, **kwargs):
+        captured.append(kwargs)
+        return ("", None)
+
+    monkeypatch.setattr(AbstractArenaContext, "_generate_subset_figs", fake_subset_figs)
+    monkeypatch.setattr(AbstractArenaContext, "_default_subsets", property(lambda self: [[]]))
+    context = AbstractArenaContext.__new__(AbstractArenaContext)
+    monkeypatch.setattr(AbstractArenaContext, "_save_composite_pareto_explorer", lambda *args: None)
+
+    AbstractArenaContext.generate_all_figs(context, output_dir="unused", max_workers=1)
+    assert captured[-1]["compare_kwargs"]["static_figures"] == "uncovered"
+    assert captured[-1]["tuning_trajectory_kwargs"]["static_figures"] == "uncovered"
+
+    AbstractArenaContext.generate_all_figs(
+        context, output_dir="unused", max_workers=1, compare_kwargs={"static_figures": "all"}
+    )
+    assert captured[-1]["compare_kwargs"]["static_figures"] == "all"
+    assert captured[-1]["tuning_trajectory_kwargs"]["static_figures"] == "uncovered"
+
+    with pytest.raises(ValueError, match="static_figures"):
+        AbstractArenaContext.generate_all_figs(context, output_dir="unused", max_workers=1, static_figures="none")

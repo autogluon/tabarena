@@ -64,6 +64,7 @@ def build_winrate_explorer_html(
     page_title: str = "TabArena win-rate matrix",
     system_names: frozenset[str] = frozenset(),
     system_shades: dict[str, str] | None = None,
+    method_names: dict[str, str] | None = None,
 ) -> Path | None:
     """Render the interactive win-rate matrix.
 
@@ -76,12 +77,17 @@ def build_winrate_explorer_html(
     save_path
         Where to write the page.
     title
-        Headline shown above the matrix; omitted when ``None``.
+        The figure title the page opens on, drawn above the matrix (so paper view and
+        the exports carry it) and editable on the page; none when ``None``.
     system_names
         Display names of the systems, which are never classified from their name.
     system_shades
         Display name -> shade of each shaded system (see
         :func:`tabarena.website.website_format.system_shades`).
+    method_names
+        Display names by model (a matrix label without its variant tag), for the
+        matrix's labels, the chips and the tooltips; the page's rename buttons edit
+        them, and a model without one shows its own name.
 
     Returns:
     -------
@@ -121,6 +127,7 @@ def build_winrate_explorer_html(
         "methods": methods,
         "matrix": values,
         "variants": list(_VARIANT_LABELS.values()),
+        "methodNames": dict(method_names or {}),
     }
     html = render_explorer_html(WINRATE_TEMPLATE, page_title=page_title, config=config, points=points)
 

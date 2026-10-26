@@ -2,8 +2,9 @@
 
 The interactive twin of the static ``winrate_matrix`` figure: the same square
 heatmap of pairwise win rates, plus hover values, two sets of toggles (models by
-family, and tuning variants), a reordering control, paper view and SVG/PNG/PDF
-export.
+family, and tuning variants), a reordering control, an editable figure title drawn
+above the matrix, models renamed from their chips, paper view, SVG/PNG/PDF export, and a
+"Save view" button that downloads the page opening on the current view.
 
 The heatmap is live SVG, which is what lets the shared export helpers build a
 figure file from it (see
@@ -47,14 +48,45 @@ __BASE_CSS__
   .chips-head { flex: 1 1 100%; font-size: 12.5px; color: var(--muted); font-weight: 600; }
   .chips { margin: 2px 0 10px; flex-direction: row; flex-wrap: wrap; gap: 12px 28px; align-items: flex-start; }
   .chiprow { flex: 0 1 auto; min-width: 0; }
+
+  /* The figure title box spans the controls. */
+  .titlepick { width: 100%; }
+  .titlepick input {
+    flex: 1 1 auto; min-width: 0; box-sizing: border-box;
+    font: 600 12.5px/1.2 system-ui, sans-serif; color: var(--ink);
+    background: var(--chip-bg); border: 1px solid var(--line); border-radius: 7px; padding: 5px 7px;
+  }
+  .titlepick input::placeholder { color: var(--muted); font-weight: 500; }
+  .titlepick input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  /* A model chip's rename button sits on the chip's corner while the chip is hovered or focused,
+     so the chips keep their layout; the rename box takes the chip's place while it is open. */
+  .chipwrap { position: relative; display: inline-flex; }
+  .chip-edit {
+    position: absolute; top: -7px; right: -6px; width: 18px; height: 18px; padding: 0;
+    display: none; align-items: center; justify-content: center;
+    font: 600 11px/1 system-ui, sans-serif; color: var(--ink); cursor: pointer;
+    background: var(--card); border: 1px solid var(--line); border-radius: 50%;
+  }
+  .chipwrap:hover .chip-edit, .chipwrap:focus-within .chip-edit { display: inline-flex; }
+  .chip-edit:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .chip-rename {
+    font: 500 12.5px/1 system-ui, sans-serif; color: var(--ink); background: var(--card);
+    border: 1px solid var(--accent); border-radius: 999px; padding: 4px 9px; min-width: 9ch; max-width: 100%;
+  }
+  .chip-rename:focus-visible { outline: none; }
 </style>
 </head>
 <body>
   <div class="viewbar">
     <button class="btn" id="btn-paper" title="White background, matrix only — for slides and papers">Paper view</button>
+    <button class="btn" id="btn-save-view"
+      title="Download this page opening on the current view (models, variants, order, size, title and names); it stays editable">Save view</button>
   </div>
-  <p class="explorer-title" id="title"></p>
   <div class="controls">
+    <label class="metricpick titlepick">Title
+      <input id="fig-title" type="text" spellcheck="false" placeholder="No title" aria-label="Figure title">
+    </label>
     <button class="btn toggle" id="btn-best"
       title="Keep only each model's best-performing variant, one row and column per model — as the static figure does">One per model</button>
     <span class="grouplabel">Variants</span>
@@ -74,7 +106,8 @@ __BASE_CSS__
         <option value="1">100%</option>
       </select>
     </label>
-    <span class="hint">Click a row or column label to remove that model</span>
+    <button class="btn" id="btn-reset-names" hidden title="Back to the models' own names">Reset names</button>
+    <span class="hint">Click a row or column label to remove that model &middot; &#9998; on a model chip renames it</span>
   </div>
   <div class="exportbar" id="exportbar" hidden>
     <span class="hint">Export figure</span>
@@ -88,11 +121,14 @@ __BASE_CSS__
   </div>
   <div class="tooltip"></div>
 
+<script type="application/json" id="saved-view">null</script>
 <script>
 (function () {
   "use strict";
   const CONFIG = __CONFIG_JSON__;
   const POINTS = __POINTS_JSON__;
+  // The page as it loaded, before any script changed it: "Save view" writes a view into a copy of it.
+  const PRISTINE = document.documentElement.cloneNode(true);
 
 __BASE_JS__
 
@@ -157,6 +193,14 @@ __BASE_JS__
   // figure. It sits beside the rows rather than above them, so it is in view
   // wherever the reader is in a tall matrix.
   const BAR_W = 30, BAR_GAP = 32, TICK_SIZE = 15;
+  // The figure title's row above the column labels, when there is a title.
+  const TITLE_SIZE = 24, TITLE_H = TITLE_SIZE + 22;
+
+  // The figure title, drawn into the figure so that paper view and the exports carry it. It opens on
+  // the builder's title (by default the subset's name), and an emptied box draws none.
+  const titleInput = document.getElementById("fig-title");
+  let figTitle = CONFIG.title || "";
+  titleInput.value = figTitle;
   const SCALE_CAPTION = "win rate of the row over the column";
   const SCALE_CAPTION_SHORT = "win rate";
 
@@ -188,11 +232,23 @@ __BASE_JS__
     return width > 0 ? width : text.length * (size || LABEL_SIZE) * 0.58;
   }
 
+  // Display names: what the matrix, chips and tooltips call a model. The model stays the key
+  // everywhere else (the selection, the host's messages). The builder can preset names
+  // (`CONFIG.methodNames`); a model renamed on its chip keeps the name on all its variants, and an
+  // empty name gives the model its own back.
+  const names = new Map(Object.entries(CONFIG.methodNames || {}));
+  function displayName(model) { return names.get(model) || model; }
+  function escHtml(text) {
+    return String(text).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+  }
+
   // Labels always carry their variant tag — "(default)" / "(tuned + ensembled)" —
   // including in one-per-model mode, where the tag is precisely what says which
-  // variant survived the filter. The static figure labels them the same way.
+  // variant survived the filter. The static figure labels them the same way. A renamed
+  // model keeps its tag after the new name.
   function labelText(label) {
-    return label;
+    const model = info.get(label).model;
+    return names.has(model) ? names.get(model) + label.slice(model.length) : label;
   }
 
   function shown() {
@@ -246,7 +302,9 @@ __BASE_JS__
     // corner box rather than above the columns, where long names would cross them.
     // Floor the header so the two corner captions always have room, even when
     // every selected name is short.
-    const headerH = Math.max(Math.ceil(longest * 0.866) + 14, 2 * CAPTION_SIZE + 26);
+    const title = figTitle.trim();
+    const titleH = title ? TITLE_H : 0;
+    const headerH = Math.max(Math.ceil(longest * 0.866) + 14, 2 * CAPTION_SIZE + 26) + titleH;
     const labelW = Math.ceil(longest) + 16;
     const n = list.length;
     // A -60° label anchored at (x, y) reaches (x + 0.5L, y - 0.866L): it grows up
@@ -264,6 +322,15 @@ __BASE_JS__
     svg.setAttribute("width", width);
     svg.setAttribute("height", height);
     svg.setAttribute("viewBox", "0 0 " + width + " " + height);
+
+    if (title) {
+      // Centred over the figure, and set smaller where the figure is too narrow for it.
+      const size = Math.max(12, Math.min(TITLE_SIZE, TITLE_SIZE * (width - 16) / textWidth(title, TITLE_SIZE, 700)));
+      el("text", {
+        x: width / 2, y: TITLE_SIZE + 4, "font-size": size, "font-weight": 700,
+        "text-anchor": "middle", fill: "var(--ink)",
+      }, svg).textContent = title;
+    }
 
     // Captions, stacked in the corner box and bold, as on the static figure.
     const capB = el("text", {
@@ -436,10 +503,11 @@ __BASE_JS__
 
   function showTip(ev, rowLabel, colLabel, rate) {
     tooltip.style.display = "block";
+    const row = escHtml(labelText(rowLabel)), col = escHtml(labelText(colLabel));
     tooltip.innerHTML =
-      '<div class="t-name">' + rowLabel + " vs " + colLabel + "</div>" +
-      "<div>" + rowLabel + " wins " + fmtNum(rate * 100, 1) + "% of tasks</div>" +
-      '<div class="t-var">' + colLabel + " wins " + fmtNum((1 - rate) * 100, 1) + "%</div>" + PICK_HINT;
+      '<div class="t-name">' + row + " vs " + col + "</div>" +
+      "<div>" + row + " wins " + fmtNum(rate * 100, 1) + "% of tasks</div>" +
+      '<div class="t-var">' + col + " wins " + fmtNum((1 - rate) * 100, 1) + "%</div>" + PICK_HINT;
     const box = document.body.getBoundingClientRect();
     tooltip.style.left = (ev.clientX - box.left + 14) + "px";
     tooltip.style.top = (ev.clientY - box.top + 12) + "px";
@@ -475,24 +543,94 @@ __BASE_JS__
       const set = document.createElement("div");
       set.className = "chipset";
       for (const model of members) {
+        const wrap = document.createElement("span");
+        wrap.className = "chipwrap";
         const b = document.createElement("button");
         b.className = "chip";
         b.style.setProperty("--fam", famColor(POINTS.find(p => p.model === model)));
-        b.innerHTML = '<span class="dot"></span><span></span>';
-        b.lastChild.textContent = model;
-        b.title = model + " — best mean win rate " + fmtNum(meanOfModel(model) * 100, 1) + "%";
+        b.innerHTML = '<span class="dot"></span><span class="chip-label"></span>';
         b.addEventListener("click", () => toggleModel(model));
-        set.appendChild(b);
+        const edit = document.createElement("button");
+        edit.className = "chip-edit";
+        edit.textContent = "✎";
+        edit.addEventListener("click", ev => { ev.stopPropagation(); startRename(model, wrap, b, edit); });
+        wrap.appendChild(b);
+        wrap.appendChild(edit);
+        set.appendChild(wrap);
         chipByModel.set(model, b);
+        nameChip(model);
       }
       row.appendChild(set);
       chipsBox.appendChild(row);
     }
   }
+  // A chip's label and hover text from the model's display name.
+  function nameChip(model) {
+    const b = chipByModel.get(model);
+    const edit = b.parentElement.querySelector(".chip-edit");
+    b.querySelector(".chip-label").textContent = displayName(model);
+    b.title = displayName(model) + (names.has(model) ? " (" + model + ")" : "") +
+      " — best mean win rate " + fmtNum(meanOfModel(model) * 100, 1) + "%";
+    edit.title = "Rename " + displayName(model);
+    edit.setAttribute("aria-label", "Rename " + displayName(model));
+  }
+  // The rename box opens in the chip's place: Enter or leaving the box applies the name, Escape
+  // keeps the old one. Both keys stop at the box (Escape elsewhere opens paper view, and an Enter
+  // reaching the chip would toggle it); closed from the keyboard, the box hands the focus back to its
+  // chip on the next frame.
+  function startRename(model, wrap, chip, edit) {
+    const input = document.createElement("input");
+    input.className = "chip-rename";
+    input.type = "text";
+    input.spellcheck = false;
+    input.value = displayName(model);
+    input.placeholder = model;
+    input.size = Math.max(9, input.value.length + 1);
+    input.setAttribute("aria-label", "New name for " + model);
+    chip.hidden = true;
+    edit.hidden = true;
+    wrap.insertBefore(input, chip);
+    input.focus();
+    input.select();
+    let open = true;
+    function close(apply, refocus) {
+      if (!open) return;
+      open = false;
+      input.remove();
+      chip.hidden = false;
+      edit.hidden = false;
+      if (apply) setName(model, input.value);
+      if (refocus) requestAnimationFrame(() => chip.focus());
+    }
+    input.addEventListener("keydown", ev => {
+      if (ev.key !== "Enter" && ev.key !== "Escape") return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      close(ev.key === "Enter", true);
+    });
+    input.addEventListener("blur", () => close(true, false));
+  }
+  const resetNamesBtn = document.getElementById("btn-reset-names");
+  function setName(model, text) {
+    const name = text.trim();
+    if (!name || name === model) names.delete(model); else names.set(model, name);
+    refreshNames();
+  }
+  function refreshNames() {
+    for (const model of chipByModel.keys()) nameChip(model);
+    resetNamesBtn.hidden = !names.size;
+    render();
+  }
+  resetNamesBtn.addEventListener("click", () => {
+    names.clear();
+    refreshNames();
+  });
+  resetNamesBtn.hidden = !names.size;
+
   function syncChips() {
     for (const [model, b] of chipByModel) {
       b.setAttribute("aria-pressed", String(state.models.has(model)));
-      b.hidden = state.excluded.has(model);
+      b.parentElement.hidden = state.excluded.has(model);
     }
     for (const [fam, b] of famChips) {
       const members = familyModels(fam);
@@ -546,7 +684,10 @@ __BASE_JS__
   }
 
   // ---------- boot ----------
-  if (CONFIG.title) document.getElementById("title").textContent = CONFIG.title;
+  titleInput.addEventListener("input", ev => {
+    figTitle = ev.target.value;
+    render();
+  });
   document.getElementById("zoom-select").addEventListener("change", ev => {
     state.zoom = ev.target.value;
     applyZoom();
@@ -577,7 +718,35 @@ __BASE_JS__
   });
   bestBtn.setAttribute("aria-pressed", String(state.best));
   setUpPaperView(render);
-  setUpExport(() => [{ svg: svg, dx: 0 }], () => slugify(CONFIG.title || document.title));
+  setUpExport(() => [{ svg: svg, dx: 0 }], () => slugify(figTitle.trim() || document.title));
+
+  // ---------- saved view ----------
+  // Everything the reader set: the models and variants shown, one per model or not, the order and
+  // size, the title and the names. Applied before the first render; models and variants the page
+  // does not have are dropped.
+  function currentView() {
+    return {
+      models: [...state.models], variants: [...state.variants], best: state.best, order: state.order, zoom: state.zoom,
+      title: figTitle, names: [...names],
+    };
+  }
+  function restoreView(v) {
+    if (Array.isArray(v.models)) state.models = new Set(v.models.filter(m => MODELS.includes(m)));
+    if (Array.isArray(v.variants)) state.variants = new Set(v.variants.filter(x => VARIANTS.includes(x)));
+    if (typeof v.best === "boolean") state.best = v.best;
+    const orderSelect = document.getElementById("order-select");
+    const zoomSelect = document.getElementById("zoom-select");
+    if ([...orderSelect.options].some(o => o.value === v.order)) state.order = v.order;
+    if ([...zoomSelect.options].some(o => o.value === v.zoom)) state.zoom = v.zoom;
+    orderSelect.value = state.order;
+    zoomSelect.value = state.zoom;
+    if (typeof v.title === "string") figTitle = v.title;
+    titleInput.value = figTitle;
+    for (const [m, n] of v.names || []) names.set(m, n);
+    bestBtn.setAttribute("aria-pressed", String(state.best));
+    resetNamesBtn.hidden = !names.size;
+  }
+  setUpSaveView(PRISTINE, currentView, restoreView, () => slugify(figTitle.trim() || document.title) + "-view");
   buildVariantBtns();
   buildChips();
   syncChips();
