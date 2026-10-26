@@ -10,6 +10,7 @@ fits inside the call that transforms every part, so a prediction rebuilds the da
 from __future__ import annotations
 
 import contextlib
+import copy
 import io
 import time
 from contextlib import contextmanager
@@ -18,7 +19,7 @@ import numpy as np
 import pandas as pd
 import torch
 from bin.tabm import pipeline as tabm_pipeline
-from bin.tabm.core import Dataset, logits_to_probs, seed_everything, to_torch
+from bin.tabm.core import Dataset, compute_metrics_for_parts, logits_to_probs, seed_everything, to_torch
 from bin.tabm.hparams import resolve
 
 
@@ -50,26 +51,57 @@ def bf16_forward(model: torch.nn.Module, device: torch.device):
         model.__dict__.pop("forward", None)
 
 
-class EpochDeadline:
-    """TabArena's fit time limit. The package's train modules run to their epoch budget, as in its standalone
-    experiments; this wraps the validation call they make after each epoch and sets ``patience`` to 0 once the next
-    epoch would end past the deadline.
+class TrainingGuard:
+    """Keeps every configuration's fit inside TabArena's requirements without changing the package's train modules.
+
+    - Time limit: the package's train modules run to their epoch budget, as in its standalone experiments. After each
+      epoch's validation call, ``patience`` is set to 0 once the next epoch would end past the deadline.
+    - Finite results: the guard keeps the weights of the epoch with the best validation score. A configuration whose
+      loss or predictions leave the finite range ends training there (an early stop) instead of with the error the
+      train modules raise; ``restore`` puts those weights back.
     """
 
-    def __init__(self, inference_fn, deadline: float | None):
+    def __init__(self, model, inference_fn, deadline: float | None, epoch_parts):
         self.inference_fn = inference_fn
         self.deadline = deadline
+        self.epoch_parts = epoch_parts
         self.start = time.monotonic()
         self.n_epochs = 0
+        self.best_score = float("inf")
+        self.best_state = copy.deepcopy(model.state_dict())
 
     def __call__(self, model, tensors, dataset, trial_params, device, parts):
         predictions = self.inference_fn(model, tensors, dataset, trial_params, device, parts)
-        if self.deadline is not None and tuple(parts) == ("val",):
-            self.n_epochs += 1
-            now = time.monotonic()
-            if now + (now - self.start) / self.n_epochs >= self.deadline:
-                trial_params["patience"] = 0
+        if tuple(parts) != self.epoch_parts:
+            return predictions
+        if all(np.isfinite(np.asarray(predictions[part])).all() for part in predictions):
+            score = float(compute_metrics_for_parts(dataset, predictions, ("val",))["val"]["score"])
+            if score < self.best_score:
+                self.best_score = score
+                self.best_state = copy.deepcopy(model.state_dict())
+        self.n_epochs += 1
+        now = time.monotonic()
+        if self.deadline is not None and now + (now - self.start) / self.n_epochs >= self.deadline:
+            trial_params["patience"] = 0
         return predictions
+
+    def restore(self, model, err: Exception) -> None:
+        """Load the best finite epoch's weights after a train module stopped on a non-finite loss or prediction."""
+        if not any(s in str(err) for s in ("non-finite", "NaN", "infinity", "valid checkpoint")):
+            raise err
+        model.load_state_dict(self.best_state)
+
+
+def bounded_inverse(artifacts: dict, y_train: np.ndarray) -> dict:
+    """Clip regression outputs to the training targets' range, widened by half its width on each side, before the
+    package's inverse target transform (an exp or expm1 of an extreme output would overflow).
+    """
+    if "inverse_transform" not in artifacts:
+        return artifacts
+    lo, hi = float(np.min(y_train)), float(np.max(y_train))
+    pad = 0.5 * max(hi - lo, 1.0)
+    inverse = artifacts["inverse_transform"]
+    return {**artifacts, "inverse_transform": lambda values: inverse(np.clip(values, lo - pad, hi + pad))}
 
 
 class AgenticTabMImplementation:
@@ -134,6 +166,8 @@ class AgenticTabMImplementation:
         x_num, num_artifacts = self._stage("numerical_preprocess_idx")(x_num, config)
         x_cat, cat_artifacts = self._stage("categorical_preprocess_idx")(x_cat, config)
         y_prepared, target_artifacts = self._stage("target_preprocess_idx")(y, config)
+        if self.task_type == "regression":
+            target_artifacts = bounded_inverse(target_artifacts, y_prepared["train"])
         dataset = Dataset(
             x_num=x_num,
             x_cat=x_cat,
@@ -170,7 +204,7 @@ class AgenticTabMImplementation:
             loss_fn = self._stage("loss_idx")
             optimizer_builder = self._stage("optimizer_idx")
             train_fn = self._stage("train_idx")
-            inference_fn = EpochDeadline(self._stage("inference_idx"), deadline)
+            guard = TrainingGuard(self.model_, self._stage("inference_idx"), deadline, ("val",))
             patience = self.trial_params_["patience"]
             try:
                 train_fn(
@@ -178,12 +212,14 @@ class AgenticTabMImplementation:
                     tensors,
                     dataset,
                     self.trial_params_,
-                    inference_fn,
+                    guard,
                     loss_fn,
                     optimizer_builder,
                     self.device_,
                     self.seed,
                 )
+            except (RuntimeError, ValueError) as err:
+                guard.restore(self.model_, err)
             finally:
                 self.model_.__dict__.pop("forward", None)  # the bf16 closure; see ``bf16_forward``
             self.trial_params_["patience"] = patience
