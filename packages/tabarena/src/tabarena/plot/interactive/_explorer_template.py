@@ -343,7 +343,24 @@ __BASE_JS__
 
   function mval(p, metric) { return p[metric.key]; }
 
-  function computeFront(metric, among = SHOWN) {
+  // A point is on a view when it has a value on both of its axes (a time axis, on a log scale, also
+  // needs a positive one). Only a page built with `drop_incomplete=False` holds points that lack one;
+  // each view then draws the points it has.
+  function onView(p, metric = metricByKey[metricKey]) {
+    const x = p[xKey], y = mval(p, metric);
+    return x != null && isFinite(x) && (xAxis().scale === "linear" || x > 0) && y != null && isFinite(y);
+  }
+  // `byMethod`, keeping each method's points on the current view.
+  function viewPoints(metric) {
+    const out = new Map();
+    for (const [method, pts] of byMethod) {
+      const kept = pts.filter(p => onView(p, metric));
+      if (kept.length) out.set(method, kept);
+    }
+    return out;
+  }
+
+  function computeFront(metric, among = SHOWN.filter(p => onView(p, metric))) {
     const xk = xKey;
     const pts = [...among].sort((a, b) =>
       a[xk] - b[xk] || (metric.lowerBetter ? mval(a, metric) - mval(b, metric) : mval(b, metric) - mval(a, metric)));
@@ -413,8 +430,11 @@ __BASE_JS__
       input.placeholder = fmtLimit(auto[k]);
       if (!input.dataset.editing) input.value = typed[k] == null ? "" : String(typed[k]);
       input.setAttribute("aria-invalid", String(bad[k]));
-      input.title = bad[k] ? "Not used: x must be above 0, and min below max" : "";
+      const positive = k.startsWith("x") && xAxis().scale !== "linear";
+      input.title = bad[k] ? (positive ? "Not used: x must be above 0, and min below max" : "Not used: min must be below max") : "";
     }
+    // A metric on the x-axis (linear) may be negative.
+    limitInputs.xmin.min = limitInputs.xmax.min = xAxis().scale === "linear" ? "" : "0";
   }
   for (const k of LIMIT_KEYS) {
     limitInputs[k].addEventListener("input", ev => { ev.target.dataset.editing = "1"; });
@@ -506,10 +526,16 @@ __BASE_JS__
     // Keep the chip list from outgrowing the chart beside it.
     chipsBox.style.maxHeight = Math.max(170, H - controlsBox.offsetHeight + 20) + "px";
 
-    // Automatic limits from the points shown, replaced by the view's typed ones where usable.
-    const xsAll = SHOWN.map(p => p[xKey]);
-    const vals = SHOWN.map(p => mval(p, metric));
-    const auto = { xmin: Math.min(...xsAll) * 0.65, xmax: Math.max(...xsAll) * 1.6 };
+    // Automatic limits from the points on the view, replaced by the view's typed ones where usable.
+    const VIEW = SHOWN.filter(p => onView(p, metric));
+    const viewBy = viewPoints(metric);
+    const linearX = xAxis().scale === "linear";
+    const xsAll = VIEW.length ? VIEW.map(p => p[xKey]) : (linearX ? [0, 1] : [1, 10]);
+    const vals = VIEW.length ? VIEW.map(p => mval(p, metric)) : [0, 1];
+    const xPad = (Math.max(...xsAll) - Math.min(...xsAll)) * 0.07 || 1;
+    const auto = linearX
+      ? { xmin: Math.min(...xsAll) - xPad, xmax: Math.max(...xsAll) + xPad }
+      : { xmin: Math.min(...xsAll) * 0.65, xmax: Math.max(...xsAll) * 1.6 };
     if (metric.fromZero) {
       auto.ymin = 0; auto.ymax = Math.max(...vals) * 1.07;
     } else {
@@ -517,35 +543,42 @@ __BASE_JS__
       auto.ymin = Math.min(...vals) - pad; auto.ymax = Math.max(...vals) + pad;
     }
     const typed = typedLimits();
-    const xr = axisRange(typed.xmin, typed.xmax, auto.xmin, auto.xmax, true);
+    const xr = axisRange(typed.xmin, typed.xmax, auto.xmin, auto.xmax, !linearX);
     const yr = axisRange(typed.ymin, typed.ymax, auto.ymin, auto.ymax, false);
     showLimits(auto, xr, yr);
 
-    // x scale (log)
+    // x scale: log for a time axis, linear for a metric one
     const xmin = xr.lo, xmax = xr.hi;
-    const lx0 = Math.log10(xmin), lx1 = Math.log10(xmax);
-    const X = v => M.l + (Math.log10(v) - lx0) / (lx1 - lx0) * (W - M.l - M.r);
+    const xt = v => (linearX ? v : Math.log10(v));
+    const lx0 = xt(xmin), lx1 = xt(xmax);
+    const X = v => M.l + (xt(v) - lx0) / (lx1 - lx0) * (W - M.l - M.r);
     const y0 = yr.lo, y1 = yr.hi;
     const Y = v => M.t + (1 - (v - y0) / (y1 - y0)) * (H - M.t - M.b);
     const inView = p => p[xKey] >= xmin && p[xKey] <= xmax && mval(p, metric) >= y0 && mval(p, metric) <= y1;
 
     // grid + axes
     const grid = el("g", {}, svg);
-    // Decades; on a range under two decades wide (e.g. a narrow typed range), 2x and 5x too.
-    const steps = lx1 - lx0 < 2 ? [1, 2, 5] : [1];
+    // A log axis ticks its decades, and on a range under two decades wide (e.g. a narrow typed
+    // range) 2x and 5x too; a linear one ticks round steps.
     const xTicks = [];
-    for (let e = Math.floor(lx0); e <= Math.ceil(lx1); e++) {
-      for (const d of steps) {
-        const v = d * Math.pow(10, e);
-        if (v >= xmin && v <= xmax) xTicks.push({ v, e });
+    if (linearX) {
+      const tv = ticks(xmin, xmax, 6);
+      const decimals = Math.max(0, Math.ceil(-Math.log10(tv.length > 1 ? tv[1] - tv[0] : 1) - 1e-9));
+      for (const v of tv) xTicks.push({ v, label: fmtNum(v, decimals) });
+    } else {
+      const steps = lx1 - lx0 < 2 ? [1, 2, 5] : [1];
+      for (let e = Math.floor(lx0); e <= Math.ceil(lx1); e++) {
+        for (const d of steps) {
+          const v = d * Math.pow(10, e);
+          if (v >= xmin && v <= xmax) xTicks.push({ v, label: fmtNum(v, e >= 0 ? 0 : -e) });
+        }
       }
     }
     for (const t of xTicks) {
       const gx = X(t.v);
       el("line", { x1: gx, y1: M.t, x2: gx, y2: H - M.b, stroke: "var(--line)", "stroke-width": 1 }, grid);
-      const lbl = fmtNum(t.v, t.e >= 0 ? 0 : -t.e);
       el("text", { x: gx, y: H - M.b + 20, "text-anchor": "middle", "font-size": 12.5, fill: "var(--muted)" }, grid)
-        .textContent = lbl;
+        .textContent = t.label;
     }
     for (const yv of ticks(y0, y1, 6)) {
       const gy = Y(yv);
@@ -578,7 +611,10 @@ __BASE_JS__
       }, grid).textContent = title;
     }
 
-    drawOptimalArrow(grid, metric.lowerBetter, M, W, H);
+    // A Pareto front (and the optimal corner) is drawn for a metric against time only: a gap has no
+    // better side to trade against time, and a metric on the x-axis is no cost.
+    const drawFront = !linearX && metric.front !== false;
+    if (drawFront) drawOptimalArrow(grid, metric.lowerBetter, M, W, H);
 
     // Everything drawn from the data sits in the plot's clip, so typed limits cut it at the frame
     // (and points outside them take no hover).
@@ -589,21 +625,31 @@ __BASE_JS__
     const isOn = m => state.active.has(m) || followed.has(m);
     // The points drawn: every point, or with `hideOff` the selected methods' only. The axes'
     // automatic limits stay those of every point, so they hold still while methods are toggled.
-    const visible = state.hideOff ? SHOWN.filter(p => isOn(p.method)) : SHOWN;
+    const visible = state.hideOff ? VIEW.filter(p => isOn(p.method)) : VIEW;
 
-    // pareto front (always shown), of the points drawn
+    // pareto front, of the points drawn (see `drawFront`)
     const front = computeFront(metric, visible);
     const fv = front.verts;
-    if (fv.length) {
+    if (drawFront && fv.length) {
       let d = `M${X(fv[0][0])},${metric.lowerBetter ? M.t : H - M.b}`;
       for (const [fx, fy] of fv) d += ` L${X(fx)},${Y(fy)}`;
       d += ` L${W - M.r},${Y(fv[fv.length - 1][1])}`;
       el("path", { d, fill: "none", stroke: "var(--ink)", "stroke-width": 1.6, "stroke-dasharray": "7 5", opacity: 0.85 }, plot);
     }
 
+    // y = x, where the x-axis shows the y-axis's metric on validation.
+    if (xAxis().diagonalWith === metricKey) {
+      const lo = Math.max(xmin, y0), hi = Math.min(xmax, y1);
+      if (lo < hi) {
+        el("line", {
+          x1: X(lo), y1: Y(lo), x2: X(hi), y2: Y(hi), stroke: "var(--muted)", "stroke-width": 1.2, "stroke-dasharray": "4 4",
+        }, plot);
+      }
+    }
+
     // connectors: variant links (scatter) / the trajectory itself
     const conn = el("g", {}, plot);
-    for (const [method, pts] of byMethod) {
+    for (const [method, pts] of viewBy) {
       if (pts.length < 2) continue;
       const on = isOn(method);
       if (!on && (!TRAJECTORY || state.hideOff)) continue; // scatter: connectors only for active methods
@@ -620,7 +666,7 @@ __BASE_JS__
     // points: inactive first, active on top
     const ptsOff = el("g", {}, plot);
     const ptsOn = el("g", {}, plot);
-    for (const [method, pts] of byMethod) {
+    for (const [method, pts] of viewBy) {
       const on = isOn(method);
       if (!on && state.hideOff) continue;
       for (const p of pts) {
@@ -648,7 +694,7 @@ __BASE_JS__
     // once; a trajectory rings its end point only, as the imputation ring does.
     const rings = el("g", { "pointer-events": "none" }, plot);
     for (const method of followed) {
-      const pts = byMethod.get(method);
+      const pts = viewBy.get(method);
       if (!pts) continue;
       for (const p of TRAJECTORY ? pts.slice(-1) : pts) {
         el("circle", {
@@ -663,7 +709,7 @@ __BASE_JS__
     // held inside the plot — a system carries its configuration in its name
     // ("AutoGluon 1.6 (noncommercial, 4h)") and would otherwise run off the edge.
     const labels = [];
-    for (const [method, pts] of byMethod) {
+    for (const [method, pts] of viewBy) {
       if (!isOn(method)) continue;
       const best = pts.reduce((a, b) =>
         (metric.lowerBetter ? mval(a, metric) < mval(b, metric) : mval(a, metric) > mval(b, metric)) ? a : b);
@@ -722,8 +768,8 @@ __BASE_JS__
   function markHovered() {
     if (hoverMark) hoverMark.remove();
     hoverMark = null;
-    const pts = hovered && scale ? byMethod.get(hovered) : null;
-    if (!pts) return;
+    const pts = hovered && scale ? (byMethod.get(hovered) || []).filter(p => onView(p, scale.metric)) : [];
+    if (!pts.length) return;
     hoverMark = el("g", { "pointer-events": "none" }, scale.plot);
     for (const p of pts) {
       el("circle", {
@@ -1085,7 +1131,14 @@ __BASE_JS__
     } else {
       html += '<span class="item"><svg width="26" height="8" viewBox="0 0 26 8"><line x1="0" y1="4" x2="26" y2="4" stroke="var(--muted)" stroke-width="2"/><circle cx="6" cy="4" r="2.6" fill="var(--muted)"/><circle cx="16" cy="4" r="2.6" fill="var(--muted)"/></svg> Tuning trajectory (more configs &rarr; more time)</span>';
     }
-    html += '<span class="item"><svg width="26" height="8" viewBox="0 0 26 8"><line x1="0" y1="4" x2="26" y2="4" stroke="var(--ink)" stroke-width="1.6" stroke-dasharray="6 4"/></svg> Pareto front (always shown)</span>';
+    // A page with views that draw no front (a gap metric, a metric x-axis) says where the front shows, and names the
+    // y = x line of its validation against test views.
+    const someFrontless = METRICS.some(m => m.front === false) || X_AXES.some(a => a.scale === "linear");
+    html += '<span class="item"><svg width="26" height="8" viewBox="0 0 26 8"><line x1="0" y1="4" x2="26" y2="4" stroke="var(--ink)" stroke-width="1.6" stroke-dasharray="6 4"/></svg> ' +
+      (someFrontless ? "Pareto front (a metric against time)" : "Pareto front (always shown)") + "</span>";
+    if (X_AXES.some(a => a.diagonalWith)) {
+      html += '<span class="item"><svg width="26" height="8" viewBox="0 0 26 8"><line x1="0" y1="4" x2="26" y2="4" stroke="var(--muted)" stroke-width="1.2" stroke-dasharray="4 4"/></svg> Test equals validation</span>';
+    }
     if (SHOWN.some(p => p.imputed)) {
       html += '<span class="item"><svg width="18" height="18" viewBox="0 0 18 18"><circle cx="9" cy="9" r="4" fill="var(--muted)"/><circle cx="9" cy="9" r="7.5" fill="none" stroke="var(--muted)" stroke-width="1.3" stroke-dasharray="3 2.5"/></svg> &Dagger; partially imputed</span>';
     }

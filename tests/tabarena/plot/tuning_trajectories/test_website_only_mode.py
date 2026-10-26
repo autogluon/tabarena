@@ -77,9 +77,9 @@ def test_full_mode_renders_more_figures(tmp_path):
     assert (tmp_path / "pareto_n_configs_imp_tot_train.png").is_file()
 
 
-def test_uncovered_static_figures_leave_out_the_explorer_views(tmp_path):
-    """Improvability and Elo against train, inference and total time are the explorer's views; the figures of
-    quantities it does not show (baseline advantage, metric error, validation against test) are still drawn.
+def test_uncovered_static_figures_leave_only_the_explorers(tmp_path):
+    """Every static trajectory figure is a view of the trajectories or diagnostics explorer, so "uncovered" writes the
+    two pages and their data alone.
     """
     plot_tuning_trajectories_from_leaderboard(
         leaderboard=_toy_leaderboard(),
@@ -87,11 +87,43 @@ def test_uncovered_static_figures_leave_out_the_explorer_views(tmp_path):
         file_ext=".png",
         static_figures="uncovered",
     )
-    assert (tmp_path / "tuning_trajectories_explorer.html").is_file()
-    for name in ("imp", "elo", "imp_infer", "elo_infer", "imp_total", "elo_total", "imp_tot_train"):
-        assert not (tmp_path / f"pareto_n_configs_{name}.png").exists(), name
-    for name in ("adv", "err_tot_train", "elo_val", "imp_vs", "elo_overfit"):
-        assert (tmp_path / f"pareto_n_configs_{name}.png").is_file(), name
+    assert sorted(p.name for p in tmp_path.iterdir()) == [
+        "tuning_diagnostics.csv",
+        "tuning_diagnostics_explorer.html",
+        "tuning_trajectories.csv",
+        "tuning_trajectories_explorer.html",
+    ]
+
+
+def test_the_diagnostics_explorer_offers_every_diagnostic_view(tmp_path):
+    """Metric error, Elo on validation, baseline advantage and the three test - validation gaps against time, and the
+    validation and test metrics on linear x-axes; a method without validation results keeps its other views.
+    """
+    leaderboard = _toy_leaderboard()
+    no_val = leaderboard["name"] == "B"
+    for col in ("Elo (Val)", "Improvability (%) (Val)", "Baseline Advantage (%) (Val)", "Elo (Test) - Elo (Val)"):
+        leaderboard.loc[no_val, col] = float("nan")
+    plot_tuning_trajectories_from_leaderboard(leaderboard=leaderboard, fig_save_dir=tmp_path, file_ext=".png")
+    html = (tmp_path / "tuning_diagnostics_explorer.html").read_text()
+    config = json.loads(re.search(r"const CONFIG = (\{.*?\});\n", html).group(1))
+    assert [m["key"] for m in config["metrics"]] == [
+        "err",
+        "elo_val",
+        "adv",
+        "adv_gap",
+        "elo_gap",
+        "imp_gap",
+        "imp",
+        "elo",
+    ]
+    axes = {a["key"]: a.get("scale", "log") for a in config["xAxes"]}
+    assert {k: v for k, v in axes.items() if v == "linear"} == dict.fromkeys(
+        ["x_elo_val", "x_imp_val", "x_adv_val", "x_elo", "x_adv"], "linear"
+    )
+    assert [a["diagonalWith"] for a in config["xAxes"] if a["key"] == "x_elo_val"] == ["elo"]
+    points = json.loads(re.search(r"const POINTS = (\[.*?\]);\n", html, re.S).group(1))
+    assert {p["method"] for p in points} == {"A", "B"}
+    assert all(p["elo_val"] is None for p in points if p["method"] == "B")
 
 
 def test_a_shaded_system_carries_its_shade_into_the_explorer(tmp_path):
