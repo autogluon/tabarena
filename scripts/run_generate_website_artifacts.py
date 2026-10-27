@@ -67,7 +67,7 @@ from pathlib import Path
 from tabarena.contexts import TabArenaContext
 from tabarena.evaluation.entrants import ENTRANT_POOLS
 from tabarena.plot.tuning_trajectories.plot_pareto_over_tuning_time import plot_tuning_trajectories_all
-from tabarena.website.process_artifacts_to_website import process_one_folder
+from tabarena.website.process_artifacts_to_website import process_one_folder, write_n_datasets_index
 
 # Subset folder segment -> the human label the website shows. Mirrors
 # ``data_loading.TASK_LABELS`` / ``DATASET_LABELS`` in the leaderboard Space. The entrant
@@ -234,22 +234,31 @@ class WebsiteArtifactGenerator:
         output_path = self.clean_artifacts_dir
 
         file_paths = input_path.glob("**/website_leaderboard.csv")
+        # The Space mirrors this folder, so nothing a previous run published may survive into it.
+        shutil.rmtree(output_path / "website_data", ignore_errors=True)
 
         # One row per dataset, the same for every cell, so it is read once here rather than per
         # subset. The per-dataset browser uses it for the task and size filters and for the
         # selected dataset's metadata line.
         dataset_metadata = TabArenaContext().task_metadata_collection.per_dataset_frame()
 
+        counts = {}
         for path in file_paths:
             base_input_path = Path(path).parent
             rel_path = base_input_path.relative_to(input_path)
             base_output_path = output_path / rel_path
-            process_one_folder(
+            counts[rel_path] = process_one_folder(
                 base_input_path=Path(path).parent,
                 base_output_path=base_output_path,
                 subset_label=_subset_label(rel_path),
                 dataset_metadata=dataset_metadata,
             )
+
+        # Each cell's dataset count, by its path under website_data/ (what the Space reads it by).
+        write_n_datasets_index(
+            output_path / "website_data",
+            {rel.relative_to("website_data"): n for rel, n in counts.items() if rel.parts[0] == "website_data"},
+        )
 
         # Place the zip next to (and named after) the clean artifacts folder.
         shutil.make_archive(

@@ -46,7 +46,7 @@ from tabarena.plot.interactive.per_dataset_explorer import BEYONDARENA_SIZE_BUCK
 from tabarena.plot.subset_results import plot_subset_results
 from tabarena.plot.tuning_trajectories.plot_pareto_over_tuning_time import plot_tuning_trajectories
 from tabarena.utils.parallel_for import parallel_for
-from tabarena.website.process_artifacts_to_website import process_one_folder
+from tabarena.website.process_artifacts_to_website import process_one_folder, write_n_datasets_index
 from tabarena.website.process_pngs import process_png_bulk
 
 # The filter axes of the BeyondArena tab: axis -> {key: extra predicate(s) layered on top of the
@@ -299,8 +299,11 @@ class BeyondArenaWebsiteArtifactGenerator:
         # One row per dataset, the same for every cell: the per-dataset browser's filters and its
         # metadata line read it.
         dataset_metadata = BeyondArenaContext().task_metadata_collection.per_dataset_frame()
+        counts = {}
         for suffix in VARIANTS:
-            self._convert_variant(suffix, dataset_metadata)
+            counts.update(self._convert_variant(suffix, dataset_metadata))
+        # Each cell's dataset count, by its path under the clean folder (what the Space reads it by).
+        write_n_datasets_index(output_path, counts)
 
         # Zip the overview PNGs into <name>.png.zip and drop the raw PNGs, matching what the
         # leaderboard app expects (it lazily unzips on demand).
@@ -309,8 +312,11 @@ class BeyondArenaWebsiteArtifactGenerator:
         # Place the zip next to (and named after) the clean artifacts folder.
         shutil.make_archive(str(output_path), "zip", root_dir=output_path)
 
-    def _convert_variant(self, suffix: str, dataset_metadata):
-        """Convert one variant of the grid (see :data:`VARIANTS`) and copy its overview figures."""
+    def _convert_variant(self, suffix: str, dataset_metadata) -> dict[Path, int]:
+        """Convert one variant of the grid (see :data:`VARIANTS`) and copy its overview figures.
+
+        Returns each converted cell's number of datasets, by its folder under the clean folder.
+        """
         input_path = self.raw_artifacts_dir
         output_path = self.clean_artifacts_dir
 
@@ -318,11 +324,12 @@ class BeyondArenaWebsiteArtifactGenerator:
         shutil.rmtree(output_path / f"subsets{suffix}", ignore_errors=True)
 
         # -- Per-cell folders, converted exactly like a TabArena cell.
+        counts = {}
         for cell in self.cells():
             rel_path = Path(f"subsets{suffix}") / cell_rel_path(cell, self.axes)
             if not (input_path / rel_path / "website_leaderboard.csv").is_file():
                 continue
-            process_one_folder(
+            counts[rel_path] = process_one_folder(
                 base_input_path=input_path / rel_path,
                 base_output_path=output_path / rel_path,
                 subset_label=cell_label(cell),
@@ -338,6 +345,7 @@ class BeyondArenaWebsiteArtifactGenerator:
         overview_out.mkdir(parents=True, exist_ok=True)
         for png in sorted(overview_in.glob("*.png")):
             shutil.copy(png, overview_out / png.name)
+        return counts
 
 
 if __name__ == "__main__":
