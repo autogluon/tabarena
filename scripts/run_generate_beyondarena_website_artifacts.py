@@ -249,10 +249,11 @@ class BeyondArenaWebsiteArtifactGenerator:
             inputs=inputs,
             context={"context": context, "ta_results": ta_results, "figure_file_type": figure_file_type},
             engine=self.engine,
-            desc=f"Evaluating BeyondArena cells{suffix}",
+            desc="Evaluating BeyondArena cells" + (" without leakage" if suffix else ""),
         )
         failed = [x["cell"] for x, lb in zip(inputs, leaderboards, strict=True) if lb is None]
-        print(f"\nPublished {len(inputs) - len(failed)} of {len(cells)} cells{suffix}; {len(empty)} match no dataset.")
+        variant = " (without the methods with a leakage warning)" if suffix else ""
+        print(f"\nPublished {len(inputs) - len(failed)} of {len(cells)} cells{variant}; {len(empty)} match no dataset.")
         if failed:
             print(f"FAILED ({len(failed)}): " + ", ".join(cell_label(c) for c in failed))
 
