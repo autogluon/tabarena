@@ -160,6 +160,8 @@ Defines `{ModelKey}_method_metadata: MethodMetadata` and `{ModelKey}_info: Model
 
 Set `organization` to who develops the model (the company, lab or university, as the leaderboard should name it next to its logo, e.g. `"Prior Labs"`, `"Yandex Research"`). Take it from the paper's affiliations or the code's GitHub organization; when neither settles it, ask the user rather than guess, and leave it unset for a solo author's package. Reuse the exact spelling of an organization that already exists in another `info.py` so the leaderboard finds its logo.
 
+Leave `leakage_evidence` / `leakage_datasets` unset. They record proven leakage of test data into a model's training (a link to the evidence, and the datasets it is proven on), which a maintainer sets later on the `ModelDescriptor` when such evidence turns up (LimiX-2, autogluon/tabarena#648): the leaderboard then warns about the model and every entrant pool gets a twin computed without it.
+
 **When you set `ag_key`/`model_key` here, also classify the model in `get_model_family` (Step 4d)** — those keys decide the model's leaderboard family, and skipping this makes it show as ❓ Other on the website.
 
 ### 3e. Multi-file support code (optional)

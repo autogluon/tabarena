@@ -5,7 +5,7 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from tabarena.plot.interactive._explorer_shared import EXPLORER_BASE_JS
+from tabarena.plot.interactive._explorer_shared import EXPLORER_BASE_JS, inject_leakage
 from tabarena.plot.interactive.leaderboard_explorer import build_leaderboard_explorer_html
 from tabarena.plot.interactive.leaderboard_table import build_leaderboard_table_html
 from tabarena.plot.interactive.pareto_explorer import build_pareto_explorer_html
@@ -73,6 +73,27 @@ def test_every_chart_follows_and_relays_hover(tmp_path, kind):
     # A click on a method's marks asks the host to follow it on every chart.
     assert '"tabarena-explorer-pick"' in html
     assert html.count("pickMethod(") >= 2
+
+
+@pytest.mark.parametrize("kind", sorted(BUILDERS))
+def test_every_chart_marks_the_methods_with_a_leakage_warning(tmp_path, kind):
+    """The converter writes the flagged methods into the page's head, before the chart's script runs,
+    and every chart names them through the shared `leakageMark` / `leakageOf`.
+    """
+    page = BUILDERS[kind](tmp_path / f"{kind}.html").read_text(encoding="utf-8")
+    assert "TABARENA_LEAKAGE = " not in page.split("<body")[0]
+    marked = inject_leakage(page, {"B": ["diabetes"]})
+    head = marked.split("<body")[0]
+    assert 'window.TABARENA_LEAKAGE = {"B": ["diabetes"]};' in head
+    assert marked.index("TABARENA_LEAKAGE = ") < marked.index("const LEAKAGE = ")
+    # The shared definition plus the chart's own use of it.
+    assert marked.count("leakageMark(") + marked.count("leakageOf(") >= 3
+    assert inject_leakage(page, {}) == page
+
+
+def test_injected_names_cannot_close_the_script():
+    marked = inject_leakage("<head></head>", {"</script><b>": []})
+    assert "</script><b>" not in marked
 
 
 @pytest.mark.parametrize("kind", ["pareto", "trajectory", "winrate"])

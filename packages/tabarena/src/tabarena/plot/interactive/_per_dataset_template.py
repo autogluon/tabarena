@@ -385,6 +385,8 @@ __BASE_JS__
 
   const DATASETS = CONFIG.datasets;
   const METHODS = CONFIG.methods;
+  // A method with a leakage warning carries the mark in every place the browser names it.
+  for (const m of METHODS) if (leakageOf(m.base)) m.name = m.base + leakageMark(m.base) + m.name.slice(m.base.length);
   // Baseline and Other share a bucket everywhere else on the site; normalize once so every
   // colour, legend and chip lookup below sees the merged family.
   for (const m of METHODS) m.family = famOf(m.family);
@@ -525,6 +527,14 @@ __BASE_JS__
   // Both directions are the same quantity — how much lower the better error is than the worse
   // one, as a fraction of the worse one — so the two halves are comparable and the sign is the
   // only thing that changes.
+  // A red mark on the datasets where the contender's leakage is proven.
+  function leakedHere(ds) {
+    const proven = leakageOf(METHODS[state.contender].base) || [];
+    if (!proven.includes(ds.name) && !proven.includes(ds.key)) return "";
+    return ` <span class="leak-tag" title="Leakage proven here: ${escapeHtml(METHODS[state.contender].base)} ` +
+      `saw this dataset during training">&#9888;&#65038;</span>`;
+  }
+
   function contenderMargin(d) {
     const c = key(d, state.contender), st = STATS[d];
     if (!c || c.e == null || st.bestErr == null) return null;
@@ -925,7 +935,7 @@ __BASE_JS__
       ].filter(Boolean).join("\n");
       tr.innerHTML =
         `<td class="pd-pos">${i + 1}</td>` +
-        `<td class="pd-namecell"><span class="pd-name">${escapeHtml(ds.name)}</span></td>` +
+        `<td class="pd-namecell"><span class="pd-name">${escapeHtml(ds.name)}</span>${leakedHere(ds)}</td>` +
         `<td><span class="pd-tag">${escapeHtml(TASK_SHORT[ds.task] || ds.task || "?")}</span></td>` +
         `<td class="pd-num">${countHtml(trainRows(ds))}</td>` +
         `<td class="pd-num">${countHtml(ds.features)}</td>` +
@@ -1333,7 +1343,7 @@ __BASE_JS__
       el("text", {
         x: l.x, y: Math.max(l.y, M.t + 11), "font-size": 12.5, "font-weight": 700, fill: famColor(l),
         "paint-order": "stroke", stroke: "var(--card)", "stroke-width": 3.5, "text-anchor": l.anchor,
-      }, labelG).textContent = l.name;
+      }, labelG).textContent = l.name + leakageMark(l.name);
     }
 
     const hits = el("g", {}, svg);
@@ -1381,7 +1391,7 @@ __BASE_JS__
   }
 
   function chartTip(d, t, p) {
-    return `<div class="t-name">${escapeHtml(TRAJ_METHODS[t])}` +
+    return `<div class="t-name">${escapeHtml(TRAJ_METHODS[t] + leakageMark(TRAJ_METHODS[t]))}` +
       (p.n != null ? ` <span class="t-var">(${p.n} config${p.n === 1 ? "" : "s"})</span>` : "") + "</div>" +
       `<div>Test error: <b>${fmtErr(p.e)}</b></div>` +
       `<div>Improvability: <b>${fmtNum(p.i, 1)}%</b></div>` +

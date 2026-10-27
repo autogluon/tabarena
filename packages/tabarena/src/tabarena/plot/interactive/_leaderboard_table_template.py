@@ -269,6 +269,11 @@ __BASE_JS__
     if (p.variant) inner += ' <span class="variant-tag">(' + escapeHtml(variantText(p.variant)) + ")</span>";
     if (p.verified) inner += ' <span class="verified" title="Verified implementation">&#10004;&#65039;</span>';
     if (fresh.has(p.method)) inner += '<span class="new-tag" title="' + escapeHtml(fresh.get(p.method)) + '">new</span>';
+    const leaked = leakageOf(p.method);
+    if (leaked) {
+      inner += ' <span class="leak-tag" title="Leakage warning: test data leaked into its training, proven on ' +
+        escapeHtml(leaked.join(", ")) + ', possible on any other dataset">&#9888;&#65038; Leakage</span>';
+    }
     for (const tag of (p.tags || [])) {
       const spec = (CONFIG.tagSpecs || {})[tag];
       if (!spec) continue;

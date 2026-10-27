@@ -12,7 +12,7 @@ Users who just want a leaderboard should run
 The published TabArena artifacts are text only (CSVs plus self-contained interactive HTML):
 the static figure PNGs stay in ``raw_website_artifacts/`` for paper use and are no longer
 copied into the Space, since every one of them has an explorer that renders by default and
-exports its own SVG / PDF / PNG. That is what keeps four entrant pools inside the Space's
+exports its own SVG / PDF / PNG. That is what keeps every entrant pool inside the Space's
 storage budget, and it means ``data/`` no longer needs Git LFS at all.
 
 Publishing procedure (run this script, then do the rest manually):

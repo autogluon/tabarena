@@ -14,6 +14,11 @@ limix_2_descriptor = ModelDescriptor(
     commercial_use=False,
     license="StableAI LimiX Non-Commercial License v1.0",
     date_introduced="2026-09-15",
+    # Stripped down to the ensemble members that keep the column order, the checkpoint reaches a test
+    # 1-AUC of 0.0066 on diabetes, where every other method is at 0.15 or worse, and reversing the
+    # column order brings it back: it saw these tables with their labels during training.
+    leakage_evidence="https://github.com/autogluon/tabarena/issues/648",
+    leakage_datasets=("blood-transfusion-service-center", "diabetes"),
 )
 
 # Run limix2_17092026 (SkyPilot pool, 64 RTX PRO 6000, BENCHMARK_LOG.md): time limits of 2 h, and 8 h on the
