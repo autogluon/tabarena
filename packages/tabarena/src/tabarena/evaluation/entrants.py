@@ -162,11 +162,11 @@ class EntrantPool:
         return tags <= self.allowed_tags
 
     def admits_metadata(self, method_metadata: MethodMetadata) -> bool:
-        """:meth:`admits` for a :class:`MethodMetadata`."""
+        """:meth:`admits` for a :class:`MethodMetadata` (or a stand-in without the leakage fields)."""
         return self.admits(
             method_metadata.method_class,
             method_metadata.tags,
-            leakage=has_leakage_warning(method_metadata.leakage_evidence),
+            leakage=has_leakage_warning(getattr(method_metadata, "leakage_evidence", None)),
         )
 
 
