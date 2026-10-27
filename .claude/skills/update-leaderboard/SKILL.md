@@ -113,18 +113,21 @@ Monitor until the process exits, then verify outputs — **don't trust "exited" 
     PY
     ```
   - Structural sanity, counted **inside the `entrants_*` roots** (a stale top-level `imputation_*`
-    layout may sit next to them, see Step 3): **8** roots (one per combination of the system
-    categories) and, per root, one `website_leaderboard.csv`, one `n_datasets_*` marker and one
+    layout may sit next to them, see Step 3): **16** roots (one per combination of the system
+    categories, and each one's `_noleak` twin computed without the methods that carry a leakage
+    warning) and, per root, one `website_leaderboard.csv`, one `n_datasets_*` marker and one
     `leaderboard_table.html` per subset plus the interactive `*_explorer.html` pages, and **0** `*.png`
     / `*.png.zip` (TabArena publishes no static figures). The subset count grows with the site
     (60 subsets per pool in v0.1.8, 116 since the balanced / imbalanced / extreme subsets of v0.1.9:
-    928 CSVs and 3744 explorers over the 8 pools), so compare the counts and the file list against
+    928 CSVs over the 8 pools, 1856 since the `_noleak` twins), so compare the counts and the file list against
     the Space's current `data/` (`diff <(cd $SRC && find entrants_* -type f | sort) <(cd $DST && find
     entrants_* -type f | sort)` is empty when no subset was added or removed) rather than against
     fixed numbers.
   - Pool sanity: `entrants_models` must contain **no** AutoGluon row, and a model's Elo must differ
     between `entrants_models` and `entrants_open_llm_api` (a wider field re-rates everyone). If they
     match, the pool filter did not apply.
+    A method with `leakage_evidence` (LimiX-2) must appear in `entrants_models` with a non-empty
+    `Leakage` cell and be absent from `entrants_models_noleak`, where the others' Elo differs.
 
 ## Step 3: Refresh the Space repo's `data/`
 
@@ -252,14 +255,15 @@ cd <lb_code_dir>   # HEAD must be the commit you are about to push
 
 The second leaderboard has its own generator and target folder:
 `scripts/run_generate_beyondarena_website_artifacts.py` →
-`generated_beyondarena_website_artifacts/clean_website_artifacts/` (`subsets/` + `result_plots/`) →
+`generated_beyondarena_website_artifacts/clean_website_artifacts/` (`subsets/` + `result_plots/`, and
+their twins without the methods with a leakage warning, `subsets_noleak/` + `result_plots_noleak/`) →
 Space repo's **`data_beyondarena/`**. Same delete-then-copy discipline applies. Only touch it when the
 maintainer asks for BeyondArena; this skill's default is the main leaderboard `data/`.
 
 The generator crosses four filter axes (split, size, features, tasks) and publishes every cell that
 holds at least one dataset, under `subsets/split_*/size_*/features_*/tasks_*/` (354 of the 500 cells
 today). The cells run in parallel with ray (about a minute and a half on 96 cores);
-`--skip-generate` re-runs only the convert step. Delete `subsets/` and `result_plots/` before
+`--skip-generate` re-runs only the convert step. Delete `subsets*/` and `result_plots*/` before
 copying: the unzipped `*.png` files that `data_loading.unzip_png` leaves there are gitignored and
 would be served stale. Then compare the file list against the Space's tracked one
 (`diff <(cd $SRC && find . -type f | sed 's|^\./||' | sort) <(cd $DST && git ls-files | sort)` is empty when no cell
