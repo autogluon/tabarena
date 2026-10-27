@@ -39,6 +39,7 @@ DEFAULT_CONFIG = {
     "max_epochs": 256,
     "patience": 16,
     "eval_batch_size": 32768,
+    "n_ens": 1,
     "bool_to_cat": True,
     "random_state": 0,
     **{
@@ -208,7 +209,8 @@ class AgenticMLPModel(AbstractTorchModel):
         mem_dataset = 4 * n_samples * (d_in + n_out)
         mem_params = 4 * 5 * n_params
         mem_activation = 4 * 2 * tiered_batch_size(n_samples) * activation_width
-        return math.ceil(mem_dataset + 1.2 * mem_params + 1.3 * mem_activation + 2.5 * 1024**3)
+        n_ens = int(p.get("n_ens", 1))
+        return math.ceil(mem_dataset + n_ens * (1.2 * mem_params + 1.3 * mem_activation) + 2.5 * 1024**3)
 
     @classmethod
     def _class_tags(cls) -> dict:

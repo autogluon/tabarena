@@ -109,6 +109,138 @@ def replace_non_finite(predictions: np.ndarray, fallback: np.ndarray, problem_ty
     return predictions
 
 
+class MemberEnsemble(torch.nn.Module):
+    """``n_ens`` independent copies of one package model, trained together in one batched pass (as RealMLP's
+    ``n_ens``). Each member has its own initialization (seed ``seed + i``), dropout masks and gradient clipping; the
+    members share the training batches.
+
+    Parameters and buffers of all members are stacked along a leading member axis and registered here, so the
+    optimizer, ``state_dict`` copies and device moves see one module. A template member computes the forward with
+    ``torch.func.functional_call``, vectorized over members with ``torch.vmap`` (a loop over members where a layer
+    does not support vmap). In training mode the forward returns every member's output (for ``member_loss``); in
+    evaluation mode it returns the members' combined output in the package's own format: the mean for
+    regression, the logit or log of the mean class probabilities for classification, so the package's inference
+    modules and metrics read it as one model.
+    """
+
+    def __init__(self, template: torch.nn.Module, params: dict, buffers: dict, problem_type: str):
+        super().__init__()
+        self.problem_type = problem_type
+        self.n_members = len(next(iter(params.values())))
+        self.param_names, self.buffer_names = list(params), list(buffers)
+        for j, name in enumerate(self.param_names):
+            self.register_parameter(f"p{j}", torch.nn.Parameter(params[name].detach()))
+        for j, name in enumerate(self.buffer_names):
+            self.register_buffer(f"b{j}", buffers[name].detach())
+        # Not a child module: its own tensors are never used, only its structure and layer settings.
+        object.__setattr__(self, "template", template)
+        # Dropout layers stay visible to ``modules()`` (inference modules that switch them on for MC dropout).
+        self.dropouts = torch.nn.ModuleList(m for m in template.modules() if isinstance(m, torch.nn.Dropout))
+        self.use_vmap = True
+
+    @classmethod
+    def from_members(cls, members: list, problem_type: str) -> MemberEnsemble:
+        params, buffers = torch.func.stack_module_state(members)
+        return cls(members[0], params, buffers, problem_type)
+
+    def _apply(self, fn, recurse=True):
+        self.template._apply(fn, recurse)
+        return super()._apply(fn, recurse)
+
+    def train(self, mode: bool = True):
+        self.template.train(mode)
+        return super().train(mode)
+
+    def _stacked(self):
+        params = {name: getattr(self, f"p{j}") for j, name in enumerate(self.param_names)}
+        buffers = {name: getattr(self, f"b{j}") for j, name in enumerate(self.buffer_names)}
+        return params, buffers
+
+    def _member(self, params, buffers, x_num, x_cat):
+        return torch.func.functional_call(self.template, (params, buffers), (x_num, x_cat))
+
+    def forward(self, x_num, x_cat):
+        params, buffers = self._stacked()
+        out = None
+        if self.use_vmap:
+            try:
+                out = torch.vmap(self._member, in_dims=(0, 0, None, None), randomness="different")(
+                    params, buffers, x_num, x_cat
+                )
+            except RuntimeError as err:
+                if is_oom_exception(err):
+                    raise
+                self.use_vmap = False
+        if out is None:
+            out = torch.stack(
+                [
+                    self._member(
+                        {k: v[i] for k, v in params.items()}, {k: v[i] for k, v in buffers.items()}, x_num, x_cat
+                    )
+                    for i in range(self.n_members)
+                ]
+            )
+        return out if self.training else self.combine(out)
+
+    def combine(self, out: torch.Tensor) -> torch.Tensor:
+        if self.problem_type == "regression":
+            return out.mean(0)
+        if self.problem_type == "binary" and (out.ndim == 2 or out.shape[-1] == 1):
+            return torch.logit(torch.sigmoid(out.float()).mean(0), eps=1e-7)
+        return torch.log(torch.softmax(out.float(), dim=-1).mean(0).clamp_min(1e-12))
+
+    def member_loss(self, loss_fn):
+        """The sum of the members' losses, each from the package's loss on that member's output."""
+
+        def loss(preds, targets, dataset_meta):
+            if not self.training:
+                return loss_fn(preds, targets, dataset_meta)
+            return sum(loss_fn(preds[i], targets, dataset_meta) for i in range(self.n_members))
+
+        return loss
+
+    def clipped_optimizer(self, optimizer_builder, max_norm: float):
+        """The package's optimizer, with each member's gradient clipped to ``max_norm`` on its own before a step."""
+
+        def clip_members(optimizer, args, kwargs):
+            grads = [p.grad for p in self.parameters() if p.grad is not None]
+            if grads:
+                norms = torch.stack([g.detach().float().flatten(1).pow(2).sum(1) for g in grads]).sum(0).sqrt()
+                scale = (max_norm / (norms + 1e-6)).clamp(max=1.0)
+                for g in grads:
+                    g.mul_(scale.view(-1, *([1] * (g.ndim - 1))).to(g.dtype))
+
+        def build(model, trial_params):
+            optimizer = optimizer_builder(model, trial_params)
+            # Lookahead wraps a base optimizer and does not set up step hooks itself; its step calls the base's.
+            hooked = optimizer if hasattr(optimizer, "_optimizer_step_pre_hooks") else optimizer._base
+            hooked.register_step_pre_hook(clip_members)
+            return optimizer
+
+        return build
+
+    def freeze_parametrizations(self) -> None:
+        """Replace the spectral-norm parametrizations (model 11) by each member's effective weight
+        ``W / (u^T W v)`` from the stored power-iteration vectors, so the fitted ensemble pickles.
+        """
+        template = copy.deepcopy(self.template)
+        params, buffers = self._stacked()
+        params = {k: v.detach() for k, v in params.items()}
+        buffers = dict(buffers)
+        changed = False
+        for module_name, module in template.named_modules():
+            for name in list(getattr(module, "parametrizations", {})):
+                prefix = f"{module_name}.parametrizations.{name}".lstrip(".")
+                weight = params.pop(f"{prefix}.original")
+                u, v = buffers.pop(f"{prefix}.0._u"), buffers.pop(f"{prefix}.0._v")
+                sigma = torch.einsum("ko,koi,ki->k", u, weight, v)
+                parametrize.remove_parametrizations(module, name, leave_parametrized=False)
+                params[f"{module_name}.{name}".lstrip(".")] = weight / sigma.view(-1, 1, 1)
+                changed = True
+        if changed:
+            self.__init__(template, params, buffers, self.problem_type)
+
+
 class MLPImplementation:
     """One fitted agentic MLP (a single bag child)."""
 
@@ -130,6 +262,7 @@ class MLPImplementation:
             self.score_name = "cross-entropy"
         self.indices = indices
         self.seed = int(params.pop("random_state") or 0)
+        self.n_ens = int(params.pop("n_ens", 1))
         self.params = params
         self.model_ = None
 
@@ -220,6 +353,8 @@ class MLPImplementation:
         del self.best_state_
 
         # torch cannot pickle a module with parametrizations (the spectral-norm MLP); keep the effective weights.
+        if isinstance(self.model_, MemberEnsemble):
+            self.model_.freeze_parametrizations()
         for module in self.model_.modules():
             for name in list(getattr(module, "parametrizations", {})):
                 parametrize.remove_parametrizations(module, name, leave_parametrized=True)
@@ -230,8 +365,18 @@ class MLPImplementation:
         tensors = to_torch(dataset, self.device_)
         loss_fn = self._stage("loss_idx")
         output_dim = infer_loss_output_dim(loss_fn, dataset)
-        model = _build_model(dataset, tensors, trial_params, self.indices, output_dim, self.device_)
         optimizer_builder = self._stage("optimizer_idx")
+        if self.n_ens == 1:
+            model = _build_model(dataset, tensors, trial_params, self.indices, output_dim, self.device_)
+        else:
+            members = []
+            for i in range(self.n_ens):
+                seed_everything(self.seed + i)
+                members.append(_build_model(dataset, tensors, trial_params, self.indices, output_dim, self.device_))
+            model = MemberEnsemble.from_members(members, self.problem_type)
+            loss_fn = model.member_loss(loss_fn)
+            optimizer_builder = model.clipped_optimizer(optimizer_builder, float(trial_params["gradient_clip"]))
+            trial_params["gradient_clip"] = float("inf")
         train_fn = self._stage("train_idx")
         guard = TrainingGuard(model, self._stage("inference_idx"), deadline, ("val", "test"))
         patience = trial_params["patience"]
