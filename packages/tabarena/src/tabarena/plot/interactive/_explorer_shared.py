@@ -188,6 +188,12 @@ EXPLORER_BASE_CSS = "".join(
   /* The [hidden] attribute must beat author display rules (e.g. the
      inline-flex on .metricpick), else hidden controls render empty. */
   [hidden] { display: none !important; }
+  /* A method with a leakage warning (`leakageOf`): a red badge after its name in the table. */
+  .leak-tag {
+    display: inline-block; margin-left: 4px; padding: 0 6px; border-radius: 4px;
+    background: #d6363c; color: #fff; font-size: 10.5px; font-weight: 800; letter-spacing: 0.04em;
+    text-transform: uppercase; vertical-align: 1px; white-space: nowrap;
+  }
 
   .explorer-title { font-size: 15px; font-weight: 650; margin: 0 0 8px; }
   .controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin-bottom: 10px; }
@@ -319,6 +325,20 @@ EXPLORER_BASE_CSS = "".join(
 #: above the splice point), so a template can use both before its own setup runs.
 EXPLORER_BASE_JS = r"""
   const NS = "http://www.w3.org/2000/svg";
+  // Methods with a leakage warning: test data is proven to have leaked into their training on some
+  // datasets, so any of their results may be too good. The website's converter writes them into the
+  // page (`window.TABARENA_LEAKAGE`, method -> the datasets it is proven on; `inject_leakage`), and
+  // every chart puts the mark after their name wherever it shows one. A name may carry its variant
+  // ("LimiX-2 (default)"), so a flagged method matches with or without it.
+  const LEAKAGE = new Map(Object.entries(window.TABARENA_LEAKAGE || {}));
+  const LEAKAGE_MARK = " \u26a0\ufe0e";
+  function leakageOf(name) {
+    for (const [method, datasets] of LEAKAGE) {
+      if (name === method || String(name).startsWith(method + " (")) return datasets;
+    }
+    return null;
+  }
+  function leakageMark(name) { return leakageOf(name) ? LEAKAGE_MARK : ""; }
   // The embedding page's theme. The leaderboard loads each page from its URL with `#theme=dark` or
   // `#theme=light`, read here before any chart is drawn; a page embedded as srcdoc carries a
   // `data-theme` stamp instead, and standalone there is neither, so the viewer's OS preference
@@ -926,6 +946,20 @@ EXPLORER_BASE_JS = r"""
     window.parent.postMessage({ type: "tabarena-explorer-height", height: height }, "*");
   }
 """
+
+
+def inject_leakage(page: str, leakage: dict[str, list[str]]) -> str:
+    """``page`` with the methods that carry a leakage warning written into its head.
+
+    ``leakage`` maps a method, by the name the charts key it on (its display name without the
+    variant), to the datasets the leakage is proven on. Every explorer's shared script reads it
+    (`leakageOf`) and marks those methods wherever it names them. A page with nothing to mark is
+    returned unchanged.
+    """
+    if not leakage:
+        return page
+    data = json.dumps(leakage, sort_keys=True).replace("</", "<\\/")
+    return page.replace("<head>", f"<head>\n<script>window.TABARENA_LEAKAGE = {data};</script>", 1)
 
 
 def render_explorer_html(

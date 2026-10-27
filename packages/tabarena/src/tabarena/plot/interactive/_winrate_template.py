@@ -237,7 +237,8 @@ __BASE_JS__
   // (`CONFIG.methodNames`); a model renamed on its chip keeps the name on all its variants, and an
   // empty name gives the model its own back.
   const names = new Map(Object.entries(CONFIG.methodNames || {}));
-  function displayName(model) { return names.get(model) || model; }
+  function plainName(model) { return names.get(model) || model; }
+  function displayName(model) { return plainName(model) + leakageMark(model); }
   function escHtml(text) {
     return String(text).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
   }
@@ -248,7 +249,7 @@ __BASE_JS__
   // model keeps its tag after the new name.
   function labelText(label) {
     const model = info.get(label).model;
-    return names.has(model) ? names.get(model) + label.slice(model.length) : label;
+    return displayName(model) + label.slice(model.length);
   }
 
   function shown() {
@@ -583,7 +584,7 @@ __BASE_JS__
     input.className = "chip-rename";
     input.type = "text";
     input.spellcheck = false;
-    input.value = displayName(model);
+    input.value = plainName(model);
     input.placeholder = model;
     input.size = Math.max(9, input.value.length + 1);
     input.setAttribute("aria-label", "New name for " + model);

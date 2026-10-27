@@ -849,6 +849,15 @@ class AbstractArenaContext:
     def methods(self) -> list[str]:
         return [m.method for m in self.method_metadata_collection.method_metadata_lst]
 
+    @property
+    def methods_with_leakage(self) -> list[str]:
+        """This arena's methods that carry a leakage warning (:attr:`MethodMetadata.leakage_evidence`).
+
+        Test data is proven to have leaked into their training; ``compare(exclude_leakage=True)``
+        leaves them out of every number.
+        """
+        return [m.method for m in self.method_metadata_collection.method_metadata_lst if m.leakage_evidence]
+
     def method_metadata(
         self,
         method: str,
@@ -1145,6 +1154,7 @@ class AbstractArenaContext:
         average_seeds: bool = False,
         score_on_val: bool = False,
         remove_imputed: bool = False,
+        exclude_leakage: bool = False,
         leaderboard_kwargs: dict | None = None,
         # how the figures look
         figure_file_type: str = "pdf",
@@ -1218,6 +1228,9 @@ class AbstractArenaContext:
             score_on_val: score on ``metric_error_val`` (validation error) rather than
                 ``metric_error``.
             remove_imputed: drop every method that has at least one imputed result.
+            exclude_leakage: leave out this arena's methods that carry a leakage warning
+                (:attr:`methods_with_leakage`), so every number and figure is computed without
+                them, as the leaderboard's own twins without them are.
             leaderboard_kwargs: forwarded to
                 :meth:`bencheval.evaluator.BenchmarkEvaluator.leaderboard` (e.g. ``include_elo``,
                 ``include_winrate``, ``elo_kwargs``).
@@ -1265,6 +1278,8 @@ class AbstractArenaContext:
             ta_results = self.load_results(
                 download_results="auto",
             )
+        if exclude_leakage and not ta_results.empty:
+            ta_results = ta_results[~ta_results["ta_name"].isin(self.methods_with_leakage)]
 
         if new_results is not None:
             new_results = new_results.copy(deep=True)

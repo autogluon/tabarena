@@ -323,7 +323,8 @@ __BASE_JS__
   // preset names (`CONFIG.methodNames`); a method renamed on its chip keeps the name on every subset
   // and view, and an empty name gives the method its own back.
   const names = new Map(Object.entries(CONFIG.methodNames || {}));
-  function displayName(method) { return names.get(method) || method; }
+  function plainName(method) { return names.get(method) || method; }
+  function displayName(method) { return plainName(method) + leakageMark(method); }
   function escHtml(text) {
     return String(text).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
   }
@@ -901,7 +902,7 @@ __BASE_JS__
     input.className = "chip-rename";
     input.type = "text";
     input.spellcheck = false;
-    input.value = displayName(m);
+    input.value = plainName(m);
     input.placeholder = m;
     input.size = Math.max(9, input.value.length + 1);
     input.setAttribute("aria-label", `New name for ${m}`);

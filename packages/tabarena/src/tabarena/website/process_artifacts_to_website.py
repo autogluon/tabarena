@@ -18,6 +18,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from tabarena.plot.interactive._explorer_shared import inject_leakage
 from tabarena.plot.interactive.leaderboard_explorer import _parse_model, build_leaderboard_explorer_html
 from tabarena.plot.interactive.leaderboard_table import build_leaderboard_table_html
 from tabarena.plot.interactive.per_dataset_explorer import (
@@ -27,6 +28,27 @@ from tabarena.plot.interactive.per_dataset_explorer import (
 
 #: Emitted by the trajectory stage next to the aggregate trajectory artifacts, and the marker
 #: for "this cell gets a per-dataset browser".
+
+
+def leakage_map(website_leaderboard: pd.DataFrame) -> dict[str, list[str]]:
+    """The methods in a website table that carry a leakage warning, with their proven datasets.
+
+    Read from the table's ``Leakage`` column (``MethodMetadata.leakage_evidence``), by the name the
+    charts key a method on. Empty for a table written before the columns existed.
+    """
+    if "Leakage" not in website_leaderboard.columns:
+        return {}
+    flagged = {}
+    for model, evidence, datasets in zip(
+        website_leaderboard["Model"],
+        website_leaderboard["Leakage"],
+        website_leaderboard.get("LeakageDatasets", pd.Series("", index=website_leaderboard.index)),
+        strict=True,
+    ):
+        if isinstance(evidence, str) and evidence:
+            name, _variant, _url = _parse_model(str(model))
+            flagged[name] = [d for d in str(datasets if isinstance(datasets, str) else "").split(";") if d]
+    return flagged
 
 
 def leader_name(website_leaderboard: pd.DataFrame) -> str | None:
@@ -137,3 +159,9 @@ def process_one_folder(
             if subset_label
             else f"{benchmark_name} per-dataset results",
         )
+
+    # Every chart of the cell marks the methods with a leakage warning, wherever it names them.
+    flagged = leakage_map(website_leaderboard)
+    if flagged:
+        for page in base_output_path.glob("*.html"):
+            page.write_text(inject_leakage(page.read_text(encoding="utf-8"), flagged), encoding="utf-8")

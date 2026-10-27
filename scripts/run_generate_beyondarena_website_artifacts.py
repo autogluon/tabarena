@@ -24,6 +24,10 @@ How it diverges from the TabArena generator:
   layout the tab reads). A cell no dataset falls into is skipped, and the tab says so.
 * **Cross-subset overview figure.** Adds the per-family / per-model Elo + improvability overview
   across the single-filter cells (:func:`~tabarena.plot.subset_results.plot_subset_results`).
+* **A twin without leakage.** The grid and its overview are generated twice: as published, and
+  without the methods that carry a leakage warning (``BeyondArenaContext.methods_with_leakage``),
+  under ``subsets_noleak/`` and ``result_plots_noleak/``. The tab switches to the twin when the reader
+  turns those methods off, so every number is computed without them, as TabArena's pools do.
 
 Run ``python scripts/run_generate_beyondarena_website_artifacts.py``. The generate step is one
 ``compare`` plus its tuning trajectories per cell, spread over every local CPU with ray; the
@@ -77,6 +81,10 @@ OVERVIEW_AXES = ("split", "size", "features")
 # Methods highlighted as "contenders" in the overview figure (their own line in the per-family plot,
 # star-marked in the per-model plot). Leave empty for the neutral official leaderboard.
 CONTENDER_MODELS: list[str] = []
+
+#: Each published variant of the grid, by the suffix of its folders (``subsets<suffix>/``,
+#: ``result_plots<suffix>/``), and whether it leaves out the methods with a leakage warning.
+VARIANTS: dict[str, bool] = {"": False, "_noleak": True}
 
 Cell = tuple[str, ...]
 
@@ -212,11 +220,18 @@ class BeyondArenaWebsiteArtifactGenerator:
         context = BeyondArenaContext()
         # Load the cached baselines once and share them with every cell. Each cell is then
         # filtered from this frame inside ``compare``.
-        ta_results = context.load_results(download_results="auto")
+        all_results = context.load_results(download_results="auto")
+        for suffix, exclude_leakage in VARIANTS.items():
+            ta_results = all_results
+            if exclude_leakage:
+                ta_results = all_results[~all_results["ta_name"].isin(context.methods_with_leakage)]
+            self._generate_variant(context, ta_results, suffix, figure_file_type)
 
+    def _generate_variant(self, context: BeyondArenaContext, ta_results, suffix: str, figure_file_type: str):
+        """One variant of the grid (see :data:`VARIANTS`) and its overview, from ``ta_results``."""
         # The grid is regenerated as a whole, so no cell of a previous run can survive into the
         # convert step (which publishes every folder it finds).
-        shutil.rmtree(self.raw_artifacts_dir / "subsets", ignore_errors=True)
+        shutil.rmtree(self.raw_artifacts_dir / f"subsets{suffix}", ignore_errors=True)
 
         cells = self.cells()
         inputs = []
@@ -226,7 +241,7 @@ class BeyondArenaWebsiteArtifactGenerator:
             if context.subset_results(df_results=ta_results, subset=subset).empty:
                 empty.append(cell)
                 continue
-            out_dir = self.raw_artifacts_dir / "subsets" / cell_rel_path(cell, self.axes)
+            out_dir = self.raw_artifacts_dir / f"subsets{suffix}" / cell_rel_path(cell, self.axes)
             inputs.append({"cell": cell, "subset": subset, "out_dir": out_dir})
 
         leaderboards = parallel_for(
@@ -234,10 +249,10 @@ class BeyondArenaWebsiteArtifactGenerator:
             inputs=inputs,
             context={"context": context, "ta_results": ta_results, "figure_file_type": figure_file_type},
             engine=self.engine,
-            desc="Evaluating BeyondArena cells",
+            desc=f"Evaluating BeyondArena cells{suffix}",
         )
         failed = [x["cell"] for x, lb in zip(inputs, leaderboards, strict=True) if lb is None]
-        print(f"\nPublished {len(inputs) - len(failed)} of {len(cells)} cells; {len(empty)} match no dataset.")
+        print(f"\nPublished {len(inputs) - len(failed)} of {len(cells)} cells{suffix}; {len(empty)} match no dataset.")
         if failed:
             print(f"FAILED ({len(failed)}): " + ", ".join(cell_label(c) for c in failed))
 
@@ -272,25 +287,38 @@ class BeyondArenaWebsiteArtifactGenerator:
         # Cross-subset overview figure (per-family / per-model Elo + improvability across subsets).
         plot_subset_results(
             renamed_leaderboards,
-            self.raw_artifacts_dir / "result_plots",
+            self.raw_artifacts_dir / f"result_plots{suffix}",
             metrics=("elo", "improvability"),
             contenders=CONTENDER_MODELS,
         )
 
     def convert_to_website_format(self):
-        input_path = self.raw_artifacts_dir
         output_path = self.clean_artifacts_dir
-
-        # The website mirrors this folder, so a cell the generate step dropped must not survive here.
-        shutil.rmtree(output_path / "subsets", ignore_errors=True)
 
         # One row per dataset, the same for every cell: the per-dataset browser's filters and its
         # metadata line read it.
         dataset_metadata = BeyondArenaContext().task_metadata_collection.per_dataset_frame()
+        for suffix in VARIANTS:
+            self._convert_variant(suffix, dataset_metadata)
+
+        # Zip the overview PNGs into <name>.png.zip and drop the raw PNGs, matching what the
+        # leaderboard app expects (it lazily unzips on demand).
+        process_png_bulk(path=output_path)
+
+        # Place the zip next to (and named after) the clean artifacts folder.
+        shutil.make_archive(str(output_path), "zip", root_dir=output_path)
+
+    def _convert_variant(self, suffix: str, dataset_metadata):
+        """Convert one variant of the grid (see :data:`VARIANTS`) and copy its overview figures."""
+        input_path = self.raw_artifacts_dir
+        output_path = self.clean_artifacts_dir
+
+        # The website mirrors this folder, so a cell the generate step dropped must not survive here.
+        shutil.rmtree(output_path / f"subsets{suffix}", ignore_errors=True)
 
         # -- Per-cell folders, converted exactly like a TabArena cell.
         for cell in self.cells():
-            rel_path = Path("subsets") / cell_rel_path(cell, self.axes)
+            rel_path = Path(f"subsets{suffix}") / cell_rel_path(cell, self.axes)
             if not (input_path / rel_path / "website_leaderboard.csv").is_file():
                 continue
             process_one_folder(
@@ -303,19 +331,12 @@ class BeyondArenaWebsiteArtifactGenerator:
             )
 
         # -- Cross-subset overview figures (per_family_*/per_model_* elo & improvability).
-        overview_in = input_path / "result_plots"
-        overview_out = output_path / "result_plots"
+        overview_in = input_path / f"result_plots{suffix}"
+        overview_out = output_path / f"result_plots{suffix}"
         shutil.rmtree(overview_out, ignore_errors=True)
         overview_out.mkdir(parents=True, exist_ok=True)
         for png in sorted(overview_in.glob("*.png")):
             shutil.copy(png, overview_out / png.name)
-
-        # Zip the overview PNGs into <name>.png.zip and drop the raw PNGs, matching what the
-        # leaderboard app expects (it lazily unzips on demand).
-        process_png_bulk(path=output_path)
-
-        # Place the zip next to (and named after) the clean artifacts folder.
-        shutil.make_archive(str(output_path), "zip", root_dir=output_path)
 
 
 if __name__ == "__main__":

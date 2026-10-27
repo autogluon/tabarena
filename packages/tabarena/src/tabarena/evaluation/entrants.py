@@ -10,6 +10,10 @@ Models always compete. Systems are grouped into :data:`SYSTEM_CATEGORIES`, each 
 selectable, and every combination of them is published as its own :class:`EntrantPool` under
 ``entrants_<key>/``. Independent rather than cumulative on purpose: "LLM-based systems but not
 the plain open-source ones" is a question someone actually has, and a ladder cannot express it.
+
+Every pool also has a twin without the methods that carry a leakage warning
+(:attr:`~tabarena.models._method_metadata.MethodMetadata.leakage_evidence`), under
+``entrants_<key>_noleak/``, for the same reason: leaving a method out changes everyone's numbers.
 """
 
 from __future__ import annotations
@@ -80,13 +84,27 @@ SYSTEM_CATEGORIES_BY_KEY: dict[str, SystemCategory] = {c.key: c for c in SYSTEM_
 
 #: Folder segment for the pool where no system competes.
 MODELS_ONLY_KEY = "models"
+#: Ends the key of a pool's twin without the methods that carry a leakage warning.
+NO_LEAKAGE_SUFFIX = "_noleak"
 
 
-def pool_key(categories: Iterable[str]) -> str:
-    """Folder segment for a set of selected categories, in :data:`SYSTEM_CATEGORIES` order."""
+def pool_key(categories: Iterable[str], *, exclude_leakage: bool = False) -> str:
+    """Folder segment for a set of selected categories, in :data:`SYSTEM_CATEGORIES` order.
+
+    ``exclude_leakage`` names the pool's twin without the methods that carry a leakage warning.
+    """
     selected = set(categories)
     ordered = [c.key for c in SYSTEM_CATEGORIES if c.key in selected]
-    return "_".join(ordered) if ordered else MODELS_ONLY_KEY
+    key = "_".join(ordered) if ordered else MODELS_ONLY_KEY
+    return key + NO_LEAKAGE_SUFFIX if exclude_leakage else key
+
+
+def has_leakage_warning(leakage_evidence) -> bool:
+    """Whether a ``leakage_evidence`` value marks a method as carrying a leakage warning.
+
+    The value comes from a metadata object or an info-frame cell, where a missing one reads as NaN.
+    """
+    return isinstance(leakage_evidence, str) and bool(leakage_evidence)
 
 
 @dataclass(frozen=True)
@@ -99,18 +117,22 @@ class EntrantPool:
         Folder segment for this pool's artifacts (``entrants_<key>/``).
     categories
         The selected :data:`SYSTEM_CATEGORIES` keys. Empty means models only.
+    exclude_leakage
+        Whether the methods with a leakage warning stay out of this pool.
     """
 
     key: str
     categories: frozenset[str]
+    exclude_leakage: bool = False
 
     @property
     def label(self) -> str:
         """What the leaderboard calls this pool."""
         if not self.categories:
-            return "Models only"
-        names = [c.label for c in SYSTEM_CATEGORIES if c.key in self.categories]
-        return "Models + " + ", ".join(names)
+            label = "Models only"
+        else:
+            label = "Models + " + ", ".join(c.label for c in SYSTEM_CATEGORIES if c.key in self.categories)
+        return label + ", without leakage warnings" if self.exclude_leakage else label
 
     @property
     def allowed_tags(self) -> frozenset[str]:
@@ -122,13 +144,16 @@ class EntrantPool:
         """Whether the untagged (plain open-source) systems compete."""
         return any(c.key in self.categories and c.tag is None for c in SYSTEM_CATEGORIES)
 
-    def admits(self, method_class: str, tags: Iterable[str]) -> bool:
+    def admits(self, method_class: str, tags: Iterable[str], *, leakage: bool = False) -> bool:
         """Whether a method with this class and these tags competes in this pool.
 
         Models always compete. An untagged system needs its own category selected; a tagged
         one needs *every* tag it carries to be selected, so a method is never admitted on the
-        strength of a property the reader excluded.
+        strength of a property the reader excluded. A method with a leakage warning (``leakage``)
+        stays out of a pool that excludes them, whatever its class.
         """
+        if leakage and self.exclude_leakage:
+            return False
         if method_class != "system":
             return True
         tags = set(tags)
@@ -138,21 +163,36 @@ class EntrantPool:
 
     def admits_metadata(self, method_metadata: MethodMetadata) -> bool:
         """:meth:`admits` for a :class:`MethodMetadata`."""
-        return self.admits(method_metadata.method_class, method_metadata.tags)
+        return self.admits(
+            method_metadata.method_class,
+            method_metadata.tags,
+            leakage=has_leakage_warning(method_metadata.leakage_evidence),
+        )
 
 
 def _all_pools() -> list[EntrantPool]:
-    """Every combination of the categories, smallest field first."""
+    """Every combination of the categories, smallest field first.
+
+    Then each one's twin without the methods that carry a leakage warning.
+    """
     keys = [c.key for c in SYSTEM_CATEGORIES]
     pools = []
-    for size in range(len(keys) + 1):
-        for combo in combinations(keys, size):
-            pools.append(EntrantPool(key=pool_key(combo), categories=frozenset(combo)))
+    for exclude_leakage in (False, True):
+        for size in range(len(keys) + 1):
+            for combo in combinations(keys, size):
+                pools.append(
+                    EntrantPool(
+                        key=pool_key(combo, exclude_leakage=exclude_leakage),
+                        categories=frozenset(combo),
+                        exclude_leakage=exclude_leakage,
+                    )
+                )
     return pools
 
 
-#: Every published pool. ``2 ** len(SYSTEM_CATEGORIES)`` of them, so adding a category doubles
-#: the artifact count and the generation time; that is the price of independent toggles.
+#: Every published pool. ``2 * 2 ** len(SYSTEM_CATEGORIES)`` of them (each combination, with and
+#: without the methods that carry a leakage warning), so adding a category doubles the artifact
+#: count and the generation time; that is the price of independent toggles.
 ENTRANT_POOLS: list[EntrantPool] = _all_pools()
 
 #: Pool key -> pool, for lookups by folder segment.
@@ -178,7 +218,7 @@ def filter_results_to_pool(
     """Drop the rows of ``df_results`` whose method does not compete in ``pool``.
 
     ``method_metadata_info`` is a :meth:`MethodMetadataCollection.info` frame carrying
-    ``method_class`` and ``tags``, joined on ``(ta_name, ta_suite)`` the same way
+    ``method_class``, ``tags`` and ``leakage_evidence``, joined on ``(ta_name, ta_suite)`` the same way
     ``website_format.format_leaderboard`` joins it. A results row whose method is missing from
     the info frame is kept: an unknown method defaults to being a model, which is what every
     pre-existing result is.
@@ -187,7 +227,11 @@ def filter_results_to_pool(
     admitted = {
         (row.ta_name, row.ta_suite)
         for row in info.itertuples()
-        if pool.admits(getattr(row, "method_class", "model"), getattr(row, "tags", ()) or ())
+        if pool.admits(
+            getattr(row, "method_class", "model"),
+            getattr(row, "tags", ()) or (),
+            leakage=has_leakage_warning(getattr(row, "leakage_evidence", None)),
+        )
     }
     known = set(zip(info["ta_name"], info["ta_suite"], strict=True))
     keys = list(zip(df_results["ta_name"], df_results["ta_suite"], strict=True))
