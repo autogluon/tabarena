@@ -9,10 +9,18 @@ static PNGs were a second copy of what the reader already had: 80 of the 105 MB 
 BeyondArena's generator (``scripts/run_generate_beyondarena_website_artifacts.py``) runs every
 subset through the same :func:`process_one_folder`; only its cross-subset overview figures stay
 static PNGs.
+
+Only what the leaderboard shows is published. A Hugging Face Space holds at most 20,000 files, and
+every file here is repeated in every published cell (2,564 over both leaderboards, with the pools'
+twins without leakage), so the data exports (``pareto_front_points.csv``, ``winrate_matrix.csv``,
+``tuning_trajectories.csv``) and the train-time twin of the Pareto explorer (the explorer itself
+carries the train-time axis) stay in the raw artifacts. Each cell's dataset count goes into one
+index per leaderboard, ``n_datasets.json`` (:func:`write_n_datasets_index`), not a file per cell.
 """
 
 from __future__ import annotations
 
+import json
 import shutil
 from pathlib import Path
 
@@ -68,8 +76,10 @@ def process_one_folder(
     dataset_metadata: pd.DataFrame | None = None,
     benchmark_name: str = "TabArena",
     size_buckets: list[tuple[str, str, float]] | None = None,
-):
-    """Copy one subset's artifacts into the website layout.
+) -> int:
+    """Copy one subset's artifacts into the website layout and return its number of datasets.
+
+    The count goes into the leaderboard's index (:func:`write_n_datasets_index`).
 
     ``subset_label`` is the human-readable subset name used in the interactive
     explorers' headline (e.g. "Models only | All Tasks | Small"); omitted when ``None``.
@@ -80,13 +90,8 @@ def process_one_folder(
     """
     base_output_path.mkdir(parents=True, exist_ok=True)
 
-    # N datasets file. A re-conversion into an existing folder must not leave the previous
-    # count behind: the website reads the first marker it finds.
     results_per_split = pd.read_csv(base_input_path / "results_per_split.csv", low_memory=False)
     n_datasets = len(results_per_split["dataset"].unique())
-    for stale in base_output_path.glob("n_datasets_*"):
-        stale.unlink()
-    (base_output_path / f"n_datasets_{n_datasets}").touch()
 
     for file_name in [
         "website_leaderboard.csv",
@@ -96,19 +101,13 @@ def process_one_folder(
             base_output_path / file_name,
         )
 
-    # Interactive explorers (self-contained HTML embedded by the leaderboard
-    # app) and their underlying data exports. Copy-if-present so raw artifact
-    # folders generated before these existed still process cleanly.
+    # Interactive explorers (self-contained HTML embedded by the leaderboard app). Copy-if-present
+    # so raw artifact folders generated before these existed still process cleanly. The leaderboard
+    # asks the Pareto explorer for each time axis it shows, train time included.
     for extra_path in [
         "pareto_front_explorer.html",
-        # The train-time twin of the Pareto explorer. The website's "I care about" selector
-        # switches to it for the fast-to-train view; both are rendered from the same points.
-        "pareto_front_explorer_time_train.html",
-        "pareto_front_points.csv",
         "winrate_explorer.html",
-        "winrate_matrix.csv",
         Path("tuning_trajectories") / "placeholder_name" / "tuning_trajectories_explorer.html",
-        Path("tuning_trajectories") / "placeholder_name" / "tuning_trajectories.csv",
     ]:
         src = base_input_path / extra_path
         if src.is_file():
@@ -165,3 +164,13 @@ def process_one_folder(
     if flagged:
         for page in base_output_path.glob("*.html"):
             page.write_text(inject_leakage(page.read_text(encoding="utf-8"), flagged), encoding="utf-8")
+    return n_datasets
+
+
+def write_n_datasets_index(root: Path, counts: dict[Path, int]) -> None:
+    """Write ``root/n_datasets.json``: each published cell's number of datasets.
+
+    Keyed by the cell's folder relative to ``root``, the path the leaderboard reads the cell from.
+    """
+    index = {Path(rel).as_posix(): int(n) for rel, n in sorted(counts.items(), key=lambda item: str(item[0]))}
+    (root / "n_datasets.json").write_text(json.dumps(index, indent=0, sort_keys=True) + "\n")

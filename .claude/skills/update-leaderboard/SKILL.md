@@ -115,7 +115,8 @@ Monitor until the process exits, then verify outputs — **don't trust "exited" 
   - Structural sanity, counted **inside the `entrants_*` roots** (a stale top-level `imputation_*`
     layout may sit next to them, see Step 3): **16** roots (one per combination of the system
     categories, and each one's `_noleak` twin computed without the methods that carry a leakage
-    warning) and, per root, one `website_leaderboard.csv`, one `n_datasets_*` marker and one
+    warning), one `n_datasets.json` next to them (each cell's dataset count), and per root one
+    `website_leaderboard.csv` and one
     `leaderboard_table.html` per subset plus the interactive `*_explorer.html` pages, and **0** `*.png`
     / `*.png.zip` (TabArena publishes no static figures). The subset count grows with the site
     (60 subsets per pool in v0.1.8, 116 since the balanced / imbalanced / extreme subsets of v0.1.9:
@@ -123,6 +124,9 @@ Monitor until the process exits, then verify outputs — **don't trust "exited" 
     the Space's current `data/` (`diff <(cd $SRC && find entrants_* -type f | sort) <(cd $DST && find
     entrants_* -type f | sort)` is empty when no subset was added or removed) rather than against
     fixed numbers.
+  - File budget: a Space repo holds at most **20,000 files** (a push over it is rejected with "too many
+    files"). Every published cell repeats its six files, so only the pages the leaderboard shows are
+    published (`process_one_folder`); count `git ls-files | wc -l` in the Space after the swap.
   - Pool sanity: `entrants_models` must contain **no** AutoGluon row, and a model's Elo must differ
     between `entrants_models` and `entrants_open_llm_api` (a wider field re-rates everyone). If they
     match, the pool filter did not apply.
@@ -140,20 +144,21 @@ longer ships PNGs, which retires the old stale-unzipped-`.png` gotcha for `data/
 SRC=<tabarena>/scripts/generated_website_artifacts/clean_website_artifacts/website_data
 DST=<lb_code_dir>/data
 
-# 1. Sanity-check nothing but entrants_* lives in data/ (so the rm is safe). A pre-v0.1.8 checkout
-#    still has imputation_* at the top level; those are the old layout and go too.
-find "$DST" -mindepth 1 -maxdepth 1 ! -name 'entrants_*' ! -name 'imputation_*'   # expect: no output
+# 1. Sanity-check nothing but entrants_* and n_datasets.json lives in data/ (so the rm is safe). A
+#    pre-v0.1.8 checkout still has imputation_* at the top level; those are the old layout and go too.
+find "$DST" -mindepth 1 -maxdepth 1 ! -name 'entrants_*' ! -name 'imputation_*' ! -name 'n_datasets.json'   # expect: no output
 
 # 2. Delete the old subtree, then copy the fresh one in. Copy the entrant pools ONLY: the generator wipes
 #    neither raw_website_artifacts/ nor website_data/, so the pre-pool imputation_no/ + imputation_yes/
 #    layout (static PNGs) from before v0.1.8 survives at the top level, is re-converted every run and
 #    sits in clean_website_artifacts.zip too, while the Space tracks nothing but entrants_*.
 rm -rf "$DST"/entrants_* "$DST"/imputation_*
-cp -r "$SRC"/entrants_* "$DST"/
+cp -r "$SRC"/entrants_* "$SRC"/n_datasets.json "$DST"/
 
 # 3. Verify the swap:
 echo "any .png (MUST be 0): $(find "$DST" -name '*.png*' | wc -l)"
-echo "entrant pools:        $(find "$DST" -mindepth 1 -maxdepth 1 -name 'entrants_*' | wc -l)"  # 8
+echo "entrant pools:        $(find "$DST" -mindepth 1 -maxdepth 1 -name 'entrants_*' | wc -l)"  # 16
+echo "files in the Space:   $(cd "$DST"/.. && git ls-files | wc -l) + new"  # a Space holds at most 20,000 files
 echo "csv:                  $(find "$DST" -name 'website_leaderboard.csv' | wc -l)"  # same as before the swap unless a subset changed
 ```
 
@@ -263,7 +268,8 @@ maintainer asks for BeyondArena; this skill's default is the main leaderboard `d
 The generator crosses four filter axes (split, size, features, tasks) and publishes every cell that
 holds at least one dataset, under `subsets/split_*/size_*/features_*/tasks_*/` (354 of the 500 cells
 today). The cells run in parallel with ray (about a minute and a half on 96 cores);
-`--skip-generate` re-runs only the convert step. Delete `subsets*/` and `result_plots*/` before
+`--skip-generate` re-runs only the convert step. Copy `n_datasets.json` (each cell's dataset count)
+along with the folders. Delete `subsets*/` and `result_plots*/` before
 copying: the unzipped `*.png` files that `data_loading.unzip_png` leaves there are gitignored and
 would be served stale. Then compare the file list against the Space's tracked one
 (`diff <(cd $SRC && find . -type f | sed 's|^\./||' | sort) <(cd $DST && git ls-files | sort)` is empty when no cell
