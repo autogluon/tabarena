@@ -40,7 +40,8 @@ class TrainingGuard:
     """Keeps every configuration's fit inside TabArena's requirements without changing the package's train modules.
 
     - Time limit: the package's train modules run to their epoch budget, as in its standalone experiments. After each
-      epoch's validation call, ``patience`` is set to 0 once the next epoch would end past the deadline.
+      epoch's validation call, ``patience`` is set to 0 once the next epoch, plus twice the time of one validation
+      pass (for the predictions after training), would end past the deadline.
     - Finite results: the guard keeps the weights of the epoch with the best validation score. A configuration whose
       loss or predictions leave the finite range ends training there (an early stop) instead of with the error the
       train modules raise; ``restore`` puts those weights back.
@@ -54,11 +55,15 @@ class TrainingGuard:
         self.n_epochs = 0
         self.best_score = float("inf")
         self.best_state = copy.deepcopy(model.state_dict())
+        self.reserve = 0.0
 
     def __call__(self, model, tensors, dataset, trial_params, device, parts):
+        started = time.monotonic()
         predictions = self.inference_fn(model, tensors, dataset, trial_params, device, parts)
         if tuple(parts) != self.epoch_parts:
             return predictions
+        # Time kept for the predictions after training (the final validation check and AutoGluon's own).
+        self.reserve = 2.0 * (time.monotonic() - started)
         if all(np.isfinite(np.asarray(predictions[part])).all() for part in predictions):
             score = float(compute_metrics_for_parts(dataset, predictions, ("val",))["val"]["score"])
             if score < self.best_score:
@@ -66,7 +71,7 @@ class TrainingGuard:
                 self.best_state = copy.deepcopy(model.state_dict())
         self.n_epochs += 1
         now = time.monotonic()
-        if self.deadline is not None and now + (now - self.start) / self.n_epochs >= self.deadline:
+        if self.deadline is not None and now + (now - self.start) / self.n_epochs + self.reserve >= self.deadline:
             trial_params["patience"] = 0
         return predictions
 

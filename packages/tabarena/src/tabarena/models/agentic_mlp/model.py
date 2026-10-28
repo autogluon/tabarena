@@ -50,6 +50,10 @@ DEFAULT_CONFIG = {
 }
 
 
+#: Memory budget of one fit; an ensemble (``n_ens > 1``) that would need more trains fewer members.
+MEMBER_MEMORY_BUDGET = 32 * 1024**3
+
+
 def tiered_batch_size(n_train: int) -> int:
     """The package fixes the batch size per dataset name (``bin.mlp.hparams.DATASET_TO_BATCH_SIZE``);
     these size tiers were fitted to that table.
@@ -116,6 +120,7 @@ class AgenticMLPModel(AbstractTorchModel):
             )
 
         hyp = self._get_model_params()
+        hyp["n_ens"] = self.n_members(X, hyp, self.num_classes)
         bool_to_cat = hyp.pop("bool_to_cat")
         suffix, other = ("reg", "clf") if self.problem_type == "regression" else ("clf", "reg")
         indices = {}
@@ -177,8 +182,23 @@ class AgenticMLPModel(AbstractTorchModel):
         num_classes: int | None = 1,
         **kwargs,
     ) -> int:
-        """Parameters, optimizer state, one training batch of activations and the dataset."""
+        """Parameters, optimizer state, one training batch of activations and the dataset, for the ensemble size
+        ``n_members`` uses.
+        """
         p = {**DEFAULT_CONFIG, **(hyperparameters or {})}
+        return cls._memory(X, {**p, "n_ens": cls.n_members(X, p, num_classes)}, num_classes)
+
+    @classmethod
+    def n_members(cls, X: pd.DataFrame, hyperparameters: dict, num_classes: int | None) -> int:
+        """``n_ens``, lowered until the estimated memory fits ``MEMBER_MEMORY_BUDGET`` (wide datasets)."""
+        p = {**DEFAULT_CONFIG, **hyperparameters}
+        n = int(p["n_ens"])
+        while n > 1 and cls._memory(X, {**p, "n_ens": n}, num_classes) > MEMBER_MEMORY_BUDGET:
+            n -= 1
+        return n
+
+    @classmethod
+    def _memory(cls, X: pd.DataFrame, p: dict, num_classes: int | None) -> int:
         n_samples = len(X)
         cat_columns = X.select_dtypes(include=["category", "object", "bool"]).columns
         cat_sizes = (X[cat_columns].nunique() + 1).tolist()
