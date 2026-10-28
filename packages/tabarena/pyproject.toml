@@ -190,6 +190,12 @@ lightpfn = ["lightpfn==1.0.0"]
 # FTFM is not published on PyPI; pinned to a commit so the benchmarked code is fixed (empty extra on
 # PyPI). Keep in sync with `pip_extra` in models/ftfm/info.py.
 ftfm = ["ftfm @ git+https://github.com/machinelearningnuremberg/ftfm-official.git@7e5e237daa26ef20f0faec1650d000b04de5122e"]
+# TabAbax is a private repository and is not on PyPI. The extra resolves only for an
+# account that can read github.com/tababax-research/TabAbax. Keep in sync with
+# `pip_extra` in models/tababax/info.py. Checkpoints are not in that repository.
+tababax = [
+  "tababax @ git+https://github.com/tababax-research/TabAbax.git@b595c83f27c0f628cdedc56059a9be5d878acbda",
+]
 
 # Core benchmark set: the always-on models for benchmarking, plus the plotting and
 # preprocessing capabilities split out of the core install. Self-references avoid
@@ -235,6 +241,7 @@ extended = [
   "tabarena[kumo_tabular]",
   "tabarena[lightpfn]",
   "tabarena[ftfm]",
+  "tabarena[tababax]",
 ]
 
 # Convenience: everything (core + extended + probmetrics).
