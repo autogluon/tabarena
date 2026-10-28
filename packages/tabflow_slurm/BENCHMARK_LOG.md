@@ -62,8 +62,8 @@ run against `main`. To reproduce an entry, check out its recorded **git SHA**.
   the same in the out-of-fold predictions). After the clipping fix (`6dd0319f`, reproduced and verified on CPU) the
   16 affected items (concrete r3/r21 on splits 2, 6, 11, 29; wine_world_cost r3/r21 on 17; cirrhosis r23 on 3, 17,
   56, 57 and r16 on 19; garments r16 on 19) were refit on pool `tabmfix-2810c` (8 workers, launch
-  `beyondarena_tabmfix_28102026_gpu_clip-20261028-182651-e188`, 6 minutes); their earlier results are in
-  `<run>/superseded_before_clip/`. On the 14 datasets the fixed TabM gains Elo in every variant (default +34, tuned
+  `beyondarena_tabmfix_28102026_gpu_clip-20261028-182651-e188`, 6 minutes) after their earlier results were moved
+  out of the run's output, so the cache check approved exactly them. On the 14 datasets the fixed TabM gains Elo in every variant (default +34, tuned
   +13, tuned + ensemble +12). The fit times come from RTX PRO 6000 cards, the hosted suite's from A100s. The hosted
   suite has no raw tier on R2 (it was never uploaded), so the merge uses its processed tier.
 
@@ -100,7 +100,7 @@ TabArenaBenchmarkPlan(
     ),
     **common,
 ).setup_jobs()
-# setup-clip: the 16 items whose results were moved to superseded_before_clip/, refit with the input clipping
+# setup-clip: the 16 items whose results were moved out of the run's output, refit with the input clipping
 TabArenaBenchmarkPlan(
     model_jobs=[
         ModelJob(
