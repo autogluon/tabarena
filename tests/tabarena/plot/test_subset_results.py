@@ -129,3 +129,27 @@ def test_per_model_width_grows_with_the_number_of_methods(leaderboards):
         for label, lb in leaderboards.items()
     }
     assert width(many) > width(leaderboards)
+
+
+@pytest.mark.parametrize(("legend_members", "expected"), [("best", "(CatBoost, ...)"), ("all", "(CatBoost, XGBoost)")])
+def test_family_legend_names_the_best_member_or_all_members(leaderboards, legend_members, expected):
+    from matplotlib.text import Text
+
+    from tabarena.plot import subset_results as sr
+
+    # Two GBDT members: "best" names only the best one, "all" lists both in their group's order.
+    lbs = {
+        k: pd.concat([lb, lb[lb["method"] == "RandomForest (default)"].assign(method="XGBoost (default)", elo=1.0)])
+        for k, lb in leaderboards.items()
+    }
+    order = list(lbs)
+    fig = sr._per_family_figure(
+        sr._prepare_frame(lbs, order),
+        order,
+        sr.METRIC_SPECS["elo"],
+        sr.DEFAULT_FAMILY_GROUPS,
+        [],
+        legend_members=legend_members,
+    )
+    labels = [t.get_text() for t in fig.findobj(Text)]
+    assert expected in labels, labels

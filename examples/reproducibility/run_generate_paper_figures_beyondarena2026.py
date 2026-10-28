@@ -14,6 +14,13 @@ split of the 12 sub-benchmarks and writes, under ``save_path``:
 * ``runtimes/``: the training-runtime distribution across configurations
   (paper: ``data-analysis-runtime-per-method.pdf``).
 
+Two views beyond the paper's figures:
+
+* ``result_plots_le100k/``: the overview figures on the datasets with at most 100k training rows,
+  where TabPFN-2.6 and TabDPT ran on every split (no imputed results).
+* ``subsets_large_with_tabpfn3/``: the leaderboard on the datasets above 100k training rows with
+  TabPFN-3 added. TabPFN-2.6 and TabDPT did not run there, so they are left out.
+
 Results download to ``~/.cache/tabarena/`` on first run.
 """
 
@@ -22,7 +29,10 @@ from __future__ import annotations
 from pathlib import Path
 
 from tabarena.contexts import BeyondArenaContext
-from tabarena.contexts.beyondarena.methods import beyond_method_metadata_2026_06_paper_collection
+from tabarena.contexts.beyondarena.methods import (
+    beyond_method_metadata_2026_06_paper_collection,
+    beyond_tabpfn3_metadata,
+)
 from tabarena.plot.subset_results import plot_subset_results
 
 #: The paper's sub-benchmarks: label -> subset expressions, each on every split.
@@ -41,27 +51,47 @@ PAPER_SUBSETS: dict[str, list[str]] = {
     "full": ["all"],
 }
 
+
+def subset_leaderboards(context: BeyondArenaContext, output_dir: Path, subsets: dict[str, list[str]]) -> dict:
+    """Each subset's leaderboard, ready for ``plot_subset_results``; figures only for ``"full"``."""
+    rename = context.get_method_rename_map()
+    leaderboards = {}
+    for label, subset in subsets.items():
+        leaderboard, results = context.compare(
+            output_dir=output_dir / label,
+            subset=subset,
+            return_results=True,
+            plot=label == "full",
+        )
+        # The overview figures group methods by display name (e.g. "RealMLP", not "TA-REALMLP").
+        leaderboard["method"] = leaderboard["config_type"].map(rename).fillna(leaderboard["method"])
+        leaderboard["n_datasets_total"] = results["dataset"].nunique()  # the "N=" under each subset
+        leaderboards[label] = leaderboard
+    return leaderboards
+
+
 if __name__ == "__main__":
     save_path = Path("output_paper_results_beyondarena2026")  # folder to save all figures and tables
 
-    context = BeyondArenaContext(
-        methods=beyond_method_metadata_2026_06_paper_collection.method_metadata_lst,
-    )
+    methods = beyond_method_metadata_2026_06_paper_collection.method_metadata_lst
+    context = BeyondArenaContext(methods=methods)
 
-    # The overview figures group methods by display name (e.g. "RealMLP", not "TA-REALMLP").
-    rename = context.get_method_rename_map()
-    leaderboards = {}
-    for label, subset in PAPER_SUBSETS.items():
-        leaderboard, results = context.compare(
-            output_dir=save_path / "subsets" / label,
-            subset=subset,
-            return_results=True,
-            plot=label == "full",  # the paper shows figures for all datasets only
-        )
-        leaderboard["method"] = leaderboard["config_type"].map(rename).fillna(leaderboard["method"])
-        leaderboard["n_datasets_total"] = results["dataset"].nunique()  # the "N=" under each sub-benchmark
-        leaderboards[label] = leaderboard
-    plot_subset_results(leaderboards, save_path / "result_plots")
+    leaderboards = subset_leaderboards(context, save_path / "subsets", PAPER_SUBSETS)
+    plot_subset_results(leaderboards, save_path / "result_plots", family_legend_members="all")
+
+    leaderboards_le100k = subset_leaderboards(
+        context,
+        save_path / "subsets_le100k",
+        {label: [*subset, "!large"] for label, subset in PAPER_SUBSETS.items() if label != "large"},
+    )
+    plot_subset_results(leaderboards_le100k, save_path / "result_plots_le100k", family_legend_members="all")
+
+    BeyondArenaContext(methods=[*methods, beyond_tabpfn3_metadata]).compare(
+        output_dir=save_path / "subsets_large_with_tabpfn3",
+        subset=["large"],
+        remove_imputed=True,  # drops TabPFN-2.6 and TabDPT, imputed on the large datasets
+        elo_ymin=400,  # the baselines fall well below the default axis floor of 800 here
+    )
 
     context.plot_tuning_trajectories(
         save_path=save_path / "tuning_trajectories",
