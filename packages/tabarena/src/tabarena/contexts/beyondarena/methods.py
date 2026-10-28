@@ -279,3 +279,22 @@ beyond_methods_superseded: list[MethodMetadata] = [
 beyond_method_metadata_complete_collection = beyond_method_metadata_collection.with_additional_methods(
     beyond_methods_superseded,
 )
+
+# The 11 methods of the BeyondArena paper (arXiv 2606.30410), with the results it published: all from suite
+# ``beyond_iid_benchmark_2026``, including the Linear entry that a rerun later superseded. Evaluated on all
+# splits, it reproduces the paper's leaderboard; see ``examples/reproducibility/``.
+beyond_method_metadata_2026_06_paper_collection = MethodMetadataCollection(
+    method_metadata_lst=[
+        beyond_linear_metadata,
+        beyond_random_forest_metadata,
+        beyond_extra_trees_metadata,
+        beyond_catboost_metadata,
+        beyond_lightgbm_metadata,
+        beyond_xgboost_metadata,
+        beyond_realmlp_metadata,
+        beyond_tabm_metadata,
+        beyond_tabdpt_metadata,
+        beyond_tabpfnv26_metadata,
+        beyond_tabiclv2_metadata,
+    ],
+)
