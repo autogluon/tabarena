@@ -20,6 +20,8 @@ Two views beyond the paper's figures:
   where TabPFN-2.6 and TabDPT ran on every split (no imputed results).
 * ``subsets_large_with_tabpfn3/``: the leaderboard on the datasets above 100k training rows with
   TabPFN-3 added. TabPFN-2.6 and TabDPT did not run there, so they are left out.
+* ``metafeature_regression/``: which dataset properties explain how well the TFMs do, holding the
+  others fixed (see ``tfm_metafeature_regression``).
 
 Results download to ``~/.cache/tabarena/`` on first run.
 """
@@ -27,6 +29,10 @@ Results download to ``~/.cache/tabarena/`` on first run.
 from __future__ import annotations
 
 from pathlib import Path
+
+import numpy as np
+import pandas as pd
+from scipy import stats
 
 from tabarena.contexts import BeyondArenaContext
 from tabarena.contexts.beyondarena.methods import (
@@ -51,6 +57,11 @@ PAPER_SUBSETS: dict[str, list[str]] = {
     "full": ["all"],
 }
 
+#: Regressors of the meta-feature regression: subset-membership dummies, read against IID splits, the medium
+#: size bucket (10k to 100k training rows) and low-dim data (at most 100 columns after preprocessing).
+META_FEATURES = ["temporal", "grouped", "tiny", "small", "large", "high-dim", "text", "high-cardinality"]
+TFMS = ["TabICLv2", "TabPFN-2.6", "TabDPT"]
+
 
 def subset_leaderboards(context: BeyondArenaContext, output_dir: Path, subsets: dict[str, list[str]]) -> dict:
     """Each subset's leaderboard, ready for ``plot_subset_results``; figures only for ``"full"``."""
@@ -68,6 +79,66 @@ def subset_leaderboards(context: BeyondArenaContext, output_dir: Path, subsets: 
         leaderboard["n_datasets_total"] = results["dataset"].nunique()  # the "N=" under each subset
         leaderboards[label] = leaderboard
     return leaderboards
+
+
+def ols_hc3(y: pd.Series, features: pd.DataFrame) -> pd.DataFrame:
+    """OLS of ``y`` on ``features`` plus an intercept, with HC3 heteroskedasticity-robust standard errors."""
+    X = np.column_stack([np.ones(len(features)), features.to_numpy(float)])
+    y = y.to_numpy(float)
+    xtx_inv = np.linalg.inv(X.T @ X)
+    coef = xtx_inv @ X.T @ y
+    resid = y - X @ coef
+    leverage = np.einsum("ij,jk,ik->i", X, xtx_inv, X)
+    cov = xtx_inv @ (X.T @ (X * (resid**2 / (1 - leverage) ** 2)[:, None])) @ xtx_inv
+    se = np.sqrt(np.diag(cov))
+    return pd.DataFrame(
+        {
+            "coef": coef,
+            "ci_low": coef - 1.96 * se,
+            "ci_high": coef + 1.96 * se,
+            "p_value": 2 * stats.norm.sf(np.abs(coef / se)),
+            "r2": 1 - resid @ resid / ((y - y.mean()) @ (y - y.mean())),
+            "n_datasets": len(y),
+        },
+        index=pd.Index(["const", *features.columns], name="feature"),
+    )
+
+
+def tfm_metafeature_regression(context: BeyondArenaContext, results_per_split: pd.DataFrame) -> pd.DataFrame:
+    """Regress per-dataset TFM performance on dataset properties, each effect holding the others fixed.
+
+    Two targets per dataset, averaged over its splits: ``best_tfm_rank``, the best TFM's rank among all methods
+    (1 = best; a positive coefficient means worse for TFMs), and ``tfm_margin``, the best non-TFM's minus the best
+    TFM's min-max normalized error (positive means a TFM beats every other method). Imputed results count as the
+    method's result, as in every leaderboard of the paper.
+    """
+    grid = context.task_metadata_collection.task_grid().groupby("dataset").first()
+    features = pd.DataFrame(
+        {name: context.subset_predicates[name].evaluate(grid, name=name).astype(float) for name in META_FEATURES}
+    )
+
+    df = results_per_split.copy()
+    df["is_tfm"] = df["config_type"].map(context.get_method_rename_map()).isin(TFMS)
+    errors = df.groupby(["dataset", "fold"])["metric_error"]
+    df["rank"] = errors.rank()
+    lowest = errors.transform("min")
+    df["norm_error"] = ((df["metric_error"] - lowest) / (errors.transform("max") - lowest)).fillna(0.0)
+    tfm = df[df["is_tfm"]].groupby(["dataset", "fold"])
+    targets = (
+        pd.DataFrame(
+            {
+                "best_tfm_rank": tfm["rank"].min(),
+                "tfm_margin": df[~df["is_tfm"]].groupby(["dataset", "fold"])["norm_error"].min()
+                - tfm["norm_error"].min(),
+            }
+        )
+        .groupby("dataset")
+        .mean()
+    )
+
+    return pd.concat(
+        {target: ols_hc3(targets[target], features.loc[targets.index]) for target in targets}, names=["target"]
+    )
 
 
 if __name__ == "__main__":
@@ -92,6 +163,14 @@ if __name__ == "__main__":
         remove_imputed=True,  # drops TabPFN-2.6 and TabDPT, imputed on the large datasets
         elo_ymin=400,  # the baselines fall well below the default axis floor of 800 here
     )
+
+    regression = tfm_metafeature_regression(
+        context, pd.read_csv(save_path / "subsets" / "full" / "results_per_split.csv")
+    )
+    (save_path / "metafeature_regression").mkdir(exist_ok=True)
+    regression.to_csv(save_path / "metafeature_regression" / "coefficients.csv")
+    regression.round(3).to_latex(save_path / "metafeature_regression" / "coefficients.tex")
+    print(regression.round(3).to_markdown())
 
     context.plot_tuning_trajectories(
         save_path=save_path / "tuning_trajectories",
