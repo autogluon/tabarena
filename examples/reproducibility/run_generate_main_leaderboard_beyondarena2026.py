@@ -2,8 +2,9 @@
 
 Unlike ``examples/beyondarena/run_generate_beyondarena_leaderboard.py`` (the latest results for
 every method, on the ``core2k`` protocol), this pins the method collection to
-``beyond_method_metadata_2026_06_paper_collection`` -- the 11 methods with the results the paper
-published -- and evaluates every split, as the paper does, so the leaderboard matches it.
+``beyond_method_metadata_2026_camera_ready_collection`` -- the 11 methods of the paper's camera-ready version
+(the published results with TabM's fixed results) -- and evaluates every split, as the paper does. Swap in
+``beyond_method_metadata_2026_06_paper_collection`` to reproduce the leaderboard of arXiv v1 exactly.
 
 Results download to ``~/.cache/tabarena/`` on first run. ``compare()`` writes the leaderboard
 CSVs and figures under ``output_dir``, among them ``results_per_split.csv`` with the per-split
@@ -16,13 +17,13 @@ from __future__ import annotations
 from pathlib import Path
 
 from tabarena.contexts import BeyondArenaContext
-from tabarena.contexts.beyondarena.methods import beyond_method_metadata_2026_06_paper_collection
+from tabarena.contexts.beyondarena.methods import beyond_method_metadata_2026_camera_ready_collection
 
 if __name__ == "__main__":
     output_path = Path("output_leaderboard_beyondarena2026")  # folder to save all figures and tables
 
     context = BeyondArenaContext(
-        methods=beyond_method_metadata_2026_06_paper_collection.method_metadata_lst,
+        methods=beyond_method_metadata_2026_camera_ready_collection.method_metadata_lst,
     )
     leaderboard = context.compare(
         output_dir=output_path,

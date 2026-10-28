@@ -18,14 +18,14 @@ from __future__ import annotations
 from pathlib import Path
 
 from tabarena.contexts import BeyondArenaContext
-from tabarena.contexts.beyondarena.methods import beyond_method_metadata_2026_06_paper_collection
+from tabarena.contexts.beyondarena.methods import beyond_method_metadata_2026_camera_ready_collection
 from tabarena.nips2025_utils.per_dataset_tables import write_per_dataset_combined_tex
 
 if __name__ == "__main__":
     save_path = Path("output_paper_per_dataset_beyondarena2026")  # folder to save all figures and tables
     tex_path_root = "paper/tables/per_dataset"  # where the paper's LaTeX finds the contents of save_path
 
-    methods = beyond_method_metadata_2026_06_paper_collection.method_metadata_lst
+    methods = beyond_method_metadata_2026_camera_ready_collection.method_metadata_lst
     context = BeyondArenaContext(methods=methods)
 
     # Table rows by display name: every default, then every tuned, then every tuned + ensembled.

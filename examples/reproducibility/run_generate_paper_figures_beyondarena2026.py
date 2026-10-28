@@ -1,6 +1,7 @@
 """Reproduce the result figures and tables of the BeyondArena paper (arXiv 2606.30410).
 
-Evaluates the paper's 11 methods (``beyond_method_metadata_2026_06_paper_collection``) on every
+Evaluates the paper's 11 methods (``beyond_method_metadata_2026_camera_ready_collection``; swap in
+``beyond_method_metadata_2026_06_paper_collection`` for the results of arXiv v1) on every
 split of the 12 sub-benchmarks and writes, under ``save_path``:
 
 * ``subsets/<subset>/``: each sub-benchmark's leaderboard. ``subsets/full/`` also holds the
@@ -36,7 +37,7 @@ from scipy import stats
 
 from tabarena.contexts import BeyondArenaContext
 from tabarena.contexts.beyondarena.methods import (
-    beyond_method_metadata_2026_06_paper_collection,
+    beyond_method_metadata_2026_camera_ready_collection,
     beyond_tabpfn3_metadata,
 )
 from tabarena.plot.subset_results import plot_subset_results
@@ -144,7 +145,7 @@ def tfm_metafeature_regression(context: BeyondArenaContext, results_per_split: p
 if __name__ == "__main__":
     save_path = Path("output_paper_results_beyondarena2026")  # folder to save all figures and tables
 
-    methods = beyond_method_metadata_2026_06_paper_collection.method_metadata_lst
+    methods = beyond_method_metadata_2026_camera_ready_collection.method_metadata_lst
     context = BeyondArenaContext(methods=methods)
 
     leaderboards = subset_leaderboards(context, save_path / "subsets", PAPER_SUBSETS)

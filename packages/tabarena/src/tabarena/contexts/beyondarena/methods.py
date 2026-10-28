@@ -128,6 +128,26 @@ beyond_tabm_metadata = tabm_descriptor.method_metadata(
     **_common_bag_kwargs,
 )
 
+# TabM fix rerun of 2026-10-28 (`beyondarena_tabmfix_28102026` in BENCHMARK_LOG.md): every split of the 14 datasets
+# whose hosted TA-TabM results showed a failure, with the constant-column fix (38b66ba9) and the input clipping
+# (6dd0319f), default + the hosted suite's 25 random configs. It runs the re-implemented TabM (#438); the hosted suite
+# above ran the earlier vendored one.
+beyond_tabm_2026_10_rerun_metadata = tabm_descriptor.method_metadata(
+    method="TA-TabM",
+    ag_key="TA-TABM",
+    config_default="TA-TabM_c1_BAG_L1",
+    **{**_common_bag_kwargs, "suite": "beyondarena-2026-10-28-tabmfix", "date": "2026-10-28"},
+)
+# The hosted suite with those 14 datasets replaced by the rerun: its processed tier merged, every results table
+# regenerated from it (identical to the hosted ones on the other 128 datasets). No raw tier: the hosted suite's raw
+# results were never uploaded; the rerun's are in the suite above.
+beyond_tabm_2026_10_metadata = tabm_descriptor.method_metadata(
+    method="TA-TabM",
+    ag_key="TA-TABM",
+    config_default="TA-TabM_c1_BAG_L1",
+    **{**_common_bag_kwargs, "suite": "beyondarena-2026-10-28", "date": "2026-10-28", "has_raw": False},
+)
+
 # -- Foundation models (GPU, no HPO, unbagged) ---------------------------------------
 beyond_tabdpt_metadata = tabdpt_descriptor.method_metadata(
     method="TA-TabDPT",
@@ -246,7 +266,7 @@ beyond_method_metadata_lst: list[MethodMetadata] = [
     beyond_lightgbm_metadata,
     beyond_xgboost_metadata,
     beyond_realmlp_metadata,
-    beyond_tabm_metadata,
+    beyond_tabm_2026_10_metadata,
     beyond_tabdpt_metadata,
     beyond_tabpfnv26_metadata,
     beyond_tabiclv2_metadata,
@@ -273,6 +293,8 @@ beyond_method_metadata_collection = MethodMetadataCollection(
 # by (method, suite) through the complete collection. Append a method here whenever a rerun takes over its slot.
 beyond_methods_superseded: list[MethodMetadata] = [
     beyond_linear_metadata,  # rerun beyondarena-2026-09-24 replaced it
+    beyond_tabm_metadata,  # the merged suite beyondarena-2026-10-28 replaced it
+    beyond_tabm_2026_10_rerun_metadata,  # the rerun alone (14 datasets, with raw), merged into beyondarena-2026-10-28
 ]
 
 # The roster plus every superseded variant: all hosted BeyondArena results.
@@ -296,5 +318,15 @@ beyond_method_metadata_2026_06_paper_collection = MethodMetadataCollection(
         beyond_tabdpt_metadata,
         beyond_tabpfnv26_metadata,
         beyond_tabiclv2_metadata,
+    ],
+)
+
+# The paper's 11 methods for its camera-ready version: as ``beyond_method_metadata_2026_06_paper_collection``, with
+# TabM's fixed results (``beyondarena-2026-10-28``). Linear stays the published one, since its rerun covers only the
+# core and core2k splits.
+beyond_method_metadata_2026_camera_ready_collection = MethodMetadataCollection(
+    method_metadata_lst=[
+        beyond_tabm_2026_10_metadata if m is beyond_tabm_metadata else m
+        for m in beyond_method_metadata_2026_06_paper_collection.method_metadata_lst
     ],
 )
