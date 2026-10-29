@@ -182,7 +182,7 @@ mitra_v2 = ["autogluon.tabular[mitra]>=1.6,<1.7"]
 tabpfn_3_5 = ["tabpfn>=9.0.0"]
 # CompactTab: Parameter-efficient tabular deep learning & hybrid model; keep in sync with `pip_extra` in models/compacttab/info.py.
 compacttab = [
-  "compacttab @ git+https://github.com/DakshBhalala/TBDML.git@88107b3",
+  "compacttab @ git+https://github.com/DakshBhalala/TBDML.git@25c7c7d",
 ]
 # Kumo Tabular's library is not on PyPI yet (only a placeholder release); pinned to a commit so the
 # benchmarked code is fixed (empty extra on PyPI). Keep in sync with `pip_extra` in models/kumo_tabular/info.py.

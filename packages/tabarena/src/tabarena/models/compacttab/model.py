@@ -140,7 +140,8 @@ class CompactTabModel(AbstractModel):
             raise RuntimeError("CompactTabModel is not fitted.")
         if self.problem_type == REGRESSION:
             return self._predict(X, **kwargs)
-        return self._estimator.predict_proba(X)
+        y_pred_proba = self._estimator.predict_proba(X)
+        return self._convert_proba_to_unified_form(y_pred_proba)
 
     def _predict(self, X: pd.DataFrame, **kwargs: Any) -> np.ndarray:
         if self._estimator is None:
@@ -237,7 +238,8 @@ class CompactTabHybridModel(AbstractModel):
             raise RuntimeError("CompactTabHybridModel is not fitted.")
         if self.problem_type == REGRESSION:
             return self._predict(X, **kwargs)
-        return self._estimator.predict_proba(X)
+        y_pred_proba = self._estimator.predict_proba(X)
+        return self._convert_proba_to_unified_form(y_pred_proba)
 
     def _predict(self, X: pd.DataFrame, **kwargs: Any) -> np.ndarray:
         if self._estimator is None:

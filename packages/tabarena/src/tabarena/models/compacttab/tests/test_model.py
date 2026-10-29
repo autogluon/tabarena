@@ -36,8 +36,8 @@ def test_compacttab_fit_predict_binary(tmp_path):
     probs = model.predict_proba(X)
 
     assert len(preds) == len(X)
-    assert probs.shape == (len(X), 2)
-    assert np.allclose(probs.sum(axis=1), 1.0, atol=1e-5)
+    assert probs.shape == (len(X),)
+    assert np.all((probs >= 0.0) & (probs <= 1.0))
 
 
 def test_compacttab_fit_predict_regression(tmp_path):
@@ -78,5 +78,5 @@ def test_compacttab_hybrid_fit_predict_binary(tmp_path):
     probs = model.predict_proba(X)
 
     assert len(preds) == len(X)
-    assert probs.shape == (len(X), 2)
-    assert np.allclose(probs.sum(axis=1), 1.0, atol=1e-5)
+    assert probs.shape == (len(X),)
+    assert np.all((probs >= 0.0) & (probs <= 1.0))

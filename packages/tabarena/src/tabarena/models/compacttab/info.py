@@ -5,7 +5,7 @@ from tabarena.models._model_info import ModelInfo
 from tabarena.models.compacttab.hpo import gen_compacttab, gen_compacttab_hybrid
 from tabarena.models.compacttab.model import CompactTabHybridModel, CompactTabModel
 
-_PIP_EXTRA = ("compacttab @ git+https://github.com/DakshBhalala/TBDML.git@88107b3",)
+_PIP_EXTRA = ("compacttab @ git+https://github.com/DakshBhalala/TBDML.git@25c7c7d",)
 
 compacttab_method_metadata = MethodMetadata.config(
     method="CompactTab",
