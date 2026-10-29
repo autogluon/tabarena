@@ -61,11 +61,20 @@ def leakage_map(website_leaderboard: pd.DataFrame) -> dict[str, list[str]]:
 
 def leader_name(website_leaderboard: pd.DataFrame) -> str | None:
     """Display name of the top row of a website leaderboard, without its link or imputed tag."""
+    names = leader_names(website_leaderboard, 1)
+    return names[0] if names else None
+
+
+def leader_names(website_leaderboard: pd.DataFrame, count: int) -> list[str]:
+    """Display names of the top ``count`` rows of a website leaderboard, as :func:`leader_name` gives the first."""
     if website_leaderboard.empty or "Model" not in website_leaderboard.columns:
-        return None
-    name, variant, _ = _parse_model(str(website_leaderboard["Model"].iloc[0]))
+        return []
     suffix = {"Default": " (default)", "Tuned": " (tuned)", "Tuned + Ens.": " (tuned + ensemble)"}
-    return name + suffix.get(variant, "")
+    names = []
+    for model in website_leaderboard["Model"].iloc[:count]:
+        name, variant, _ = _parse_model(str(model))
+        names.append(name + suffix.get(variant, ""))
+    return names
 
 
 def process_one_folder(
