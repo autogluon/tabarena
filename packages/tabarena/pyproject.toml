@@ -192,9 +192,10 @@ lightpfn = ["lightpfn==1.0.0"]
 ftfm = ["ftfm @ git+https://github.com/machinelearningnuremberg/ftfm-official.git@7e5e237daa26ef20f0faec1650d000b04de5122e"]
 # TabAbax is a private repository and is not on PyPI. The extra resolves only for an
 # account that can read github.com/tababax-research/TabAbax. Keep in sync with
-# `pip_extra` in models/tababax/info.py. Checkpoints are not in that repository.
+# `pip_extra` in models/tababax/info.py. The default checkpoints download from
+# huggingface.co/tababax-ai/tababax.
 tababax = [
-  "tababax @ git+https://github.com/tababax-research/TabAbax.git@b595c83f27c0f628cdedc56059a9be5d878acbda",
+  "tababax @ git+https://github.com/tababax-research/TabAbax.git@2b5f0d178d7d3dbb1b64356c604c9d49ac9a2c0c",
 ]
 
 # Core benchmark set: the always-on models for benchmarking, plus the plotting and

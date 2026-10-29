@@ -3,7 +3,8 @@ from __future__ import annotations
 from tabarena.models.tababax.model import TabAbaxModel
 from tabarena.utils.config_utils import ConfigGenerator
 
-# One released checkpoint, chosen by model_path at fit time. No search space.
+# One released checkpoint. The model class supplies the recommended defaults; this config does not
+# override them. Pass model_path to use a local file instead of the Hugging Face download.
 gen_tababax = ConfigGenerator(
     model_cls=TabAbaxModel,
     search_space={},
