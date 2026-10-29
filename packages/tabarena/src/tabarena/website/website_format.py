@@ -271,7 +271,7 @@ def get_rename_map() -> dict[str, str]:
         "SAP-RPT-OSS": "SAP-RPT-OSS",
         "TABSWIFT": "TabSwift",
         "XIAOMI-TABLDM": "Xiaomi-TabLDM",
-        "TABABAX": "Tababax",
+        "TABABAX": "TabAbax",
     }
 
 
