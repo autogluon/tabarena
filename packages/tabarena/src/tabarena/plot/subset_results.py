@@ -249,6 +249,7 @@ def plot_subset_results(
     marker_groups: dict[str, dict] | None = None,
     models: Sequence[str] | None = None,
     family_legend_members: str = "best",
+    figsize: tuple[float, float] | None = None,
 ) -> dict[str, Path]:
     """Render the per-family / per-model subset-overview plots from eval leaderboards.
 
@@ -273,6 +274,8 @@ def plot_subset_results(
         models: If given, the per-model plot only shows these methods (default: all available).
         family_legend_members: How the per-family legend names a family's members: ``"best"`` the
             best-on-average member plus an ellipsis, ``"all"`` every member in its group's order.
+        figsize: Size of every figure in inches (default: the width grows with the number of subsets, 4.2 in
+            high). The saved files are cropped to their content, the legend above the axes included.
 
     Returns:
         ``{"<kind>_<metric>": <pdf path>}`` for every figure written. A kind is skipped (with a
@@ -302,10 +305,16 @@ def plot_subset_results(
             for kind in plot_kinds:
                 if kind == "per_family":
                     fig = _per_family_figure(
-                        df, order, spec, family_groups, contender_entries, legend_members=family_legend_members
+                        df,
+                        order,
+                        spec,
+                        family_groups,
+                        contender_entries,
+                        legend_members=family_legend_members,
+                        figsize=figsize,
                     )
                 elif kind == "per_model":
-                    fig = _per_model_figure(df, order, spec, marker_groups, contender_entries, models)
+                    fig = _per_model_figure(df, order, spec, marker_groups, contender_entries, models, figsize=figsize)
                 else:
                     raise ValueError(f"Unknown plot kind {kind!r}; expected 'per_family' or 'per_model'.")
                 if fig is None:
@@ -451,10 +460,13 @@ def _annotate_n_datasets(ax: Axes, order: list[str], n_per_subset: dict[str, int
     for i, label in enumerate(order):
         if label not in n_per_subset:
             continue
+        # A fixed offset in points keeps the row right under the subset names at any figure height.
         ax.annotate(
             f"N={n_per_subset[label]}",
-            xy=(i, -0.12),
+            xy=(i, 0),
             xycoords=("data", "axes fraction"),
+            xytext=(0, -22),
+            textcoords="offset points",
             ha="center",
             va="top",
             fontsize=10,
@@ -526,6 +538,7 @@ def _per_family_figure(
     family_groups: dict[str, dict],
     contenders: list[str | tuple[str, str]],
     legend_members: str = "best",
+    figsize: tuple[float, float] | None = None,
 ):
     df = df[df["method_subtype"].isin(SUBTYPE_PREFERENCE)]
     val_by_ms = _series_by(df, order, ["method", "method_subtype"], spec.column)
@@ -603,7 +616,7 @@ def _per_family_figure(
     palette = sns.color_palette("bright", n_colors=max(4, len(families)))
     family_color = dict(zip(families, palette, strict=False))  # palette is padded to >= 4 colors
 
-    fig, ax = plt.subplots(figsize=(max(6.0, 1.1 * len(order) + 0.3), 4.2))
+    fig, ax = plt.subplots(figsize=figsize or (max(6.0, 1.1 * len(order) + 0.3), 4.2))
     _draw_x_scaffolding(ax, order, column_guides=True, left=-0.4, right=0.15)
 
     # Per-column z-rank: the better group at a column draws its marker on top.
@@ -747,6 +760,7 @@ def _per_model_figure(
     marker_groups: dict[str, dict],
     contenders: list[str | tuple[str, str]],
     models: Sequence[str] | None,
+    figsize: tuple[float, float] | None = None,
 ):
     # One row per (subset, method): the highest-priority subtype available for that method.
     priority = {st: i for i, st in enumerate(SUBTYPE_PREFERENCE)}
@@ -801,7 +815,7 @@ def _per_model_figure(
 
     # Every method gets a slot in every column, so the column width grows with the number of methods.
     column_width = max(1.35, _INCHES_PER_METHOD * n)
-    fig, ax = plt.subplots(figsize=(max(7.0, column_width * len(order) - 0.2), 4.2))
+    fig, ax = plt.subplots(figsize=figsize or (max(7.0, column_width * len(order) - 0.2), 4.2))
     _draw_x_scaffolding(ax, order, column_guides=False, left=-0.52, right=0.45)
 
     vals = np.concatenate([val_by_m[m] for m in method_order])
