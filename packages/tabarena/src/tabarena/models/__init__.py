@@ -12,7 +12,7 @@ from tabarena.models._registry import (
 if TYPE_CHECKING:
     from tabarena.models._method_metadata import MethodMetadata
     from tabarena.models.aplr.model import APLRModel
-    from tabarena.models.tababax.model import TabAbaxModel
+    from tabarena.models.tababax.model import TababaxModel
     from tabarena.models.causilo.model import CausiloModel
     from tabarena.models.chimeraboost.model import ChimeraBoostModel
     from tabarena.models.ctboost.model import CTBoostModel
@@ -57,7 +57,7 @@ if TYPE_CHECKING:
 _LAZY_CLASSES: dict[str, str] = {
     "MethodMetadata": "tabarena.models._method_metadata",
     "APLRModel": "tabarena.models.aplr.model",
-    "TabAbaxModel": "tabarena.models.tababax.model",
+    "TababaxModel": "tabarena.models.tababax.model",
     "CausiloModel": "tabarena.models.causilo.model",
     "ChimeraBoostModel": "tabarena.models.chimeraboost.model",
     "CTBoostModel": "tabarena.models.ctboost.model",

@@ -14,8 +14,8 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class TabAbaxModel(AbstractTorchModel):
-    """TabAbax, an in-context foundation model for classification and regression.
+class TababaxModel(AbstractTorchModel):
+    """Tababax, an in-context foundation model for classification and regression.
 
     ``fit`` stores the training table. ``predict`` runs one forward pass of a pretrained
     transformer. The weights are not updated on the task.
@@ -38,14 +38,14 @@ class TabAbaxModel(AbstractTorchModel):
     ``random_state`` is the TabArena seed (``seed_name``). ``device`` follows the GPUs AutoGluon
     allocated: CUDA when ``num_gpus`` is not 0, otherwise CPU.
 
-    Authors: TabAbax
-    Codebase: https://github.com/tababax-research/TabAbax
+    Authors: Tababax
+    Codebase: https://github.com/tababax-research/Tababax
     Weights: https://huggingface.co/tababax-ai/tababax
     License: Apache-2.0 for the inference code. Weights: CC-BY-NC-4.0.
     """
 
     ag_key = "TA-TABABAX"
-    ag_name = "TA-TabAbax"
+    ag_name = "TA-Tababax"
     ag_priority = 65
     seed_name = "random_state"
     warmup_modules: ClassVar[tuple[str, ...]] = ("tababax",)
@@ -59,8 +59,8 @@ class TabAbaxModel(AbstractTorchModel):
     #: and device reuses it.
     shared_weights: ClassVar[SharedWeights] = SharedWeights(
         loader=(
-            "tababax:TabAbaxClassifier._load_model",
-            "tababax:TabAbaxRegressor._load_model",
+            "tababax:TababaxClassifier._load_model",
+            "tababax:TababaxRegressor._load_model",
         ),
         key=("checkpoint_version", "model_path"),
     )
@@ -69,12 +69,12 @@ class TabAbaxModel(AbstractTorchModel):
 
     def get_model_cls(self):
         if self.problem_type in ["binary", "multiclass"]:
-            from tababax import TabAbaxClassifier
+            from tababax import TababaxClassifier
 
-            return TabAbaxClassifier
-        from tababax import TabAbaxRegressor
+            return TababaxClassifier
+        from tababax import TababaxRegressor
 
-        return TabAbaxRegressor
+        return TababaxRegressor
 
     def _fit(
         self,
@@ -91,7 +91,7 @@ class TabAbaxModel(AbstractTorchModel):
                 40,
                 "\tFailed to import tababax! Install the private package with "
                 "`pip install tabarena[tababax]` from an account that can read "
-                "github.com/tababax-research/TabAbax.",
+                "github.com/tababax-research/Tababax.",
             )
             raise err
 
