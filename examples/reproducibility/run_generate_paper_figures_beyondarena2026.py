@@ -26,7 +26,7 @@ Added for the camera-ready version:
   do, holding the others fixed (``coefficients.csv``, see ``tfm_metafeature_regression``), and how often each
   property comes with more than 100k training rows (``large_shares.csv``).
 
-The paper prints the first two side by side at 3.46 x 2.2 in and 1.93 x 2.2 in, so they are drawn with
+The paper prints the first two side by side at 3.46 x 1.54 in and 1.93 x 1.54 in, so they are drawn with
 those aspect ratios.
 
 Results download to ``~/.cache/tabarena/`` on first run.
@@ -197,7 +197,7 @@ if __name__ == "__main__":
         plot_kinds=("per_family",),
         metrics=("elo",),
         family_legend_members="all",
-        figsize=(12.4, 7.68),  # the default width; the height crops the saved figure to 3.46:2.2
+        figsize=(12.4, 5.44),  # the default width; the height crops the saved figure to 3.46:1.54
     )
 
     context_tabpfn3 = BeyondArenaContext(methods=[*methods, beyond_tabpfn3_metadata])
@@ -206,7 +206,7 @@ if __name__ == "__main__":
         subset=["large"],
         remove_imputed=True,  # drops TabPFN-2.6 and TabDPT, imputed on the large datasets
         elo_ymin=400,  # the baselines fall well below the default axis floor of 800 here
-        plot_tuning_kwargs={"figheight_horizontal": 4 * 2.2 / 1.93},  # 4 in wide, at 1.93:2.2
+        plot_tuning_kwargs={"figheight_horizontal": 4 * 1.54 / 1.93},  # 4 in wide, at 1.93:1.54
     )
 
     # The regression over every split of all datasets, with TabPFN-3 among the TFMs.
