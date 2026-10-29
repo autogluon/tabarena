@@ -110,13 +110,18 @@ We share code to generate these visualizations from the raw benchmark results.
 
 ### 🔁 Reproducibility
 
-The `reproducibility/` folder regenerates the *frozen* artifacts from the TabArena
-NeurIPS 2025 paper (pinned to the camera-ready method set), using the raw results data.
+The `reproducibility/` folder regenerates the *frozen* artifacts of the TabArena NeurIPS 2025
+paper and the BeyondArena paper, each pinned to the paper's method set. Its
+[README](reproducibility/README.md) maps every figure and table of the papers to the file that
+produces it.
 
 - **Folder:** `reproducibility/`
 - **Use Cases:**
   - `run_generate_main_leaderboard_neurips2025.py` - Reproduce the frozen NeurIPS 2025 paper leaderboard.
   - `run_generate_paper_figures_neurips2025.py` - Reproduce all tables and figures from the NeurIPS 2025 paper.
+  - `run_generate_main_leaderboard_beyondarena2026.py` - Reproduce the BeyondArena paper's leaderboard.
+  - `run_generate_paper_figures_beyondarena2026.py` - Reproduce the BeyondArena paper's main figures and tables.
+  - `run_generate_paper_per_dataset_figures_beyondarena2026.py` - Reproduce the BeyondArena paper's per-dataset appendix.
 
 To locally reproduce individual configurations and compare with the TabArena results of 
 those configurations, refer to `benchmarking/run_quickstart_tabarena_model.py`.
