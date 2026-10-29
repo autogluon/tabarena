@@ -21,8 +21,9 @@ Two views beyond the paper's figures:
   where TabPFN-2.6 and TabDPT ran on every split (no imputed results).
 * ``subsets_large_with_tabpfn3/``: the leaderboard on the datasets above 100k training rows with
   TabPFN-3 added. TabPFN-2.6 and TabDPT did not run there, so they are left out.
-* ``metafeature_regression/``: which dataset properties explain how well the TFMs do, holding the
-  others fixed (see ``tfm_metafeature_regression``).
+* ``metafeature_regression/``: which dataset properties explain how well the TFMs (with TabPFN-3 as a fourth)
+  do, holding the others fixed (``coefficients.csv``, see ``tfm_metafeature_regression``), and how often each
+  property comes with more than 100k training rows (``large_shares.csv``).
 
 Results download to ``~/.cache/tabarena/`` on first run.
 """
@@ -61,7 +62,7 @@ PAPER_SUBSETS: dict[str, list[str]] = {
 #: Regressors of the meta-feature regression: subset-membership dummies, read against IID splits, the medium
 #: size bucket (10k to 100k training rows) and low-dim data (at most 100 columns after preprocessing).
 META_FEATURES = ["temporal", "grouped", "tiny", "small", "large", "high-dim", "text", "high-cardinality"]
-TFMS = ["TabICLv2", "TabPFN-2.6", "TabDPT"]
+TFMS = ["TabICLv2", "TabPFN-2.6", "TabDPT", "TabPFN-3"]
 
 
 def subset_leaderboards(context: BeyondArenaContext, output_dir: Path, subsets: dict[str, list[str]]) -> dict:
@@ -105,20 +106,45 @@ def ols_hc3(y: pd.Series, features: pd.DataFrame) -> pd.DataFrame:
     )
 
 
+def dataset_properties(context: BeyondArenaContext) -> pd.DataFrame:
+    """One row per dataset with a 0/1 column per ``META_FEATURES`` subset."""
+    grid = context.task_metadata_collection.task_grid().groupby("dataset").first()
+    return pd.DataFrame(
+        {name: context.subset_predicates[name].evaluate(grid, name=name).astype(float) for name in META_FEATURES}
+    )
+
+
+def large_shares(features: pd.DataFrame) -> pd.DataFrame:
+    """The share of large datasets (more than 100k training rows) with and without each other property."""
+    return pd.DataFrame(
+        {
+            name: {
+                "n_with": int(features[name].sum()),
+                "large_share_with": features.loc[features[name] == 1, "large"].mean(),
+                "large_share_without": features.loc[features[name] == 0, "large"].mean(),
+            }
+            for name in META_FEATURES
+            if name != "large"
+        }
+    ).T.rename_axis("property")
+
+
 def tfm_metafeature_regression(context: BeyondArenaContext, results_per_split: pd.DataFrame) -> pd.DataFrame:
     """Regress per-dataset TFM performance on dataset properties, each effect holding the others fixed.
 
     Two targets per dataset, averaged over its splits: ``best_tfm_rank``, the best TFM's rank among all methods
     (1 = best; a positive coefficient means worse for TFMs), and ``tfm_margin``, the best non-TFM's minus the best
-    TFM's min-max normalized error (positive means a TFM beats every other method). Imputed results count as the
-    method's result, as in every leaderboard of the paper.
+    TFM's min-max normalized error (positive means a TFM beats every other method). Imputed results are left out:
+    a stand-in Random Forest result is not a TFM's, so on the datasets above 100k rows, where TabPFN-2.6 and TabDPT
+    did not run, the TFMs are TabICLv2 and TabPFN-3 and the ranking has two entries fewer. ``univariate_*`` is each
+    property's effect fit alone.
     """
-    grid = context.task_metadata_collection.task_grid().groupby("dataset").first()
-    features = pd.DataFrame(
-        {name: context.subset_predicates[name].evaluate(grid, name=name).astype(float) for name in META_FEATURES}
-    )
+    features = dataset_properties(context)
 
-    df = results_per_split.copy()
+    df = results_per_split
+    if "imputed" in df:
+        df = df[~df["imputed"].fillna(False).astype(bool)]
+    df = df.copy()
     df["is_tfm"] = df["config_type"].map(context.get_method_rename_map()).isin(TFMS)
     errors = df.groupby(["dataset", "fold"])["metric_error"]
     df["rank"] = errors.rank()
@@ -137,9 +163,14 @@ def tfm_metafeature_regression(context: BeyondArenaContext, results_per_split: p
         .mean()
     )
 
-    return pd.concat(
-        {target: ols_hc3(targets[target], features.loc[targets.index]) for target in targets}, names=["target"]
-    )
+    tables = {}
+    for target in targets:
+        y, X = targets[target], features.loc[targets.index]
+        table = ols_hc3(y, X)
+        univariate = pd.DataFrame([ols_hc3(y, X[[name]]).loc[name] for name in META_FEATURES])
+        table[["univariate_coef", "univariate_p_value"]] = univariate[["coef", "p_value"]]
+        tables[target] = table
+    return pd.concat(tables, names=["target"])
 
 
 if __name__ == "__main__":
@@ -158,19 +189,21 @@ if __name__ == "__main__":
     )
     plot_subset_results(leaderboards_le100k, save_path / "result_plots_le100k", family_legend_members="all")
 
-    BeyondArenaContext(methods=[*methods, beyond_tabpfn3_metadata]).compare(
+    context_tabpfn3 = BeyondArenaContext(methods=[*methods, beyond_tabpfn3_metadata])
+    context_tabpfn3.compare(
         output_dir=save_path / "subsets_large_with_tabpfn3",
         subset=["large"],
         remove_imputed=True,  # drops TabPFN-2.6 and TabDPT, imputed on the large datasets
         elo_ymin=400,  # the baselines fall well below the default axis floor of 800 here
     )
 
-    regression = tfm_metafeature_regression(
-        context, pd.read_csv(save_path / "subsets" / "full" / "results_per_split.csv")
-    )
+    # The regression over every split of all datasets, with TabPFN-3 among the TFMs.
+    _, results_tabpfn3 = context_tabpfn3.compare(output_dir=None, subset=["all"], return_results=True)
+    regression = tfm_metafeature_regression(context_tabpfn3, results_tabpfn3)
     (save_path / "metafeature_regression").mkdir(exist_ok=True)
     regression.to_csv(save_path / "metafeature_regression" / "coefficients.csv")
     regression.round(3).to_latex(save_path / "metafeature_regression" / "coefficients.tex")
+    large_shares(dataset_properties(context_tabpfn3)).to_csv(save_path / "metafeature_regression" / "large_shares.csv")
     print(regression.round(3).to_markdown())
 
     context.plot_tuning_trajectories(
