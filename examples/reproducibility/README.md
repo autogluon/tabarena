@@ -10,18 +10,16 @@ cd examples/reproducibility
 python run_generate_paper_figures_beyondarena2026.py
 ```
 
-### TabArena (NeurIPS 2025)
+### TabArena (NeurIPS 2025, [arXiv 2506.16791](https://arxiv.org/abs/2506.16791))
 
 | Script | Output |
 |---|---|
 | `run_generate_main_leaderboard_neurips2025.py` | The paper's leaderboard (`output_leaderboard_neurips2025/`). |
 | `run_generate_paper_figures_neurips2025.py` | All tables and figures of the paper (`output_paper_results/`). |
 
-### BeyondArena ([arXiv 2606.30410](https://arxiv.org/abs/2606.30410))
+### BeyondArena (NeurIPS 2026, [arXiv 2606.30410](https://arxiv.org/abs/2606.30410))
 
-The scripts evaluate `beyond_method_metadata_2026_camera_ready_collection`: the paper's 11 methods
-with TabM's results after its constant-column and clipping fixes. Swap in
-`beyond_method_metadata_2026_06_paper_collection` to get the numbers of arXiv v1.
+The scripts evaluate `beyond_method_metadata_2026_camera_ready_collection`: the paper's 11 methods.
 
 | Script | Output |
 |---|---|

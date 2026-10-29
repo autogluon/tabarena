@@ -111,7 +111,7 @@ We share code to generate these visualizations from the raw benchmark results.
 ### 🔁 Reproducibility
 
 The `reproducibility/` folder regenerates the *frozen* artifacts of the TabArena NeurIPS 2025
-paper and the BeyondArena paper, each pinned to the paper's method set. See its
+paper and the BeyondArena NeurIPS 2026 paper, each pinned to the paper's method set. See its
 [README](reproducibility/README.md) for what each script writes.
 
 - **Folder:** `reproducibility/`
