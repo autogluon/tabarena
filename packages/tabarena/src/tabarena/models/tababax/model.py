@@ -23,7 +23,7 @@ class TabAbaxModel(AbstractTorchModel):
     Omitting ``model_path`` downloads the public checkpoint from
     ``tababax-ai/tababax``. Classification uses ``tababax-classifier.ckpt``
     and regression uses ``tababax-regressor.ckpt``. Pass ``model_path`` to load a
-    local file instead. The weights are public for non-commercial use.
+    local file instead. The weights are CC-BY-NC-4.0 and are limited to non-commercial use.
 
     Recommended defaults, applied unless a hyperparameter overrides them:
 
@@ -41,8 +41,7 @@ class TabAbaxModel(AbstractTorchModel):
     Authors: TabAbax
     Codebase: https://github.com/tababax-research/TabAbax
     Weights: https://huggingface.co/tababax-ai/tababax
-    License: proprietary inference code. Weights are CC-BY-NC-4.0.
-    Portions derived from TabICL remain BSD-3-Clause.
+    License: Apache-2.0 for the inference code. Weights: CC-BY-NC-4.0.
     """
 
     ag_key = "TA-TABABAX"
