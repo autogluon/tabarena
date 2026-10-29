@@ -20,14 +20,29 @@ class TabAbaxModel(AbstractTorchModel):
     ``fit`` stores the training table. ``predict`` runs one forward pass of a pretrained
     transformer. The weights are not updated on the task.
 
-    Checkpoints are not in the inference repository and are not on the Hugging Face Hub yet.
-    Pass ``model_path`` in the hyperparameters to a local checkpoint. Classification and
-    regression use different files.
+    Omitting ``model_path`` downloads the public checkpoint from
+    ``tababax-ai/tababax``. Classification uses ``tababax-classifier.ckpt``
+    and regression uses ``tababax-regressor.ckpt``. Pass ``model_path`` to load a
+    local file instead. The weights are public for non-commercial use.
+
+    Recommended defaults, applied unless a hyperparameter overrides them:
+
+    - ``n_estimators=8``: ensemble views. ``1`` is a single forward pass.
+    - ``batch_size=1``: ensemble members forwarded together. ``None`` sends all of them at once.
+    - ``offload_mode="auto"``: puts the large column embedding on GPU, CPU, or disk according to free memory.
+    - ``use_amp="auto"``: mixed precision from the table size. Off for small tables and on CPU.
+    - ``use_fa3=False``: FlashAttention-3. Leave off unless the runtime provides it.
+    - ``allow_auto_download=True``: download the checkpoint when ``model_path`` is missing.
+      ``False`` refuses the download.
+
+    ``random_state`` is the TabArena seed (``seed_name``). ``device`` follows the GPUs AutoGluon
+    allocated: CUDA when ``num_gpus`` is not 0, otherwise CPU.
 
     Authors: TabAbax
     Codebase: https://github.com/tababax-research/TabAbax
-    License: proprietary inference template (internal evaluation and non-commercial research;
-    commercial use needs a separate agreement). Portions derived from TabICL remain BSD-3-Clause.
+    Weights: https://huggingface.co/tababax-ai/tababax
+    License: proprietary inference code. Weights are CC-BY-NC-4.0.
+    Portions derived from TabICL remain BSD-3-Clause.
     """
 
     ag_key = "TA-TABABAX"
@@ -42,15 +57,13 @@ class TabAbaxModel(AbstractTorchModel):
     _default_ag_args_ensemble_extra = {"fold_fitting_strategy": "sequential_local", "refit_folds": True}
     #: The estimator builds its network inside ``_load_model``, which ``fit`` calls. The first
     #: fit of a checkpoint in the process builds it; every later estimator of that checkpoint
-    #: and device reuses it. A key-value cache writes the training context into the network,
-    #: so that configuration builds its own.
+    #: and device reuses it.
     shared_weights: ClassVar[SharedWeights] = SharedWeights(
         loader=(
             "tababax:TabAbaxClassifier._load_model",
             "tababax:TabAbaxRegressor._load_model",
         ),
         key=("checkpoint_version", "model_path"),
-        disabled_by=("kv_cache",),
     )
     #: Knobs that make the warm-up's dummy fit cheap without touching the network.
     cheap_hyperparameters: ClassVar[dict] = {"n_estimators": 1}
@@ -93,13 +106,12 @@ class TabAbaxModel(AbstractTorchModel):
             )
 
         hyp = self._get_model_params()
-        if not hyp.get("model_path"):
-            raise ValueError(
-                "TabAbax checkpoints are not published yet. "
-                "Pass hyperparameters['model_path'] to a local checkpoint."
+        if "checkpoint_version" not in hyp:
+            hyp["checkpoint_version"] = (
+                "tababax-classifier.ckpt"
+                if self.problem_type in ["binary", "multiclass"]
+                else "tababax-regressor.ckpt"
             )
-        hyp["allow_auto_download"] = False
-        hyp["batch_size"] = hyp.get("batch_size", 8)
         disk_offload_dir = tempfile.mkdtemp(prefix="tababax_")
         self.model = self.get_model_cls()(
             **hyp,
@@ -127,7 +139,13 @@ class TabAbaxModel(AbstractTorchModel):
         return dataset_size_mem_est + baseline_overhead_mem_est
 
     def _set_default_params(self):
+        """Defaults for a released checkpoint. A hyperparameter with the same name overrides these."""
         self._set_default_param_value("n_estimators", 8)
+        self._set_default_param_value("batch_size", 1)
+        self._set_default_param_value("offload_mode", "auto")
+        self._set_default_param_value("use_amp", "auto")
+        self._set_default_param_value("use_fa3", False)
+        self._set_default_param_value("allow_auto_download", True)
 
     def get_device(self) -> str:
         return self.model.device_.type

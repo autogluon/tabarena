@@ -12,7 +12,7 @@ tababax_descriptor = ModelDescriptor(
     reference_url="https://github.com/tababax-research/TabAbax",
     organization="TabAbax",
     commercial_use=False,
-    license="proprietary",
+    license="proprietary code, CC-BY-NC-4.0 weights",
     date_introduced="2026-10-28",
 )
 
@@ -31,6 +31,6 @@ tababax_info = ModelInfo(
     search_space=gen_tababax,
     method_metadata=tababax_method_metadata,
     pip_extra=(
-        "tababax @ git+https://github.com/tababax-research/TabAbax.git@b595c83f27c0f628cdedc56059a9be5d878acbda",
+        "tababax @ git+https://github.com/tababax-research/TabAbax.git@2b5f0d178d7d3dbb1b64356c604c9d49ac9a2c0c",
     ),
 )
