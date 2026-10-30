@@ -24,7 +24,8 @@ It comes from the paper
 which evaluates 11 models across [142 datasets](https://huggingface.co/datasets/TabArena/BeyondArena)
 and finds that today's tabular foundation models excel
 on tiny-to-medium IID data, while traditional tree-based and deep-learning models still dominate on
-non-IID, large, and high-dimensional datasets.
+non-IID, large, and high-dimensional datasets. The scripts that regenerate the paper's figures and
+tables are in [`../reproducibility/`](../reproducibility/README.md).
 
 > If you already know TabArena, you know BeyondArena: it uses the **same** experiment/runner/eval
 > API. The only swap is the context — `BeyondArenaContext` instead of `TabArenaContext`, and

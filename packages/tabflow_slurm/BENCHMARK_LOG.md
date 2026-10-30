@@ -34,6 +34,96 @@ run against `main`. To reproduce an entry, check out its recorded **git SHA**.
 
 ---
 
+## 2026-10-28 — beyondarena_tabmfix_28102026
+
+- **Model(s):** TabM (`TA-TabM`), default config plus the hosted suite's 25 random configs (26 per split, the same
+  hyperparameters as `TA-TabM_c1` and `_r1` to `_r25` of `beyond_iid_benchmark_2026`), on every split of 14
+  BeyondArena datasets: 512 splits, 13,312 items
+- **Git SHA:** `22c4bcc3` (branch `beyondarena-paper-reproducibility`, includes the constant-column fix `38b66ba9`)
+  for the main launch; `6dd0319f` (adds TabM's input clipping) for the 16 refit items; AutoGluon `88d33ba6`
+- **Validation protocol:** BeyondArena's official protocol, asserted by `BeyondArenaContext`
+- **Purpose:** Replace the hosted TabM results that a failure corrupted. The hosted suite (the vendored TabM before #438)
+  produced predictions in the 1e3 to 1e5 range on a few splits. A scan of every config on every split of the hosted
+  results flagged 14 datasets: a regression config at least 5x worse than the median config of its split (test or
+  validation error) or than the other methods' defaults, or a binary config more than 0.1 AUC worse than both
+  (5g_energy_consumption, cirrhosis_patient_survival_prediction, concrete_compressive_strength,
+  early_learning_predictors, garments_worker_productivity, heart_disease_va_long_beach, hepatitis_survival_prediction,
+  musk, pancreatic_cancer_mouse_detection, parkinsons_biomedical_voice_measurements,
+  sberbank_housing_market_forecasting, thyroid_discordant, video_game_fps_prediction, wine_world_cost). Every split of
+  each was rerun with the current TabM. Processed as suite `beyondarena-2026-10-28-tabmfix`
+  (`beyond_tabm_2026_10_rerun_metadata`) and merged with the hosted suite into `beyondarena-2026-10-28`
+  (`beyond_tabm_2026_10_metadata`, `tmp_scripts/merge_tabm_beyondarena_fix.py`).
+- **Notes:** SkyPilot pool `tabmfix-2810` of 64 spot RTX PRO 6000 workers (`fake_memory_for_estimates=96`, bundle size
+  1, raised from 32 workers before the launch), launch `beyondarena_tabmfix_28102026_gpu-20261028-105416-c8c7`,
+  12:05 to 18:08 CET, 0 failed items. The rerun removed the constant-column failures (garments default test RMSE mean
+  73.8 to 0.135, early_learning_predictors 13,415 to 12.8, 5g_energy_consumption 370 to 3.9) but showed a second bug:
+  the piecewise-linear embedding extrapolated rows outside the training range (concrete: two test rows with Age=1
+  below a training minimum of 3 gave predictions near -1e5 for configs r3 and r21; wine_world_cost and cirrhosis showed
+  the same in the out-of-fold predictions). After the clipping fix (`6dd0319f`, reproduced and verified on CPU) the
+  16 affected items (concrete r3/r21 on splits 2, 6, 11, 29; wine_world_cost r3/r21 on 17; cirrhosis r23 on 3, 17,
+  56, 57 and r16 on 19; garments r16 on 19) were refit on pool `tabmfix-2810c` (8 workers, launch
+  `beyondarena_tabmfix_28102026_gpu_clip-20261028-182651-e188`, 6 minutes) after their earlier results were moved
+  out of the run's output, so the cache check approved exactly them. On the 14 datasets the fixed TabM gains Elo in every variant (default +34, tuned
+  +13, tuned + ensemble +12). The fit times come from RTX PRO 6000 cards, the hosted suite's from A100s. The hosted
+  suite has no raw tier on R2 (it was never uploaded), so the merge uses its processed tier.
+
+```python
+from tabarena.benchmark.experiment import BeyondArenaExperimentBundle
+from tabarena.benchmark.task.metadata import TaskSubset
+from tabarena.contexts import BeyondArenaContext
+from tabflow_slurm import BeyondArenaResourcesSetup, ModelJob, PathSetup, SkyPilotSetup, TabArenaBenchmarkPlan
+
+DATASETS = [
+    "5g_energy_consumption", "cirrhosis_patient_survival_prediction", "concrete_compressive_strength",
+    "early_learning_predictors", "garments_worker_productivity", "heart_disease_va_long_beach",
+    "hepatitis_survival_prediction", "musk", "pancreatic_cancer_mouse_detection",
+    "parkinsons_biomedical_voice_measurements", "sberbank_housing_market_forecasting", "thyroid_discordant",
+    "video_game_fps_prediction", "wine_world_cost",
+]
+common = dict(
+    benchmark_name="beyondarena_tabmfix_28102026",
+    task_subset=TaskSubset(dataset_names=DATASETS),
+    context=BeyondArenaContext(),
+    experiment_bundle=BeyondArenaExperimentBundle(model_verbosity=2),
+    path_setup=PathSetup(
+        workspace="/home/lennart_priorlabs_ai/workspace/benchmarking/tabarena_workspace",
+        python_path="/home/lennart_priorlabs_ai/.venvs/tabarena_10082026/bin/python",
+    ),
+    resources_setup=BeyondArenaResourcesSetup(),
+)
+gpu = {"num_gpus": 1, "fake_memory_for_estimates": 96}
+# setup: every split of the 14 datasets (pool YAML edited to 64 workers before `sky jobs pool apply`)
+TabArenaBenchmarkPlan(
+    model_jobs=[ModelJob(models=[("TabM", 25)], name="gpu", resources=gpu)],
+    scheduler_setup=SkyPilotSetup(
+        bundle_size=1, workers=32, use_pool=True, pool_name="tabmfix-2810", api_server_endpoint="http://skypilot-api:46580"
+    ),
+    **common,
+).setup_jobs()
+# setup-clip: the 16 items whose results were moved out of the run's output, refit with the input clipping
+TabArenaBenchmarkPlan(
+    model_jobs=[
+        ModelJob(
+            models=[("TabM", 25)],
+            name="gpu_clip",
+            resources=gpu,
+            tasks=TaskSubset(
+                dataset_names=[
+                    "concrete_compressive_strength", "wine_world_cost", "cirrhosis_patient_survival_prediction",
+                    "garments_worker_productivity",
+                ]
+            ),
+        )
+    ],
+    scheduler_setup=SkyPilotSetup(
+        bundle_size=1, workers=8, use_pool=True, pool_name="tabmfix-2810c", api_server_endpoint="http://skypilot-api:46580"
+    ),
+    **common,
+).setup_jobs()
+```
+
+---
+
 ## 2026-10-21 — ftfmrerun_21102026
 
 - **Model(s):** FTFM (default config only, `NUM_CONFIGS=0`, the 594 classification splits; classification-only model)
