@@ -38,10 +38,16 @@ class TabAbaxModel(AbstractTorchModel):
     ``random_state`` is the TabArena seed (``seed_name``). ``device`` follows the GPUs AutoGluon
     allocated: CUDA when ``num_gpus`` is not 0, otherwise CPU.
 
-    Authors: TabAbax
+    The imported package is derived from TabICL
+    (https://github.com/soda-inria/tabicl), Copyright (c) 2025, Soda team @ Inria.
+    That code is BSD-3-Clause. See the package ``NOTICE``. TabAbax renames the
+    public classes and ships inference only, with its own checkpoints.
+
+    Authors: TabAbax, based on TabICL by Jingang Qu, David Holzmüller, Gaël Varoquaux, and Marine Le Morvan
     Codebase: https://github.com/tababax-research/TabAbax
+    Upstream: https://github.com/soda-inria/tabicl
     Weights: https://huggingface.co/tababax-ai/TabAbax
-    License: Apache-2.0 for the inference code. Weights: CC-BY-NC-4.0.
+    License: BSD-3-Clause for the TabICL-derived code. Weights: CC-BY-NC-4.0.
     """
 
     ag_key = "TA-TABABAX"
@@ -89,9 +95,8 @@ class TabAbaxModel(AbstractTorchModel):
         except ImportError as err:
             logger.log(
                 40,
-                "\tFailed to import tababax! Install the private package with "
-                "`pip install tabarena[tababax]` from an account that can read "
-                "github.com/tababax-research/TabAbax.",
+                "\tFailed to import tababax! Install it with `pip install tabarena[tababax]`. "
+                "The package is derived from TabICL (github.com/soda-inria/tabicl, BSD-3-Clause).",
             )
             raise err
 

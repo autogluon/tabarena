@@ -9,10 +9,10 @@ tababax_descriptor = ModelDescriptor(
     display_name="TabAbax",
     compute="gpu",
     is_bag=False,
-    reference_url="https://github.com/tababax-research/TabAbax",
+    reference_url="https://github.com/soda-inria/tabicl",
     organization="TabAbax",
     commercial_use=False,
-    license="Apache-2.0 code, CC-BY-NC-4.0 weights",
+    license="BSD-3-Clause (code derived from TabICL), CC-BY-NC-4.0 weights",
     date_introduced="2026-10-28",
 )
 
@@ -31,6 +31,6 @@ tababax_info = ModelInfo(
     search_space=gen_tababax,
     method_metadata=tababax_method_metadata,
     pip_extra=(
-        "tababax @ git+https://github.com/tababax-research/TabAbax.git@854d0adde985df83fe7b2653a25d87534a402b89",
+        "tababax @ git+https://github.com/tababax-research/TabAbax.git@1063bab493306ab30cac75648506fbb6b7a41dce",
     ),
 )
