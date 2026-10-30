@@ -19,10 +19,23 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Patch
 import numpy as np
 import pandas as pd
+from PIL import Image, ImageChops
 from scipy import stats
 
 from tabarena.contexts import BeyondArenaContext
 from tabarena.contexts.beyondarena.methods import beyond_method_metadata_2026_06_paper_collection
+
+
+plt.rcParams.update(
+    {
+        "font.family": "serif",
+        "axes.labelsize": 18,
+        "axes.titlesize": 16,
+        "xtick.labelsize": 11,
+        "ytick.labelsize": 11,
+        "legend.fontsize": 11,
+    }
+)
 
 
 ALPHA = 0.05
@@ -203,39 +216,103 @@ def rank1_share_table(results: pd.DataFrame, context: BeyondArenaContext) -> pd.
 
 
 def plot_rank1_share(table: pd.DataFrame, output_dir: Path = OUTPUT_DIR) -> tuple[Path, Path]:
-    """Render the flowing stacked area chart used as Figure 6."""
+    """Render Figure 6 with BeyondBench's exact streamgraph interpolation and styling."""
     output_dir.mkdir(parents=True, exist_ok=True)
     subsets = list(SUBSETS)
     categories = list(COLORS)
-    pivot = table.pivot(index="subset", columns="category", values="share").reindex(index=subsets, columns=categories, fill_value=0)
+    pivot = table.pivot(index="subset", columns="category", values="share").reindex(
+        index=subsets, columns=categories, fill_value=0
+    )
     totals = table.drop_duplicates("subset").set_index("subset")["n_datasets"].reindex(subsets)
     x = np.arange(len(subsets), dtype=float)
-    dense_x = np.linspace(0, len(subsets) - 1, (len(subsets) - 1) * 25 + 1)
-    dense = np.vstack([np.interp(dense_x, x, pivot[category].to_numpy()) for category in categories])
+    interpolate_steps = 35
+    flat_fraction = 0.5
+    dense_x = np.linspace(-0.5, len(subsets) - 0.5, len(subsets) * interpolate_steps + 1)
+    flat_half = max(0.0, min(0.5, flat_fraction / 2.0))
+    transition_half = max(1e-12, 0.5 - flat_half)
+    series = []
+    for category in categories:
+        values = pivot[category].to_numpy(dtype=float)
+        dense_values = np.empty_like(dense_x)
+        for pos_idx, x_pos in enumerate(dense_x):
+            center = int(np.floor(x_pos + 0.5))
+            center = max(0, min(center, len(values) - 1))
+            left_boundary = center - 0.5
+            right_boundary = center + 0.5
+            if x_pos <= left_boundary + transition_half:
+                if center == 0:
+                    dense_values[pos_idx] = values[0]
+                else:
+                    blend = (x_pos - (left_boundary - transition_half)) / (2.0 * transition_half)
+                    dense_values[pos_idx] = values[center - 1] * (1.0 - blend) + values[center] * blend
+            elif x_pos >= right_boundary - transition_half:
+                if center == len(values) - 1:
+                    dense_values[pos_idx] = values[-1]
+                else:
+                    blend = (x_pos - (right_boundary - transition_half)) / (2.0 * transition_half)
+                    dense_values[pos_idx] = values[center] * (1.0 - blend) + values[center + 1] * blend
+            else:
+                dense_values[pos_idx] = values[center]
+        series.append(dense_values)
 
-    fig, ax = plt.subplots(figsize=(14.0, 5.2))
-    stacks = ax.stackplot(dense_x, *dense, colors=[COLORS[c] for c in categories], alpha=0.96, linewidth=0.25)
-    stacks[4].set_hatch("/")
-    stacks[4].set_edgecolor("0.25")
-    stacks[4].set_linewidth(0.4)
-    ax.set_xlim(0, len(subsets) - 1)
-    ax.set_ylim(0, 1)
+    family_colors = {
+        "TabDPT": "#1f77b4",
+        "TabPFN-2.6": "#4da3ff",
+        "TabICLv2": "#8fd3ff",
+        "TFM": "#0b3c8c",
+        "non-TFM": "#ff7f0e",
+        "Mixed": "#7f7f7f",
+        "MLP": "#ffb347",
+        "GBDT": "#ffd27f",
+    }
+    fig, ax = plt.subplots(figsize=(12, 5.4))
+    stacks = ax.stackplot(
+        dense_x,
+        *series,
+        colors=[family_colors[c] for c in categories],
+        baseline="zero",
+        alpha=0.96,
+        linewidth=0.25,
+    )
+    stacks[categories.index("Mixed")].set_hatch("/")
+    stacks[categories.index("Mixed")].set_edgecolor("0.25")
+    stacks[categories.index("Mixed")].set_linewidth(0.4)
+    ax.set_xlim(dense_x[0], dense_x[-1])
     ax.set_xticks(x)
     ax.set_xticklabels([f"{s}\nn={int(totals[s])}" for s in subsets])
     ax.set_ylabel("Rank-1-Datasets Share")
+    ax.tick_params(axis="x", pad=8)
     ax.grid(axis="y", linestyle="--", alpha=0.25)
     ax.set_axisbelow(True)
     for position in x[:-1] + 0.5:
-        ax.axvline(position, color="0.5", linestyle="--", linewidth=0.8, alpha=0.45)
+        ax.axvline(position, color="0.5", linestyle="--", linewidth=0.8, alpha=0.45, zorder=4)
     for position in (2.5, 6.5, 8.5, 10.5):
-        ax.axvline(position, color="black", linewidth=1.4, alpha=0.6)
-    handles = [Patch(facecolor=COLORS[c], edgecolor="0.25" if c == "Mixed" else "white", hatch="/" if c == "Mixed" else None, label=c) for c in categories]
-    ax.legend(handles=handles, frameon=False, ncol=len(categories), loc="lower center", bbox_to_anchor=(0.5, 1.0))
-    fig.tight_layout()
+        ax.axvline(position, color="black", linestyle="-", linewidth=1.4, alpha=0.6, zorder=5)
+    handles = [
+        Patch(
+            facecolor=family_colors[c],
+            edgecolor="0.25" if c == "Mixed" else "white",
+            linewidth=0.4,
+            hatch="/" if c == "Mixed" else None,
+            label=c,
+        )
+        for c in categories
+    ]
+    ax.legend(handles=handles, frameon=False, ncol=len(categories), loc="lower center", bbox_to_anchor=(0.5, 0.968))
+    fig.tight_layout(rect=[0, 0.02, 1, 0.93])
     pdf = output_dir / "rank1_share.pdf"
     png = output_dir / "rank1_share.png"
     fig.savefig(pdf, bbox_inches="tight")
     fig.savefig(png, bbox_inches="tight", dpi=220)
+    with Image.open(png) as image:
+        rgb = image.convert("RGB")
+        background = Image.new("RGB", rgb.size, (255, 255, 255))
+        bbox = ImageChops.difference(rgb, background).getbbox()
+        if bbox is not None:
+            left, top, right, bottom = bbox
+            bbox = (max(0, left - 8), max(0, top - 8), min(rgb.width, right + 8), min(rgb.height, bottom + 8))
+            rgb.crop(bbox).save(png)
+            rgb.crop(bbox).save(pdf, format="PDF", resolution=220.0)
     plt.close(fig)
     return pdf, png
 
