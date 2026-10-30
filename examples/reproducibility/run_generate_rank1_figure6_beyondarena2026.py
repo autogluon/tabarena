@@ -302,7 +302,7 @@ def plot_rank1_share(table: pd.DataFrame, output_dir: Path = OUTPUT_DIR) -> tupl
     fig.tight_layout(rect=[0, 0.02, 1, 0.93])
     pdf = output_dir / "rank1_share.pdf"
     png = output_dir / "rank1_share.png"
-    fig.savefig(pdf, bbox_inches="tight")
+    fig.savefig(pdf, bbox_inches="tight", pad_inches=8 / 220)  # vector, with the same 8 px margin as the PNG
     fig.savefig(png, bbox_inches="tight", dpi=220)
     with Image.open(png) as image:
         rgb = image.convert("RGB")
@@ -312,7 +312,6 @@ def plot_rank1_share(table: pd.DataFrame, output_dir: Path = OUTPUT_DIR) -> tupl
             left, top, right, bottom = bbox
             bbox = (max(0, left - 8), max(0, top - 8), min(rgb.width, right + 8), min(rgb.height, bottom + 8))
             rgb.crop(bbox).save(png)
-            rgb.crop(bbox).save(pdf, format="PDF", resolution=220.0)
     plt.close(fig)
     return pdf, png
 
