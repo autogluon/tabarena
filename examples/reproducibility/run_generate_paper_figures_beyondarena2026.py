@@ -47,6 +47,8 @@ from tabarena.contexts.beyondarena.methods import (
 )
 from tabarena.plot.subset_results import plot_subset_results
 
+from run_generate_rank1_figure6_beyondarena2026 import generate_figure6
+
 #: The paper's sub-benchmarks: label -> subset expressions, each on every split.
 PAPER_SUBSETS: dict[str, list[str]] = {
     "random": ["random"],
@@ -185,6 +187,7 @@ if __name__ == "__main__":
 
     leaderboards = subset_leaderboards(context, save_path / "subsets", PAPER_SUBSETS)
     plot_subset_results(leaderboards, save_path / "result_plots", family_legend_members="all")
+    generate_figure6(save_path / "figure6_rank1_share")
 
     leaderboards_le100k = subset_leaderboards(
         context,
