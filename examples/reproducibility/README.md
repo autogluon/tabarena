@@ -8,6 +8,8 @@ and every script writes into an `output_*` folder here, which git ignores.
 ```bash
 cd examples/reproducibility
 python run_generate_paper_figures_beyondarena2026.py
+# Figure 6 only (reuses the same cached paper results):
+python run_generate_rank1_figure6_beyondarena2026.py
 ```
 
 ### TabArena (NeurIPS 2025, [arXiv 2506.16791](https://arxiv.org/abs/2506.16791))
@@ -25,4 +27,5 @@ The scripts evaluate `beyond_method_metadata_2026_camera_ready_collection`: the 
 |---|---|
 | `run_generate_main_leaderboard_beyondarena2026.py` | The leaderboard on every split, printed in the website's format (`output_leaderboard_beyondarena2026/`). |
 | `run_generate_paper_figures_beyondarena2026.py` | The main-text figures and tables, the meta-feature regression and the runtime figure (`output_paper_results_beyondarena2026/`). |
+| `run_generate_rank1_figure6_beyondarena2026.py` | Figure 6 (significance-aware rank-1 share) and its audit CSVs (`output_figure6_beyondarena2026/`). |
 | `run_generate_paper_per_dataset_figures_beyondarena2026.py` | The per-dataset appendix: a table and a tuning trajectory per dataset, and the LaTeX that sets them side by side (`output_paper_per_dataset_beyondarena2026/`). |
