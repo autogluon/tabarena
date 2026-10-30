@@ -120,6 +120,7 @@ paper and the BeyondArena NeurIPS 2026 paper, each pinned to the paper's method 
   - `run_generate_paper_figures_neurips2025.py` - Reproduce all tables and figures from the NeurIPS 2025 paper.
   - `run_generate_main_leaderboard_beyondarena2026.py` - Reproduce the BeyondArena paper's leaderboard.
   - `run_generate_paper_figures_beyondarena2026.py` - Reproduce the BeyondArena paper's main figures and tables.
+  - `run_generate_rank1_figure6_beyondarena2026.py` - Reproduce only the BeyondArena paper's rank-1 share figure.
   - `run_generate_paper_per_dataset_figures_beyondarena2026.py` - Reproduce the BeyondArena paper's per-dataset appendix.
 
 To locally reproduce individual configurations and compare with the TabArena results of 

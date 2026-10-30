@@ -10,6 +10,8 @@ split of the 12 sub-benchmarks and writes, under ``save_path``:
 * ``result_plots/``: Elo and improvability per sub-benchmark, per model family
   (``per_family_elo.pdf``, paper: ``result_plot_per_family_plot.pdf``) and per model
   (``per_model_elo.pdf``, paper: ``result_plot_per_model.pdf``).
+* ``figure6_rank1_share/rank1_share.pdf`` (paper: ``rank_1_plot_updated.pdf``): per sub-benchmark, the share of
+  datasets each model or family wins, see ``run_generate_rank1_figure6_beyondarena2026.py``.
 * ``tuning_trajectories/pareto_n_configs_imp.pdf``: improvability vs. train time over the
   number of tuned configurations.
 * ``runtimes/``: the training-runtime distribution across configurations
@@ -38,6 +40,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+from run_generate_rank1_figure6_beyondarena2026 import generate_figure6
 from scipy import stats
 
 from tabarena.contexts import BeyondArenaContext
@@ -46,8 +49,6 @@ from tabarena.contexts.beyondarena.methods import (
     beyond_tabpfn3_metadata,
 )
 from tabarena.plot.subset_results import plot_subset_results
-
-from run_generate_rank1_figure6_beyondarena2026 import generate_figure6
 
 #: The paper's sub-benchmarks: label -> subset expressions, each on every split.
 PAPER_SUBSETS: dict[str, list[str]] = {

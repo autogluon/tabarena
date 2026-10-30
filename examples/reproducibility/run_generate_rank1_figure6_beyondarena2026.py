@@ -16,15 +16,14 @@ from __future__ import annotations
 from pathlib import Path
 
 import matplotlib.pyplot as plt
-from matplotlib.patches import Patch
 import numpy as np
 import pandas as pd
+from matplotlib.patches import Patch
 from PIL import Image, ImageChops
 from scipy import stats
 
 from tabarena.contexts import BeyondArenaContext
-from tabarena.contexts.beyondarena.methods import beyond_method_metadata_2026_06_paper_collection
-
+from tabarena.contexts.beyondarena.methods import beyond_method_metadata_2026_camera_ready_collection
 
 plt.rcParams.update(
     {
@@ -153,17 +152,16 @@ def _dataset_categories(results: pd.DataFrame) -> pd.Series:
         if not full:
             continue
         ordered = pivot[full].mean().sort_values(kind="mergesort").index.tolist()
-        selected = ordered[0]
         selected_p: dict[str, float] = {}
         for candidate in ordered:
             candidate_p = {
-                other: 1.0 if other == candidate else _p_value(
-                    pivot[candidate].to_numpy(float), pivot[other].to_numpy(float)
-                )
+                other: 1.0
+                if other == candidate
+                else _p_value(pivot[candidate].to_numpy(float), pivot[other].to_numpy(float))
                 for other in full
             }
             if any(other != candidate and p < ALPHA for other, p in candidate_p.items()):
-                selected, selected_p = candidate, candidate_p
+                selected_p = candidate_p
                 break
             if candidate == ordered[-1]:
                 selected_p = candidate_p
@@ -204,14 +202,16 @@ def rank1_share_table(results: pd.DataFrame, context: BeyondArenaContext) -> pd.
         datasets = membership.index[membership[subset]].intersection(categories.index)
         counts = categories.loc[datasets].value_counts()
         for category in COLORS:
-            rows.append({
-                "subset_order": subset_order,
-                "subset": subset,
-                "category": category,
-                "count": int(counts.get(category, 0)),
-                "n_datasets": int(len(datasets)),
-                "share": float(counts.get(category, 0) / len(datasets)) if len(datasets) else 0.0,
-            })
+            rows.append(
+                {
+                    "subset_order": subset_order,
+                    "subset": subset,
+                    "category": category,
+                    "count": int(counts.get(category, 0)),
+                    "n_datasets": len(datasets),
+                    "share": float(counts.get(category, 0) / len(datasets)) if len(datasets) else 0.0,
+                }
+            )
     return pd.DataFrame(rows)
 
 
@@ -319,8 +319,7 @@ def plot_rank1_share(table: pd.DataFrame, output_dir: Path = OUTPUT_DIR) -> tupl
 
 def generate_figure6(output_dir: Path = OUTPUT_DIR) -> tuple[Path, Path]:
     """Load the paper results from cache, analyze them, and write Figure 6."""
-    # Figure 6 is from arXiv v1 (the cited PDF), not the later camera-ready rerun.
-    context = BeyondArenaContext(methods=beyond_method_metadata_2026_06_paper_collection.method_metadata_lst)
+    context = BeyondArenaContext(methods=beyond_method_metadata_2026_camera_ready_collection.method_metadata_lst)
     _, results = context.compare(output_dir=None, subset=["all"], return_results=True, plot=False)
     results = results.copy()
     results["model"] = _display_method_names(results, context)
