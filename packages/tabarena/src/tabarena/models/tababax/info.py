@@ -31,6 +31,6 @@ tababax_info = ModelInfo(
     search_space=gen_tababax,
     method_metadata=tababax_method_metadata,
     pip_extra=(
-        "tababax @ git+https://github.com/tababax-research/TabAbax.git@1063bab493306ab30cac75648506fbb6b7a41dce",
+        "tababax @ git+https://github.com/tababax-research/TabAbax.git@0ff3c22d0f824444d7493118db5b9fc7167298c6",
     ),
 )
