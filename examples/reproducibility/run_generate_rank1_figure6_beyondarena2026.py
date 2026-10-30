@@ -22,7 +22,7 @@ import pandas as pd
 from scipy import stats
 
 from tabarena.contexts import BeyondArenaContext
-from tabarena.contexts.beyondarena.methods import beyond_method_metadata_2026_camera_ready_collection
+from tabarena.contexts.beyondarena.methods import beyond_method_metadata_2026_06_paper_collection
 
 
 ALPHA = 0.05
@@ -47,6 +47,20 @@ SUBSETS = {
 TFMS = {"TabICLv2", "TabPFN-2.6", "TabDPT"}
 MLPS = {"RealMLP", "TabM"}
 GBDTS = {"CatBoost", "LightGBM", "XGBoost"}
+PAPER_METHODS = {
+    "CatBoost (tuned + ensemble)",
+    "ExtraTrees (tuned + ensemble)",
+    "LightGBM (tuned + ensemble)",
+    "RandomForest (default)",
+    "RandomForest (tuned + ensemble)",
+    "XGBoost (tuned + ensemble)",
+    "TabM (tuned + ensemble)",
+    "RealMLP (tuned + ensemble)",
+    "Linear (tuned + ensemble)",
+    "TabDPT (default)",
+    "TabICLv2 (default)",
+    "TabPFN-2.6 (default)",
+}
 COLORS = {
     "TabICLv2": "#8fd3ff",
     "TabPFN-2.6": "#4da3ff",
@@ -61,14 +75,27 @@ COLORS = {
 
 def _display_method_names(results: pd.DataFrame, context: BeyondArenaContext) -> pd.Series:
     """Return the paper display name for either raw result schema used by TabArena."""
-    column = "config_type" if "config_type" in results else "method"
+    # ``method`` carries the tuning variant (the paper roster); ``config_type`` is only the
+    # base model name and would collapse default/tuned results into duplicate pivot columns.
+    column = "method" if "method" in results else "config_type"
     names = results[column].astype(str)
     rename = context.get_method_rename_map()
     expanded = dict(rename)
     for raw, display in rename.items():
         for suffix in (" (default)", " (tuned)", " (tuned + ensemble)"):
             expanded[f"{raw}{suffix}"] = f"{display}{suffix}"
-    return names.map(expanded).fillna(names).map(_base_method_name)
+    return names.map(expanded).fillna(names).map(_canonical_method_name)
+
+
+def _canonical_method_name(name: str) -> str:
+    """Normalize a result name while retaining the paper's default/tuned variant."""
+    name = str(name).removeprefix("TA-")
+    suffix = ""
+    for candidate in (" (tuned + ensemble)", " (tuned)", " (default)"):
+        if name.endswith(candidate):
+            name, suffix = name[: -len(candidate)], candidate
+            break
+    return f"{_base_method_name(name)}{suffix}"
 
 
 def _base_method_name(name: str) -> str:
@@ -215,10 +242,15 @@ def plot_rank1_share(table: pd.DataFrame, output_dir: Path = OUTPUT_DIR) -> tupl
 
 def generate_figure6(output_dir: Path = OUTPUT_DIR) -> tuple[Path, Path]:
     """Load the paper results from cache, analyze them, and write Figure 6."""
-    context = BeyondArenaContext(methods=beyond_method_metadata_2026_camera_ready_collection.method_metadata_lst)
+    # Figure 6 is from arXiv v1 (the cited PDF), not the later camera-ready rerun.
+    context = BeyondArenaContext(methods=beyond_method_metadata_2026_06_paper_collection.method_metadata_lst)
     _, results = context.compare(output_dir=None, subset=["all"], return_results=True, plot=False)
     results = results.copy()
     results["model"] = _display_method_names(results, context)
+    results = results[results["model"].isin(PAPER_METHODS)].copy()
+    if set(results["model"].unique()) != PAPER_METHODS:
+        missing = sorted(PAPER_METHODS - set(results["model"].unique()))
+        raise RuntimeError(f"The paper method roster is incomplete; missing {missing}")
     table = rank1_share_table(results, context)
     categories = _dataset_categories(results)
     output_dir.mkdir(parents=True, exist_ok=True)
