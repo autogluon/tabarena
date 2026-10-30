@@ -14,6 +14,10 @@ if TYPE_CHECKING:
     from tabarena.models.aplr.model import APLRModel
     from tabarena.models.causilo.model import CausiloModel
     from tabarena.models.chimeraboost.model import ChimeraBoostModel
+    from tabarena.models.compacttab.model import (
+        CompactTabHybridModel,
+        CompactTabModel,
+    )
     from tabarena.models.ctboost.model import CTBoostModel
     from tabarena.models.exaone_tabular.model import EXAONETabularModel
     from tabarena.models.ftfm.model import FTFMModel
@@ -58,6 +62,8 @@ _LAZY_CLASSES: dict[str, str] = {
     "APLRModel": "tabarena.models.aplr.model",
     "CausiloModel": "tabarena.models.causilo.model",
     "ChimeraBoostModel": "tabarena.models.chimeraboost.model",
+    "CompactTabHybridModel": "tabarena.models.compacttab.model",
+    "CompactTabModel": "tabarena.models.compacttab.model",
     "CTBoostModel": "tabarena.models.ctboost.model",
     "EXAONETabularModel": "tabarena.models.exaone_tabular.model",
     "FTFMModel": "tabarena.models.ftfm.model",
