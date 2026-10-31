@@ -11,6 +11,10 @@ from tabarena.models._registry import (
 
 if TYPE_CHECKING:
     from tabarena.models._method_metadata import MethodMetadata
+    from tabarena.models.agentic_mlp.model import AgenticMLPModel
+    from tabarena.models.agentic_realmlp.model import AgenticRealMLPModel
+    from tabarena.models.agentic_tabiclv2.model import AgenticTabICLv2Model
+    from tabarena.models.agentic_tabm.model import AgenticTabMModel
     from tabarena.models.aplr.model import APLRModel
     from tabarena.models.causilo.model import CausiloModel
     from tabarena.models.chimeraboost.model import ChimeraBoostModel
@@ -55,6 +59,10 @@ if TYPE_CHECKING:
 # repository transitive imports we don't want to charge every consumer for.
 _LAZY_CLASSES: dict[str, str] = {
     "MethodMetadata": "tabarena.models._method_metadata",
+    "AgenticMLPModel": "tabarena.models.agentic_mlp.model",
+    "AgenticRealMLPModel": "tabarena.models.agentic_realmlp.model",
+    "AgenticTabICLv2Model": "tabarena.models.agentic_tabiclv2.model",
+    "AgenticTabMModel": "tabarena.models.agentic_tabm.model",
     "APLRModel": "tabarena.models.aplr.model",
     "CausiloModel": "tabarena.models.causilo.model",
     "ChimeraBoostModel": "tabarena.models.chimeraboost.model",

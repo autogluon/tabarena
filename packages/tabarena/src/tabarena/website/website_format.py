@@ -118,6 +118,7 @@ def get_model_family(model_name: str, system_names: Container[str] = frozenset()
         return Constants.system
     prefixes_mapping = {
         Constants.neural_network: [
+            "MLP-A",
             "REALMLP",
             "TABM",
             "FASTAI",

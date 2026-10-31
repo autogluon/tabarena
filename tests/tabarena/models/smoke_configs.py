@@ -57,6 +57,7 @@ SMOKE_OVERRIDES: dict[str, ModelSmokeTest] = {
     "ModernNCA_GPU": ModelSmokeTest({"n_epochs": 10}),
     "RealMLP": ModelSmokeTest({"n_epochs": 10}),
     "RealMLP_GPU": ModelSmokeTest({"n_epochs": 10}),
+    "RealMLP-A": ModelSmokeTest({"n_epochs": 10}),
     "TabM": ModelSmokeTest({"n_epochs": 10, "tabm_k": 2, "n_bins": 8, "num_emb_type": "none"}),
     "TabPFN-v2.6": ModelSmokeTest({"n_estimators": 1}),
     "RealTabPFN-v2.5": ModelSmokeTest({"n_estimators": 1}),
