@@ -40,6 +40,7 @@ if TYPE_CHECKING:
     from tabarena.models.tabicl.model import TabICLModel, TabICLv2Model
     from tabarena.models.tabldm.model import TabLDMModel
     from tabarena.models.tabm.model import TabMModel
+    from tabarena.models.tabpack.model import TabPackModel
     from tabarena.models.tabpfn_3.model import TabPFN3Model
     from tabarena.models.tabpfn_3_5.model import TabPFN35FastModel, TabPFN35Model
     from tabarena.models.tabpfnv2_5.model import RealTabPFNv25Model, TabPFNv26Model
@@ -87,6 +88,7 @@ _LAZY_CLASSES: dict[str, str] = {
     "TabICLv2Model": "tabarena.models.tabicl.model",
     "TabLDMModel": "tabarena.models.tabldm.model",
     "TabMModel": "tabarena.models.tabm.model",
+    "TabPackModel": "tabarena.models.tabpack.model",
     "TabPFN35FastModel": "tabarena.models.tabpfn_3_5.model",
     "TabPFN35Model": "tabarena.models.tabpfn_3_5.model",
     "TabPFN3Model": "tabarena.models.tabpfn_3.model",
