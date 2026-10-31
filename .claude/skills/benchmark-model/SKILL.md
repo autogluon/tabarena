@@ -1,6 +1,6 @@
 ---
 name: benchmark-model
-description: Run one already-integrated model on the TabArena benchmark, from a local smoke fit to the cluster run and the evaluated leaderboard. Use this skill whenever a maintainer wants to benchmark a model that is already in the registry, e.g. "benchmark TabM", "run Nori on the cluster", "create a setup/eval script for DenseLight", "launch <model> on TabArena and evaluate it". It first asks whether Claude should drive the run end-to-end here (launch, monitor, evaluate, report) or hand the launch and monitoring to the maintainer, then scaffolds a single `tmp_scripts/run_<model>.py` at the repo root with `smoke`, `setup` and `eval` subcommands sharing one benchmark_name + paths. Defaults to the full TabArena-v0.1 task set with all configs (0 for foundation models without a search space), resolves the run venv to the one importing this checkout, installs the model's pip extra into it, smoke-fits the model locally (on the CPU when no GPU exists, GPU models included), and requires `fake_memory_for_estimates` set to the partition's VRAM for every GPU model (asks when not inferable). In end-to-end mode it launches the sbatch command(s), reports the percentage of tasks left at regular intervals while checking for failed tasks, then runs the eval with all figures for the default subsets and reports the leaderboard with the new model highlighted (also box-labeled in every Pareto figure). Also runs registered systems, and for hosted APIs (`closed-source-api`) audits the client and probes the API for cheating (`tabarena.tools.audit_system`) before a single-node run from an on-demand CPU node. Complements `add-model` (integrate a model) and `upload-method` (publish its results).
+description: Run one already-integrated model on the TabArena benchmark, from a local smoke fit to the cluster run and the evaluated leaderboard. Use this skill whenever a maintainer wants to benchmark a model that is already in the registry, e.g. "benchmark TabM", "run Nori on the cluster", "create a setup/eval script for DenseLight", "launch <model> on TabArena and evaluate it". It first asks whether Claude should drive the run end-to-end here (launch, monitor, evaluate, report) or hand the launch and monitoring to the maintainer, then scaffolds a single `tmp_scripts/run_<model>.py` at the repo root with `smoke`, `setup` and `eval` subcommands sharing one benchmark_name + paths. Defaults to the full TabArena-v0.1 task set with all configs (0 for foundation models without a search space), resolves the run venv to the one importing this checkout, installs the model's pip extra into it, smoke-fits the model locally (on the CPU when no GPU exists, GPU models included), and requires `fake_memory_for_estimates` set to the partition's VRAM for every GPU model (asks when not inferable). In end-to-end mode it launches the sbatch command(s), reports the percentage of tasks left at regular intervals while checking for failed tasks, then runs the eval with all figures for the default subsets and reports the leaderboard with the new model highlighted (also box-labeled in every Pareto figure). Also runs registered systems, and for hosted APIs (`closed-source-api`) audits the client and probes the API for cheating (`tabarena.tools.audit_system`) before a single-node run from an on-demand CPU node. A model that was not integrated in this session, above all one from a contributor's PR, is first reviewed by independent agents for cheating, leakage and protocol violations (the add-model skill's `references/model_review.md`), and fixes on top of the PR follow the add-model skill's conventions. Complements `add-model` (integrate a model) and `upload-method` (publish its results).
 argument-hint: <ModelRegistryName> [<benchmark_name>] [<n_configs>]
 user-invocable: true
 ---
@@ -109,9 +109,32 @@ to a small data-size estimate and keeps eight parallel folds regardless. Still s
 tell the maintainer to sanity-check per-fold VRAM times eight, or pin `num_folds_parallel` via
 `ag_args_ensemble`, before launching.
 
-## Step 1b: Check `_fit` for tuning on its own splits
+## Step 1b: Review a model you did not integrate
 
-Read the wrapper's `_fit` and the library calls it makes for any step that tunes or selects on a
+When the model was integrated in this session with the `add-model` skill, its Step 7 already ran the
+review below; go on to Step 2. Otherwise, and always for a model from a contributor's PR, review it
+before anything is launched.
+
+Get the code first. For a PR, read it with `gh pr view <n> -R autogluon/tabarena` and
+`gh pr diff <n>`, and fetch the head into a local branch (`git fetch origin pull/<n>/head:<branch>`,
+through the SSH bypass on this box) so the run imports exactly what the PR contains. Then run the
+review of the add-model skill, `.claude/skills/add-model/references/model_review.md`: one reviewer
+agent per lens (leakage and cheating; protocol and fairness; the wrapper's data path), started in one
+message, each given the wrapper folder, the PR diff, the library unpacked at the version the PR pins
+and the paper's evaluation notes, and none of your own conclusions. Verify every finding against the
+code before you report it. A blocker stops the run until the maintainer decides.
+
+Fixing what the review finds, on top of the PR, follows the add-model skill and its
+`references/model_patterns.md`, which hold the conventions a wrapper is held to: the `_fit` contract
+(the passed `X_val`, `time_limit`, `num_cpus` / `num_gpus`, `seed_name`, global state), base-class
+choice, the warm-up declarations (`warmup_modules`, `cheap_hyperparameters`, `shared_weights`), the
+`Developer fix` header for library workarounds, pinned versions and HF revisions, `info.py` metadata,
+and the leaderboard family in `website_format.py`. Commit fixes to the PR branch only when the user
+asks for it, and draft review comments for the user to post (Step 7 has the rule for any write to a
+PR).
+
+The check the reviewers start with, and the one most often missed, is tuning on the model's own
+splits. Read the wrapper's `_fit` and the library calls it makes for any step that tunes or selects on a
 split of the training data instead of the `X_val` / `y_val` TabArena passes: a hyperparameter
 search, an internal cross-validation or hold-out split, or ensemble or candidate weights solved on
 rows held out of `X`. Model submissions may not do this. When you find one, stop before Step 2 and
