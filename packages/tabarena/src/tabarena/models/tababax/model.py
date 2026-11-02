@@ -129,10 +129,14 @@ class TabAbaxModel(AbstractTorchModel):
         self,
         X: pd.DataFrame,
         y: pd.Series,
+        time_limit: float | None = None,
         num_cpus: int = 1,
         num_gpus: int = 0,
         **kwargs,
     ):
+        # Context fitting runs one forward pass per ensemble member: there is no iterative
+        # training, early stopping or validation split to cut short, so ``time_limit`` cannot
+        # truncate the fit without dropping ensemble members. It is accepted and left unused.
         try:
             import tababax  # noqa: F401
         except ImportError as err:
