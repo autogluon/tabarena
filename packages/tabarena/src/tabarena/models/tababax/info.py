@@ -12,7 +12,7 @@ tababax_descriptor = ModelDescriptor(
     reference_url="https://github.com/tababax-research/TabAbax",
     organization="TabAbax",
     commercial_use=False,
-    license="CC-BY-NC-4.0 (weights); BSD-3-Clause / Apache-2.0 (code)",
+    license="CC-BY-NC-4.0 (weights); BSD-3-Clause for the TabICL-derived code",
     date_introduced="2026-10-28",
 )
 
