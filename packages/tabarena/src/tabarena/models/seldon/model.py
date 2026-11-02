@@ -8,6 +8,8 @@ from autogluon.core.constants import BINARY, MULTICLASS
 from autogluon.core.models.abstract import SharedWeights
 from autogluon.tabular.models.abstract.abstract_torch_model import AbstractTorchModel
 
+from tabarena.models.kumo_tabular.model import to_signed_integers
+
 if TYPE_CHECKING:
     import pandas as pd
 
@@ -19,20 +21,6 @@ HF_REVISIONS: dict[str, str] = {
 }
 
 
-def to_signed_integers(X: pd.DataFrame) -> pd.DataFrame:
-    """``X`` with its ``uint16`` / ``uint32`` / ``uint64`` columns cast to ``int64`` (``float64`` above its range).
-
-    As in the Kumo Tabular wrapper: sdm keeps the unsigned dtype for the category values of such columns
-    when it infers them as categorical, and torch cannot unpickle those tensors. Values are unchanged.
-    """
-    casts = {}
-    for column, dtype in X.dtypes.items():
-        if dtype.kind == "u" and dtype.itemsize > 1:
-            fits = dtype.itemsize < 8 or X[column].max() <= np.iinfo(np.int64).max
-            casts[column] = "int64" if fits else "float64"
-    return X.astype(casts) if casts else X
-
-
 @dataclass
 class FittedSeldon:
     """The shared network next to the fitted classifier, whose estimator holds it only during a call.
@@ -40,7 +28,7 @@ class FittedSeldon:
     AutoGluon's shared-weights pickle finds the network by identity in the fitted state but treats a
     ``torch.nn.Module`` as one unit, and the library's estimator (``SeldonICL``) is a module holding the
     network as a submodule. Kept here, the network is left out of the pickle and put back from the
-    registry on load; :meth:`classifier` attaches it before the library runs.
+    registry on load; :func:`_attached` attaches it before the library runs.
     """
 
     network: Any
@@ -63,9 +51,9 @@ class SeldonModel(AbstractTorchModel):
     A thin pass-through to ``neuralk_oss.SeldonClassifier``: ``from_pretrained(<name>)`` builds the
     classifier with the released model's packaged config (ensemble size, per-member preprocessing
     recipe, context size, float16 autocast on CUDA), ``fit`` keeps the training table as context and
-    ``predict_proba`` classifies the query rows against it. Nothing is added on top of the library: the
-    wrapper hands it AutoGluon's preprocessed frame (unsigned integer columns cast to signed, see
-    :func:`to_signed_integers`), the fit's seed and its device.
+    ``predict_proba`` classifies the query rows against it. The wrapper hands the library AutoGluon's
+    preprocessed frame (unsigned integer columns cast to signed), the fit's seed and its device, sets
+    torch's thread count to ``num_cpus``, and gives a class a bagged fold did not see a zero column.
 
     Paper: Seldon — Technical Report (https://technical-report.neuralk.ai/seldon-technical-report.pdf)
     Codebase: https://pypi.org/project/neuralk-oss/ (weights: https://huggingface.co/Neuralk-AI/seldon,
@@ -153,7 +141,13 @@ class SeldonModel(AbstractTorchModel):
         return str(param.device) if param is not None else "cpu"
 
     def _set_device(self, device: str):
-        """Move the network, the estimator and its fitted sdm state (context cache, fitted processors)."""
+        """Move the network, the estimator and its fitted sdm state (context cache, fitted processors).
+
+        Developer fix: neuralk-oss 0.2.1 offers no way to move a fitted classifier, so this moves the
+        estimator's private sdm cache and the fitted processors it holds (``_cache["recipe_execution"]``), as
+        the Kumo Tabular wrapper does. The library could offer ``SeldonClassifier.to(device)``. Re-check this
+        method whenever the pin moves.
+        """
         import torch
 
         classifier = self.model.classifier
@@ -200,7 +194,7 @@ def _packaged_settings(model_name: str) -> dict:
 
 
 class SeldonMiniModel(SeldonModel):
-    """Seldon-Mini: the small released checkpoint, through the same pass-through."""
+    """Seldon-Mini: the smaller released checkpoint, run by the same wrapper as Seldon."""
 
     ag_key = "TA-SELDON-MINI"
     ag_name = "TA-Seldon-Mini"
