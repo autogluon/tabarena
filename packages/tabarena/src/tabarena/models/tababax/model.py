@@ -21,7 +21,10 @@ _HF_CHECKPOINTS = {
 }
 #: Commit that uploaded the released weights. Later commits only touched the model card, but the
 #: library resolves ``main``, so pinning here keeps a republished checkpoint from changing the run.
-_HF_REVISION = "039e4f239d06a4d631e38c15bc23ef195ed8cf79"
+#: Public so a run script can pin the same commit without importing a private name.
+HF_REPO_ID = _HF_REPO_ID
+HF_CHECKPOINTS = _HF_CHECKPOINTS
+CHECKPOINT_REVISION = "039e4f239d06a4d631e38c15bc23ef195ed8cf79"
 
 
 class TabAbaxModel(AbstractTorchModel):
@@ -105,7 +108,7 @@ class TabAbaxModel(AbstractTorchModel):
         from huggingface_hub import hf_hub_download
         from huggingface_hub.errors import LocalEntryNotFoundError
 
-        kwargs = {"repo_id": _HF_REPO_ID, "filename": _HF_CHECKPOINTS[task], "revision": _HF_REVISION}
+        kwargs = {"repo_id": _HF_REPO_ID, "filename": _HF_CHECKPOINTS[task], "revision": CHECKPOINT_REVISION}
         try:
             return hf_hub_download(**kwargs, local_files_only=True)
         except LocalEntryNotFoundError:
@@ -155,7 +158,7 @@ class TabAbaxModel(AbstractTorchModel):
         # the Hub repo's default branch, so the bytes behind a published score could change under a
         # rerun. An explicit hyperparameter still wins, for a caller loading its own checkpoint.
         if hyp.get("checkpoint_revision") is None:
-            hyp["checkpoint_revision"] = _HF_REVISION
+            hyp["checkpoint_revision"] = CHECKPOINT_REVISION
         disk_offload_dir = tempfile.mkdtemp(prefix="tababax_")
         self.model = self.get_model_cls()(
             **hyp,
