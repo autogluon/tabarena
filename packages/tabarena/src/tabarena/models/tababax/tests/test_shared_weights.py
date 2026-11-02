@@ -54,7 +54,7 @@ def test_key_inputs_separate_a_local_file_from_the_download():
 
     key = TabAbaxModel.shared_weights.key
     downloaded = TabAbaxClassifier(checkpoint_version="tababax-classifier.ckpt")
-    local = TabAbaxClassifier(model_path="/tmp/some.ckpt", allow_auto_download=False)
+    local = TabAbaxClassifier(model_path="some-local-checkpoint.ckpt", allow_auto_download=False)
     assert sw._inputs_of_estimator(downloaded, key) != sw._inputs_of_estimator(local, key)
 
 
