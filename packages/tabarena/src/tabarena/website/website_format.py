@@ -120,6 +120,7 @@ def get_model_family(model_name: str, system_names: Container[str] = frozenset()
         Constants.neural_network: [
             "REALMLP",
             "TABM",
+            "TABPACK",
             "FASTAI",
             "MNCA",
             "MODERNNCA",

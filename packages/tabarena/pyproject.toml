@@ -190,6 +190,9 @@ lightpfn = ["lightpfn==1.0.0"]
 # FTFM is not published on PyPI; pinned to a commit so the benchmarked code is fixed (empty extra on
 # PyPI). Keep in sync with `pip_extra` in models/ftfm/info.py.
 ftfm = ["ftfm @ git+https://github.com/machinelearningnuremberg/ftfm-official.git@7e5e237daa26ef20f0faec1650d000b04de5122e"]
+# tabpackage is experimental upstream ("expect breaking changes"), so the release is pinned exactly.
+# Keep in sync with `pip_extra` in models/tabpack/info.py.
+tabpack = ["tabpackage[sklearn]==0.0.1"]
 
 # Core benchmark set: the always-on models for benchmarking, plus the plotting and
 # preprocessing capabilities split out of the core install. Self-references avoid
@@ -235,6 +238,7 @@ extended = [
   "tabarena[kumo_tabular]",
   "tabarena[lightpfn]",
   "tabarena[ftfm]",
+  "tabarena[tabpack]",
 ]
 
 # Convenience: everything (core + extended + probmetrics).
