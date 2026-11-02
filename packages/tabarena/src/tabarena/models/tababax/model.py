@@ -17,8 +17,9 @@ logger = logging.getLogger(__name__)
 class TabAbaxModel(AbstractTorchModel):
     """TabAbax, an in-context foundation model for classification and regression.
 
-    ``fit`` stores the training table. ``predict`` runs one forward pass of a pretrained
-    transformer. The weights are not updated on the task.
+    ``fit`` stores the training table. Each ensemble member runs one forward pass.
+    The default estimator uses eight dataset-view ensemble members. The weights
+    are not updated on the task.
 
     Omitting ``model_path`` downloads the public checkpoint from
     ``tababax-ai/TabAbax``. Classification uses ``tababax-classifier.ckpt``
@@ -38,16 +39,17 @@ class TabAbaxModel(AbstractTorchModel):
     ``random_state`` is the TabArena seed (``seed_name``). ``device`` follows the GPUs AutoGluon
     allocated: CUDA when ``num_gpus`` is not 0, otherwise CPU.
 
-    The imported package is derived from TabICL
-    (https://github.com/soda-inria/tabicl), Copyright (c) 2025, Soda team @ Inria.
-    That code is BSD-3-Clause. See the package ``NOTICE``. TabAbax renames the
-    public classes and ships inference only, with its own checkpoints.
+    The TabArena integration imports TabAbax, whose inference implementation
+    contains portions derived from TabICLv2 and distributed under BSD-3-Clause.
+    The additional TabAbax packaging and integration code is Apache-2.0.
+    The default checkpoints are separate CC-BY-NC-4.0 artifacts and are not
+    commercially licensed.
 
     Authors: TabAbax, based on TabICL by Jingang Qu, David Holzmüller, Gaël Varoquaux, and Marine Le Morvan
     Codebase: https://github.com/tababax-research/TabAbax
     Upstream: https://github.com/soda-inria/tabicl
     Weights: https://huggingface.co/tababax-ai/TabAbax
-    License: BSD-3-Clause for the TabICL-derived code. Weights: CC-BY-NC-4.0.
+    License: BSD-3-Clause for the TabICL-derived code. Apache-2.0 for TabAbax packaging. Weights: CC-BY-NC-4.0.
     """
 
     ag_key = "TA-TABABAX"
