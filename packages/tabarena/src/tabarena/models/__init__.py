@@ -35,6 +35,7 @@ if TYPE_CHECKING:
     from tabarena.models.prismboost.model import PrismBoostModel
     from tabarena.models.realmlp.model import RealMLPModel
     from tabarena.models.sap_rpt_oss.model import SAPRPTOSSModel
+    from tabarena.models.seldon.model import SeldonMiniModel, SeldonModel
     from tabarena.models.tabdpt.model import TabDPTModel, TabDPTTurboModel, TabDPTv13Model
     from tabarena.models.tabfm.model import TabFMModel
     from tabarena.models.tabicl.model import TabICLModel, TabICLv2Model
@@ -79,6 +80,8 @@ _LAZY_CLASSES: dict[str, str] = {
     "RealMLPModel": "tabarena.models.realmlp.model",
     "RealTabPFNv25Model": "tabarena.models.tabpfnv2_5.model",
     "SAPRPTOSSModel": "tabarena.models.sap_rpt_oss.model",
+    "SeldonMiniModel": "tabarena.models.seldon.model",
+    "SeldonModel": "tabarena.models.seldon.model",
     "TabDPTModel": "tabarena.models.tabdpt.model",
     "TabDPTTurboModel": "tabarena.models.tabdpt.model",
     "TabDPTv13Model": "tabarena.models.tabdpt.model",
