@@ -16,15 +16,20 @@ tababax_descriptor = ModelDescriptor(
     date_introduced="2026-10-28",
 )
 
-# Benchmarked, not yet hosted: TabArena v0.1 (816 splits) and BeyondArena core2k (2000 splits) are in
-# the TabAbax repository's results/ folder. Register this entry in contexts/*/methods.py only once the
-# processed artifacts are uploaded, so the collection resolves to downloadable results.
+# Run tababax_02112026 (SkyPilot pool, 32 RTX PRO 6000, BENCHMARK_LOG.md): every split of the 51 TabArena-v0.1
+# datasets at f47f00a0, tababax @ b7c9ba70, weights tababax-ai/TabAbax@039e4f23.
 tababax_method_metadata = tababax_descriptor.method_metadata(
     method="TabAbax",
+    date="2026-11-02",
     ag_key="TA-TABABAX",
     model_key="TABABAX",
+    config_default="TabAbax_c1_default_BAG_L1",
     can_hpo=False,
-    date="2026-10-28",
+    validation_protocol="8x1",
+    suite="tabarena-2026-11-02",
+    verified=True,
+    cache_type="r2",
+    cache_kwargs={"bucket": "tabarena", "prefix": "cache"},
 )
 
 tababax_info = ModelInfo(

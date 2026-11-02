@@ -56,7 +56,10 @@ run against `main`. To reproduce an entry, check out its recorded **git SHA**.
   from scratch), 0 items failed. Slowest fit APSFailure (174 s train). Result: 816 of 816; `audit_warmup --results`
   reports warm-up ok on all 816 and no packages imported inside the timed fit or predict. Eval: full #16 of 107,
   Elo 1671 (+67/-56), 0% imputed; binary #17 (1654), multiclass #21 (1604), regression #11 (2031); median 1.69 s
-  train and 0.35 s inference per 1K rows. TabICLv2 (default), its parent, sits at #22 with 1562.
+  train and 0.35 s inference per 1K rows. TabICLv2 (default), its parent, sits at #22 with 1562. Processed and
+  uploaded as suite `tabarena-2026-11-02` (`tababax_method_metadata` in `models/tababax/info.py`), `verified=True`
+  after the maintainer signed off on 2026-11-03; the library pin moved to the full SHA of the same commit (`0b9cfc61`)
+  after the run.
 
 ```python
 from tabarena.benchmark.experiment import TabArenaV0pt1ExperimentBundle
