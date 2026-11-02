@@ -15,6 +15,10 @@ import pytest
 
 from tabarena.models.tababax.model import CHECKPOINT_REVISION, TabAbaxModel
 
+# Kept out of the default ``tests/`` collection like the rest of a model's tests, and out of
+# PR CI by the repo-wide ``-m 'not network and not models'`` filter.
+pytestmark = pytest.mark.models
+
 
 def _sw():
     from autogluon.core.models.abstract import shared_weights

@@ -12,7 +12,6 @@ from tabarena.models._registry import (
 if TYPE_CHECKING:
     from tabarena.models._method_metadata import MethodMetadata
     from tabarena.models.aplr.model import APLRModel
-    from tabarena.models.tababax.model import TabAbaxModel
     from tabarena.models.causilo.model import CausiloModel
     from tabarena.models.chimeraboost.model import ChimeraBoostModel
     from tabarena.models.ctboost.model import CTBoostModel
@@ -36,6 +35,7 @@ if TYPE_CHECKING:
     from tabarena.models.prismboost.model import PrismBoostModel
     from tabarena.models.realmlp.model import RealMLPModel
     from tabarena.models.sap_rpt_oss.model import SAPRPTOSSModel
+    from tabarena.models.tababax.model import TabAbaxModel
     from tabarena.models.tabdpt.model import TabDPTModel, TabDPTTurboModel, TabDPTv13Model
     from tabarena.models.tabfm.model import TabFMModel
     from tabarena.models.tabicl.model import TabICLModel, TabICLv2Model
