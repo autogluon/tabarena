@@ -195,7 +195,7 @@ ftfm = ["ftfm @ git+https://github.com/machinelearningnuremberg/ftfm-official.gi
 # in models/tababax/info.py. The default checkpoints download from
 # huggingface.co/tababax-ai/TabAbax under CC-BY-NC-4.0.
 tababax = [
-  "tababax @ git+https://github.com/tababax-research/TabAbax.git@ed8b12ea6b87281a7042261f13d38435ccfd0618",
+  "tababax @ git+https://github.com/tababax-research/TabAbax.git@4bdd80a3624e855b18566625482873d64a19735e",
 ]
 
 # Core benchmark set: the always-on models for benchmarking, plus the plotting and

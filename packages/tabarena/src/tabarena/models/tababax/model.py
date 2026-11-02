@@ -13,6 +13,16 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+_HF_REPO_ID = "tababax-ai/TabAbax"
+#: Released checkpoint per task type; the library selects the same two files by default.
+_HF_CHECKPOINTS = {
+    "classification": "tababax-classifier.ckpt",
+    "regression": "tababax-regressor.ckpt",
+}
+#: Commit that uploaded the released weights. Later commits only touched the model card, but the
+#: library resolves ``main``, so pinning here keeps a republished checkpoint from changing the run.
+_HF_REVISION = "039e4f239d06a4d631e38c15bc23ef195ed8cf79"
+
 
 class TabAbaxModel(AbstractTorchModel):
     """TabAbax, an in-context foundation model for classification and regression.
@@ -21,8 +31,9 @@ class TabAbaxModel(AbstractTorchModel):
     The default estimator uses eight dataset-view ensemble members. The weights
     are not updated on the task.
 
-    Omitting ``model_path`` downloads the public checkpoint from
-    ``tababax-ai/TabAbax``. Classification uses ``tababax-classifier.ckpt``
+    Omitting ``model_path`` loads the released checkpoint from
+    ``tababax-ai/TabAbax`` at the commit this wrapper pins.
+    Classification uses ``tababax-classifier.ckpt``
     and regression uses ``tababax-regressor.ckpt``. Pass ``model_path`` to load a
     local file instead. The weights are CC-BY-NC-4.0 and are limited to non-commercial use.
 
@@ -84,6 +95,31 @@ class TabAbaxModel(AbstractTorchModel):
 
         return TabAbaxRegressor
 
+    @classmethod
+    def download_checkpoint(cls, task: str) -> str:
+        """Resolve one released checkpoint (``"classification"`` / ``"regression"``) at the pinned revision.
+
+        The Hub cache answers first (no network round trip on a node that ran ``prefetch_weights``),
+        a download otherwise.
+        """
+        from huggingface_hub import hf_hub_download
+        from huggingface_hub.errors import LocalEntryNotFoundError
+
+        kwargs = {"repo_id": _HF_REPO_ID, "filename": _HF_CHECKPOINTS[task], "revision": _HF_REVISION}
+        try:
+            return hf_hub_download(**kwargs, local_files_only=True)
+        except LocalEntryNotFoundError:
+            return hf_hub_download(**kwargs)
+
+    @classmethod
+    def prefetch_weights(cls) -> dict[str, str]:
+        """Pre-download both released checkpoints; return ``{task: local path}``.
+
+        Classification and regression are separate files, so a run covering both problem types
+        needs both warmed before the jobs are dispatched.
+        """
+        return {task: cls.download_checkpoint(task) for task in _HF_CHECKPOINTS}
+
     def _fit(
         self,
         X: pd.DataFrame,
@@ -112,12 +148,14 @@ class TabAbaxModel(AbstractTorchModel):
             )
 
         hyp = self._get_model_params()
+        task = "classification" if self.problem_type in ["binary", "multiclass"] else "regression"
         if "checkpoint_version" not in hyp:
-            hyp["checkpoint_version"] = (
-                "tababax-classifier.ckpt"
-                if self.problem_type in ["binary", "multiclass"]
-                else "tababax-regressor.ckpt"
-            )
+            hyp["checkpoint_version"] = _HF_CHECKPOINTS[task]
+        # Pin the revision the library resolves the checkpoint against. Without it the library follows
+        # the Hub repo's default branch, so the bytes behind a published score could change under a
+        # rerun. An explicit hyperparameter still wins, for a caller loading its own checkpoint.
+        if hyp.get("checkpoint_revision") is None:
+            hyp["checkpoint_revision"] = _HF_REVISION
         disk_offload_dir = tempfile.mkdtemp(prefix="tababax_")
         self.model = self.get_model_cls()(
             **hyp,

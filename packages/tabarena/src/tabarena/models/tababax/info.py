@@ -9,15 +9,16 @@ tababax_descriptor = ModelDescriptor(
     display_name="TabAbax",
     compute="gpu",
     is_bag=False,
-    reference_url="https://github.com/soda-inria/tabicl",
+    reference_url="https://github.com/tababax-research/TabAbax",
     organization="TabAbax",
     commercial_use=False,
-    license="BSD-3-Clause (TabICL-derived code); Apache-2.0 (TabAbax packaging); CC-BY-NC-4.0 (weights)",
+    license="CC-BY-NC-4.0 (weights); BSD-3-Clause / Apache-2.0 (code)",
     date_introduced="2026-10-28",
 )
 
-# Not benchmarked yet. This entry only registers the wrapper. Do not add it to
-# contexts/tabarena/methods.py until a TabArena-Lite run exists.
+# Benchmarked, not yet hosted: TabArena v0.1 (816 splits) and BeyondArena core2k (2000 splits) are in
+# the TabAbax repository's results/ folder. Register this entry in contexts/*/methods.py only once the
+# processed artifacts are uploaded, so the collection resolves to downloadable results.
 tababax_method_metadata = tababax_descriptor.method_metadata(
     method="TabAbax",
     ag_key="TA-TABABAX",
@@ -31,6 +32,7 @@ tababax_info = ModelInfo(
     search_space=gen_tababax,
     method_metadata=tababax_method_metadata,
     pip_extra=(
-        "tababax @ git+https://github.com/tababax-research/TabAbax.git@ed8b12ea6b87281a7042261f13d38435ccfd0618",
+        "tababax @ git+https://github.com/tababax-research/TabAbax.git@4bdd80a3624e855b18566625482873d64a19735e",
     ),
+    prefetch_weights=TabAbaxModel.prefetch_weights,
 )
