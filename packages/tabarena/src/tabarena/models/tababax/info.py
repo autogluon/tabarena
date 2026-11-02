@@ -32,7 +32,7 @@ tababax_info = ModelInfo(
     search_space=gen_tababax,
     method_metadata=tababax_method_metadata,
     pip_extra=(
-        "tababax @ git+https://github.com/tababax-research/TabAbax.git@9b7d916",
+        "tababax @ git+https://github.com/tababax-research/TabAbax.git@b7c9ba7",
     ),
     prefetch_weights=TabAbaxModel.prefetch_weights,
 )
