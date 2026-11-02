@@ -79,12 +79,14 @@ class TabAbaxModel(AbstractTorchModel):
     #: The estimator builds its network inside ``_load_model``, which ``fit`` calls. The first
     #: fit of a checkpoint in the process builds it; every later estimator of that checkpoint
     #: and device reuses it.
+    #: ``checkpoint_revision`` is part of the key: the same file name at two Hub commits is two
+    #: different networks, and sharing one would score a second revision on the first one's weights.
     shared_weights: ClassVar[SharedWeights] = SharedWeights(
         loader=(
             "tababax:TabAbaxClassifier._load_model",
             "tababax:TabAbaxRegressor._load_model",
         ),
-        key=("checkpoint_version", "model_path"),
+        key=("checkpoint_version", "checkpoint_revision", "model_path"),
     )
     #: Knobs that make the warm-up's dummy fit cheap without touching the network.
     cheap_hyperparameters: ClassVar[dict] = {"n_estimators": 1}
