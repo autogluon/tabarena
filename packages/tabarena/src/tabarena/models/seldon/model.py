@@ -63,10 +63,13 @@ class SeldonModel(AbstractTorchModel):
     A thin pass-through to ``neuralk_oss.SeldonClassifier``: ``from_pretrained(<name>)`` builds the
     classifier with the released model's packaged config (ensemble size, per-member preprocessing
     recipe, context size, float16 autocast on CUDA), ``fit`` keeps the training table as context and
-    ``predict_proba`` classifies the query rows against it. Nothing is added on top of the library:
-    the wrapper only hands it AutoGluon's preprocessed frame, the fit's seed and device.
+    ``predict_proba`` classifies the query rows against it. Nothing is added on top of the library: the
+    wrapper hands it AutoGluon's preprocessed frame (unsigned integer columns cast to signed, see
+    :func:`to_signed_integers`), the fit's seed and its device.
 
-    Codebase: https://github.com/Neuralk-AI/neuralk_oss (weights: https://huggingface.co/Neuralk-AI/seldon)
+    Paper: Seldon — Technical Report (https://technical-report.neuralk.ai/seldon-technical-report.pdf)
+    Codebase: https://pypi.org/project/neuralk-oss/ (weights: https://huggingface.co/Neuralk-AI/seldon,
+        https://huggingface.co/Neuralk-AI/seldon-mini)
     Authors: Neuralk-AI
     License: code under Apache-2.0, weights under the Seldon Research and Evaluation License
     (non-commercial research and internal evaluation; gated on Hugging Face).
@@ -184,8 +187,10 @@ class SeldonModel(AbstractTorchModel):
 def _packaged_settings(model_name: str) -> dict:
     """The released model's packaged config (``neuralk_oss/configs/<name>.yaml``), as ``from_pretrained`` reads it.
 
-    Developer fix: neuralk-oss 0.2.0 reads it with the private ``_read_config``; it could expose the settings
-    publicly (or take a prebuilt network in ``from_pretrained``). Pinned with the library.
+    Developer fix: neuralk-oss 0.2.1 reads the packaged config only inside ``from_pretrained``, which also loads
+    the network, so the wrapper calls the private ``_read_config`` to load the network through the shared loader.
+    The library could expose the settings publicly, or take a prebuilt network in ``from_pretrained``. Re-check
+    this function whenever the pin moves.
     """
     from neuralk_oss.inference.classifier import _CONFIGS, _read_config
 

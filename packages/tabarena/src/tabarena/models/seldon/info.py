@@ -14,7 +14,7 @@ def _descriptor(display_name: str) -> ModelDescriptor:
         display_name=display_name,
         compute="gpu",
         is_bag=False,
-        reference_url="https://github.com/Neuralk-AI/neuralk_oss",
+        reference_url="https://technical-report.neuralk.ai/",
         organization="Neuralk-AI",
         # The weights' license: research and internal evaluation only (the neuralk-oss code is Apache-2.0).
         license="Seldon Research and Evaluation License",
