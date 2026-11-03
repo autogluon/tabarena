@@ -23,16 +23,26 @@ def _descriptor(display_name: str) -> ModelDescriptor:
     )
 
 
+# Runs seldon_03112026 and seldonmini_03112026 (SkyPilot pools of 32 RTX PRO 6000, BENCHMARK_LOG.md), the 38
+# classification datasets, every split.
+_tabarena_run_kwargs = dict(
+    can_hpo=False,
+    date="2026-11-03",
+    verified=True,
+    cache_type="r2",
+    validation_protocol="8x1",
+    suite="tabarena-2026-11-03",
+    cache_kwargs={"bucket": "tabarena", "prefix": "cache"},
+)
+
 seldon_method_metadata = _descriptor("Seldon").method_metadata(
-    method="Seldon", ag_key="TA-SELDON", can_hpo=False, date="2026-11-02", verified=False, suite="tabarena-2026-10-06"
+    method="Seldon", ag_key="TA-SELDON", config_default="Seldon_c1_default_BAG_L1", **_tabarena_run_kwargs
 )
 seldon_mini_method_metadata = _descriptor("Seldon-Mini").method_metadata(
     method="Seldon-Mini",
     ag_key="TA-SELDON-MINI",
-    can_hpo=False,
-    date="2026-11-02",
-    verified=False,
-    suite="tabarena-2026-10-06",
+    config_default="Seldon-Mini_c1_default_BAG_L1",
+    **_tabarena_run_kwargs,
 )
 
 seldon_info = ModelInfo(
