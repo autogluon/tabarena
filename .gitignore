@@ -145,6 +145,7 @@ AutogluonModels/
 /examples/benchmarking/eval/
 /examples/benchmarking/experiments/
 /examples/!old/local_data/
+/examples/reproducibility/output_*/
 /examples/*.csv
 /examples/*.parquet
 /examples/*.pdf

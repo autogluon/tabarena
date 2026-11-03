@@ -77,6 +77,7 @@ def _arena(buckets=None):
         benchmark_name="Arena",
         task_metadata_collection=SimpleNamespace(per_dataset_frame=lambda: frame),
         _per_dataset_size_buckets=buckets,
+        calibration_method="CAT (default)",
     )
 
 

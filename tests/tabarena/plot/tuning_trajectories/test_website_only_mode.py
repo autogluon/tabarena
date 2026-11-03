@@ -77,6 +77,55 @@ def test_full_mode_renders_more_figures(tmp_path):
     assert (tmp_path / "pareto_n_configs_imp_tot_train.png").is_file()
 
 
+def test_uncovered_static_figures_leave_only_the_explorers(tmp_path):
+    """Every static trajectory figure is a view of the trajectories or diagnostics explorer, so "uncovered" writes the
+    two pages and their data alone.
+    """
+    plot_tuning_trajectories_from_leaderboard(
+        leaderboard=_toy_leaderboard(),
+        fig_save_dir=tmp_path,
+        file_ext=".png",
+        static_figures="uncovered",
+    )
+    assert sorted(p.name for p in tmp_path.iterdir()) == [
+        "tuning_diagnostics.csv",
+        "tuning_diagnostics_explorer.html",
+        "tuning_trajectories.csv",
+        "tuning_trajectories_explorer.html",
+    ]
+
+
+def test_the_diagnostics_explorer_offers_every_diagnostic_view(tmp_path):
+    """Metric error, Elo on validation, baseline advantage and the three test - validation gaps against time, and the
+    validation and test metrics on linear x-axes; a method without validation results keeps its other views.
+    """
+    leaderboard = _toy_leaderboard()
+    no_val = leaderboard["name"] == "B"
+    for col in ("Elo (Val)", "Improvability (%) (Val)", "Baseline Advantage (%) (Val)", "Elo (Test) - Elo (Val)"):
+        leaderboard.loc[no_val, col] = float("nan")
+    plot_tuning_trajectories_from_leaderboard(leaderboard=leaderboard, fig_save_dir=tmp_path, file_ext=".png")
+    html = (tmp_path / "tuning_diagnostics_explorer.html").read_text()
+    config = json.loads(re.search(r"const CONFIG = (\{.*?\});\n", html).group(1))
+    assert [m["key"] for m in config["metrics"]] == [
+        "err",
+        "elo_val",
+        "adv",
+        "adv_gap",
+        "elo_gap",
+        "imp_gap",
+        "imp",
+        "elo",
+    ]
+    axes = {a["key"]: a.get("scale", "log") for a in config["xAxes"]}
+    assert {k: v for k, v in axes.items() if v == "linear"} == dict.fromkeys(
+        ["x_elo_val", "x_imp_val", "x_adv_val", "x_elo", "x_adv"], "linear"
+    )
+    assert [a["diagonalWith"] for a in config["xAxes"] if a["key"] == "x_elo_val"] == ["elo"]
+    points = json.loads(re.search(r"const POINTS = (\[.*?\]);\n", html, re.S).group(1))
+    assert {p["method"] for p in points} == {"A", "B"}
+    assert all(p["elo_val"] is None for p in points if p["method"] == "B")
+
+
 def test_a_shaded_system_carries_its_shade_into_the_explorer(tmp_path):
     plot_tuning_trajectories_from_leaderboard(
         leaderboard=_toy_leaderboard(),
@@ -90,3 +139,40 @@ def test_a_shaded_system_carries_its_shade_into_the_explorer(tmp_path):
     html = (tmp_path / "tuning_trajectories_explorer.html").read_text(encoding="utf-8")
     points = json.loads(re.search(r"const POINTS = (\[.*?\]);\n", html, re.S).group(1))
     assert {p["method"]: p["shade"] for p in points} == {"A": None, "B": "closed-source-api"}
+
+
+def _explorer_x_axes(path) -> list[str]:
+    html = path.read_text(encoding="utf-8")
+    config = json.loads(re.search(r"const CONFIG = (\{.*?\});\n", html, re.S).group(1))
+    return [axis["key"] for axis in config["xAxes"]]
+
+
+def test_the_explorer_offers_the_time_axes_the_leaderboard_carries(tmp_path):
+    """The time axes the leaderboard carries in the Pareto explorer's order, opening on total time per 1K samples:
+    the display columns alone, or every aggregated ``time_*`` column when the leaderboard has them.
+    """
+    plot_tuning_trajectories_from_leaderboard(
+        leaderboard=_toy_leaderboard(), fig_save_dir=tmp_path / "display", file_ext=".png", website_only=True
+    )
+    assert _explorer_x_axes(tmp_path / "display" / "tuning_trajectories_explorer.html") == [
+        "x_total", "x_infer", "x_train", "x_total_task_mean", "x_infer_task_mean", "x_train_task_mean",
+    ]  # fmt: skip
+    leaderboard = _toy_leaderboard()
+    for kind in ("train", "infer", "total"):
+        for prefix in ("", "median_"):
+            for suffix in ("", "_per_1K"):
+                leaderboard[f"{prefix}time_{kind}_s{suffix}"] = leaderboard["Total time (s)"] + len(prefix + suffix)
+    plot_tuning_trajectories_from_leaderboard(
+        leaderboard=leaderboard, fig_save_dir=tmp_path / "all", file_ext=".png", website_only=True
+    )
+    axes = _explorer_x_axes(tmp_path / "all" / "tuning_trajectories_explorer.html")
+    assert axes[0] == "x_total" and len(axes) == 12
+
+
+def test_the_explorer_title_is_passed_through(tmp_path):
+    plot_tuning_trajectories_from_leaderboard(
+        leaderboard=_toy_leaderboard(), fig_save_dir=tmp_path, file_ext=".png", website_only=True,
+        explorer_title="classification",
+    )  # fmt: skip
+    html = (tmp_path / "tuning_trajectories_explorer.html").read_text(encoding="utf-8")
+    assert json.loads(re.search(r"const CONFIG = (\{.*?\});\n", html, re.S).group(1))["title"] == "classification"

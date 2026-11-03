@@ -15,8 +15,7 @@ warnings.filterwarnings("ignore", category=UserWarning, module="scipy")
 NA_STR = "NA"  # change to whatever you want
 
 # Section description shared between the multi-page combined LaTeX file and
-# any external aggregator that wants the same leading description (e.g. the
-# ``all_per_dataset.tex`` index in nick_scripts). Stored as the *body* of a
+# the ``all_per_dataset.tex`` index of ``write_per_dataset_combined_tex``. Stored as the *body* of a
 # ``\caption``: callers wrap it in ``\caption{...}`` for floating tables, or
 # emit it as a plain paragraph (with a leading ``\textbf{}`` heading) for
 # inline contexts.
@@ -35,8 +34,8 @@ PER_DATASET_TABLE_CAPTION_BODY = (
 # sits beside each table in ``all_per_dataset.tex``. Kept separate from the
 # table caption so callers that emit only tables (e.g. the multi-page
 # ``per_dataset_tables.tex``) are not forced to mention a plot they don't
-# render. ``run_generate_beyond_leaderboard_minimal.py`` joins both bodies
-# in its aggregated index.
+# render. ``write_per_dataset_combined_tex`` joins both bodies in its
+# aggregated index.
 PER_DATASET_PARETO_CAPTION_BODY = (
     r"\textbf{HPO Pareto Trajectory.} "
     r"Beside each per-dataset table we plot the metric error ($y$-axis) of each method's tuned configuration against cumulative training time in seconds ($x$-axis), as we increase the number of HPO trials. "
@@ -635,3 +634,76 @@ def get_per_dataset_tables(
                 f.write(tabular)
 
         print(f"Saved {len(datasets_dict)} per-dataset table fragments to {per_dataset_dir}")
+
+
+def write_per_dataset_combined_tex(
+    output_dir: str | Path,
+    tex_path_root: str,
+    task_metadata: pd.DataFrame | TaskMetadataCollection | None = None,
+    trajectory_basename: str = "pareto_n_configs_err_tot_train",
+    file_ext: str = ".pdf",
+) -> list[str]:
+    r"""Place each dataset's table fragment next to its tuning-trajectory figure, as in a paper appendix.
+
+    Reads ``<output_dir>/per-dataset-tables/fragments/<dataset>.tex`` (``get_per_dataset_tables`` with
+    ``per_dataset_dir``) and ``<output_dir>/per-dataset/<dataset>/tuning_trajectories/<trajectory_basename>``
+    (``plot_tuning_trajectories_per_dataset``). For every dataset with both, it writes
+    ``<output_dir>/per-dataset-combined/<dataset>.tex``: the table and the figure side by side with a numbered
+    caption. ``per-dataset-combined/all_per_dataset.tex`` inputs them all, sorted by display name, after the
+    shared table and trajectory descriptions.
+
+    LaTeX resolves ``\input`` and ``\includegraphics`` relative to the main document, so every path is written
+    as ``<tex_path_root>/<path below output_dir>``: copy ``output_dir`` to ``tex_path_root`` in the paper.
+    The blocks use ``\captionof`` instead of floats (dozens of floats overflow LaTeX's queue), so the document
+    needs ``\usepackage{caption}``.
+
+    Returns the dataset ids that were written, in the order of ``all_per_dataset.tex``.
+    """
+    output_dir = Path(output_dir)
+    prefix = tex_path_root.rstrip("/")
+    name_map = _build_dataset_name_map(task_metadata)
+    table_dir = output_dir / "per-dataset-tables" / "fragments"
+    combined_dir = output_dir / "per-dataset-combined"
+    combined_dir.mkdir(parents=True, exist_ok=True)
+
+    written = []
+    for table_path in sorted(table_dir.glob("*.tex")):
+        dataset = table_path.stem
+        figure_path = output_dir / "per-dataset" / dataset / "tuning_trajectories" / f"{trajectory_basename}{file_ext}"
+        if not figure_path.exists():
+            continue
+        label = name_map.get(dataset, dataset)
+        latex_label = label.replace("_", r"\_")
+        safe_label = "".join(c if c.isalnum() else "_" for c in label.lower()).strip("_")
+        with open(combined_dir / f"{dataset}.tex", "w") as f:
+            f.write(f"% Per-dataset table + tuning trajectory for {label}. Requires \\usepackage{{caption}}.\n")
+            f.write(r"\begin{center}" + "\n")
+            for i, include in enumerate(
+                [
+                    f"\\input{{{prefix}/{table_path.relative_to(output_dir).as_posix()}}}",
+                    f"\\includegraphics[width=\\linewidth]{{{prefix}/{figure_path.relative_to(output_dir).as_posix()}}}",
+                ]
+            ):
+                f.write(r"  \begin{minipage}[t]{0.48\textwidth}" + "\n")
+                f.write(r"    \centering" + "\n")
+                f.write(r"    \vspace{0pt}" + "\n")
+                f.write(f"    {include}\n")
+                f.write(r"  \end{minipage}" + (r"\hfill" if i == 0 else "") + "\n")
+            f.write("\n")
+            f.write(
+                f"  \\captionof{{figure}}{{\\textbf{{{latex_label}}}: per-method test error (left) "
+                "and HPO Pareto trajectory (right).}\n"
+            )
+            f.write(f"  \\label{{fig:perdataset_{safe_label}}}\n")
+            f.write(r"\end{center}" + "\n")
+        written.append(dataset)
+
+    written.sort(key=lambda d: (name_map.get(d, d).lower(), d))
+    with open(combined_dir / "all_per_dataset.tex", "w") as f:
+        f.write("% Every per-dataset table + tuning trajectory, sorted by dataset name.\n")
+        f.write("\\noindent " + PER_DATASET_TABLE_CAPTION_BODY + "\n\\par\\medskip\n\n")
+        f.write("\\noindent " + PER_DATASET_PARETO_CAPTION_BODY + "\n\\par\\medskip\n\n")
+        for dataset in written:
+            f.write(f"\\input{{{prefix}/per-dataset-combined/{dataset}.tex}}\n")
+    print(f"Saved {len(written)} combined per-dataset blocks to {combined_dir}")
+    return written

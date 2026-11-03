@@ -21,7 +21,7 @@ from tabarena.evaluation.subset_grid import (
     get_website_folder_name,
 )
 from tabarena.nips2025_utils.compare import filter_to_valid_tasks, subset_tasks
-from tabarena.plot.interactive.pareto_explorer import build_pareto_explorer_html
+from tabarena.plot.interactive.pareto_explorer import X_AXIS_KEYS, build_pareto_explorer_html, leaderboard_time_columns
 from tabarena.plot.interactive.per_dataset_explorer import PER_DATASET_TRAJECTORIES_FILE
 from tabarena.plot.plot_pareto_focus import MUTED_COLOR, color_of, legend_swatches
 from tabarena.plot.plot_pareto_frontier import get_pareto_frontier, plot_optimal_arrow
@@ -998,6 +998,7 @@ def plot_tuning_trajectories_all(
     use_elo_method_order: bool = True,
     focus_mode: bool = False,
     website_only: bool = False,
+    static_figures: str = "all",
 ):
     if isinstance(fig_save_dir, str):
         fig_save_dir = Path(fig_save_dir)
@@ -1071,6 +1072,7 @@ def plot_tuning_trajectories_all(
             "use_elo_method_order": use_elo_method_order,
             "focus_mode": focus_mode,
             "website_only": website_only,
+            "static_figures": static_figures,
         },
         engine=engine,
         progress_bar=progress_bar,
@@ -1507,6 +1509,7 @@ def _plot_tuning_trajectories_from_prepared(
     use_elo_method_order: bool = True,
     focus_mode: bool = False,
     website_only: bool = False,
+    static_figures: str = "all",
     per_dataset_trajectories: bool = False,
 ):
     """Run the per-(dataset-subset, subset_map) leaderboard + plotting steps from already-prepared data."""
@@ -1643,6 +1646,9 @@ def _plot_tuning_trajectories_from_prepared(
             system_shades=system_shades(tabarena_context.method_metadata_collection.info()),
             focus_mode=focus_mode,
             website_only=website_only,
+            static_figures=static_figures,
+            # Titled with the subset, as the Pareto explorer pages are (`generate_all_figs` names them alike).
+            explorer_title=subset_name or ("&".join(subset) if subset else "all"),
         )
 
 
@@ -1670,6 +1676,7 @@ def plot_tuning_trajectories(
     use_elo_method_order: bool = True,
     focus_mode: bool = False,
     website_only: bool = False,
+    static_figures: str = "all",
     entrant_pool: str = "open_llm_api",
     per_dataset_trajectories: bool = False,
 ):
@@ -1724,6 +1731,7 @@ def plot_tuning_trajectories(
         use_elo_method_order=use_elo_method_order,
         focus_mode=focus_mode,
         website_only=website_only,
+        static_figures=static_figures,
         per_dataset_trajectories=per_dataset_trajectories,
     )
 
@@ -1751,6 +1759,78 @@ def _test_error_ylabel(metric: str | None) -> str:
     return f"Test Error ({friendly})"
 
 
+#: The display columns `compute_tuning_trajectories_leaderboard` names after the explorer time
+#: axes, for a leaderboard that carries them without the aggregated ``time_*`` columns.
+_DISPLAY_TIME_COLUMNS = {
+    "x_train": "Train time per 1K samples (s) (median)",
+    "x_infer": "Inference time per 1K samples (s) (median)",
+    "x_total": "Total time per 1K samples (s) (median)",
+    "x_train_task_mean": "Train time (s)",
+    "x_infer_task_mean": "Infer time (s)",
+    "x_total_task_mean": "Total time (s)",
+}
+
+
+def _trajectory_time_columns(columns) -> dict[str, str]:
+    """The leaderboard column behind each explorer time axis, in `X_AXIS_KEYS` order.
+
+    The page opens on the first, total time per 1K samples (median), as the Pareto explorer does.
+    """
+    found = {
+        **{k: c for k, c in _DISPLAY_TIME_COLUMNS.items() if c in set(columns)},
+        **leaderboard_time_columns(columns),
+    }
+    return {key: found[key] for key in X_AXIS_KEYS if key in found}
+
+
+#: The leaderboard column behind each value of the tuning diagnostics explorer: its metrics (y-axes) and its metric
+#: x-axes, which `build_tuning_diagnostics_explorer` offers in this order after the time axes.
+_DIAGNOSTIC_COLUMNS = {
+    "err": "Metric Error",
+    "elo_val": "Elo (Val)",
+    "adv": "Baseline Advantage (%)",
+    "adv_gap": "Baseline Advantage (%) (Test - Val)",
+    "elo_gap": "Elo (Test) - Elo (Val)",
+    "imp_gap": "Improvability (%) (Test) - Improvability (%) (Val)",
+    "imp": "Improvability (%)",
+    "elo": "Elo",
+    "x_elo_val": "Elo (Val)",
+    "x_imp_val": "Improvability (%) (Val)",
+    "x_adv_val": "Baseline Advantage (%) (Val)",
+    "x_elo": "Elo (Test)",
+    "x_adv": "Baseline Advantage (%) (Test)",
+}
+#: The diagnostics proper; the explorer's Improvability and Elo are there for the test - validation views.
+_DIAGNOSTIC_METRIC_KEYS = ("err", "elo_val", "adv", "adv_gap", "elo_gap", "imp_gap")
+
+
+def build_tuning_diagnostics_explorer(points: pd.DataFrame, *, save_path: str | Path, **kwargs) -> Path | None:
+    """The tuning diagnostics explorer: a trajectories explorer over the `_DIAGNOSTIC_COLUMNS` values of ``points``
+    that hold any, on the time axes and then the metric x-axes. A method missing a value (e.g. a system without
+    validation results) still shows on the views it has. Returns the page, or ``None`` when no diagnostic has a value.
+    ``kwargs`` go to :func:`build_pareto_explorer_html` (``title``, ``page_title``, ``subsets``).
+    """
+
+    def has(key: str) -> bool:
+        return key in points.columns and bool(points[key].notna().any())
+
+    metric_keys = [k for k in _DIAGNOSTIC_COLUMNS if not k.startswith("x_") and has(k)]
+    if not any(k in metric_keys for k in _DIAGNOSTIC_METRIC_KEYS):
+        return None
+    x_keys = [k for k in X_AXIS_KEYS if has(k)] + [k for k in _DIAGNOSTIC_COLUMNS if k.startswith("x_") and has(k)]
+    return build_pareto_explorer_html(
+        points=points,
+        mode="trajectory",
+        metric_keys=metric_keys,
+        x_keys=x_keys,
+        # As the trajectories explorer's.
+        chips_side="right",
+        drop_incomplete=False,
+        save_path=save_path,
+        **kwargs,
+    )
+
+
 def plot_tuning_trajectories_from_leaderboard(
     leaderboard: pd.DataFrame,
     fig_save_dir: Path,
@@ -1764,9 +1844,15 @@ def plot_tuning_trajectories_from_leaderboard(
     benchmark_name: str = "Arena",
     focus_mode: bool = False,
     website_only: bool = False,
+    static_figures: str = "all",
     system_names: frozenset[str] = frozenset(),
     system_shades: dict[str, str] | None = None,
+    explorer_title: str | None = None,
 ):
+    # ``explorer_title`` is the interactive explorer's figure title (by default none). ``static_figures`` "uncovered"
+    # writes the explorers alone: every static figure below is a view of the trajectories or diagnostics explorer.
+    if static_figures not in ("all", "uncovered"):
+        raise ValueError(f"static_figures must be 'all' or 'uncovered', not {static_figures!r}")
     fig_save_dir = Path(fig_save_dir)
     system_shades = system_shades or {}
     if plot_kwargs is None:
@@ -1791,17 +1877,19 @@ def plot_tuning_trajectories_from_leaderboard(
             },
         )
 
-    # Interactive explorer + underlying data export, mirroring the
-    # ``pareto_n_configs_imp`` figure (improvability vs train time, with
-    # Elo y-axis and inference-time x-axis toggles). Self-contained HTML
-    # embedded by the website.
+    # Interactive explorer + underlying data export: the trajectories of the
+    # ``pareto_n_configs_imp`` figure, with an Elo y-axis toggle and the time
+    # axes of the Pareto explorer (train, inference and total time, per 1K
+    # samples or per task, median or mean), opening on total time per 1K
+    # samples as that explorer does. Self-contained HTML embedded by the website.
+    x_columns = _trajectory_time_columns(leaderboard.columns)
+    explorer_points_family = [get_model_family(m, system_names=system_names) for m in leaderboard[method_col]]
     explorer_points = pd.DataFrame(
         {
             "method": leaderboard[method_col],
-            "family": [get_model_family(m, system_names=system_names) for m in leaderboard[method_col]],
+            "family": explorer_points_family,
             "shade": leaderboard[method_col].map(system_shades),
-            "x_train": leaderboard["Train time per 1K samples (s) (median)"],
-            "x_infer": leaderboard["Inference time per 1K samples (s) (median)"],
+            **{key: leaderboard[col] for key, col in x_columns.items()},
             "imp": leaderboard["Improvability (%)"],
             "elo": leaderboard["Elo"],
         }
@@ -1815,20 +1903,50 @@ def plot_tuning_trajectories_from_leaderboard(
         imputed_frac = leaderboard["imputed"].fillna(0.0).astype(float)
         explorer_points["imputed"] = imputed_frac > 0
         explorer_points["imputed_pct"] = imputed_frac * 100
-    explorer_points = explorer_points.dropna(subset=["x_train", "x_infer", "imp", "elo"])
+    explorer_points = explorer_points.dropna(subset=[*x_columns, "imp", "elo"])
     if not explorer_points.empty:
         build_pareto_explorer_html(
             points=explorer_points,
             mode="trajectory",
-            # Single time axis (train time = tuning budget); inference time
-            # stays available in the CSV export.
-            x_keys=["x_train"],
+            x_keys=list(x_columns),
             # Mirrored against the Pareto scatter explorer (chips left there).
             chips_side="right",
             save_path=fig_save_dir / "tuning_trajectories_explorer.html",
+            title=explorer_title,
             page_title=f"{benchmark_name} tuning trajectories",
         )
         explorer_points.to_csv(fig_save_dir / "tuning_trajectories.csv", index=False)
+
+    # The diagnostics the website does not ship: metric error, Elo on validation, baseline advantage and the test -
+    # validation gaps against time, and each metric on test against validation, from the columns the leaderboard has.
+    if not website_only:
+        diagnostic_points = pd.DataFrame(
+            {
+                "method": leaderboard[method_col],
+                "family": explorer_points_family,
+                "shade": leaderboard[method_col].map(system_shades),
+                **{key: leaderboard[col] for key, col in x_columns.items()},
+                **{key: leaderboard[col] for key, col in _DIAGNOSTIC_COLUMNS.items() if col in leaderboard.columns},
+            }
+        )
+        for col in ("n_configs", "imputed"):
+            if col in leaderboard.columns:
+                diagnostic_points[col] = leaderboard[col]
+        if "imputed" in diagnostic_points.columns:
+            imputed_frac = diagnostic_points["imputed"].fillna(0.0).astype(float)
+            diagnostic_points["imputed"] = imputed_frac > 0
+            diagnostic_points["imputed_pct"] = imputed_frac * 100
+        page = build_tuning_diagnostics_explorer(
+            diagnostic_points,
+            save_path=fig_save_dir / "tuning_diagnostics_explorer.html",
+            title=explorer_title,
+            page_title=f"{benchmark_name} tuning diagnostics",
+        )
+        if page is not None:
+            diagnostic_points.to_csv(fig_save_dir / "tuning_diagnostics.csv", index=False)
+
+    if static_figures == "uncovered":
+        return
 
     # Single shared title across every ``plot_hpo`` call in this set.
     # ``<benchmark_name>-<subset>`` prefix matches the format used by the winrate

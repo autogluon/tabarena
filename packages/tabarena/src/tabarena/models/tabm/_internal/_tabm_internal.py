@@ -224,6 +224,14 @@ class TabMImplementation:
             col_range = x_num_train_np.max(axis=0) - x_num_train_np.min(axis=0)
             self.num_col_mask_ = col_range > 1e-6
             x_num_train_np = x_num_train_np[:, self.num_col_mask_]
+            # The piecewise-linear embedding does not clip its outermost bins, so a value outside the
+            # training range extrapolates linearly. With a heavily tied extreme (e.g. many rows at the
+            # minimum), the quantile transform maps that extreme to an interior value but anything
+            # beyond it to the +-5.2 bound, far outside the first or last bin, and a single bag child
+            # can then predict values in the 1e5 range (concrete_compressive_strength, Age=1 below a
+            # training minimum of 3). New data is therefore clipped to the training range.
+            self.num_min_ = x_num_train_np.min(axis=0)
+            self.num_max_ = x_num_train_np.max(axis=0)
         else:
             self.num_prep_ = None
             self.num_col_mask_ = None
@@ -411,6 +419,7 @@ class TabMImplementation:
         x_num = None
         if self.has_num_cols_:
             x_num_np = self.num_prep_.transform(self._numeric_array(X))[:, self.num_col_mask_]
+            x_num_np = np.clip(x_num_np, self.num_min_, self.num_max_)
             x_num = self._to_num_tensor(x_num_np)
         return x_num, self._to_cat_tensor(X)
 

@@ -107,6 +107,25 @@ def _default_max_workers() -> int:
     return max(1, available - 1)
 
 
+def _composite_points(
+    output_dir: Path, suffixes: list[str], filename: str
+) -> tuple[pd.DataFrame, list[tuple[str, str]]] | None:
+    """Each subset's explorer points (``<output_dir>/<suffix>/<filename>``) tagged with their ``subset``, and the
+    ``(key, label)`` of the subsets that wrote them, in ``suffixes``' order; ``None`` when none did.
+    """
+    frames = []
+    for suffix in suffixes:
+        path = output_dir / suffix / filename
+        if path.exists():
+            frames.append(pd.read_csv(path).assign(subset=suffix))
+    if not frames:
+        return None
+    points = pd.concat(frames, ignore_index=True)
+    if "shade" in points.columns:
+        points["shade"] = points["shade"].astype(object).where(points["shade"].notna(), None)
+    return points, [(suffix, suffix) for suffix in suffixes if suffix in set(points["subset"])]
+
+
 class AbstractArenaContext:
     """Arena-agnostic base: task/method metadata + artifact loading, simulation, comparison,
     runner, and leaderboard plumbing. Directly instantiable; subclasses add named presets.
@@ -830,6 +849,15 @@ class AbstractArenaContext:
     def methods(self) -> list[str]:
         return [m.method for m in self.method_metadata_collection.method_metadata_lst]
 
+    @property
+    def methods_with_leakage(self) -> list[str]:
+        """This arena's methods that carry a leakage warning (:attr:`MethodMetadata.leakage_evidence`).
+
+        Test data is proven to have leaked into their training; ``compare(exclude_leakage=True)``
+        leaves them out of every number.
+        """
+        return [m.method for m in self.method_metadata_collection.method_metadata_lst if m.leakage_evidence]
+
     def method_metadata(
         self,
         method: str,
@@ -1126,6 +1154,7 @@ class AbstractArenaContext:
         average_seeds: bool = False,
         score_on_val: bool = False,
         remove_imputed: bool = False,
+        exclude_leakage: bool = False,
         leaderboard_kwargs: dict | None = None,
         # how the figures look
         figure_file_type: str = "pdf",
@@ -1199,6 +1228,9 @@ class AbstractArenaContext:
             score_on_val: score on ``metric_error_val`` (validation error) rather than
                 ``metric_error``.
             remove_imputed: drop every method that has at least one imputed result.
+            exclude_leakage: leave out this arena's methods that carry a leakage warning
+                (:attr:`methods_with_leakage`), so every number and figure is computed without
+                them, as the leaderboard's own twins without them are.
             leaderboard_kwargs: forwarded to
                 :meth:`bencheval.evaluator.BenchmarkEvaluator.leaderboard` (e.g. ``include_elo``,
                 ``include_winrate``, ``elo_kwargs``).
@@ -1246,6 +1278,8 @@ class AbstractArenaContext:
             ta_results = self.load_results(
                 download_results="auto",
             )
+        if exclude_leakage and not ta_results.empty:
+            ta_results = ta_results[~ta_results["ta_name"].isin(self.methods_with_leakage)]
 
         if new_results is not None:
             new_results = new_results.copy(deep=True)
@@ -1486,9 +1520,13 @@ class AbstractArenaContext:
         save_composite_leaderboard: bool | None = None,
         composite_leaderboard_kwargs: dict | None = None,
         save_composite_pareto_explorer: bool | None = None,
+        save_composite_trajectories_explorer: bool | None = None,
         save_per_dataset_explorer: bool | None = None,
+        save_head_to_head_explorer: bool | None = None,
+        head_to_head_methods: tuple[str, str] | None = None,
         trajectory_extra_results: pd.DataFrame | None = None,
         max_workers: int | None = None,
+        static_figures: Literal["uncovered", "all"] = "uncovered",
     ) -> None:
         """Generate the compare / tuning-trajectory / runtime figures for each subset.
 
@@ -1523,6 +1561,18 @@ class AbstractArenaContext:
         explorer over every subset with a selector for the subset to view, from the per-subset
         ``pareto_front_points.csv`` the compare pass wrote (a subset without them is left out).
 
+        ``save_composite_trajectories_explorer`` (``None`` by default: on whenever ``plot_tuning_trajectories``
+        is) likewise writes ``<output_dir>/tuning_trajectories_explorer.html``, one tuning-trajectories explorer
+        over every subset, from the per-subset ``tuning_trajectories/tuning_trajectories.csv``, and
+        ``<output_dir>/tuning_diagnostics_explorer.html`` from the per-subset ``tuning_diagnostics.csv``.
+
+        ``static_figures`` (``"uncovered"`` by default) leaves out the static figures an interactive page
+        shows and exports: each subset's four ``pareto_front_*`` figures (``pareto_front_explorer.html``), its
+        win-rate matrix figure (``winrate_explorer.html``), and the tuning-trajectory figures
+        (``tuning_trajectories_explorer.html`` and ``tuning_diagnostics_explorer.html``). ``"all"`` writes them
+        too. Static figures with no interactive page (the tuning-impact bar plots, the composite leaderboard) are
+        written either way.
+
         ``save_per_dataset_explorer`` (``None`` by default: on whenever ``plot_compare`` is) additionally writes
         each subset's ``<suffix>/per_dataset_explorer.html``, the leaderboard website's "Dataset by dataset"
         browser: one row per dataset with a contender's error, rank and improvability against the field (opening
@@ -1531,6 +1581,14 @@ class AbstractArenaContext:
         ``new_results`` appear under their own names); with ``plot_tuning_trajectories`` the trajectory pass also
         computes each dataset's tuning trajectories (``per_dataset_trajectories``), which the browser charts for
         the selected dataset. See :func:`tabarena.plot.interactive.per_dataset_explorer.build_per_dataset_explorer_html`.
+
+        ``save_head_to_head_explorer`` (``None`` by default: on whenever ``plot_compare`` is) additionally writes each
+        subset's ``<suffix>/head_to_head_explorer.html``: two methods the reader picks (opening on the subset's top
+        two) compared dataset by dataset, with the margin between their errors, their rank difference and a
+        signed-rank test over each dataset's splits, every one of them sortable. Built from the same files as the
+        per-dataset browser. ``head_to_head_methods`` names the two methods (as the leaderboard names them) every
+        subset's page opens on instead. See
+        :func:`tabarena.plot.interactive.head_to_head_explorer.build_head_to_head_explorer_html`.
 
         ``max_workers`` parallelizes the per-subset passes across processes (capped at the subset
         count; 1 = sequential). ``None`` (the default) uses one process per available CPU less one,
@@ -1544,6 +1602,11 @@ class AbstractArenaContext:
             compare_kwargs = {}
         if tuning_trajectory_kwargs is None:
             tuning_trajectory_kwargs = {}
+        if static_figures not in ("uncovered", "all"):
+            raise ValueError(f"static_figures must be 'uncovered' or 'all', not {static_figures!r}")
+        # Explicit `compare_kwargs` / `tuning_trajectory_kwargs` entries win.
+        compare_kwargs = {"static_figures": static_figures, **compare_kwargs}
+        tuning_trajectory_kwargs = {"static_figures": static_figures, **tuning_trajectory_kwargs}
         if website_leaderboard_kwargs is None:
             website_leaderboard_kwargs = {}
         # Hoist the shared task scope out of either kwargs dict so both passes get the same grid.
@@ -1569,8 +1632,15 @@ class AbstractArenaContext:
                 "save_per_dataset_explorer=True requires plot_compare=True: the browser reads the per-split "
                 "results the compare pass writes.",
             )
+        if save_head_to_head_explorer and not plot_compare:
+            raise ValueError(
+                "save_head_to_head_explorer=True requires plot_compare=True: the browser reads the per-split "
+                "results the compare pass writes.",
+            )
         if save_per_dataset_explorer is None:
             save_per_dataset_explorer = plot_compare
+        if save_head_to_head_explorer is None:
+            save_head_to_head_explorer = plot_compare
         if save_per_dataset_explorer and plot_tuning_trajectories:
             tuning_trajectory_kwargs = {"per_dataset_trajectories": True, **tuning_trajectory_kwargs}
         # Default to writing it whenever the leaderboards it aggregates are being produced, rather
@@ -1579,6 +1649,8 @@ class AbstractArenaContext:
             save_composite_leaderboard = plot_compare
         if save_composite_pareto_explorer is None:
             save_composite_pareto_explorer = plot_compare
+        if save_composite_trajectories_explorer is None:
+            save_composite_trajectories_explorer = plot_tuning_trajectories
         if subsets == "auto":
             subsets = self._default_subsets
         output_dir = Path(output_dir)
@@ -1598,6 +1670,8 @@ class AbstractArenaContext:
             website_leaderboard_filename=website_leaderboard_filename,
             collect_composite=save_composite_leaderboard,
             save_per_dataset_explorer=save_per_dataset_explorer,
+            save_head_to_head_explorer=save_head_to_head_explorer,
+            head_to_head_methods=head_to_head_methods,
             trajectory_extra_results=trajectory_extra_results,
         )
         if max_workers is None:
@@ -1629,6 +1703,9 @@ class AbstractArenaContext:
             )
         if save_composite_pareto_explorer:
             self._save_composite_pareto_explorer(output_dir, [suffix for suffix, _ in subset_results])
+        if save_composite_trajectories_explorer:
+            self._save_composite_trajectories_explorer(output_dir, [suffix for suffix, _ in subset_results])
+            self._save_composite_diagnostics_explorer(output_dir, [suffix for suffix, _ in subset_results])
 
     def _save_composite_pareto_explorer(self, output_dir: Path, suffixes: list[str]) -> Path | None:
         """``<output_dir>/pareto_front_explorer.html``: the subsets' Pareto points (each subset's
@@ -1637,22 +1714,54 @@ class AbstractArenaContext:
         """
         from tabarena.plot.interactive.pareto_explorer import build_pareto_explorer_html
 
-        frames = []
-        for suffix in suffixes:
-            path = output_dir / suffix / "pareto_front_points.csv"
-            if path.exists():
-                frames.append(pd.read_csv(path).assign(subset=suffix))
-        if not frames:
+        composite = _composite_points(output_dir, suffixes, "pareto_front_points.csv")
+        if composite is None:
             return None
-        points = pd.concat(frames, ignore_index=True)
-        if "shade" in points.columns:
-            points["shade"] = points["shade"].astype(object).where(points["shade"].notna(), None)
-        subsets = [(suffix, suffix) for suffix in suffixes if suffix in set(points["subset"])]
+        points, subsets = composite
         return build_pareto_explorer_html(
             points=points,
             subsets=subsets,
             save_path=output_dir / "pareto_front_explorer.html",
             page_title=f"{self.benchmark_name} Pareto explorer",
+        )
+
+    def _save_composite_trajectories_explorer(self, output_dir: Path, suffixes: list[str]) -> Path | None:
+        """``<output_dir>/tuning_trajectories_explorer.html``: the subsets' tuning trajectories (each subset's
+        ``<suffix>/tuning_trajectories/tuning_trajectories.csv``) on one trajectories explorer page, with a selector
+        for the subset to view, in ``suffixes``' order. Returns the page, or ``None`` when no subset wrote any.
+        """
+        from tabarena.plot.interactive.pareto_explorer import build_pareto_explorer_html
+
+        composite = _composite_points(output_dir, suffixes, "tuning_trajectories/tuning_trajectories.csv")
+        if composite is None:
+            return None
+        points, subsets = composite
+        return build_pareto_explorer_html(
+            points=points,
+            mode="trajectory",
+            subsets=subsets,
+            # Mirrored against the Pareto explorer, as on the subsets' own pages.
+            chips_side="right",
+            save_path=output_dir / "tuning_trajectories_explorer.html",
+            page_title=f"{self.benchmark_name} tuning trajectories",
+        )
+
+    def _save_composite_diagnostics_explorer(self, output_dir: Path, suffixes: list[str]) -> Path | None:
+        """``<output_dir>/tuning_diagnostics_explorer.html``: the subsets' tuning diagnostics (each subset's
+        ``<suffix>/tuning_trajectories/tuning_diagnostics.csv``) on one diagnostics explorer page, with a selector for
+        the subset to view, in ``suffixes``' order. Returns the page, or ``None`` when no subset wrote any.
+        """
+        from tabarena.plot.tuning_trajectories.plot_pareto_over_tuning_time import build_tuning_diagnostics_explorer
+
+        composite = _composite_points(output_dir, suffixes, "tuning_trajectories/tuning_diagnostics.csv")
+        if composite is None:
+            return None
+        points, subsets = composite
+        return build_tuning_diagnostics_explorer(
+            points,
+            subsets=subsets,
+            save_path=output_dir / "tuning_diagnostics_explorer.html",
+            page_title=f"{self.benchmark_name} tuning diagnostics",
         )
 
     def _generate_subset_figs(
@@ -1673,6 +1782,8 @@ class AbstractArenaContext:
         website_leaderboard_filename: str,
         collect_composite: bool,
         save_per_dataset_explorer: bool = False,
+        save_head_to_head_explorer: bool = False,
+        head_to_head_methods: tuple[str, str] | None = None,
         trajectory_extra_results: pd.DataFrame | None = None,
     ) -> tuple[str, pd.DataFrame | None]:
         """One subset's pass of :meth:`generate_all_figs` (compare + figures under
@@ -1749,6 +1860,10 @@ class AbstractArenaContext:
         if save_per_dataset_explorer and plot_compare:
             # After the trajectory pass, whose per-dataset frame the browser charts.
             self._save_per_dataset_explorer(output_dir_subset, leaderboard=lb_df, subset_label=output_suffix)
+        if save_head_to_head_explorer and plot_compare:
+            self._save_head_to_head_explorer(
+                output_dir_subset, leaderboard=lb_df, subset_label=output_suffix, methods=head_to_head_methods
+            )
         return output_suffix, lb_compact
 
     @property
@@ -1797,6 +1912,46 @@ class AbstractArenaContext:
             size_buckets=self._per_dataset_size_buckets,
             save_path=output_dir_subset / "per_dataset_explorer.html",
             page_title=f"{self.benchmark_name} per-dataset results — {subset_label}",
+        )
+
+    def _save_head_to_head_explorer(
+        self,
+        output_dir_subset: Path,
+        *,
+        leaderboard: pd.DataFrame | None,
+        subset_label: str,
+        methods: tuple[str, str] | None = None,
+    ) -> Path | None:
+        """``<output_dir_subset>/head_to_head_explorer.html``, two methods compared dataset by dataset over the
+        subset's ``results_per_split.csv`` and ``method_info.csv`` (see :meth:`generate_all_figs`), opening on
+        ``methods`` or else ``leaderboard``'s top two. Returns the page, or ``None`` when the compare pass wrote
+        neither file.
+        """
+        from tabarena.plot.interactive.head_to_head_explorer import build_head_to_head_explorer_html
+        from tabarena.website.process_artifacts_to_website import leader_names
+
+        results_path = output_dir_subset / "results_per_split.csv"
+        method_info_path = output_dir_subset / "method_info.csv"
+        if not (results_path.is_file() and method_info_path.is_file()):
+            return None
+        method_info = pd.read_csv(method_info_path)
+        # A method without metadata (one of `new_results`) is shown under its own name.
+        unnamed = method_info["display_name"].isna() & method_info["config_type"].isna()
+        method_info.loc[unnamed, "display_name"] = method_info.loc[unnamed, "method"]
+        leaders: list[str] = list(methods) if methods else []
+        if not leaders and leaderboard is not None and not leaderboard.empty:
+            leaders = leader_names(self.leaderboard_to_website_format(leaderboard=leaderboard), 2)
+        return build_head_to_head_explorer_html(
+            results_per_split=pd.read_csv(results_path, low_memory=False),
+            method_info=method_info,
+            dataset_metadata=self.task_metadata_collection.per_dataset_frame(),
+            method_a=leaders[0] if leaders else None,
+            method_b=leaders[1] if len(leaders) > 1 else None,
+            size_buckets=self._per_dataset_size_buckets,
+            save_path=output_dir_subset / "head_to_head_explorer.html",
+            page_title=f"{self.benchmark_name} head-to-head — {subset_label}",
+            # The page's Elo pins the method the leaderboard pins at 1000.
+            elo_calibration=self.calibration_method,
         )
 
     def load_repo(

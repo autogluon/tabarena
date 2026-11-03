@@ -8,6 +8,8 @@ from tabarena.benchmark.validation_protocol import (
 )
 from tabarena.contexts import BeyondArenaContext, TabArenaContext
 from tabarena.contexts.beyondarena.methods import (
+    beyond_method_metadata_2026_06_paper_collection,
+    beyond_method_metadata_2026_camera_ready_collection,
     beyond_method_metadata_collection,
     beyond_method_metadata_complete_collection,
 )
@@ -43,6 +45,19 @@ def test_beyondarena_complete_collection_keeps_superseded_linear():
     for suite in ("beyond_iid_benchmark_2026", "beyondarena-2026-09-24"):
         method = beyond_method_metadata_complete_collection.get_method_metadata(method="LinearModel", suite=suite)
         assert method.suite == suite
+
+
+def test_beyondarena_paper_collection_pins_the_published_results():
+    methods = beyond_method_metadata_2026_06_paper_collection.method_metadata_lst
+    assert len(methods) == 11
+    assert {m.suite for m in methods} == {"beyond_iid_benchmark_2026"}
+
+
+def test_beyondarena_camera_ready_collection_swaps_in_the_fixed_tabm():
+    suites = {m.method: m.suite for m in beyond_method_metadata_2026_camera_ready_collection.method_metadata_lst}
+    assert len(suites) == 11
+    assert suites.pop("TA-TabM") == "beyondarena-2026-10-28"
+    assert set(suites.values()) == {"beyond_iid_benchmark_2026"}
 
 
 def test_roster_methods_read_as_official_on_their_arena():

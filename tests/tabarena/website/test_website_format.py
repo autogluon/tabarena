@@ -187,6 +187,21 @@ def test_add_metadata_emits_the_organization():
     assert with_nan["Organization"] == ""
 
 
+def test_add_metadata_emits_the_leakage_columns():
+    """The evidence and the proven datasets (semicolon-joined) of a method with a leakage warning;
+    empty cells for one without, including frames written before the fields existed and NaN cells.
+    """
+    url = "https://github.com/autogluon/tabarena/issues/648"
+    flagged = add_metadata(
+        pd.Series({"method": "M"}),
+        metadata_df=_metadata_frame(leakage_evidence=url, leakage_datasets=("blood", "diabetes")),
+    )
+    assert (flagged["Leakage"], flagged["LeakageDatasets"]) == (url, "blood;diabetes")
+    for metadata in (_metadata_frame(), _metadata_frame(leakage_evidence=float("nan"), leakage_datasets=float("nan"))):
+        out = add_metadata(pd.Series({"method": "M"}), metadata_df=metadata)
+        assert (out["Leakage"], out["LeakageDatasets"]) == ("", "")
+
+
 def test_add_metadata_emits_fits_at_predict():
     declared = add_metadata(pd.Series({"method": "M"}), metadata_df=_metadata_frame(fits_at_predict=True))
     assert bool(declared["FitsAtPredict"]) is True

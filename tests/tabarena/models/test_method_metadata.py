@@ -359,3 +359,34 @@ def test_organization_is_optional_forwarded_and_round_trips_through_yaml():
     assert MethodMetadata(**yaml.safe_load(mm.to_yaml_fileobj())).organization == "Prior Labs"
     with pytest.raises(AssertionError, match="organization must be a non-empty string"):
         MethodMetadata(method="M", suite="s", organization="")
+
+
+def test_leakage_is_optional_forwarded_normalized_and_round_trips_through_yaml():
+    """The leakage warning: unset by default, declared once on the descriptor, its datasets a
+    sorted tuple whatever the caller passed, kept through ``metadata.yaml``, and its datasets only
+    together with the evidence.
+    """
+    from tabarena.models._method_metadata import ModelDescriptor
+
+    mm = MethodMetadata(method="M", suite="s")
+    assert mm.leakage_evidence is None and mm.leakage_datasets == ()
+    url = "https://github.com/autogluon/tabarena/issues/648"
+    descriptor = ModelDescriptor(display_name="M", leakage_evidence=url, leakage_datasets=("diabetes", "blood"))
+    mm = descriptor.method_metadata(method="M", suite="s")
+    assert (mm.leakage_evidence, mm.leakage_datasets) == (url, ("blood", "diabetes"))
+    loaded = MethodMetadata(**yaml.safe_load(mm.to_yaml_fileobj()))
+    assert (loaded.leakage_evidence, loaded.leakage_datasets) == (url, ("blood", "diabetes"))
+    with pytest.raises(AssertionError, match="leakage_evidence must be a non-empty string"):
+        MethodMetadata(method="M", suite="s", leakage_evidence="")
+    with pytest.raises(AssertionError, match="leakage_datasets needs leakage_evidence"):
+        MethodMetadata(method="M", suite="s", leakage_datasets=("diabetes",))
+
+
+def test_limix_2_carries_the_leakage_warning_in_both_arenas():
+    """autogluon/tabarena#648: the warning is intrinsic to the weights, so every run of the model has it."""
+    from tabarena.contexts.beyondarena.methods import beyond_limix2_metadata
+    from tabarena.models.limix_2.info import limix_2_method_metadata
+
+    for mm in (limix_2_method_metadata, beyond_limix2_metadata):
+        assert mm.leakage_evidence.endswith("/issues/648")
+        assert set(mm.leakage_datasets) == {"diabetes", "blood-transfusion-service-center"}

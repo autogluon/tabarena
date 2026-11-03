@@ -248,6 +248,8 @@ def plot_subset_results(
     family_groups: dict[str, dict] | None = None,
     marker_groups: dict[str, dict] | None = None,
     models: Sequence[str] | None = None,
+    family_legend_members: str = "best",
+    figsize: tuple[float, float] | None = None,
 ) -> dict[str, Path]:
     """Render the per-family / per-model subset-overview plots from eval leaderboards.
 
@@ -270,11 +272,17 @@ def plot_subset_results(
         marker_groups: Override for :data:`DEFAULT_MARKER_GROUPS` (per-model marker shapes). The
             default ``Foundation Model`` group takes the same extra methods.
         models: If given, the per-model plot only shows these methods (default: all available).
+        family_legend_members: How the per-family legend names a family's members: ``"best"`` the
+            best-on-average member plus an ellipsis, ``"all"`` every member in its group's order.
+        figsize: Size of every figure in inches (default: the width grows with the number of subsets, 4.2 in
+            high). The saved files are cropped to their content, the legend above the axes included.
 
     Returns:
         ``{"<kind>_<metric>": <pdf path>}`` for every figure written. A kind is skipped (with a
         printed note) when none of its configured methods appear in the data.
     """
+    if family_legend_members not in ("best", "all"):
+        raise ValueError(f"family_legend_members must be 'best' or 'all', not {family_legend_members!r}")
     order = _resolve_subset_order(leaderboards, subset_order)
     df = _prepare_frame(leaderboards, order)
     foundation_models = _foundation_models(df)
@@ -296,9 +304,17 @@ def plot_subset_results(
             _require_columns(df, spec)
             for kind in plot_kinds:
                 if kind == "per_family":
-                    fig = _per_family_figure(df, order, spec, family_groups, contender_entries)
+                    fig = _per_family_figure(
+                        df,
+                        order,
+                        spec,
+                        family_groups,
+                        contender_entries,
+                        legend_members=family_legend_members,
+                        figsize=figsize,
+                    )
                 elif kind == "per_model":
-                    fig = _per_model_figure(df, order, spec, marker_groups, contender_entries, models)
+                    fig = _per_model_figure(df, order, spec, marker_groups, contender_entries, models, figsize=figsize)
                 else:
                     raise ValueError(f"Unknown plot kind {kind!r}; expected 'per_family' or 'per_model'.")
                 if fig is None:
@@ -444,10 +460,13 @@ def _annotate_n_datasets(ax: Axes, order: list[str], n_per_subset: dict[str, int
     for i, label in enumerate(order):
         if label not in n_per_subset:
             continue
+        # A fixed offset in points keeps the row right under the subset names at any figure height.
         ax.annotate(
             f"N={n_per_subset[label]}",
-            xy=(i, -0.12),
+            xy=(i, 0),
             xycoords=("data", "axes fraction"),
+            xytext=(0, -22),
+            textcoords="offset points",
             ha="center",
             va="top",
             fontsize=10,
@@ -518,6 +537,8 @@ def _per_family_figure(
     spec: MetricSpec,
     family_groups: dict[str, dict],
     contenders: list[str | tuple[str, str]],
+    legend_members: str = "best",
+    figsize: tuple[float, float] | None = None,
 ):
     df = df[df["method_subtype"].isin(SUBTYPE_PREFERENCE)]
     val_by_ms = _series_by(df, order, ["method", "method_subtype"], spec.column)
@@ -595,7 +616,7 @@ def _per_family_figure(
     palette = sns.color_palette("bright", n_colors=max(4, len(families)))
     family_color = dict(zip(families, palette, strict=False))  # palette is padded to >= 4 colors
 
-    fig, ax = plt.subplots(figsize=(max(6.0, 1.1 * len(order) + 0.3), 4.2))
+    fig, ax = plt.subplots(figsize=figsize or (max(6.0, 1.1 * len(order) + 0.3), 4.2))
     _draw_x_scaffolding(ax, order, column_guides=True, left=-0.4, right=0.15)
 
     # Per-column z-rank: the better group at a column draws its marker on top.
@@ -634,12 +655,14 @@ def _per_family_figure(
     ax.set_ylabel(spec.ylabel_family)
     _annotate_n_datasets(ax, order, _n_datasets_per_subset(df))
 
-    _per_family_legend(ax, spec, groups, keys_by_group, agg, family_color, best_avg_method)
+    _per_family_legend(ax, spec, groups, keys_by_group, agg, family_color, best_avg_method, legend_members)
     fig.tight_layout()
     return fig
 
 
-def _per_family_legend(ax: Axes, spec: MetricSpec, groups, keys_by_group, agg, family_color, best_avg_method) -> None:
+def _per_family_legend(
+    ax: Axes, spec: MetricSpec, groups, keys_by_group, agg, family_color, best_avg_method, legend_members: str = "best"
+) -> None:
     """Two stacked rows above the axes: pipeline (subtype) styles and family color swatches."""
     from matplotlib.lines import Line2D
     from matplotlib.offsetbox import AnchoredOffsetbox, DrawingArea, HPacker, TextArea, VPacker
@@ -688,9 +711,12 @@ def _per_family_legend(ax: Axes, spec: MetricSpec, groups, keys_by_group, agg, f
         children = [swatch, TextArea(family, textprops={"fontsize": 11})]
         methods = family_methods.get(family, [])
         if methods != [family]:  # contender lines: the family *is* the method, skip the duplicate
-            # Name the family's best-on-average member (+ ellipsis when there are more), not the first listed.
-            rep = best_avg_method.get(family, methods[0])
-            label = rep if len(methods) == 1 else f"{rep}, ..."
+            if legend_members == "all":
+                label = ", ".join(methods)
+            else:
+                # Name the family's best-on-average member (+ ellipsis when there are more), not the first listed.
+                rep = best_avg_method.get(family, methods[0])
+                label = rep if len(methods) == 1 else f"{rep}, ..."
             children.append(TextArea(f"({label})", textprops={"fontsize": 8}))
         return HPacker(children=children, pad=0, sep=4, align="center")
 
@@ -734,6 +760,7 @@ def _per_model_figure(
     marker_groups: dict[str, dict],
     contenders: list[str | tuple[str, str]],
     models: Sequence[str] | None,
+    figsize: tuple[float, float] | None = None,
 ):
     # One row per (subset, method): the highest-priority subtype available for that method.
     priority = {st: i for i, st in enumerate(SUBTYPE_PREFERENCE)}
@@ -788,7 +815,7 @@ def _per_model_figure(
 
     # Every method gets a slot in every column, so the column width grows with the number of methods.
     column_width = max(1.35, _INCHES_PER_METHOD * n)
-    fig, ax = plt.subplots(figsize=(max(7.0, column_width * len(order) - 0.2), 4.2))
+    fig, ax = plt.subplots(figsize=figsize or (max(7.0, column_width * len(order) - 0.2), 4.2))
     _draw_x_scaffolding(ax, order, column_guides=False, left=-0.52, right=0.45)
 
     vals = np.concatenate([val_by_m[m] for m in method_order])

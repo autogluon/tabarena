@@ -175,6 +175,7 @@ def get_model_family(model_name: str, system_names: Container[str] = frozenset()
             "TA-KUMO-TABULAR",
             "FTFM",
             "LIGHTPFN",
+            "TABABAX",
         ],
         Constants.baseline: ["KNN", "LR", "LINEAR"],
         Constants.other: ["XRFM", "APLR"],
@@ -270,6 +271,7 @@ def get_rename_map() -> dict[str, str]:
         "SAP-RPT-OSS": "SAP-RPT-OSS",
         "TABSWIFT": "TabSwift",
         "XIAOMI-TABLDM": "Xiaomi-TabLDM",
+        "TABABAX": "TabAbax",
     }
 
 
@@ -305,6 +307,8 @@ def add_metadata(
                 "License": "",
                 "FitsAtPredict": False,
                 "Organization": "",
+                "Leakage": "",
+                "LeakageDatasets": "",
             },
         )
     metadata = metadata_df.loc[method]
@@ -340,6 +344,13 @@ def add_metadata(
     organization = metadata.get("organization", None)
     if organization is None or pd.isna(organization):
         organization = ""
+    # And for frames written before the leakage fields; "" when the method carries no warning.
+    leakage_evidence = metadata.get("leakage_evidence", None)
+    if leakage_evidence is None or (isinstance(leakage_evidence, float) and pd.isna(leakage_evidence)):
+        leakage_evidence = ""
+    leakage_datasets = metadata.get("leakage_datasets", ())
+    if leakage_datasets is None or isinstance(leakage_datasets, float):
+        leakage_datasets = ()
 
     # Add Model Family Information
     out_dict = {
@@ -355,6 +366,10 @@ def add_metadata(
         "FitsAtPredict": bool(fits_at_predict),
         # Who develops the method (`MethodMetadata.organization`); the leaderboard shows its logo.
         "Organization": str(organization),
+        # The evidence that test data leaked into its training (`MethodMetadata.leakage_evidence`), and
+        # the datasets it is proven on, semicolon-joined like `Tags`; empty for a method without one.
+        "Leakage": str(leakage_evidence),
+        "LeakageDatasets": ";".join(leakage_datasets),
     }
 
     display_name = MethodMetadata.compute_method_name(
@@ -398,6 +413,8 @@ def legacy_formatting(df_leaderboard: pd.DataFrame) -> pd.DataFrame:
     df_leaderboard["License"] = ""
     df_leaderboard["FitsAtPredict"] = False
     df_leaderboard["Organization"] = ""
+    df_leaderboard["Leakage"] = ""
+    df_leaderboard["LeakageDatasets"] = ""
 
     # Add Model Family Information
     df_leaderboard["Type"] = df_leaderboard.loc[:, "method"].apply(
@@ -446,6 +463,8 @@ def format_leaderboard(
                 "License",
                 "FitsAtPredict",
                 "Organization",
+                "Leakage",
+                "LeakageDatasets",
             ]
         ] = df_leaderboard.apply(
             partial(add_metadata, metadata_df=method_info_map, include_url=include_url),
@@ -513,6 +532,8 @@ def format_leaderboard(
             "License",
             "FitsAtPredict",
             "Organization",
+            "Leakage",
+            "LeakageDatasets",
         ],
     ]
 
@@ -542,6 +563,8 @@ def format_leaderboard(
                 "License",
                 "FitsAtPredict",
                 "Organization",
+                "Leakage",
+                "LeakageDatasets",
             ]
         )
 

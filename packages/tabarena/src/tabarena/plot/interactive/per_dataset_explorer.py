@@ -196,18 +196,23 @@ def dataset_records(
 
 
 def measured_results(results_per_split: pd.DataFrame) -> pd.DataFrame:
-    """The per-split results a method actually produced on a dataset.
+    """The per-split results of the methods that ran on every split of a dataset.
 
-    An imputed score is a stand-in (a default RandomForest's result) for a model that could not
-    run on this dataset at all. It is a fair penalty in a leaderboard averaged over datasets, but
-    here it would claim the model was measured on this one, so those pairs are dropped before
-    anything is computed from them: the best error, the ranks, the gaps and the significance
-    tests are all over the methods that actually ran here.
+    An imputed score is a stand-in (a default RandomForest's result) for a split a model could not
+    run on. It is a fair penalty in a leaderboard averaged over datasets, but here it would claim
+    the model was measured on this one. A method imputed on any split of a dataset, or without a
+    result on one, is dropped from that dataset as a whole: its mean over the splits it did run on
+    would be set against the others' means over all of them. The best error, the ranks, the gaps
+    and the significance tests are all over the methods that ran on every split here.
     """
-    df = results_per_split.copy()
+    df = results_per_split
+    keep = pd.Series(True, index=df.index)
     if "imputed" in df.columns:
-        df = df[~df["imputed"].fillna(False).astype(bool)]
-    return df
+        imputed = df["imputed"].fillna(False).astype(bool)
+        keep &= ~imputed.groupby([df["dataset"], df["method"]]).transform("any")
+    splits = df.groupby("dataset")["fold"].transform("nunique")
+    ran = df[keep].groupby(["dataset", "method"])["fold"].transform("nunique").reindex(df.index)
+    return df[keep & (ran == splits)].copy()
 
 
 def per_dataset_points(results_per_split: pd.DataFrame) -> pd.DataFrame:
@@ -295,15 +300,14 @@ def tied_with_best(results_per_split: pd.DataFrame, *, alpha: float = SIGNIFICAN
 
 
 def imputed_counts(results_per_split: pd.DataFrame) -> pd.Series:
-    """How many methods could not run on each dataset, and so were imputed there.
+    """How many methods could not run on every split of each dataset (see :func:`measured_results`).
 
     The per-dataset view drops them, which is why one dataset's field is smaller than another's;
     this is what lets the page say so rather than leaving the reader to notice.
     """
-    if "imputed" not in results_per_split.columns:
-        return pd.Series(dtype=int)
-    per_pair = results_per_split.groupby(["dataset", "method"])["imputed"].max()
-    return per_pair.fillna(False).astype(bool).groupby("dataset").sum()
+    listed = results_per_split.groupby("dataset")["method"].nunique()
+    measured = measured_results(results_per_split).groupby("dataset")["method"].nunique()
+    return (listed - measured.reindex(listed.index, fill_value=0)).astype(int)
 
 
 def build_per_dataset_explorer_html(

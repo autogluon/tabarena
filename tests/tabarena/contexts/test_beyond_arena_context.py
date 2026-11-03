@@ -46,14 +46,15 @@ class TestPresets:
         ctx = BeyondArenaContext()
         method_names = {m.method for m in ctx.method_metadata_collection.method_metadata_lst}
         assert {"LinearModel", "RandomForest", "CatBoost", "TA-TabM", "TA-TabPFN-2.6", "TA-TabPFN-3.5"} <= method_names
-        # The hosted baselines share one suite; the 2026-09-22 foundation-model run, the 2026-09-24 Linear rerun and
-        # the 2026-10-06 Kumo Tabular run are their own.
+        # The hosted baselines share one suite; the 2026-09-22 foundation-model run, the 2026-09-24 Linear rerun,
+        # the 2026-10-06 Kumo Tabular run and the 2026-10-28 TabM fix are their own.
         suites = {m.suite for m in ctx.method_metadata_collection.method_metadata_lst}
         assert suites == {
             "beyond_iid_benchmark_2026",
             "beyondarena-2026-09-22",
             "beyondarena-2026-09-24",
             "beyondarena-2026-10-06",
+            "beyondarena-2026-10-28",
         }
         assert len(ctx.task_metadata_collection) > 0
 

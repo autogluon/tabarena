@@ -288,7 +288,7 @@ __BASE_JS__
     const plotW = Math.max(avail, slot * entries.length);
     // Names go on one row when they fit side by side, otherwise on two
     // staggered rows (each label then has two slots of room).
-    const labels = entries.map(e => e.method + (e.imputed ? " ‡" : ""));
+    const labels = entries.map(e => e.method + leakageMark(e.method) + (e.imputed ? " ‡" : ""));
     const labelWidths = measureLabels(labels);
     const widest = Math.max(...labelWidths);
     const labelRows = widest <= slot - 6 ? 1 : 2;
@@ -521,7 +521,7 @@ __BASE_JS__
 
   function showTip(entry, ev) {
     const m = metric();
-    let html = `<div class="t-name">${entry.method}</div><div>${famLabel(entry)}</div>`;
+    let html = `<div class="t-name">${entry.method}${leakageMark(entry.method)}</div><div>${famLabel(entry)}</div>`;
     for (const p of entry.points) {
       if (!shownVariant(p) || p[m.key] == null) continue;
       const ci = m.ci && p[m.ci.lo] != null
