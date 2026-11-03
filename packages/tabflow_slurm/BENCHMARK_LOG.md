@@ -58,8 +58,10 @@ run against `main`. To reproduce an entry, check out its recorded **git SHA**.
   Elo 1671 (+67/-56), 0% imputed; binary #17 (1654), multiclass #21 (1604), regression #11 (2031); median 1.69 s
   train and 0.35 s inference per 1K rows. TabICLv2 (default), its parent, sits at #22 with 1562. Processed and
   uploaded as suite `tabarena-2026-11-02` (`tababax_method_metadata` in `models/tababax/info.py`), `verified=True`
-  after the maintainer signed off on 2026-11-03; the library pin moved to the full SHA of the same commit (`0b9cfc61`)
-  after the run.
+  after the maintainer signed off on 2026-11-03. After the run the library pin moved to the full SHA of the same commit
+  (`0b9cfc61`) and then to `125d2685`, whose only change scopes the `HF_HUB_DISABLE_XET` workaround to Windows; the
+  wrapper gained a docstring note on `time_limit` and an AMP re-resolve after a device move (`641925b0`), neither of
+  which changes predictions made on the fit device. The hosted results stay those of `b7c9ba70`; no re-run.
 
 ```python
 from tabarena.benchmark.experiment import TabArenaV0pt1ExperimentBundle

@@ -17,7 +17,8 @@ tababax_descriptor = ModelDescriptor(
 )
 
 # Run tababax_02112026 (SkyPilot pool, 32 RTX PRO 6000, BENCHMARK_LOG.md): every split of the 51 TabArena-v0.1
-# datasets at f47f00a0, tababax @ b7c9ba70, weights tababax-ai/TabAbax@039e4f23.
+# datasets at f47f00a0, tababax @ b7c9ba70, weights tababax-ai/TabAbax@039e4f23. The pin below, 125d2685, differs
+# from b7c9ba70 only in setting HF_HUB_DISABLE_XET on Windows alone, which leaves the predictions unchanged.
 tababax_method_metadata = tababax_descriptor.method_metadata(
     method="TabAbax",
     date="2026-11-02",
@@ -37,7 +38,7 @@ tababax_info = ModelInfo(
     search_space=gen_tababax,
     method_metadata=tababax_method_metadata,
     pip_extra=(
-        "tababax @ git+https://github.com/tababax-research/TabAbax.git@b7c9ba70545c164e6811b29e9424a00617d53ba4",
+        "tababax @ git+https://github.com/tababax-research/TabAbax.git@125d26850015597ed371993f3a00375806c0f32c",
     ),
     prefetch_weights=TabAbaxModel.prefetch_weights,
 )
