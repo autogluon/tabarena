@@ -20,7 +20,8 @@ operationalizes it and bakes in the thing that is easy to get wrong: the **model
 ## What this skill delivers
 
 1. A **model-type pre-check** so newly added models don't ship as `❓ Other`. (Systems are exempt: they
-   are typed from `MethodMetadata.method_class`, not from a name prefix.)
+   are typed from `MethodMetadata.method_class`, not from a name prefix.) Next to it, a logo pre-check
+   so a new organization does not ship as a letter tile.
 2. A **regeneration run** of `run_generate_website_artifacts.py` (Claude runs it — background +
    monitor; it's slow but needs no credentials).
 3. A **refreshed `data/`** in the leaderboard Space repo, done the safe way (delete-then-copy), with
@@ -74,6 +75,33 @@ If missing, add the prefix to the right family list (and a rename entry). This i
 <generation_venv>/bin/python -c "from tabarena.website.website_format import get_model_family; print(get_model_family('TA-TABSWIFT'))"
 # -> Foundation Model   (NOT 'Other')
 ```
+
+### Step 1b: Organization logos
+
+The table shows each method's `organization` as a logo. The logos live in the Space repo, not here:
+the files in `<lb_code_dir>/assets/logos/` and the name-to-file map `ORGANIZATION_LOGOS` in
+`<lb_code_dir>/views.py`. An organization missing from the map shows its initial instead. List the
+registered organizations without a logo (reads `views.py` with `ast`, so gradio is not needed):
+
+```bash
+cd <tabarena> && <generation_venv>/bin/python -P - <lb_code_dir>/views.py <<'PY'
+import ast, pathlib, sys
+from tabarena.models import get_model_registry
+from tabarena.systems._registry import get_system_registry
+infos = [*get_model_registry().values(), *get_system_registry().values()]
+orgs = {i.method_metadata.organization for i in infos} - {None}
+tree = ast.parse(pathlib.Path(sys.argv[1]).read_text())
+logos = next(ast.literal_eval(n.value) for n in tree.body
+             if isinstance(n, ast.Assign) and getattr(n.targets[0], "id", "") == "ORGANIZATION_LOGOS")
+print("organizations without a logo:", sorted(orgs - logos.keys()) or "none")
+PY
+```
+
+For each one, take the logo attached to the method's PR (the PR template asks for it), save it under
+`assets/logos/` with a lowercase file name, and add the map entry, spelled exactly as in `info.py`.
+Check it in both themes in the preview (Step 5); a logo that vanishes on the dark table gets a white
+tile baked into the file, like the few existing ones that need it. When the PR has no logo, ship with the
+initial and draft a comment asking the submitter for one; post it only after the maintainer says so.
 
 ## Step 2: Regenerate the website artifacts (Claude runs; slow, no creds)
 
