@@ -33,6 +33,7 @@ def compare(
     figure_file_type: str = "pdf",
     add_dataset_count: bool = False,
     elo_ymin: float | None = None,
+    elo_ymax: float | None = None,
     benchmark_name: str = "Arena",
     plot: bool = True,
     plot_times: bool = False,
@@ -74,6 +75,8 @@ def compare(
     evaluator_kwargs = {}
     if elo_ymin is not None:
         evaluator_kwargs["elo_ymin"] = elo_ymin
+    if elo_ymax is not None:
+        evaluator_kwargs["elo_ymax"] = elo_ymax
     plotter = LeaderboardReporter(
         output_dir=output_dir,
         task_metadata=task_metadata,

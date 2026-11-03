@@ -105,6 +105,7 @@ class LeaderboardReporter:
         banned_pareto_methods: list[str] | None = None,
         elo_bootstrap_rounds: int = 200,
         elo_ymin: float = 800,
+        elo_ymax: float | None = None,
         keep_best: bool = False,
         figure_file_type: str = "pdf",
         use_latex: bool = False,
@@ -153,6 +154,7 @@ class LeaderboardReporter:
         self.folds = folds
         self.elo_bootstrap_rounds = elo_bootstrap_rounds
         self.elo_ymin = elo_ymin
+        self.elo_ymax = elo_ymax
         self.banned_model_types = banned_model_types
         self.keep_best = keep_best
 
@@ -2661,7 +2663,7 @@ class LeaderboardReporter:
         if use_elo:
             metric = "elo"
             use_lim = True
-            lim = [self.elo_ymin, None]
+            lim = [self.elo_ymin, self.elo_ymax]
             lower_is_better = False
             df = df_elo.copy(deep=True)
             df = df[[self.method_col, "elo", "elo+", "elo-"]]
