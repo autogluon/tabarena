@@ -53,6 +53,11 @@ class TabAbaxModel(AbstractTorchModel):
     ``random_state`` is the TabArena seed (``seed_name``). ``device`` follows the GPUs AutoGluon
     allocated: CUDA when ``num_gpus`` is not 0, otherwise CPU.
 
+    ``time_limit`` is accepted by the AutoGluon interface for API compatibility,
+    but it does not bound fitting for this in-context model. Fitting performs
+    inference with a released checkpoint; there is no task-level training loop,
+    validation split, early stopping, or hyperparameter search to interrupt.
+
     The TabArena integration imports TabAbax, whose inference implementation
     contains portions derived from TabICLv2 and distributed under BSD-3-Clause.
     The additional TabAbax packaging and integration code is Apache-2.0.
@@ -208,9 +213,13 @@ class TabAbaxModel(AbstractTorchModel):
         self.model.device_ = device
         self.model.device = self.model.device_.type
         self.model.model_ = self.model.model_.to(self.model.device_)
+
         self.model.inference_config_.COL_CONFIG.device = self.model.device_
         self.model.inference_config_.ROW_CONFIG.device = self.model.device_
         self.model.inference_config_.ICL_CONFIG.device = self.model.device_
+
+        # Recompute device-dependent settings such as use_amp="auto".
+        self.model._build_inference_config()
 
     def _more_tags(self) -> dict:
         return {"can_refit_full": True}
