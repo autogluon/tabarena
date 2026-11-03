@@ -23,8 +23,8 @@ def _descriptor(display_name: str) -> ModelDescriptor:
     )
 
 
-# Runs seldon_03112026 and seldonmini_03112026 (SkyPilot pools of 32 RTX PRO 6000, BENCHMARK_LOG.md), the 38
-# classification datasets, every split.
+# Runs seldonfix_03112026 and seldonminifix_03112026 (SkyPilot pools of 32 RTX PRO 6000, torch 2.13,
+# BENCHMARK_LOG.md), the 38 classification datasets, every split, with the context cache kept out of the pickle.
 _tabarena_run_kwargs = dict(
     can_hpo=False,
     date="2026-11-03",

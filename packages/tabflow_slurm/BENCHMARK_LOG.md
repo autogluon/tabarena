@@ -34,6 +34,49 @@ run against `main`. To reproduce an entry, check out its recorded **git SHA**.
 
 ---
 
+## 2026-11-03 — seldonfix_03112026, seldonminifix_03112026
+
+- **Model(s):** Seldon and Seldon-Mini (default config only), one run per model, every split of the 38 TabArena-v0.1
+  classification datasets, 594 items each
+- **Git SHA:** `ac212a3b` (PR #701: the wrapper saves its context cache with `torch.save` beside `model.pkl`),
+  clean; AutoGluon from the editable `../autogluon` checkout (`88d33ba6`)
+- **Validation protocol:** `8x1`
+- **Purpose:** Rerun of seldon_03112026 / seldonmini_03112026 below with the cache fix on every item. In those runs
+  AutoGluon's pickled-size estimate and the refit model's save copied the cache inside the timed fit, so their
+  training times were too high on every dataset, not only on GiveMeSomeCredit where it ran out of RAM.
+- **Notes:** SkyPilot pools `seldonfix-0311` and `seldonminifix-0311` (32 spot RTX PRO 6000 workers each), venv
+  `~/.venvs/tabarena_seldon_t213_03112026` (torch 2.13.0+cu130, where APSFailure passes), one item per bundle,
+  `fake_memory_for_estimates=96`. Both finished in about 25 minutes with 0 failed items. Against the runs below
+  (same splits): Seldon training time median ratio 0.58 (total 20400 s to 15006 s), inference 0.84; Seldon-Mini
+  0.85 and 0.83. Errors unchanged up to fp16 noise (max absolute difference 7.9e-4). Two controls separate the
+  causes: GiveMeSomeCredit (fix in both runs, torch 2.15 to 2.13) moved neither time (1.00, 1.00); APSFailure
+  (torch 2.13 in both, fix added) trained 0.81 and predicted 0.94 of the old time, so the gain is the fix.
+  Re-processed and re-uploaded over suite `tabarena-2026-11-03` (same `info.py` metadata, `verified=True`),
+  replacing the results of the runs below.
+
+```python
+TabArenaV0pt1BenchmarkPlan(
+    benchmark_name="seldonfix_03112026",  # "seldonminifix_03112026" with ("Seldon-Mini", 0)
+    model_jobs=[
+        ModelJob(
+            models=("Seldon", 0),
+            name="gpu",
+            resources={"num_gpus": 1, "fake_memory_for_estimates": 96},
+        ),
+    ],
+    task_subset=TaskSubset(subset="classification"),
+    path_setup=PathSetup(
+        workspace="/home/lennart_priorlabs_ai/workspace/benchmarking/tabarena_workspace",
+        python_path="/home/lennart_priorlabs_ai/.venvs/tabarena_seldon_t213_03112026/bin/python",
+    ),
+    experiment_bundle=TabArenaV0pt1ExperimentBundle(model_verbosity=2),
+    resources_setup=TabArenaV0pt1ResourcesSetup(num_cpus=None, memory_limit=None),
+    scheduler_setup=SkyPilotSetup(bundle_size=1, workers=32, use_pool=True, pool_name="seldonfix-0311"),
+).setup_jobs()
+```
+
+---
+
 ## 2026-11-03 — seldon_03112026, seldonmini_03112026
 
 - **Model(s):** Seldon and Seldon-Mini (default config only, no search space), one run per model, on every split of
@@ -66,7 +109,7 @@ run against `main`. To reproduce an entry, check out its recorded **git SHA**.
   1884; Seldon-Mini #9, Elo 1790 (+88/-62), the PR expected 1788. Binary #3 (1902) and #10 (1780), multiclass #8
   (1878) and #8 (1865). Median per 1K rows: Seldon 3.5 s train and 0.17 s inference, Seldon-Mini 0.75 s and 0.045 s.
   Processed and uploaded as suite `tabarena-2026-11-03` (`seldon_method_metadata`, `seldon_mini_method_metadata` in
-  `models/seldon/info.py`), `verified=True` on the maintainer's sign-off.
+  `models/seldon/info.py`), `verified=True` on the maintainer's sign-off. Replaced by the rerun above.
 
 ```python
 TabArenaV0pt1BenchmarkPlan(
