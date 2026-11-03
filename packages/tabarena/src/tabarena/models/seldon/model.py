@@ -85,6 +85,8 @@ class SeldonModel(AbstractTorchModel):
     )
     #: The two models are registered separately; each owns its ``share_weights`` class setting.
     class_settings_per_subclass = True
+    #: The members' context cache stays on the CPU, from which ``predict_proba`` streams it; AutoGluon pins it on load.
+    pin_tensors_on_load: ClassVar[bool] = True
 
     #: The released model this class runs (neuralk-oss's model name).
     model_name: ClassVar[str] = "seldon"
@@ -149,31 +151,6 @@ class SeldonModel(AbstractTorchModel):
             _attached(self.model).to(device)
         finally:
             _detach(self.model)
-
-    @classmethod
-    def _class_tags(cls) -> dict:
-        # AutoGluon saves the context cache, like every tensor of the model, beside model.pkl. Mapped on load, it is
-        # copied once, into pinned memory (see ``load``), instead of being read into RAM and then copied again.
-        return {"mmap_tensors_on_load": True}
-
-    @classmethod
-    def load(cls, path: str, reset_paths: bool = True, verbose: bool = True):
-        """Load the model with its context cache memory-mapped, then pin the cache's CPU tensors for transfers on CUDA.
-
-        The cache holds every member's key/value projections of the training rows, tens of GB for Seldon on a
-        100k-row table. Developer fix: the cache is sdm's private ``ICLModel._cache``; re-check it whenever the pin
-        moves.
-        """
-        model = super().load(path=path, reset_paths=reset_paths, verbose=verbose)
-        estimator = None if model.model is None else model.model.classifier.estimator
-        if estimator is not None and estimator._cache is not None:
-            import torch
-
-            if torch.cuda.is_available():
-                estimator._cache = estimator._cache._apply_tensor(
-                    lambda t: t.pin_memory() if t.device.type == "cpu" else t
-                )
-        return model
 
     def _more_tags(self) -> dict:
         return {"can_refit_full": True}

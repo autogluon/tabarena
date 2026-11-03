@@ -232,25 +232,13 @@ AutoGluon handles tensors itself. `AbstractModel.save` writes every torch tensor
 `torch.save` to `model_tensors.pt` beside `model.pkl` (one copy per storage, written to a temporary
 file and swapped in), `load` reads them back, and `_get_pickled_size` counts each storage's bytes
 without serializing it. A cache held as torch tensors on the fitted estimator needs no wrapper code.
-A wrapper that copies the cache after loading, for example into pinned memory for transfers, sets the
-`mmap_tensors_on_load` class tag so the loaded cache is mapped from the file and exists in RAM only
-once; `models/kumo_tabular/model.py` and `models/seldon/model.py` are the references:
+A cache kept on the CPU and streamed to the GPU at predict time should sit in pinned memory; one class
+attribute has `load` copy each storage from the mapped tensor file straight into pinned memory when
+CUDA is available (`models/kumo_tabular/model.py` and `models/seldon/model.py`):
 
 ```python
 class MyModel(AbstractTorchModel):
-    @classmethod
-    def _class_tags(cls) -> dict:
-        return {"mmap_tensors_on_load": True}
-
-    @classmethod
-    def load(cls, path: str, reset_paths: bool = True, verbose: bool = True):
-        model = super().load(path=path, reset_paths=reset_paths, verbose=verbose)
-        if model.model is not None and model.model.cache is not None:
-            import torch
-
-            if torch.cuda.is_available():
-                model.model.cache = model.model.cache.pin_memory()
-        return model
+    pin_tensors_on_load: ClassVar[bool] = True
 ```
 
 What still reaches `model.pkl` is state the pickle does not see as tensors: a cache kept as NumPy

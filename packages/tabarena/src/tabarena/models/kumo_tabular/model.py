@@ -123,6 +123,8 @@ class KumoTabularModel(AbstractTorchModel):
     class_settings_per_subclass = True
     #: Knobs that make the warm-up's dummy fit cheap without touching the network.
     cheap_hyperparameters: ClassVar[dict] = {"num_estimators": 1}
+    #: The KV cache stays on the CPU and is streamed to the GPU per batch; AutoGluon pins it on load.
+    pin_tensors_on_load: ClassVar[bool] = True
 
     #: The checkpoint size this class runs.
     size: ClassVar[str] = "large"
@@ -360,23 +362,6 @@ class KumoTabularModel(AbstractTorchModel):
         finally:
             self.model.cache, self.model.context = cache, context
         self.model.move_processors(device)
-
-    @classmethod
-    def _class_tags(cls) -> dict:
-        # AutoGluon saves the KV cache, like every tensor of the model, beside model.pkl. Mapped on load, it is
-        # copied once, into pinned memory (see ``load``), instead of being read into RAM and then copied again.
-        return {"mmap_tensors_on_load": True}
-
-    @classmethod
-    def load(cls, path: str, reset_paths: bool = True, verbose: bool = True):
-        """Load the model with its KV cache memory-mapped, then pin the cache for transfers on CUDA."""
-        model = super().load(path=path, reset_paths=reset_paths, verbose=verbose)
-        if model.model is not None and model.model.cache is not None:
-            import torch
-
-            if torch.cuda.is_available():
-                model.model.cache = model.model.cache.pin_memory()
-        return model
 
     def _more_tags(self) -> dict:
         return {"can_refit_full": True}
