@@ -425,7 +425,8 @@ Report to the maintainer, in this order:
 
 The report goes to the chat. Never comment on the PR or edit its description on your own initiative,
 not even for the stage-2 results comment the PR template describes: draft the text, show it to the
-maintainer, and post it only after they say so.
+maintainer, and post it only after they say so. Posted text ends with `🤖 Generated with [Claude Code](https://claude.com/claude-code)`
+unless the maintainer says otherwise.
 
 ### Results artifact
 
