@@ -143,26 +143,14 @@ class SeldonModel(AbstractTorchModel):
         return str(param.device) if param is not None else "cpu"
 
     def _set_device(self, device: str):
-        """Move the network, the estimator and its fitted sdm state (context cache, fitted processors).
+        """Move the shared network and the fitted classifier (``SeldonClassifier.to``).
 
-        Developer fix: neuralk-oss 0.2.1 offers no way to move a fitted classifier, so this moves the
-        estimator's private sdm cache and the fitted processors it holds (``_cache["recipe_execution"]``), as
-        the Kumo Tabular wrapper does. The library could offer ``SeldonClassifier.to(device)``. Re-check this
-        method whenever the pin moves.
+        The members' context cache stays in pinned CPU memory, from which ``predict_proba`` streams it.
         """
-        import torch
-
-        classifier = self.model.classifier
-        classifier.device = torch.device(device)
-        self.model.network.to(device)
-        estimator = classifier.estimator
-        estimator.to(device)
-        cache = getattr(estimator, "_cache", None)
-        if cache is not None:
-            estimator._cache = cache.to(device)
-            recipe = estimator._cache["recipe_execution"].recipe
-            for processor in (recipe.features, recipe.target, recipe.output):
-                processor.to(device)
+        try:
+            _attached(self.model).to(device)
+        finally:
+            _detach(self.model)
 
     #: The context cache is saved next to ``model.pkl`` rather than inside it.
     cache_file_name: ClassVar[str] = "context_cache.pt"
@@ -173,7 +161,7 @@ class SeldonModel(AbstractTorchModel):
 
         The cache holds every member's key/value projections of the training rows, tens of GB for Seldon on a
         100k-row table, and AutoGluon pickles a model to save it and to measure it. Developer fix: the cache is sdm's
-        private ``ICLModel._cache``, as in ``_set_device``.
+        private ``ICLModel._cache``; re-check it whenever the pin moves.
         """
         estimator = self.model.classifier.estimator
         cache = estimator._cache
@@ -240,7 +228,7 @@ class SeldonModel(AbstractTorchModel):
 def _packaged_settings(model_name: str) -> dict:
     """The released model's packaged config (``neuralk_oss/configs/<name>.yaml``), as ``from_pretrained`` reads it.
 
-    Developer fix: neuralk-oss 0.2.1 reads the packaged config only inside ``from_pretrained``, which also loads
+    Developer fix: neuralk-oss 0.2.3 reads the packaged config only inside ``from_pretrained``, which also loads
     the network, so the wrapper calls the private ``_read_config`` to load the network through the shared loader.
     The library could expose the settings publicly, or take a prebuilt network in ``from_pretrained``. Re-check
     this function whenever the pin moves.

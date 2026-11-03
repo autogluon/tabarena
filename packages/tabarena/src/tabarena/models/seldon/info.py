@@ -6,7 +6,7 @@ from tabarena.models.seldon.hpo import gen_seldon, gen_seldon_mini
 from tabarena.models.seldon.model import SeldonMiniModel, SeldonModel
 
 #: Keep in sync with the `seldon` extra in pyproject.toml.
-_PIP_EXTRA = ("neuralk-oss==0.2.1",)
+_PIP_EXTRA = ("neuralk-oss==0.2.3",)
 
 
 def _descriptor(display_name: str) -> ModelDescriptor:
