@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import contextlib
+import os
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, ClassVar
 
@@ -161,6 +163,63 @@ class SeldonModel(AbstractTorchModel):
             recipe = estimator._cache["recipe_execution"].recipe
             for processor in (recipe.features, recipe.target, recipe.output):
                 processor.to(device)
+
+    #: The context cache is saved next to ``model.pkl`` rather than inside it.
+    cache_file_name: ClassVar[str] = "context_cache.pt"
+
+    @contextlib.contextmanager
+    def _without_cache(self):
+        """Detach the estimator's context cache while ``self`` is pickled, so the pickle never copies it.
+
+        The cache holds every member's key/value projections of the training rows, tens of GB for Seldon on a
+        100k-row table, and AutoGluon pickles a model to save it and to measure it. Developer fix: the cache is sdm's
+        private ``ICLModel._cache``, as in ``_set_device``.
+        """
+        estimator = self.model.classifier.estimator
+        cache = estimator._cache
+        estimator._cache = None
+        try:
+            yield cache
+        finally:
+            estimator._cache = cache
+
+    def save(self, path: str | None = None, verbose: bool = True) -> str:
+        """Pickle the model without the context cache and write the cache with ``torch.save``, which needs no copy."""
+        if self.model is None or self.model.classifier.estimator._cache is None:
+            return super().save(path=path, verbose=verbose)
+        import torch
+
+        with self._without_cache() as cache:
+            path = super().save(path=path, verbose=verbose)
+        cache_path = os.path.join(path, self.cache_file_name)
+        # Written beside the file and swapped in: a cache loaded on the CPU stays memory-mapped from this file, and
+        # truncating it under the mapping kills the process with SIGBUS (refit_full re-saves a loaded model).
+        torch.save(cache, cache_path + ".tmp")
+        os.replace(cache_path + ".tmp", cache_path)
+        return path
+
+    @classmethod
+    def load(cls, path: str, reset_paths: bool = True, verbose: bool = True):
+        """Load the model and its context cache, memory-mapped, with the CPU tensors pinned for transfers on CUDA."""
+        model = super().load(path=path, reset_paths=reset_paths, verbose=verbose)
+        cache_path = os.path.join(path, cls.cache_file_name)
+        if os.path.exists(cache_path):
+            import torch
+
+            # The cache file is as trusted as model.pkl.
+            cache = torch.load(cache_path, mmap=True, weights_only=False)
+            if torch.cuda.is_available():
+                cache = cache._apply_tensor(lambda t: t.pin_memory() if t.device.type == "cpu" else t)
+            model.model.classifier.estimator._cache = cache
+        return model
+
+    def _get_pickled_size(self) -> int:
+        """The pickle size without the context cache plus the cache's bytes."""
+        if self.model is None:
+            return super()._get_pickled_size()
+        with self._without_cache() as cache:
+            size = super()._get_pickled_size()
+        return size + (cache.size() if cache is not None else 0)
 
     def _more_tags(self) -> dict:
         return {"can_refit_full": True}
