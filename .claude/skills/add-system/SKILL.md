@@ -171,7 +171,7 @@ There is no per-system fit test. Tests specific to the system, if any, go into `
 Summarize the new files, the edited files, the chosen `tags` and why, and the open TODOs (results,
 `verified`, the `methods.py` registration once artifacts exist).
 
-When asked to open the PR, end its body with `🤖 Generated with [Claude Code](https://claude.com/claude-code)` (unless the user says otherwise) and use
+When asked to open the PR, start its body with `🤖 Generated with [Claude Code](https://claude.com/claude-code)` (unless the user says otherwise) and use
 `.github/pull_request_template.md`: a two-to-four sentence summary,
 everything longer inside the collapsed `<details><summary>Details</summary>` block, the commands run
 under Tests. Fill in the "Model or system submission" section for a system (delete the model lines)

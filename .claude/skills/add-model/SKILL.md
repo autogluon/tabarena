@@ -510,7 +510,7 @@ Summarize what was created/edited:
   rejected ones in a line each, and the lenses that came back clean
 - Note any TODOs left for the user (e.g., implementing `_predict_proba` if the library API is unclear, tuning `ag_priority`, adding a real search space later, registering benchmark artifacts after a real run)
 
-When asked to open the PR, end its body with `🤖 Generated with [Claude Code](https://claude.com/claude-code)` (unless the user says otherwise) and use
+When asked to open the PR, start its body with `🤖 Generated with [Claude Code](https://claude.com/claude-code)` (unless the user says otherwise) and use
 `.github/pull_request_template.md`: a two-to-four sentence summary,
 everything longer inside the collapsed `<details><summary>Details</summary>` block, the commands run
 under Tests. Fill in the "Model or system submission" section for a model (delete the system lines)

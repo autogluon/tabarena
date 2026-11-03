@@ -129,7 +129,7 @@ Treat each finding as a claim until you have read the cited lines yourself.
    (submit as a system, use a version without the step, run the step on the passed `X_val`). Draft
    any upstream issue and post it only after the user says so.
 3. On a contributor's PR, the findings become review comments: draft them, show them, and post only
-   when the user says so (the same rule as every other write to a PR). Each posted comment or issue ends
-   with `🤖 Generated with [Claude Code](https://claude.com/claude-code)` unless the user says otherwise.
+   when the user says so (the same rule as every other write to a PR). Each posted comment or issue starts
+   with `🤖 Generated with [Claude Code](https://claude.com/claude-code)` as its first line unless the user says otherwise.
 4. Report confirmed and plausible findings with what was done about each, and list the lenses that
    came back clean. Rejected findings need one line each, so the reader sees they were checked.
