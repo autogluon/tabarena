@@ -34,6 +34,68 @@ run against `main`. To reproduce an entry, check out its recorded **git SHA**.
 
 ---
 
+## 2026-11-02 — tababax_02112026
+
+- **Model(s):** TabAbax (default config only, no search space) on every split of the 51 TabArena-v0.1 datasets,
+  816 items
+- **Git SHA:** `f47f00a0`: the PR #700 head `16f3c6fb` (`tababax-research:tababax-corrected`, checked out as
+  `pr-700-add-tababax`) plus one commit that only touches `.claude/skills/benchmark-model/` and `CLAUDE.md`; archive
+  `tabarena-edit-copy-f47f00a0-b2b9f032.tar.gz`, clean. AutoGluon from PyPI, `1.6.4b20261102`.
+- **Validation protocol:** `8x1`
+- **Purpose:** Stage-2 maintainer run of the PR #700 submission (`tababax @ git+...TabAbax.git@b7c9ba7`, a TabICLv2
+  derivative, weights `tababax-ai/TabAbax@039e4f2`, public).
+- **Notes:** SkyPilot pool `tababax-0211` (32 spot RTX PRO 6000 workers, `g4-standard-48`, env `77eeea3e00b4`); new
+  venv `~/.venvs/tabarena_tababax_02112026` (torch 2.15.0+cu132, the first run on a CUDA 13.2 build; the workers'
+  driver ran it). One item per bundle, `fake_memory_for_estimates=96`; the wrapper fits folds with
+  `sequential_local`. Weights seeded into the bucket, workers offline. Before the launch, three reviewer agents
+  (leakage, protocol, data path; add-model `references/model_review.md`) found no blocker; the points for the
+  authors were the short git pin, `HF_HUB_DISABLE_XET` set at import, the AMP choice after a device change, and the
+  submitter's own numbers coming from `outer_experiments=True` (no bagging). Smoke fit 58 s on the head node's
+  CPU; `audit_warmup --model` clean. Pool applied 15:05 UTC, jobs launched 15:15 with 24 of 32 workers READY, the
+  last item finished by 15:42; 9 jobs were preempted and recovered (one twice, its `hiva_agnostic` item restarted
+  from scratch), 0 items failed. Slowest fit APSFailure (174 s train). Result: 816 of 816; `audit_warmup --results`
+  reports warm-up ok on all 816 and no packages imported inside the timed fit or predict. Eval: full #16 of 107,
+  Elo 1671 (+67/-56), 0% imputed; binary #17 (1654), multiclass #21 (1604), regression #11 (2031); median 1.69 s
+  train and 0.35 s inference per 1K rows. TabICLv2 (default), its parent, sits at #22 with 1562. Processed and
+  uploaded as suite `tabarena-2026-11-02` (`tababax_method_metadata` in `models/tababax/info.py`), `verified=True`
+  after the maintainer signed off on 2026-11-03. After the run the library pin moved to the full SHA of the same commit
+  (`0b9cfc61`) and then to `125d2685`, whose only change scopes the `HF_HUB_DISABLE_XET` workaround to Windows; the
+  wrapper gained a docstring note on `time_limit` and an AMP re-resolve after a device move (`641925b0`), neither of
+  which changes predictions made on the fit device. The hosted results stay those of `b7c9ba70`; no re-run.
+
+```python
+from tabarena.benchmark.experiment import TabArenaV0pt1ExperimentBundle
+from tabarena.benchmark.task.metadata import TaskSubset
+from tabflow_slurm import (
+    ModelJob,
+    PathSetup,
+    SkyPilotSetup,
+    TabArenaV0pt1BenchmarkPlan,
+    TabArenaV0pt1ResourcesSetup,
+)
+
+TabArenaV0pt1BenchmarkPlan(
+    benchmark_name="tababax_02112026",
+    model_jobs=[
+        ModelJob(
+            models=("TabAbax", 0),
+            name="gpu",
+            resources={"num_gpus": 1, "fake_memory_for_estimates": 96},
+        ),
+    ],
+    task_subset=TaskSubset(),
+    path_setup=PathSetup(
+        workspace="/home/lennart_priorlabs_ai/workspace/benchmarking/tabarena_workspace",
+        python_path="/home/lennart_priorlabs_ai/.venvs/tabarena_tababax_02112026/bin/python",
+    ),
+    experiment_bundle=TabArenaV0pt1ExperimentBundle(model_verbosity=2),
+    resources_setup=TabArenaV0pt1ResourcesSetup(num_cpus=None, memory_limit=None),
+    scheduler_setup=SkyPilotSetup(bundle_size=1, workers=32, use_pool=True, pool_name="tababax-0211"),
+).setup_jobs()
+```
+
+---
+
 ## 2026-10-28 — beyondarena_tabmfix_28102026
 
 - **Model(s):** TabM (`TA-TabM`), default config plus the hosted suite's 25 random configs (26 per split, the same

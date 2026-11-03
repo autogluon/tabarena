@@ -241,5 +241,7 @@
  "artifacts/tabarena-2026-10-19/methods/TabSTAR-v1.1/results/hpo_results.parquet": "b5a2cb120afafe0a691aaebc5c073792",
  "artifacts/tabarena-2026-10-19/methods/TabSTAR-v1.1/results/model_results.parquet": "afeeb9820126926611bdbe4aac56fff8",
  "artifacts/tabarena-2026-10-21/methods/FTFM/results/hpo_results.parquet": "ff053d1f39f4daa10006a12f97bede79",
- "artifacts/tabarena-2026-10-21/methods/FTFM/results/model_results.parquet": "c419fddd7180a0248391ec773a0d0d43"
+ "artifacts/tabarena-2026-10-21/methods/FTFM/results/model_results.parquet": "c419fddd7180a0248391ec773a0d0d43",
+ "artifacts/tabarena-2026-11-02/methods/TabAbax/results/hpo_results.parquet": "d796eb6190eb9c289e0ee1e46ace49d7",
+ "artifacts/tabarena-2026-11-02/methods/TabAbax/results/model_results.parquet": "870309280594c84856020125e4df3e8e"
 }

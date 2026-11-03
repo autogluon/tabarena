@@ -36,6 +36,7 @@ if TYPE_CHECKING:
     from tabarena.models.realmlp.model import RealMLPModel
     from tabarena.models.sap_rpt_oss.model import SAPRPTOSSModel
     from tabarena.models.seldon.model import SeldonMiniModel, SeldonModel
+    from tabarena.models.tababax.model import TabAbaxModel
     from tabarena.models.tabdpt.model import TabDPTModel, TabDPTTurboModel, TabDPTv13Model
     from tabarena.models.tabfm.model import TabFMModel
     from tabarena.models.tabicl.model import TabICLModel, TabICLv2Model
@@ -57,6 +58,7 @@ if TYPE_CHECKING:
 _LAZY_CLASSES: dict[str, str] = {
     "MethodMetadata": "tabarena.models._method_metadata",
     "APLRModel": "tabarena.models.aplr.model",
+    "TabAbaxModel": "tabarena.models.tababax.model",
     "CausiloModel": "tabarena.models.causilo.model",
     "ChimeraBoostModel": "tabarena.models.chimeraboost.model",
     "CTBoostModel": "tabarena.models.ctboost.model",
