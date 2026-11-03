@@ -146,7 +146,11 @@ review of the add-model skill, `.claude/skills/add-model/references/model_review
 agent per lens (leakage and cheating; protocol and fairness; the wrapper's data path), started in one
 message, each given the wrapper folder, the PR diff, the library unpacked at the version the PR pins
 and the paper's evaluation notes, and none of your own conclusions. Verify every finding against the
-code before you report it. A blocker stops the run until the maintainer decides.
+code before you report it. A blocker stops the run until the maintainer decides. Run
+`python -P -m tabarena.tools.audit_pickle --model <Method>` alongside them: a `FLAG` (the fitted
+model's pickle grows with the training rows) costs every item of the run time and the large tables
+their RAM, so fix it with `ContextCacheFileMixin` before the launch, not after (Seldon, #701, ran
+twice).
 
 Fixing what the review finds, on top of the PR, follows the add-model skill and its
 `references/model_patterns.md`, which hold the conventions a wrapper is held to: the `_fit` contract
@@ -358,6 +362,7 @@ and classify:
 | a pool stuck below its size with workers in `STARTING` after their setup log ends `SUCCEEDED`, the controller log (`sky jobs pool logs --controller --no-follow --tail 300 <pool>`) repeating `Found 2 node(s) with the same cluster name tag`, `sky_progress.sh --pool <pool>` printing `DUPLICATE VM` | two workers share one GCP cluster name because the pool name is too long (Step 5); the prober fails on every pass and promotes no worker | do not delete one of the VMs, it may belong to the other worker; cancel the launch's worker jobs, take the pool down, re-run `setup` with a pool name of at most 22 characters and launch again (finished items stay cached) |
 | an item running far past a finished sibling's time, `#RECOVERIES > 0` for its job in `sky jobs queue --all`, `resuming own claim` in `sky jobs logs <id>` | the worker was replaced (a spot preemption, or a pool re-apply, see Step 5) and the item restarted from scratch; not a stall | nothing, apart from noting the restart in the log entry; compare the fit times of finished siblings before calling an item stuck |
 | `OSError: [Errno 28] No space left on device` in `save_child` / `save_pkl`, or a Ray `OutOfMemoryError` with one runner holding most of the node's RAM, on small tables too | the fitted model pickles far larger than its cache: slices of one batched tensor each write the whole storage (FTFM, ftfm_21102026: 8x, 34 GB for a 22k-row table). AutoGluon pickles to save and to size the model, so disk and RAM fill together | cancel the launch; on one VM, run a failed item and sample `df`, the item scratch (`du`) and the runner's RSS; compare the refit `model.pkl` with the expected cache size. Fix in the wrapper (copy the slices into their own storage after `fit`, see add-model's "Check the pickle, not only the tensors"), rerun the failed tables on that VM, then relaunch the full run under a new `benchmark_name` |
+| `(raylet) Task run_bash_command_with_log_and_return_pid failed due to oom. There are infinite oom retries remaining` in `sky jobs logs <id>`, the node near 95% of its RAM, only on the largest tables, the item restarting from scratch every few minutes | the wrapper keeps a fitted state that grows with the training rows (a context or KV cache) inside `model.pkl`, and AutoGluon's pickled-size estimate and save copy it (Seldon on GiveMeSomeCredit, #701) | cancel the launch: the retries never end. Confirm with `python -P -m tabarena.tools.audit_pickle --model <Method>`, move the state into its own file (`ContextCacheFileMixin`), and rerun every item of the model, not only the failed ones: the copy also inflated the training time of every item that passed |
 | `TimeLimitExceeded` from `_get_fold_time_limit` after thousands of `CUDACachingAllocator ... memory allocation failed` or `auto batch skip` lines, one to three children fitted in hours | a library that survives GPU out-of-memory by shrinking its batches and crawls until AutoGluon projects the remaining folds past the limit: a memory failure that never raises | treat it as out-of-memory and cap the in-context table in the wrapper. Measure rows and columns separately before choosing the cap: LimiX-2 passed 38k x 318 in 4 h but not 53.6k x 243 or 7.9k x 1652 (the same 13M cells), so a rows x columns budget is the wrong proxy; prefer the library's own knobs (`test_batch_size`, `max_num_rows`), engage the cap only above a shape that fails, and rerun every affected table with the final code |
 
 A `FAILED` array task is a bundle with at least one failed item. The log carries one `##### item
@@ -581,6 +586,8 @@ been read and the API probed.
 - Before the cluster run, `python -P -m tabarena.tools.audit_warmup --model <Method>` shows whether the
   model's timed fit and predict still import packages or load weights cold; fix that in the wrapper
   (`warmup_modules`, a `shared_weights` declaration) rather than paying it on every item.
+  `python -P -m tabarena.tools.audit_pickle --model <Method>` does the same for the pickle: a `FLAG`
+  means the timed fit copies a per-row state on every item.
 - Weights on the cluster: `setup` prefetches the selected models' checkpoints on the head node and,
   when every selected model prefetched (`offline_weights="auto"`), the jobs run with `HF_HUB_OFFLINE=1`
   and `AG_FETCH_PRETRAINED_WEIGHTS=false`, so a cache miss fails the item instead of downloading inside

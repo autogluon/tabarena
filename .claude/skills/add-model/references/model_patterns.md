@@ -221,6 +221,41 @@ When the pickle is a multiple of the viewed bytes, copy each slice into its own 
 which is bit-exact, mark it as a developer fix and ask the library to do it upstream;
 `models/ftfm/_estimators.py` (`_own_storage`) is the reference, with its test in `models/ftfm/tests/`.
 
+Keep the cache out of the pickle. Even a pickle the size of its cache costs the run: AutoGluon
+pickles the model inside the timed fit, once in memory to size it (`_get_pickled_size`) and once to
+disk to save the refit model, and TabArena times the whole fit by the wall clock. A cache inside
+`model.pkl` is therefore copied on every dataset. Seldon's wrapper kept its estimator's cache there
+(786 KB per training row on the CPU path, 8 members): the run trained at 1.7x its real time at the
+median, predicted at 1.2x, and ran out of RAM on GiveMeSomeCredit's 100k rows (autogluon/tabarena#701).
+Inherit `ContextCacheFileMixin` before the AutoGluon base class and tell it where the cache lives:
+
+```python
+from tabarena.models.context_cache import ContextCacheFileMixin
+
+
+class MyModel(ContextCacheFileMixin, AbstractTorchModel):
+    def _get_context_cache(self):
+        return None if self.model is None else self.model.cache
+
+    def _set_context_cache(self, cache) -> None:
+        self.model.cache = cache
+
+    def _prepare_loaded_context_cache(self, cache):  # optional: pin a CPU-offloaded cache
+        import torch
+
+        return cache.pin_memory() if torch.cuda.is_available() else cache
+```
+
+The mixin saves the cache with `torch.save` beside `model.pkl` (written to a temporary file and
+swapped in, so a re-save over a memory-mapped cache cannot SIGBUS), loads it memory-mapped, and adds
+its bytes to `_get_pickled_size` without pickling it; override `_context_cache_nbytes` when the cache
+type reports its own size. `models/kumo_tabular/model.py` is the reference. Check the result with
+`python -P -m tabarena.tools.audit_pickle --model <Method>`: it fits the model on 200 and 400
+synthetic rows and flags a `model.pkl` that grows by more than 16x the table's own bytes per row,
+mostly through tensors (the old Seldon wrapper: 786,544 B per row against a 49 B row; with the mixin:
+0 B). Growth without tensors, such as LightGBM's or a random forest's nodes, is reported as `NOTE` and
+is not a finding.
+
 ### Declare config as class attributes (AutoGluon 1.6)
 
 AutoGluon 1.6 replaced a set of override methods with class attributes. Declare the attribute;

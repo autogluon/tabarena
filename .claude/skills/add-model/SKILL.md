@@ -125,6 +125,17 @@ pickles every slice's whole storage, which made FTFM's refit model eight times i
 the workers' disk and RAM (autogluon/tabarena#679). See "Context caches: only in the refit model" in
 `references/model_patterns.md`.
 
+Keep the cache, and any other fitted state that grows with the training rows, out of the pickle.
+AutoGluon pickles a model inside the timed fit (in memory to size it, to disk to save the refit
+model), so a cache inside `model.pkl` is copied on every dataset: Seldon's first run trained at 1.7x
+its real time at the median and ran a 177 GB worker out of RAM on GiveMeSomeCredit
+(autogluon/tabarena#701). Inherit `ContextCacheFileMixin` from `tabarena.models.context_cache`,
+which writes the cache with `torch.save` beside `model.pkl`, maps it back on load and counts its
+bytes without pickling, and check the wrapper with `python -P -m tabarena.tools.audit_pickle --model <Method>`:
+`FLAG` means `model.pkl` grows with the training rows through tensors; a `NOTE` (growth without
+tensors, like the nodes of boosted trees) needs no change (see "Keep the cache out of the pickle" in
+`references/model_patterns.md`).
+
 ## Step 2: Pick the right base class and reference model
 
 Choose the most similar existing model to read for detailed inspiration:
@@ -486,7 +497,9 @@ protocol and fairness; the wrapper's data path) in a single message, give each t
 the library unpacked at the pinned version, the paper's evaluation notes and its section of the
 checklist, and leave your own conclusions out of the brief. Then read every cited line yourself,
 mark each finding confirmed, plausible or rejected, fix the confirmed ones in the wrapper, and take
-library-level findings to the maintainer. The review's outcome goes into the Report.
+library-level findings to the maintainer. Run `python -P -m tabarena.tools.audit_pickle --model <Method>`
+next to the agents (it fits the model on two table sizes and prints how much `model.pkl` grows per
+training row); a `FLAG` is a confirmed finding. The review's outcome goes into the Report.
 
 ## Step 8: Arena registration (optional — only if the model has been benchmarked)
 

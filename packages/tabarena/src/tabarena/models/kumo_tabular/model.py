@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import contextlib
 import os
 from typing import TYPE_CHECKING, ClassVar
 
@@ -8,6 +7,8 @@ import numpy as np
 from autogluon.core.constants import BINARY, MULTICLASS, REGRESSION
 from autogluon.core.models.abstract import SharedWeights
 from autogluon.tabular.models.abstract.abstract_torch_model import AbstractTorchModel
+
+from tabarena.models.context_cache import ContextCacheFileMixin
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -70,7 +71,7 @@ def stack_member_contexts(x_context, y_context, context_index):
     return x_context[index].unflatten(0, context_index.shape), y_context[index].unflatten(0, context_index.shape)
 
 
-class KumoTabularModel(AbstractTorchModel):
+class KumoTabularModel(ContextCacheFileMixin, AbstractTorchModel):
     """Kumo Tabular: NVIDIA's pretrained in-context-learning tabular foundation model (large checkpoint).
 
     An interleaved row/column encoder (induced set attention across rows per feature group, then
@@ -362,54 +363,23 @@ class KumoTabularModel(AbstractTorchModel):
             self.model.cache, self.model.context = cache, context
         self.model.move_processors(device)
 
-    #: The KV cache is saved next to ``model.pkl`` rather than inside it.
-    cache_file_name: ClassVar[str] = "kv_cache.pt"
+    #: The KV cache is saved next to ``model.pkl`` rather than inside it (:class:`ContextCacheFileMixin`).
+    context_cache_file_name: ClassVar[str] = "kv_cache.pt"
 
-    @contextlib.contextmanager
-    def _without_cache(self):
-        """Detach the KV cache while ``self`` is pickled, so the pickle never copies it."""
-        cache = self.model.cache
-        self.model.cache = None
-        try:
-            yield cache
-        finally:
-            self.model.cache = cache
+    def _get_context_cache(self):
+        return None if self.model is None else self.model.cache
 
-    def save(self, path: str | None = None, verbose: bool = True) -> str:
-        """Pickle the model without the KV cache and write the cache with ``torch.save``, which needs no copy."""
-        if self.model is None or self.model.cache is None:
-            return super().save(path=path, verbose=verbose)
+    def _set_context_cache(self, cache) -> None:
+        self.model.cache = cache
+
+    def _context_cache_nbytes(self, cache) -> int:
+        return cache.size()
+
+    def _prepare_loaded_context_cache(self, cache):
+        """Pin the memory-mapped cache for transfers on CUDA."""
         import torch
 
-        with self._without_cache() as cache:
-            path = super().save(path=path, verbose=verbose)
-        cache_path = os.path.join(path, self.cache_file_name)
-        # Written beside the file and swapped in: a cache loaded on the CPU stays memory-mapped from this file,
-        # and truncating it under the mapping kills the process with SIGBUS (refit_full re-saves a loaded model).
-        torch.save(cache, cache_path + ".tmp")
-        os.replace(cache_path + ".tmp", cache_path)
-        return path
-
-    @classmethod
-    def load(cls, path: str, reset_paths: bool = True, verbose: bool = True):
-        """Load the model and its KV cache, memory-mapped and then pinned for transfers on CUDA."""
-        model = super().load(path=path, reset_paths=reset_paths, verbose=verbose)
-        cache_path = os.path.join(path, cls.cache_file_name)
-        if os.path.exists(cache_path):
-            import torch
-
-            # The cache file is as trusted as model.pkl.
-            cache = torch.load(cache_path, mmap=True, weights_only=False)
-            model.model.cache = cache.pin_memory() if torch.cuda.is_available() else cache
-        return model
-
-    def _get_pickled_size(self) -> int:
-        """The pickle size without the KV cache plus the cache's bytes."""
-        if self.model is None:
-            return super()._get_pickled_size()
-        with self._without_cache() as cache:
-            size = super()._get_pickled_size()
-        return size + (cache.size() if cache is not None else 0)
+        return cache.pin_memory() if torch.cuda.is_available() else cache
 
     def _more_tags(self) -> dict:
         return {"can_refit_full": True}
