@@ -16,6 +16,8 @@ twins without leakage), so the data exports (``pareto_front_points.csv``, ``winr
 ``tuning_trajectories.csv``) and the train-time twin of the Pareto explorer (the explorer itself
 carries the train-time axis) stay in the raw artifacts. Each cell's dataset count goes into one
 index per leaderboard, ``n_datasets.json`` (:func:`write_n_datasets_index`), not a file per cell.
+TabArena's website build (:mod:`tabarena.website.build`) goes further and packs every cell's pages
+into one file (:mod:`tabarena.website.page_pack`), keeping only the CSVs as files.
 """
 
 from __future__ import annotations

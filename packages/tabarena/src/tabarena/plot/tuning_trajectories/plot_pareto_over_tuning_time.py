@@ -848,7 +848,14 @@ def compute_tuning_trajectories_leaderboard(
     subset: str | list[str] | None = None,
     name_col="config_type",
     folds: list[int] | None = None,
+    include_val: bool = True,
 ):
+    """Rank every tuning-budget point of every method in one leaderboard, on test and on validation.
+
+    ``include_val=False`` skips the validation-score leaderboard and leaves its columns NaN: only
+    the tuning diagnostics and the static figures read them, so a run that writes neither saves
+    a second Elo fit over every trajectory point.
+    """
     combined_data = _subset_trajectory_data(
         combined_data,
         tabarena_context=tabarena_context,
@@ -889,9 +896,6 @@ def compute_tuning_trajectories_leaderboard(
         **tabarena_init_kwargs,
         error_col="metric_error_val",
     )
-
-    arena.compute_results_per_task(data=combined_data)
-
     leaderboard = arena.leaderboard(
         data=combined_data,
         include_elo=True,
@@ -905,43 +909,45 @@ def compute_tuning_trajectories_leaderboard(
         include_baseline_advantage=True,
     )
 
-    # The bencheval validator rejects any null values in the error column,
-    # so a method with even one NaN `metric_error_val` row would crash the
-    # val leaderboard. Drop those methods from the val pass only — the
-    # test leaderboard (`arena`) is unaffected. After the merge below the
-    # dropped methods receive NaN for the val-derived columns
-    # (elo_val / improvability_val / baseline_advantage_val) since the
-    # column assignment aligns on the method index.
-    val_nan_mask = combined_data["metric_error_val"].isna()
-    val_nan_methods = sorted(combined_data.loc[val_nan_mask, "method"].unique().tolist())
-    if val_nan_methods:
-        print(
-            f"Dropping {len(val_nan_methods)} method(s) from validation-score "
-            f"leaderboard due to NaN metric_error_val: {val_nan_methods}",
+    if include_val:
+        # The bencheval validator rejects any null values in the error column,
+        # so a method with even one NaN `metric_error_val` row would crash the
+        # val leaderboard. Drop those methods from the val pass only — the
+        # test leaderboard (`arena`) is unaffected. After the merge below the
+        # dropped methods receive NaN for the val-derived columns
+        # (elo_val / improvability_val / baseline_advantage_val) since the
+        # column assignment aligns on the method index.
+        val_nan_mask = combined_data["metric_error_val"].isna()
+        val_nan_methods = sorted(combined_data.loc[val_nan_mask, "method"].unique().tolist())
+        if val_nan_methods:
+            print(
+                f"Dropping {len(val_nan_methods)} method(s) from validation-score "
+                f"leaderboard due to NaN metric_error_val: {val_nan_methods}",
+            )
+        combined_data_val = combined_data[~combined_data["method"].isin(val_nan_methods)]
+
+        leaderboard_val = arena_val.leaderboard(
+            data=combined_data_val,
+            include_elo=True,
+            include_error=True,
+            elo_kwargs=dict(
+                calibration_framework=calibration_framework,
+                calibration_elo=1000,
+                BOOTSTRAP_ROUNDS=elo_bootstrap_rounds,
+            ),
+            average_seeds=average_seeds,
+            include_baseline_advantage=True,
         )
-    combined_data_val = combined_data[~combined_data["method"].isin(val_nan_methods)]
 
-    leaderboard_val = arena_val.leaderboard(
-        data=combined_data_val,
-        include_elo=True,
-        include_error=True,
-        elo_kwargs=dict(
-            calibration_framework=calibration_framework,
-            calibration_elo=1000,
-            BOOTSTRAP_ROUNDS=elo_bootstrap_rounds,
-        ),
-        average_seeds=average_seeds,
-        include_baseline_advantage=True,
-    )
-
-    leaderboard["elo_val"] = leaderboard_val["elo"]
-    leaderboard["improvability_val"] = leaderboard_val["improvability"]
-    leaderboard["baseline_advantage_val"] = leaderboard_val["baseline_advantage"]
+        leaderboard["elo_val"] = leaderboard_val["elo"]
+        leaderboard["improvability_val"] = leaderboard_val["improvability"]
+        leaderboard["baseline_advantage_val"] = leaderboard_val["baseline_advantage"]
+    else:
+        leaderboard["elo_val"] = np.nan
+        leaderboard["improvability_val"] = np.nan
+        leaderboard["baseline_advantage_val"] = np.nan
 
     leaderboard = leaderboard.reset_index(drop=False)
-
-    with pd.option_context("display.max_rows", None, "display.max_columns", None, "display.width", 1000):
-        print(leaderboard)
 
     leaderboard = leaderboard[leaderboard["method"].isin(methods_map.index)]
     leaderboard["n_configs"] = leaderboard["method"].map(methods_map["n_configs"])
@@ -1533,6 +1539,8 @@ def _plot_tuning_trajectories_from_prepared(
             subset=subset,
             name_col=name_col,
             folds=folds,
+            # Read only by the tuning diagnostics and the static figures; a website run writes neither.
+            include_val=not (website_only and static_figures == "uncovered"),
         )
         if leaderboard is None:
             print(f"\tNo tasks in subset {subset!r}, skipping its tuning trajectories...")
@@ -1679,7 +1687,14 @@ def plot_tuning_trajectories(
     static_figures: str = "all",
     entrant_pool: str = "open_llm_api",
     per_dataset_trajectories: bool = False,
+    prepared: tuple[pd.DataFrame, pd.DataFrame] | None = None,
 ):
+    """Draw the tuning trajectories of ``entrant_pool`` for every subset in ``subset_map``.
+
+    ``prepared`` is the ``(combined_data, methods_map)`` pair :func:`_prepare_tuning_trajectories_data`
+    returns for this pool and these settings. It depends on the pool alone, so a caller drawing many
+    subsets of one pool prepares it once and passes it in; it is read, never modified.
+    """
     name_col = "config_type"
     if subset_map is None:
         subset_map = []
@@ -1696,15 +1711,17 @@ def plot_tuning_trajectories(
     elo_bootstrap_rounds = 1
     method_rename_map = get_method_rename_map()  # TODO: avoid hard-coding
 
-    combined_data, methods_map = _prepare_tuning_trajectories_data(
-        tabarena_context=tabarena_context,
-        extra_results=extra_results,
-        methods_to_display=methods_to_display,
-        include_baselines=include_baselines,
-        include_portfolio=include_portfolio,
-        include_hpo_seeds=False,
-        entrant_pool=entrant_pool,
-    )
+    if prepared is None:
+        prepared = _prepare_tuning_trajectories_data(
+            tabarena_context=tabarena_context,
+            extra_results=extra_results,
+            methods_to_display=methods_to_display,
+            include_baselines=include_baselines,
+            include_portfolio=include_portfolio,
+            include_hpo_seeds=False,
+            entrant_pool=entrant_pool,
+        )
+    combined_data, methods_map = prepared
 
     _plot_tuning_trajectories_from_prepared(
         combined_data=combined_data,
