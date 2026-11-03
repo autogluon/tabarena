@@ -9,12 +9,12 @@ from tabarena.models.seldon.model import SeldonMiniModel, SeldonModel
 _PIP_EXTRA = ("neuralk-oss==0.2.3",)
 
 
-def _descriptor(display_name: str) -> ModelDescriptor:
+def _descriptor(display_name: str, reference_url: str) -> ModelDescriptor:
     return ModelDescriptor(
         display_name=display_name,
         compute="gpu",
         is_bag=False,
-        reference_url="https://technical-report.neuralk.ai/",
+        reference_url=reference_url,
         organization="Neuralk-AI",
         # The weights' license: research and internal evaluation only (the neuralk-oss code is Apache-2.0).
         license="Seldon Research and Evaluation License",
@@ -35,10 +35,12 @@ _tabarena_run_kwargs = dict(
     cache_kwargs={"bucket": "tabarena", "prefix": "cache"},
 )
 
-seldon_method_metadata = _descriptor("Seldon").method_metadata(
+seldon_method_metadata = _descriptor("Seldon", "https://huggingface.co/Neuralk-AI/seldon").method_metadata(
     method="Seldon", ag_key="TA-SELDON", config_default="Seldon_c1_default_BAG_L1", **_tabarena_run_kwargs
 )
-seldon_mini_method_metadata = _descriptor("Seldon-Mini").method_metadata(
+seldon_mini_method_metadata = _descriptor(
+    "Seldon-Mini", "https://huggingface.co/Neuralk-AI/seldon-mini"
+).method_metadata(
     method="Seldon-Mini",
     ag_key="TA-SELDON-MINI",
     config_default="Seldon-Mini_c1_default_BAG_L1",
