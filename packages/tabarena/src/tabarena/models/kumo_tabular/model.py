@@ -8,8 +8,6 @@ from autogluon.core.constants import BINARY, MULTICLASS, REGRESSION
 from autogluon.core.models.abstract import SharedWeights
 from autogluon.tabular.models.abstract.abstract_torch_model import AbstractTorchModel
 
-from tabarena.models.context_cache import ContextCacheFileMixin
-
 if TYPE_CHECKING:
     import pandas as pd
 
@@ -71,7 +69,7 @@ def stack_member_contexts(x_context, y_context, context_index):
     return x_context[index].unflatten(0, context_index.shape), y_context[index].unflatten(0, context_index.shape)
 
 
-class KumoTabularModel(ContextCacheFileMixin, AbstractTorchModel):
+class KumoTabularModel(AbstractTorchModel):
     """Kumo Tabular: NVIDIA's pretrained in-context-learning tabular foundation model (large checkpoint).
 
     An interleaved row/column encoder (induced set attention across rows per feature group, then
@@ -363,23 +361,22 @@ class KumoTabularModel(ContextCacheFileMixin, AbstractTorchModel):
             self.model.cache, self.model.context = cache, context
         self.model.move_processors(device)
 
-    #: The KV cache is saved next to ``model.pkl`` rather than inside it (:class:`ContextCacheFileMixin`).
-    context_cache_file_name: ClassVar[str] = "kv_cache.pt"
+    @classmethod
+    def _class_tags(cls) -> dict:
+        # AutoGluon saves the KV cache, like every tensor of the model, beside model.pkl. Mapped on load, it is
+        # copied once, into pinned memory (see ``load``), instead of being read into RAM and then copied again.
+        return {"mmap_tensors_on_load": True}
 
-    def _get_context_cache(self):
-        return None if self.model is None else self.model.cache
+    @classmethod
+    def load(cls, path: str, reset_paths: bool = True, verbose: bool = True):
+        """Load the model with its KV cache memory-mapped, then pin the cache for transfers on CUDA."""
+        model = super().load(path=path, reset_paths=reset_paths, verbose=verbose)
+        if model.model is not None and model.model.cache is not None:
+            import torch
 
-    def _set_context_cache(self, cache) -> None:
-        self.model.cache = cache
-
-    def _context_cache_nbytes(self, cache) -> int:
-        return cache.size()
-
-    def _prepare_loaded_context_cache(self, cache):
-        """Pin the memory-mapped cache for transfers on CUDA."""
-        import torch
-
-        return cache.pin_memory() if torch.cuda.is_available() else cache
+            if torch.cuda.is_available():
+                model.model.cache = model.model.cache.pin_memory()
+        return model
 
     def _more_tags(self) -> dict:
         return {"can_refit_full": True}

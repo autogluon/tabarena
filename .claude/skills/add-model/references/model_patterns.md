@@ -174,7 +174,7 @@ Keep the cached and the uncached path equivalent (the same predictions up to flo
 and test it, as `tests/tabarena/models/kumo_tabular/test_model.py` does after a save/load round trip.
 Keep whatever the uncached path stores on `self.model`, not on the wrapper, so a dropped fold model
 drops it. Then estimate the refit model's cache for the largest tables of both arenas: it stays in host
-memory and is pickled with the model, so it has to fit the workers' disk (128 GB on the SkyPilot pool)
+memory and is saved with the model, so it has to fit the workers' disk (128 GB on the SkyPilot pool)
 and stay below the persist guard (40% of RAM) or the timed inference loads it from disk. Kumo Tabular
 keeps about 12 KB per context row per ensemble member, plus a per-column part, multiplied by the ECOC
 tasks of a many-class head (autogluon/tabarena#641). A cache that writes into the network also turns
@@ -224,37 +224,45 @@ which is bit-exact, mark it as a developer fix and ask the library to do it upst
 Keep the cache out of the pickle. Even a pickle the size of its cache costs the run: AutoGluon
 pickles the model inside the timed fit, once in memory to size it (`_get_pickled_size`) and once to
 disk to save the refit model, and TabArena times the whole fit by the wall clock. A cache inside
-`model.pkl` is therefore copied on every dataset. Seldon's wrapper kept its estimator's cache there
-(786 KB per training row on the CPU path, 8 members): the run trained at 1.7x its real time at the
-median, predicted at 1.2x, and ran out of RAM on GiveMeSomeCredit's 100k rows (autogluon/tabarena#701).
-Inherit `ContextCacheFileMixin` before the AutoGluon base class and tell it where the cache lives:
+`model.pkl` is therefore copied on every dataset. Seldon's first wrapper kept its estimator's cache
+there (786 KB per training row on the CPU path, 8 members): the run trained at 1.7x its real time at
+the median, predicted at 1.2x, and ran out of RAM on GiveMeSomeCredit's 100k rows (autogluon/tabarena#701).
+
+AutoGluon handles tensors itself. `AbstractModel.save` writes every torch tensor of the model with
+`torch.save` to `model_tensors.pt` beside `model.pkl` (one copy per storage, written to a temporary
+file and swapped in), `load` reads them back, and `_get_pickled_size` counts each storage's bytes
+without serializing it. A cache held as torch tensors on the fitted estimator needs no wrapper code.
+A wrapper that copies the cache after loading, for example into pinned memory for transfers, sets the
+`mmap_tensors_on_load` class tag so the loaded cache is mapped from the file and exists in RAM only
+once; `models/kumo_tabular/model.py` and `models/seldon/model.py` are the references:
 
 ```python
-from tabarena.models.context_cache import ContextCacheFileMixin
+class MyModel(AbstractTorchModel):
+    @classmethod
+    def _class_tags(cls) -> dict:
+        return {"mmap_tensors_on_load": True}
 
+    @classmethod
+    def load(cls, path: str, reset_paths: bool = True, verbose: bool = True):
+        model = super().load(path=path, reset_paths=reset_paths, verbose=verbose)
+        if model.model is not None and model.model.cache is not None:
+            import torch
 
-class MyModel(ContextCacheFileMixin, AbstractTorchModel):
-    def _get_context_cache(self):
-        return None if self.model is None else self.model.cache
-
-    def _set_context_cache(self, cache) -> None:
-        self.model.cache = cache
-
-    def _prepare_loaded_context_cache(self, cache):  # optional: pin a CPU-offloaded cache
-        import torch
-
-        return cache.pin_memory() if torch.cuda.is_available() else cache
+            if torch.cuda.is_available():
+                model.model.cache = model.model.cache.pin_memory()
+        return model
 ```
 
-The mixin saves the cache with `torch.save` beside `model.pkl` (written to a temporary file and
-swapped in, so a re-save over a memory-mapped cache cannot SIGBUS), loads it memory-mapped, and adds
-its bytes to `_get_pickled_size` without pickling it; override `_context_cache_nbytes` when the cache
-type reports its own size. `models/kumo_tabular/model.py` is the reference. Check the result with
-`python -P -m tabarena.tools.audit_pickle --model <Method>`: it fits the model on 200 and 400
-synthetic rows and flags a `model.pkl` that grows by more than 16x the table's own bytes per row,
-mostly through tensors (the old Seldon wrapper: 786,544 B per row against a 49 B row; with the mixin:
-0 B). Growth without tensors, such as LightGBM's or a random forest's nodes, is reported as `NOTE` and
-is not a finding.
+What still reaches `model.pkl` is state the pickle does not see as tensors: a cache kept as NumPy
+arrays, or tensors behind a library's own `__getstate__` or `__reduce__` that turns them into bytes.
+Keep the first as torch tensors; the second needs a developer fix in the wrapper and an issue
+upstream. Check the result with `python -P -m tabarena.tools.audit_pickle --model <Method>`: it fits
+the model on 200 and 400 synthetic rows, reports how much `model.pkl` and `model_tensors.pt` grow per
+training row, and flags a `model.pkl` that grows by more than 16x the table's own bytes per row,
+mostly through tensors (Seldon's first wrapper on an AutoGluon that pickled tensors: 786,544 B per row
+against a 49 B row). It warns when the installed AutoGluon still keeps tensors in the pickle. Growth
+without tensors, such as LightGBM's or a random forest's nodes, is reported as `NOTE`; it is a finding
+only when it is an in-context cache held in NumPy.
 
 ### Declare config as class attributes (AutoGluon 1.6)
 

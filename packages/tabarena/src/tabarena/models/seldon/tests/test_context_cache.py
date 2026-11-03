@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-import pickle
 
 import pytest
 
@@ -30,14 +29,15 @@ def test_context_cache_is_saved_beside_the_pickle(tmp_path):
     model, X = _fitted(tmp_path)
     expected = model.predict_proba(X.iloc[:20])
     cache_bytes = model.model.classifier.estimator._cache.size()
+    size_estimate = model._get_pickled_size()
     path = model.save()
 
-    assert os.path.exists(os.path.join(path, SeldonMiniModel.cache_file_name))
-    assert os.path.getsize(os.path.join(path, "model.pkl")) < cache_bytes
-    assert model.model.classifier.estimator._cache is not None  # restored after the save
-    with model._without_cache():
-        pickled = len(pickle.dumps(model, protocol=4))
-    assert pickled < model._get_pickled_size() <= pickled + cache_bytes + 1024
+    # AutoGluon writes the model's tensors, the context cache among them, beside model.pkl.
+    pickle_bytes = os.path.getsize(os.path.join(path, SeldonMiniModel.model_file_name))
+    tensor_file_bytes = os.path.getsize(os.path.join(path, SeldonMiniModel.model_tensors_file_name))
+    assert pickle_bytes < cache_bytes / 10
+    assert tensor_file_bytes >= cache_bytes
+    assert cache_bytes <= size_estimate <= pickle_bytes + tensor_file_bytes
 
     loaded = SeldonMiniModel.load(path)
     np.testing.assert_allclose(loaded.predict_proba(X.iloc[:20]), expected, atol=1e-6)

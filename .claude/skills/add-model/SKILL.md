@@ -119,22 +119,24 @@ does. With `refit_folds` each bagged fold model predicts its out-of-fold rows on
 dropped, so the cache pays off only in the refit model that serves the test predictions. Settle this
 in the model's first PR: expose the switch as a hyperparameter, off for the fold models and on for
 the refit model through `ag.refit_hyperparameters` in the default config, and estimate the cache's
-size for the largest tables against the workers' disk and RAM. Then measure the fitted model's pickle
-against that estimate on the library's GPU code path: a cache kept as slices of one batched tensor
-pickles every slice's whole storage, which made FTFM's refit model eight times its real size and filled
-the workers' disk and RAM (autogluon/tabarena#679). See "Context caches: only in the refit model" in
-`references/model_patterns.md`.
+size for the largest tables against the workers' disk and RAM. Then measure the saved model
+(`model.pkl` and `model_tensors.pt`) against that estimate on the library's GPU code path: a cache kept
+as slices of one batched tensor once pickled every slice's whole storage, which made FTFM's refit model
+eight times its real size and filled the workers' disk and RAM (autogluon/tabarena#679). See "Context
+caches: only in the refit model" in `references/model_patterns.md`.
 
-Keep the cache, and any other fitted state that grows with the training rows, out of the pickle.
+Keep the cache, and any other fitted state that grows with the training rows, out of `model.pkl`.
 AutoGluon pickles a model inside the timed fit (in memory to size it, to disk to save the refit
 model), so a cache inside `model.pkl` is copied on every dataset: Seldon's first run trained at 1.7x
 its real time at the median and ran a 177 GB worker out of RAM on GiveMeSomeCredit
-(autogluon/tabarena#701). Inherit `ContextCacheFileMixin` from `tabarena.models.context_cache`,
-which writes the cache with `torch.save` beside `model.pkl`, maps it back on load and counts its
-bytes without pickling, and check the wrapper with `python -P -m tabarena.tools.audit_pickle --model <Method>`:
-`FLAG` means `model.pkl` grows with the training rows through tensors; a `NOTE` (growth without
-tensors, like the nodes of boosted trees) needs no change (see "Keep the cache out of the pickle" in
-`references/model_patterns.md`).
+(autogluon/tabarena#701). AutoGluon writes every torch tensor of a fitted model with `torch.save` to
+`model_tensors.pt` beside `model.pkl` and sizes it from the storages without a copy, so a cache held
+as torch tensors needs no code in the wrapper. What still reaches `model.pkl` is state the pickle does
+not see as tensors: NumPy arrays, or tensors that a library's own `__getstate__` or `__reduce__` turns
+into bytes. Check the wrapper with `python -P -m tabarena.tools.audit_pickle --model <Method>`: `FLAG`
+means `model.pkl` grows with the training rows through tensors AutoGluon could not see; `NOTE` is
+growth without tensors, which needs no change for the nodes of boosted trees and a move to torch
+tensors for a NumPy cache (see "Keep the cache out of the pickle" in `references/model_patterns.md`).
 
 ## Step 2: Pick the right base class and reference model
 

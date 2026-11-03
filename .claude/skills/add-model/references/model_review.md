@@ -87,10 +87,11 @@ Bugs that do not cheat but make the model look worse or better than it is.
 - Nothing that grows with the training rows sits in `model.pkl`: AutoGluon pickles the model inside
   the timed fit (to size it and to save it), so a KV cache or encoded context kept there is copied on
   every dataset, which inflates the training time everywhere and the RAM on large tables (Seldon,
-  autogluon/tabarena#701). It belongs in its own file (`tabarena.models.context_cache.ContextCacheFileMixin`).
-  `python -P -m tabarena.tools.audit_pickle --model <Method>` settles it: `FLAG` means `model.pkl`
-  grows per training row through tensors (`NOTE`, growth without tensors such as tree nodes, is no
-  finding).
+  autogluon/tabarena#701). AutoGluon writes torch tensors to `model_tensors.pt` beside it, so the risk
+  is state the pickle does not see as tensors: NumPy arrays, or tensors behind a library's own
+  `__getstate__` or `__reduce__`. `python -P -m tabarena.tools.audit_pickle --model <Method>` settles
+  it: `FLAG` means `model.pkl` grows per training row through tensors; `NOTE`, growth without tensors,
+  is a finding for a NumPy cache and none for tree nodes.
 - Optional imports stay inside `_fit` or other methods, so `info.py` and `model.py` import without
   the library.
 
