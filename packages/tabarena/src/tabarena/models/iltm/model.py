@@ -7,6 +7,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar
 
+import numpy as np
 from autogluon.common.utils.resource_utils import ResourceManager
 from autogluon.tabular.models.abstract.abstract_torch_model import AbstractTorchModel
 
@@ -18,6 +19,10 @@ if TYPE_CHECKING:
 
 #: Hugging Face repository the library downloads its checkpoints from (``iltm.model_checkpoints.HF_REPO_ID``).
 HF_REPO_ID = "dbonet/iLTM"
+#: Commit of :data:`HF_REPO_ID` the prefetch downloads from, so the checkpoints never change silently when the
+#: repository's default branch moves (the ``.pth`` files are unchanged since b3dcd2bd, 2025-11-18). Bump
+#: deliberately, with a note on what changed.
+HF_REVISION = "ef783ec2a246686ad4bd43f35b590c196e70a1ba"
 #: Environment variable the library reads for its checkpoint directory (``iltm.model_checkpoints.CKPT_DIR_ENV``).
 CKPT_DIR_ENV = "ILTM_CKPT_DIR"
 #: The checkpoint names the library resolves (``iltm.AVAILABLE_CHECKPOINTS``); ``<name>.pth`` in the repository.
@@ -73,7 +78,7 @@ def resolve_checkpoint(name: str, *, allow_download: bool = True) -> str:
         )
     from huggingface_hub import hf_hub_download
 
-    return str(hf_hub_download(repo_id=HF_REPO_ID, filename=filename, local_dir=str(directory)))
+    return str(hf_hub_download(repo_id=HF_REPO_ID, filename=filename, revision=HF_REVISION, local_dir=str(directory)))
 
 
 class ILTMModel(AbstractTorchModel):
@@ -88,6 +93,23 @@ class ILTMModel(AbstractTorchModel):
     own cache is left to do the sharing; the warm-up's dummy fit fills it untimed. The checkpoint config (preprocessing, tree embedding, retrieval, bottleneck) is keyed off the
     checkpoint *name*, so the name is passed through unchanged and :meth:`prefetch_weights` fills the
     library's own checkpoint directory, which its resolution reads local-first at fit time.
+
+    Validation data: every selection step runs on the passed ``X_val`` / ``y_val``. The network's
+    fine-tuning early-stops on it and the adaptive retrieval alpha is chosen on it, both by the
+    library's default. The tree embedding needs ``tree_use_external_eval_set=True`` (a default
+    parameter of this wrapper): with the library's default it early-stops each tree on a 20% split of
+    the fold's training rows, which a model submission may not do (autogluon/tabarena#637).
+
+    Known gaps (iltm 0.1.6):
+
+    - ``num_cpus`` is not passed on. The tree embedding fits XGBoost with ``n_jobs=-1`` and CatBoost
+      with ``thread_count=-1`` (``iltm/tree_embedding.py``), and the library offers no thread argument.
+    - ``fit_max_time`` is checked before each ensemble member and each fine-tuning step, not during the
+      tree fit, the first fine-tuning step, or the adaptive-alpha predict on the validation rows after
+      the loop, so a fit can overrun ``time_limit`` by about one member's non-fine-tuning work. With
+      less than 10 s left the library raises a plain ``TimeoutError``.
+    - ``auto_stop_on_low_cpu_memory`` (on by default) stops adding ensemble members when host memory
+      runs low, so the member count can depend on the node.
 
     Paper: iLTM: Integrated Large Tabular Model (arXiv:2511.15941)
     Authors: Bonet, Comajoan Cara, Calafell, Mas Montserrat, Ioannidis
@@ -108,19 +130,39 @@ class ILTMModel(AbstractTorchModel):
     default_resources_physical_cores_only = True
     minimum_num_gpus = 1
 
-    warmup_modules: ClassVar[tuple[str, ...]] = ("iltm",)
-    """Importing ``iltm`` sets ``torch.backends.cuda.matmul.allow_tf32`` as a side effect (see
-    :func:`_isolate_iltm_global_state`). ``_fit`` pins that flag explicitly, so where the import happens
-    no longer changes a fit, and the warm-up may import the library."""
+    #: The checkpoints encode the label as a 100-wide one-hot (``n_classes_limit``), so a task with more
+    #: classes would fail only after its tree embedding was fit; AutoGluon skips it up front instead.
+    _default_auxiliary_params_extra = {"max_classes": 100}
 
-    #: Knobs that make the warm-up's dummy fit cheap (one ensemble member, one fine-tuning epoch, a
-    #: tiny tree embedding); none of them selects or shapes the checkpoint. The dummy fit also fills
-    #: the library's class-level ``_model_cache`` untimed, which is the sharing win for iLTM.
+    warmup_modules: ClassVar[tuple[str, ...]] = ("iltm",)
+    """Already imported by :meth:`warmup` inside :func:`_isolate_iltm_global_state` (the import changes the
+    process's float32 matmul precision); listed so the Ray worker warm-up imports it too."""
+
+    #: Knobs that make the warm-up's dummy fit cheap (a short fine-tuning, a tiny tree embedding). Three
+    #: ensemble members, because a ``checkpoint_mix`` config cycles its members through cbrconcat,
+    #: xgbrconcat and rtr: the dummy fit then loads every checkpoint the config can use into the library's
+    #: class-level ``_model_cache`` untimed, which is the sharing win for iLTM.
     cheap_hyperparameters: ClassVar[dict] = {
-        "n_ensemble": 1,
+        "n_ensemble": 3,
         "finetuning_max_steps": 1,
         "tree_n_estimators": 2,
     }
+
+    @classmethod
+    def warmup(cls, **kwargs) -> None:
+        """Import ``iltm`` inside :func:`_isolate_iltm_global_state`, before the generic module layer does.
+
+        The library's first import in a process changes the float32 matmul precision; importing it here
+        restores the caller's precision afterwards, and every later ``import iltm`` is a no-op.
+        """
+        with _isolate_iltm_global_state():
+            pass
+
+    def _set_default_params(self):
+        # Early-stop the tree embedding on the passed validation rows, not on a split of the training rows.
+        default_params = {"tree_use_external_eval_set": True}
+        for param, val in default_params.items():
+            self._set_default_param_value(param, val)
 
     def _preprocess(self, X: pd.DataFrame, *, is_train: bool = False, **kwargs) -> pd.DataFrame:
         """Detect indices of pandas `category`-dtype columns for iLTM's `cat_features`.
@@ -204,8 +246,26 @@ class ILTMModel(AbstractTorchModel):
             )
 
     def _predict_proba(self, X: pd.DataFrame, **kwargs):
+        X = self.preprocess(X, **kwargs)
         with _isolate_iltm_global_state():
-            return super()._predict_proba(X, **kwargs)
+            if self.problem_type == "regression":
+                return self.model.predict(X)
+            y_pred_proba = self.model.predict_proba(X)
+        return self._convert_proba_to_unified_form(self._align_proba(y_pred_proba))
+
+    def _align_proba(self, y_pred_proba: np.ndarray) -> np.ndarray:
+        """Widen the probabilities to the task's full class set.
+
+        The library encodes only the classes present in the fold's training rows (``np.unique(y)``), so a
+        bagged fold that misses a class (grouped and temporal inner splits make that common) returns one
+        column per seen class. Put each column back under its label and leave the missing class at zero.
+        """
+        num_classes = self.num_classes
+        if num_classes is None or y_pred_proba.ndim != 2 or y_pred_proba.shape[1] == num_classes:
+            return y_pred_proba
+        full = np.zeros((y_pred_proba.shape[0], num_classes), dtype=y_pred_proba.dtype)
+        full[:, np.asarray(self.model.classes_, dtype=int)] = y_pred_proba
+        return full
 
     def prepare_for_inference(self) -> None:
         """Untimed, idempotent: keep the network in eval mode and synchronize CUDA.
@@ -246,16 +306,47 @@ class ILTMModel(AbstractTorchModel):
 
 @contextmanager
 def _isolate_iltm_global_state():
+    """Run iLTM at full fp32 and leave the process-global state as the caller had it.
+
+    Developer fix. ``iltm/inference_interface.py`` (iltm 0.1.6) calls
+    ``torch.set_float32_matmul_precision("high")`` and then the legacy ``allow_tf32 = True`` at import,
+    which turns TF32 on for CUDA and oneDNN matmuls for the rest of the process and mixes torch's two
+    precision APIs (reading ``allow_tf32`` afterwards raises). Every fit also reseeds through
+    ``iltm.utils.seed_everything``, which sets ``PYTHONHASHSEED``, and changes the cuDNN determinism flags.
+
+    The context imports the library, so its first import in a process always happens here, then pins
+    float32 matmuls to ``"highest"`` (the maintainers' decision of 2026-09-16: iLTM is fit and scored at
+    full fp32, whichever code imported the library first), and on exit restores the matmul precision,
+    the cuDNN flags and ``PYTHONHASHSEED``. The library should leave the precision to the caller, or
+    scope TF32 to its own fit and predict behind a parameter; asked upstream in autogluon/tabarena#687.
+    """
     import torch
 
-    saved_allow_tf32 = torch.backends.cuda.matmul.allow_tf32
+    cuda_matmul = torch.backends.cuda.matmul
+    mkldnn_matmul = getattr(getattr(torch.backends, "mkldnn", None), "matmul", None)
+    precision_attrs = [obj for obj in (cuda_matmul, mkldnn_matmul) if hasattr(obj, "fp32_precision")]
+    try:
+        saved_precision = torch.get_float32_matmul_precision()
+    except RuntimeError:  # the two precision APIs were mixed before this context (e.g. an unguarded import)
+        saved_precision = "highest"
+    saved_fp32_precisions = [obj.fp32_precision for obj in precision_attrs]
     saved_cudnn_deterministic = torch.backends.cudnn.deterministic
     saved_cudnn_benchmark = torch.backends.cudnn.benchmark
+    saved_hash_seed = os.environ.get("PYTHONHASHSEED")
 
     try:
-        torch.backends.cuda.matmul.allow_tf32 = True
+        import iltm  # noqa: F401  # the first import changes the precision, so pin it afterwards
+
+        torch.set_float32_matmul_precision("highest")
         yield
     finally:
-        torch.backends.cuda.matmul.allow_tf32 = saved_allow_tf32
+        # The legacy-free reset first, then the caller's per-backend values on top of it.
+        torch.set_float32_matmul_precision(saved_precision)
+        for obj, value in zip(precision_attrs, saved_fp32_precisions, strict=False):
+            obj.fp32_precision = value
         torch.backends.cudnn.deterministic = saved_cudnn_deterministic
         torch.backends.cudnn.benchmark = saved_cudnn_benchmark
+        if saved_hash_seed is None:
+            os.environ.pop("PYTHONHASHSEED", None)
+        else:
+            os.environ["PYTHONHASHSEED"] = saved_hash_seed
