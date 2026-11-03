@@ -97,6 +97,7 @@ from tabarena.models.realmlp.info import realmlp_method_metadata as realmlp_gpu_
 from tabarena.models.sap_rpt_oss.info import (
     sap_rpt_oss_method_metadata as contexttab_metadata,
 )
+from tabarena.models.tababax.info import tababax_method_metadata
 from tabarena.models.tabdpt.info import (
     tabdpt_method_metadata as tabdpt_metadata,
     tabdpt_turbo_method_metadata,
@@ -254,6 +255,7 @@ tabarena_method_metadata_collection = MethodMetadataCollection(
         kumo_tabular_small_method_metadata,
         lightpfn_method_metadata,
         ftfm_method_metadata,
+        tababax_method_metadata,
     ],
 )
 
