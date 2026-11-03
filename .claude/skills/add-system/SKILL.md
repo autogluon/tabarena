@@ -81,7 +81,10 @@ raw results record, with a warning), `license` is the terms of service plus the 
 models served behind the API, and `commercial_use` is False when one of those models is
 non-commercial: ask the submitter what runs behind the endpoint. `organization` is who develops the
 system (a company, lab or university, spelled as in other `info.py` files so the leaderboard finds
-its logo); ask the submitter when the paper or repository does not settle it.
+its logo); ask the submitter when the paper or repository does not settle it. A new organization
+has no logo yet: ask the submitter to attach one to the PR description (square SVG or PNG of at
+least 128 px, transparent background, readable on a dark background), which maintainers add to
+the leaderboard Space at the next `update-leaderboard`.
 
 Maintainers also need, before the benchmark run: an evaluation key with quota for every config on
 every split (816 per config on TabArena-v0.1, plus about 30 calls for the audit), the concurrency the
