@@ -168,10 +168,10 @@ exaone_tabular = [
 tabswift = []
 # TabLDM is not published on PyPI; pinned to a commit so the benchmarked code is fixed.
 # Keep in sync with `pip_extra` in models/tabldm/info.py.
-tabldm = ["Xiaomi-TabLDM @ git+https://github.com/xiaomi-research/xiaomi-tabldm.git@d3fc3b7a0644631c8e3c18fa50629440e334f3f4"]
+tabldm = ["Xiaomi-TabLDM @ git+https://github.com/xiaomi-research/xiaomi-tabldm.git@19e752a7f09ec7e3d4bf2e04e6a45c4170f8e518"]
 # Xiaomi-TabLDM+ (systems/tabldm_plus) runs the same commit as `tabldm`. Keep in sync with
 # `pip_extra` in systems/tabldm_plus/info.py.
-tabldm_plus = ["Xiaomi-TabLDM @ git+https://github.com/xiaomi-research/xiaomi-tabldm.git@d3fc3b7a0644631c8e3c18fa50629440e334f3f4"]
+tabldm_plus = ["Xiaomi-TabLDM @ git+https://github.com/xiaomi-research/xiaomi-tabldm.git@19e752a7f09ec7e3d4bf2e04e6a45c4170f8e518"]
 # Mitra-v2 runs on AutoGluon's Mitra implementation; this is AutoGluon's own `mitra` extra
 # (loguru, einops, transformers, huggingface_hub, ...). Keep in sync with models/mitra_v2/info.py.
 # flash-attn is optional (faster attention, same results) and needs a prebuilt wheel:
