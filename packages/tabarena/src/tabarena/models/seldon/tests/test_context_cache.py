@@ -43,7 +43,7 @@ def test_context_cache_is_saved_beside_the_pickle(tmp_path):
     np.testing.assert_allclose(loaded.predict_proba(X.iloc[:20]), expected, atol=1e-6)
 
 
-def test_resave_over_a_memory_mapped_cache(tmp_path):
+def test_resave_of_a_loaded_model(tmp_path):
     import numpy as np
 
     from tabarena.models.seldon.model import SeldonMiniModel
@@ -51,7 +51,7 @@ def test_resave_over_a_memory_mapped_cache(tmp_path):
     model, X = _fitted(tmp_path)
     expected = model.predict_proba(X.iloc[:20])
     loaded = SeldonMiniModel.load(model.save())
-    # On the CPU the loaded cache is memory-mapped from the file this save replaces.
+    # refit_full re-saves a loaded model over the files it was loaded from.
     loaded.save()
 
     np.testing.assert_allclose(loaded.predict_proba(X.iloc[:20]), expected, atol=1e-6)

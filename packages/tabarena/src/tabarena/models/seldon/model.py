@@ -95,6 +95,9 @@ class SeldonModel(AbstractTorchModel):
         import torch
         from neuralk_oss import Seldon, SeldonClassifier
 
+        from tabarena.models.warmup import configure_cuda_allocator
+
+        configure_cuda_allocator(pinned_cache=True)
         X = self.preprocess(X, y=y)
         device = self._resolve_fit_device(num_gpus)
         # What ``SeldonClassifier.from_pretrained(<name>)`` does, with the network loaded through the shared
@@ -154,6 +157,18 @@ class SeldonModel(AbstractTorchModel):
 
     def _more_tags(self) -> dict:
         return {"can_refit_full": True}
+
+    @classmethod
+    def warmup(cls, *, num_gpus: float | None = None, **kwargs) -> None:
+        """Configure the CUDA allocator before the CUDA context exists, then create that context.
+
+        The allocator reads ``PYTORCH_CUDA_ALLOC_CONF`` when it first runs, so this runs before the
+        generic torch layer of ``warmup_model_cls`` and calls :func:`warmup_torch` itself (idempotent).
+        """
+        from tabarena.models.warmup import configure_cuda_allocator, warmup_torch
+
+        configure_cuda_allocator(pinned_cache=True)
+        warmup_torch(cuda=None if num_gpus is None else num_gpus > 0)
 
     @classmethod
     def prefetch_weights(cls) -> list:

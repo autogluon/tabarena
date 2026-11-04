@@ -49,7 +49,8 @@ EXIT_MISSING_DEPENDENCY = 3
 MAX_TABLE_MULTIPLE = 16
 #: ... unless it grows by less than this many bytes per row.
 MIN_FLAG_BYTES_PER_ROW = 1024
-#: The tensor file AutoGluon writes beside ``model.pkl``; an AutoGluon without it keeps tensors in the pickle.
+#: The default name of the tensor file AutoGluon writes beside ``model.pkl`` (``model_tensors_file_name``); an
+#: AutoGluon without it keeps tensors in the pickle.
 TENSORS_FILE_NAME = "model_tensors.pt"
 
 
@@ -130,8 +131,8 @@ def measure_fit(
         path = model.save()
         save_s = time.perf_counter() - start
         files = {name: os.path.getsize(os.path.join(path, name)) for name in os.listdir(path)}
-        pkl = files.pop("model.pkl", 0)
-        tensors_file = files.pop(TENSORS_FILE_NAME, 0)
+        pkl = files.pop(model.model_file_name, 0)
+        tensors_file = files.pop(getattr(model, "model_tensors_file_name", TENSORS_FILE_NAME), 0)
         return {
             "n_rows": n_rows,
             "table_bytes": int(X.memory_usage(deep=True).sum() + y.memory_usage(deep=True)),

@@ -120,10 +120,9 @@ dropped, so the cache pays off only in the refit model that serves the test pred
 in the model's first PR: expose the switch as a hyperparameter, off for the fold models and on for
 the refit model through `ag.refit_hyperparameters` in the default config, and estimate the cache's
 size for the largest tables against the workers' disk and RAM. Then measure the saved model
-(`model.pkl` and `model_tensors.pt`) against that estimate on the library's GPU code path: a cache kept
-as slices of one batched tensor once pickled every slice's whole storage, which made FTFM's refit model
-eight times its real size and filled the workers' disk and RAM (autogluon/tabarena#679). See "Context
-caches: only in the refit model" in `references/model_patterns.md`.
+(`model.pkl` and `model_tensors.pt`) against that estimate on the library's GPU code path, since a CPU
+fit can take another one and a slice that keeps a larger batched tensor alive saves all of it. See
+"Context caches: only in the refit model" in `references/model_patterns.md`.
 
 Keep the cache, and any other fitted state that grows with the training rows, out of `model.pkl`.
 AutoGluon pickles a model inside the timed fit (in memory to size it, to disk to save the refit

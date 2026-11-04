@@ -418,9 +418,12 @@ def warmup_imports_best_effort(*module_names: str, report: WarmupReport | None =
 
 #: Allocator settings :func:`configure_cuda_allocator` applies when the environment sets none.
 CUDA_ALLOC_CONF = "expandable_segments:True"
+#: Added for a wrapper that pins a large cache: pinned blocks above 64 MB are allocated at their exact size
+#: and returned to the system when freed, instead of rounded up to a power of two and kept.
+PINNED_CACHE_ALLOC_CONF = "pinned_max_cached_size_mb:64"
 
 
-def configure_cuda_allocator() -> None:
+def configure_cuda_allocator(*, pinned_cache: bool = False) -> None:
     """Enable expandable segments in torch's CUDA caching allocator for this process.
 
     For wrappers whose large, shape-changing activations fragment the caching allocator. With
@@ -437,12 +440,21 @@ def configure_cuda_allocator() -> None:
     a fallback: when CUDA is already initialized the setting is applied through torch's runtime
     setter instead. An explicit ``PYTORCH_CUDA_ALLOC_CONF`` in the environment is respected and
     left untouched. Idempotent.
+
+    ``pinned_cache=True`` is for a wrapper whose fitted cache sits in pinned memory, such as one with
+    AutoGluon's ``pin_tensors_on_load``: torch's caching host allocator rounds every pinned block up to
+    a power of two and keeps freed blocks, so a cache of tens of GB can pin up to twice its size.
+    :data:`PINNED_CACHE_ALLOC_CONF` stops that for large blocks. The host allocator reads it only
+    when it starts, so it applies when CUDA is not initialized yet.
     """
     if os.environ.get("PYTORCH_CUDA_ALLOC_CONF") is not None:
         return
-    os.environ["PYTORCH_CUDA_ALLOC_CONF"] = CUDA_ALLOC_CONF
     import torch
 
+    if pinned_cache and not torch.cuda.is_initialized():
+        os.environ["PYTORCH_CUDA_ALLOC_CONF"] = f"{CUDA_ALLOC_CONF},{PINNED_CACHE_ALLOC_CONF}"
+        return
+    os.environ["PYTORCH_CUDA_ALLOC_CONF"] = CUDA_ALLOC_CONF
     if not torch.cuda.is_initialized():
         return  # read from the environment when the allocator starts
     set_settings = getattr(torch._C, "_accelerator_setAllocatorSettings", None)
