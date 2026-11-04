@@ -1656,7 +1656,10 @@ def _plot_tuning_trajectories_from_prepared(
             website_only=website_only,
             static_figures=static_figures,
             # Titled with the subset, as the Pareto explorer pages are (`generate_all_figs` names them alike).
-            explorer_title=subset_name or ("&".join(subset) if subset else "all"),
+            # The website build keys its single subset "placeholder_name" (a folder name, not a label): no title then.
+            explorer_title=None
+            if subset_name == "placeholder_name"
+            else (subset_name or ("&".join(subset) if subset else "all")),
         )
 
 
