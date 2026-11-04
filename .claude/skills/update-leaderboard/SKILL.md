@@ -272,20 +272,22 @@ cd <lb_code_dir>   # HEAD must be the commit you are about to push
 
 ## Note: BeyondArena is a sibling flow
 
-The second leaderboard has its own generator and target folder:
+The second leaderboard has its own generator and target folder, built the same way as the main one
+(one ray task per cell, the pages packed into one file):
 `scripts/run_generate_beyondarena_website_artifacts.py` →
 `generated_beyondarena_website_artifacts/clean_website_artifacts/` (`subsets/` + `result_plots/`, and
-their twins without the methods with a leakage warning, `subsets_noleak/` + `result_plots_noleak/`) →
-Space repo's **`data_beyondarena/`**. Same delete-then-copy discipline applies. Only touch it when the
-maintainer asks for BeyondArena; this skill's default is the main leaderboard `data/`.
+their twins without the methods with a leakage warning, `subsets_noleak/` + `result_plots_noleak/`, plus
+`n_datasets.json` and `pages.sqlite`) → Space repo's **`data_beyondarena/`**. Same delete-then-copy
+discipline applies. Only touch it when the maintainer asks for BeyondArena; this skill's default is the
+main leaderboard `data/`.
 
 The generator crosses four filter axes (split, size, features, tasks) and publishes every cell that
 holds at least one dataset, under `subsets/split_*/size_*/features_*/tasks_*/` (354 of the 500 cells
-today). The cells run in parallel with ray (about a minute and a half on 96 cores);
-`--skip-generate` re-runs only the convert step. Copy `n_datasets.json` (each cell's dataset count)
-along with the folders. Delete `subsets*/` and `result_plots*/` before
-copying: the unzipped `*.png` files that `data_loading.unzip_png` leaves there are gitignored and
+today). It runs in about three minutes on 96 cores and takes no flags. Copy `n_datasets.json` (each
+cell's dataset count) and `pages.sqlite` along with the folders. Delete `subsets*/` and `result_plots*/`
+before copying: the unzipped `*.png` files that `data_loading.unzip_png` leaves there are gitignored and
 would be served stale. Then compare the file list against the Space's tracked one
-(`diff <(cd $SRC && find . -type f | sed 's|^\./||' | sort) <(cd $DST && git ls-files | sort)` is empty when no cell
-changed). Each cell must carry a `leaderboard_table.html` (one per `website_leaderboard.csv`), which
-the app embeds as the full table, and only the all-`all` cell carries `per_dataset_explorer.html`.
+(`diff <(cd $SRC && find . -type f | sed 's|^\./||' | sort) <(cd $DST && git ls-files | sort)` is empty
+when no cell changed). Each cell is one `website_leaderboard.csv` plus six pages in the pack (the table
+and five explorers); only the all-`all` cell carries `per_dataset_explorer.html`. No figure carries the
+`core2k` protocol's name or the build's `placeholder_name` folder key: every explorer title is empty.

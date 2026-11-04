@@ -7,8 +7,8 @@ static PNGs were a second copy of what the reader already had: 80 of the 105 MB 
 ``raw_website_artifacts/`` for paper use; they are simply not published.
 
 BeyondArena's generator (``scripts/run_generate_beyondarena_website_artifacts.py``) runs every
-subset through the same :func:`process_one_folder`; only its cross-subset overview figures stay
-static PNGs.
+subset through the same :func:`process_one_folder` and packs the pages the same way; only its
+cross-subset overview figures stay static PNGs.
 
 Only what the leaderboard shows is published. A Hugging Face Space holds at most 20,000 files, and
 every file here is repeated in every published cell (2,564 over both leaderboards, with the pools'
@@ -16,8 +16,8 @@ twins without leakage), so the data exports (``pareto_front_points.csv``, ``winr
 ``tuning_trajectories.csv``) and the train-time twin of the Pareto explorer (the explorer itself
 carries the train-time axis) stay in the raw artifacts. Each cell's dataset count goes into one
 index per leaderboard, ``n_datasets.json`` (:func:`write_n_datasets_index`), not a file per cell.
-TabArena's website build (:mod:`tabarena.website.build`) goes further and packs every cell's pages
-into one file (:mod:`tabarena.website.page_pack`), keeping only the CSVs as files.
+The website builds (:mod:`tabarena.website.build` and BeyondArena's generator) go further and pack
+every cell's pages into one file (:mod:`tabarena.website.page_pack`), keeping only the CSVs as files.
 """
 
 from __future__ import annotations
