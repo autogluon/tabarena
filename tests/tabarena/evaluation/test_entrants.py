@@ -9,6 +9,7 @@ from tabarena.evaluation.entrants import (
     SYSTEM_CATEGORIES,
     filter_results_to_pool,
     get_entrant_pool,
+    group_identical_pools,
     pool_key,
 )
 from tabarena.evaluation.eval_all import get_pool_reference_lines
@@ -141,6 +142,19 @@ def test_filter_results_drops_methods_with_a_leakage_warning_from_the_twin_only(
     assert filter_results_to_pool(_results_frame(), get_entrant_pool("models_noleak"), info).empty
     kept = filter_results_to_pool(_results_frame(), get_entrant_pool("open_noleak"), info)
     assert list(kept["ta_name"]) == ["AutoGluon"]
+
+
+def test_identical_pools_are_grouped():
+    """Without an LLM system, selecting the LLM category adds no one, so those pools are copies."""
+    info = _info_frame()
+    info = info[info["method"] != "Agent"]
+    groups = group_identical_pools(info)
+    assert sorted(key for group in groups for key in group) == sorted(pool.key for pool in ENTRANT_POOLS)
+    # No method carries a leakage warning either, so each pool's twin without them is a copy too.
+    assert ["models", "llm", "models_noleak", "llm_noleak"] in groups
+    assert ["open_api", "open_llm_api", "open_api_noleak", "open_llm_api_noleak"] in groups
+    # With the LLM system registered, only each pool and its twin without leakage warnings remain alike.
+    assert all(group == [group[0], f"{group[0]}_noleak"] for group in group_identical_pools(_info_frame()))
 
 
 def test_info_frame_without_the_new_columns_keeps_everything():

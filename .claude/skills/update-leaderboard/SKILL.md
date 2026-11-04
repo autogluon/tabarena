@@ -23,7 +23,7 @@ operationalizes it and bakes in the thing that is easy to get wrong: the **model
    are typed from `MethodMetadata.method_class`, not from a name prefix.) Next to it, a logo pre-check
    so a new organization does not ship as a letter tile.
 2. A **regeneration run** of `run_generate_website_artifacts.py` (Claude runs it — background +
-   monitor; it's slow but needs no credentials).
+   monitor; about two minutes, no credentials).
 3. A **refreshed `data/`** in the leaderboard Space repo, done the safe way (delete-then-copy), with
    sanity counts.
 4. A **version-history bump** in the Space repo's `website_texts.py` (new dated entry + current-version line).
@@ -103,24 +103,22 @@ Check it in both themes in the preview (Step 5); a logo that vanishes on the dar
 tile baked into the file, like the few existing ones that need it. When the PR has no logo, ship with the
 initial and draft a comment asking the submitter for one; post it only after the maintainer says so.
 
-## Step 2: Regenerate the website artifacts (Claude runs; slow, no creds)
+## Step 2: Regenerate the website artifacts (Claude runs; about two minutes, no creds)
 
-Run the generator **from `tabarena/scripts/`** (its `base_dir` is the relative
-`generated_website_artifacts`, so cwd matters) with the **generation venv**. It's long-running —
-`TabArenaContext.load_results(download_results="auto")` downloads the latest results, then figures +
-tuning trajectories are built across CPUs with ray (a few minutes on many cores; longer here).
-**Launch it in the background and poll the log** rather than blocking.
+Run the generator **from `tabarena/scripts/`** (its output folder is the relative
+`generated_website_artifacts`, so cwd matters) with the **generation venv**.
+`TabArenaContext.load_results(download_results="auto")` downloads the latest results, then
+`tabarena.website.build.build_website` computes every cell of the grid in one ray pass (about two
+minutes on 96 cores). **Launch it in the background and poll the log** rather than blocking.
 
 ```bash
 cd <tabarena>/scripts
 nohup <generation_venv>/bin/python run_generate_website_artifacts.py > <scratch>/gen_website.log 2>&1 &
 ```
 
-Useful flags (defaults = the fast website-only publish run): `--skip-evaluate` /
-`--skip-trajectories` reuse the existing raw artifacts for one pipeline when only the other's
-outputs changed; `--elo-bootstrap-rounds 1` for a toy run (Elo CIs meaningless);
-`--full-figures` restores the full per-subset paper figure suite (incl. GIF animations);
-`--zip-raw` re-enables the large raw-artifacts zip (the publish flow only needs the clean zip).
+Flags: `--elo-bootstrap-rounds 1` for a toy run (Elo CIs meaningless); `--full-figures` also renders
+every cell's paper figure suite (static figures, LaTeX, GIFs) into `raw_website_artifacts/`, which is
+paper material, is not published, and takes several times as long.
 
 Monitor until the process exits, then verify outputs — **don't trust "exited" alone**:
 
@@ -128,33 +126,29 @@ Monitor until the process exits, then verify outputs — **don't trust "exited" 
   `*** SIGTERM received ***` C++ stack trace (dozens of them, one per worker PID). A single Ray
   `FutureWarning` about accelerator env vars is also fine. Neither is a failure.
 - **Real success signals** (check these):
-  - `generated_website_artifacts/clean_website_artifacts/website_data/` exists with
-    `imputation_no/` + `imputation_yes/`.
-  - `clean_website_artifacts.zip` was written next to it.
+  - The log ends with `Website data written to generated_website_artifacts/website_data in <N>s`.
+  - `generated_website_artifacts/website_data/` holds exactly what the Space's TabArena `data/` holds:
+    the `entrants_*` roots with one `website_leaderboard.csv` per cell, `n_datasets.json`, and
+    `pages.sqlite` (every cell's table and explorer pages in one file, about 15 MB; see
+    `tabarena.website.page_pack`). The build empties the folder first, so nothing from an earlier
+    run survives.
   - In the generated CSVs, the new model appears with the right `TypeName` — re-confirm Step 1 held:
     ```bash
-    cd <tabarena>/scripts/generated_website_artifacts/clean_website_artifacts/website_data
+    cd <tabarena>/scripts/generated_website_artifacts/website_data
     <generation_venv>/bin/python - <<'PY'
     import pandas as pd
-    df = pd.read_csv("imputation_no/splits_all/tasks_all/datasets_all/website_leaderboard.csv")
+    df = pd.read_csv("entrants_models/imputation_no/splits_all/tasks_all/datasets_all/website_leaderboard.csv")
     print(df.loc[df["Model"].str.contains("TabSwift", case=False), ["Type","TypeName","Model"]].to_string(index=False))
     PY
     ```
-  - Structural sanity, counted **inside the `entrants_*` roots** (a stale top-level `imputation_*`
-    layout may sit next to them, see Step 3): **16** roots (one per combination of the system
-    categories, and each one's `_noleak` twin computed without the methods that carry a leakage
-    warning), one `n_datasets.json` next to them (each cell's dataset count), and per root one
-    `website_leaderboard.csv` and one
-    `leaderboard_table.html` per subset plus the interactive `*_explorer.html` pages, and **0** `*.png`
-    / `*.png.zip` (TabArena publishes no static figures). The subset count grows with the site
-    (60 subsets per pool in v0.1.8, 116 since the balanced / imbalanced / extreme subsets of v0.1.9:
-    928 CSVs over the 8 pools, 1856 since the `_noleak` twins), so compare the counts and the file list against
-    the Space's current `data/` (`diff <(cd $SRC && find entrants_* -type f | sort) <(cd $DST && find
-    entrants_* -type f | sort)` is empty when no subset was added or removed) rather than against
-    fixed numbers.
-  - File budget: a Space repo holds at most **20,000 files** (a push over it is rejected with "too many
-    files"). Every published cell repeats its six files, so only the pages the leaderboard shows are
-    published (`process_one_folder`); count `git ls-files | wc -l` in the Space after the swap.
+  - Structural sanity: **16** `entrants_*` roots (one per combination of the system categories, and
+    each one's `_noleak` twin computed without the methods that carry a leakage warning), and as
+    many CSVs as `n_datasets.json` has keys and as the Space has now (1,856 since v0.1.9.12), unless
+    a subset was added or removed: `diff <(cd $SRC && find entrants_* -type f | sort) <(cd $DST &&
+    find entrants_* -type f | sort)` is empty then. The pack lists six pages per cell plus the
+    per-dataset browser of each pool's unrestricted cells:
+    `python -P -c "from tabarena.website.page_pack import read_page_pack; v, p = read_page_pack('pages.sqlite'); print(v, len(p))"`
+    (9,344 today).
   - Pool sanity: `entrants_models` must contain **no** AutoGluon row, and a model's Elo must differ
     between `entrants_models` and `entrants_open_llm_api` (a wider field re-rates everyone). If they
     match, the pool filter did not apply.
@@ -163,42 +157,34 @@ Monitor until the process exits, then verify outputs — **don't trust "exited" 
 
 ## Step 3: Refresh the Space repo's `data/`
 
-`data/` in the Space repo mirrors the generated `website_data/`. **Delete the old subtree first, then
-copy — do not overlay**, so a subset that no longer exists cannot survive as a leftover. TabArena no
-longer ships PNGs, which retires the old stale-unzipped-`.png` gotcha for `data/`; it still applies to
-`data_beyondarena/`, whose figures are zipped PNGs served through `data_loading.unzip_png`.
+`data/` in the Space repo mirrors the generated `website_data/`. **Delete the old TabArena files
+first, then copy — do not overlay**, so a subset that no longer exists cannot survive as a leftover.
 
 ```bash
-SRC=<tabarena>/scripts/generated_website_artifacts/clean_website_artifacts/website_data
+SRC=<tabarena>/scripts/generated_website_artifacts/website_data
 DST=<lb_code_dir>/data
 
-# 1. Sanity-check nothing but entrants_* and n_datasets.json lives in data/ (so the rm is safe). A
-#    pre-v0.1.8 checkout still has imputation_* at the top level; those are the old layout and go too.
-find "$DST" -mindepth 1 -maxdepth 1 ! -name 'entrants_*' ! -name 'imputation_*' ! -name 'n_datasets.json'   # expect: no output
+# 1. Sanity-check nothing else lives in data/ (so the rm is safe). A checkout from before the page
+#    pack still has explorer HTML files under entrants_*; the rm takes them along.
+find "$DST" -mindepth 1 -maxdepth 1 ! -name 'entrants_*' ! -name 'imputation_*' ! -name 'n_datasets.json' ! -name 'pages.sqlite'   # expect: no output
 
-# 2. Delete the old subtree, then copy the fresh one in. Copy the entrant pools ONLY: the generator wipes
-#    neither raw_website_artifacts/ nor website_data/, so the pre-pool imputation_no/ + imputation_yes/
-#    layout (static PNGs) from before v0.1.8 survives at the top level, is re-converted every run and
-#    sits in clean_website_artifacts.zip too, while the Space tracks nothing but entrants_*.
-rm -rf "$DST"/entrants_* "$DST"/imputation_*
-cp -r "$SRC"/entrants_* "$SRC"/n_datasets.json "$DST"/
+# 2. Delete the old files, then copy the fresh ones in.
+rm -rf "$DST"/entrants_* "$DST"/imputation_* "$DST"/n_datasets.json "$DST"/pages.sqlite
+cp -r "$SRC"/. "$DST"/
 
 # 3. Verify the swap:
-echo "any .png (MUST be 0): $(find "$DST" -name '*.png*' | wc -l)"
-echo "entrant pools:        $(find "$DST" -mindepth 1 -maxdepth 1 -name 'entrants_*' | wc -l)"  # 16
-echo "files in the Space:   $(cd "$DST"/.. && git ls-files | wc -l) + new"  # a Space holds at most 20,000 files
-echo "csv:                  $(find "$DST" -name 'website_leaderboard.csv' | wc -l)"  # same as before the swap unless a subset changed
+echo "entrant pools: $(find "$DST" -mindepth 1 -maxdepth 1 -name 'entrants_*' | wc -l)"  # 16
+echo "csv:           $(find "$DST" -name 'website_leaderboard.csv' | wc -l)"  # same as before the swap unless a subset changed
+echo "html (MUST be 0): $(find "$DST" -name '*.html' | wc -l)"  # the pages live in pages.sqlite
 ```
 
-Then confirm the diff is clean — **all modifications, no adds/deletes/untracked** (a new or removed
-subset would show up here and means the layout changed):
+Then confirm the diff: modified CSVs, `n_datasets.json` and `pages.sqlite` only, nothing added or
+deleted (a new or removed subset would show up here and means the layout changed). The first update
+after the switch to the pack is the exception: it deletes every `*.html` and adds `pages.sqlite`.
 
 ```bash
 cd <lb_code_dir> && git status --short | awk '{print $1}' | sort | uniq -c   # expect only 'M'
 ```
-
-(The Space's `README.md` describes an equivalent "unzip `clean_website_artifacts.zip` into `data`"
-path — the delete-then-copy above is the same result done safely.)
 
 ## Step 4: Bump the version history (Claude does now)
 
@@ -252,7 +238,8 @@ automatically, or `ssh -L 7860:localhost:7860 …`).
 
 ## Step 6: Hand off (maintainer commits + pushes)
 
-By default the **maintainer** commits/pushes the Space (Git LFS + Git Xet for the `.png.zip` files;
+By default the **maintainer** commits/pushes the Space (Git LFS + Git Xet for `data/pages.sqlite` and
+BeyondArena's `.png.zip` files;
 `hf auth login --add-to-git-credential` is set up on this box, so Claude *can* push when explicitly
 asked). From `<lb_code_dir>`:
 
@@ -260,9 +247,8 @@ asked). From `<lb_code_dir>`:
 git add data website_texts.py && git commit -m "Update leaderboard data + version history" && git push
 ```
 
-`git add data` matters: a refresh both **modifies** the tracked `.png.zip`/CSV files and **adds new
-untracked files** (the `*_explorer.html` + data-export CSVs) — an IDE commit of "changed files only"
-silently drops the interactive plots and the site falls back to static PNGs.
+`git add data` matters: an IDE commit of "changed files only" misses files a refresh adds (a new
+subset's CSVs) or deletes.
 
 Surface these caveats:
 - The `data/` swap only reflects methods whose results were actually **uploaded** (`upload-method`,
@@ -286,20 +272,22 @@ cd <lb_code_dir>   # HEAD must be the commit you are about to push
 
 ## Note: BeyondArena is a sibling flow
 
-The second leaderboard has its own generator and target folder:
+The second leaderboard has its own generator and target folder, built the same way as the main one
+(one ray task per cell, the pages packed into one file):
 `scripts/run_generate_beyondarena_website_artifacts.py` →
 `generated_beyondarena_website_artifacts/clean_website_artifacts/` (`subsets/` + `result_plots/`, and
-their twins without the methods with a leakage warning, `subsets_noleak/` + `result_plots_noleak/`) →
-Space repo's **`data_beyondarena/`**. Same delete-then-copy discipline applies. Only touch it when the
-maintainer asks for BeyondArena; this skill's default is the main leaderboard `data/`.
+their twins without the methods with a leakage warning, `subsets_noleak/` + `result_plots_noleak/`, plus
+`n_datasets.json` and `pages.sqlite`) → Space repo's **`data_beyondarena/`**. Same delete-then-copy
+discipline applies. Only touch it when the maintainer asks for BeyondArena; this skill's default is the
+main leaderboard `data/`.
 
 The generator crosses four filter axes (split, size, features, tasks) and publishes every cell that
 holds at least one dataset, under `subsets/split_*/size_*/features_*/tasks_*/` (354 of the 500 cells
-today). The cells run in parallel with ray (about a minute and a half on 96 cores);
-`--skip-generate` re-runs only the convert step. Copy `n_datasets.json` (each cell's dataset count)
-along with the folders. Delete `subsets*/` and `result_plots*/` before
-copying: the unzipped `*.png` files that `data_loading.unzip_png` leaves there are gitignored and
+today). It runs in about three minutes on 96 cores and takes no flags. Copy `n_datasets.json` (each
+cell's dataset count) and `pages.sqlite` along with the folders. Delete `subsets*/` and `result_plots*/`
+before copying: the unzipped `*.png` files that `data_loading.unzip_png` leaves there are gitignored and
 would be served stale. Then compare the file list against the Space's tracked one
-(`diff <(cd $SRC && find . -type f | sed 's|^\./||' | sort) <(cd $DST && git ls-files | sort)` is empty when no cell
-changed). Each cell must carry a `leaderboard_table.html` (one per `website_leaderboard.csv`), which
-the app embeds as the full table, and only the all-`all` cell carries `per_dataset_explorer.html`.
+(`diff <(cd $SRC && find . -type f | sed 's|^\./||' | sort) <(cd $DST && git ls-files | sort)` is empty
+when no cell changed). Each cell is one `website_leaderboard.csv` plus six pages in the pack (the table
+and five explorers); only the all-`all` cell carries `per_dataset_explorer.html`. No figure carries the
+`core2k` protocol's name or the build's `placeholder_name` folder key: every explorer title is empty.
