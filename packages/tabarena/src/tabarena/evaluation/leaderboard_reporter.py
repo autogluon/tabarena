@@ -847,8 +847,10 @@ class LeaderboardReporter:
         figure suite (LaTeX tables, the horizontal Elo bar plot).
 
         ``static_figures`` (default ``"all"``) set to ``"uncovered"`` skips the static figures an
-        interactive page shows and exports: the four ``pareto_front_*`` figures (the Pareto explorer)
-        and the win-rate matrix figure (the win-rate explorer). The pages are still written.
+        interactive page shows and exports: the four ``pareto_front_*`` figures (the Pareto explorer),
+        the win-rate matrix figure (the win-rate explorer) and the vertical ``tuning-impact-elo`` bar
+        plot (the leaderboard explorer the website builds from ``website_leaderboard.csv``). The pages
+        this reporter writes are still written.
 
         ``plot_winrate_matrix`` (default ``True``) draws the win-rate matrix figure and its
         interactive page. The matrix itself is still computed and written to ``winrate_matrix.csv``
@@ -1197,7 +1199,7 @@ class LeaderboardReporter:
             )
 
         # vertical elo barplot
-        if plot:
+        if plot and static_figures == "all":
             self.plot_tuning_impact(
                 df=df_results_rank_compare,
                 df_elo=leaderboard,
