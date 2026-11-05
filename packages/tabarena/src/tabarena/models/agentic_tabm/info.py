@@ -8,7 +8,7 @@ from tabarena.models.agentic_tabm.model import AgenticTabMModel
 agentic_tabm_method_metadata = MethodMetadata.config(
     method="TabM-A",
     validation_protocol="8x1",
-    suite="tabarena-agentic-2026-11-05",
+    suite="tabarena-2026-11-05",
     ag_key="TA-TABM-A",
     model_key="TABM-A",
     config_default="TabM-A_c1_default_BAG_L1",
@@ -19,8 +19,11 @@ agentic_tabm_method_metadata = MethodMetadata.config(
     date_introduced="2026-09",
     reference_url="https://arxiv.org/abs/2609.16309",
     license="MIT",
+    organization="Yandex Research",
     display_name="TabM-A",
-    verified=False,
+    verified=True,
+    cache_type="r2",
+    cache_kwargs={"bucket": "tabarena", "prefix": "cache"},
 )
 
 agentic_tabm_info = ModelInfo(

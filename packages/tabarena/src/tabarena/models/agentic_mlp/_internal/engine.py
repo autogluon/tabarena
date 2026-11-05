@@ -71,7 +71,15 @@ class TrainingGuard:
         return predictions
 
     def restore(self, model, err: Exception) -> None:
-        """Load the best finite epoch's weights after a train module stopped on a non-finite loss or prediction."""
+        """Load the best finite epoch's weights after a train module stopped on a non-finite loss or prediction.
+
+        Known pattern: ``best_state`` starts as the initial weights, so a configuration that diverges before its
+        first finite validation epoch ends with the untrained network and reports a successful fit whose
+        predictions are no better than a constant (exactly constant for the zero-initialized head of
+        ``model_idx=8``). In the TabArena-Full submission this happened for all 8 bag children in about 2.5% of
+        MLP-A results, most of them with ``model_idx=8``. Tuning and ensembling select on the validation error, so
+        such a configuration is not picked, but it is a failed fit and not a crash.
+        """
         if not any(s in str(err) for s in ("non-finite", "NaN", "infinity", "valid checkpoint")):
             raise err
         model.load_state_dict(self.best_state)

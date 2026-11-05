@@ -111,6 +111,8 @@ realmlp = ["pytabkit>=1.5.0,<2.0"]
 # 1.3.1 is the first release with TabDPT-1.3's shared-weights loader (`TabDPTEstimator._load_model`).
 tabdpt = ["tabdpt>=1.3.1"]
 tabm = ["torch", "tabm>=0.0.3", "rtdl_num_embeddings>=0.0.12"]
+# agentic-tabular requires Python >= 3.12 (PEP 695 syntax in bin/{mlp,tabm}/_util.py), so these two extras, and
+# `extended` / `all` that include them, do not install on Python 3.11.
 agentic_mlp = ["agentic-tabular[torch] @ git+https://github.com/yandex-research/agentic-hpset.git@3d7349b36df9bea48a5c236830a8f313ba1819c9"]
 agentic_tabm = ["agentic-tabular[torch] @ git+https://github.com/yandex-research/agentic-hpset.git@3d7349b36df9bea48a5c236830a8f313ba1819c9", "loguru>=0.7.0"]
 

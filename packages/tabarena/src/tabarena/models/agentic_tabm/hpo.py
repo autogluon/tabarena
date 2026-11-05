@@ -18,6 +18,10 @@ _INDEX_CHOICES = {
     "model_idx": tuple(range(15)),
     "train_idx": tuple(range(9)),
     "optimizer_idx": (0, 1),
+    # Index 6 (``inference_reg/weighted_variance.py``) scales each row by the median head variance over all rows
+    # predicted together, so a prediction depends on the other test rows (transductive). It is kept here because
+    # the hosted results were produced with it (25 of the 200 configs, regression only; removing them changes
+    # TabM-A's Elo by about 1.5). A new search space must not sample it.
     "inference_idx_reg": tuple(range(8)),
     "inference_idx_clf": (0, 1, 2),
     "loss_idx_reg": (0, 1),
