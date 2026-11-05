@@ -365,6 +365,20 @@ def test_task_cache_path_custom(tmp_path):
     assert ut.task_cache_path == tmp_path
 
 
+def test_create_local_openml_task_custom_task_cache_path_writes_data_pickle_there(tmp_path):
+    df, target, _, _ = _make_dataset("classification", n=10)
+    ut = UserTask(task_name="data-pickle-location", task_cache_path=tmp_path)
+    ut.create_local_openml_task(
+        dataset=df,
+        target_feature=target,
+        problem_type="classification",
+        splits={0: {0: (list(range(8)), [8, 9])}},
+    )
+    openml_local = Path(openml.config._root_cache_directory) / "local" / "datasets" / ut._local_dataset_id
+    assert (tmp_path / "local" / "datasets" / ut._local_dataset_id / "data.pkl.py3").exists()
+    assert not openml_local.exists()
+
+
 def test_task_cache_path_default_contains_tabarena_tasks():
     ut = UserTask(task_name="test")
     assert "tabarena_tasks" in str(ut.task_cache_path)

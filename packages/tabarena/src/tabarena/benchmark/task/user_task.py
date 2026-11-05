@@ -88,6 +88,7 @@ class UserTask(TaskSpec):
         task_cache_path: Path | None, default=None
             Path to use for caching the local OpenML tasks.
             If None, the default OpenML cache directory is used.
+            The data pickle of a local OpenML task is also written under this path.
         """
         self.task_name = task_name
         self._task_name_hash = hashlib.sha256(self.task_name.encode("utf-8")).hexdigest()
@@ -228,7 +229,8 @@ class UserTask(TaskSpec):
 
     @property
     def _local_cache_path(self) -> Path:
-        return Path(openml.config._root_cache_directory) / "local" / "datasets" / self._local_dataset_id
+        root = self._task_cache_path if self._task_cache_path is not None else openml.config._root_cache_directory
+        return Path(root) / "local" / "datasets" / self._local_dataset_id
 
     def get_dataset_name(self, dataset_name: str | None = None) -> str:
         """Get the dataset name to use for the local OpenML dataset."""
