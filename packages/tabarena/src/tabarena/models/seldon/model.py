@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, ClassVar
 
 import numpy as np
-from autogluon.core.constants import BINARY, MULTICLASS
+from autogluon.core.constants import BINARY, MULTICLASS, REGRESSION
 from autogluon.core.models.abstract import SharedWeights
 from autogluon.tabular.models.abstract.abstract_torch_model import AbstractTorchModel
 
@@ -18,14 +18,17 @@ if TYPE_CHECKING:
 #: Hugging Face commits of the released checkpoints, pinned so a push to a repository never changes the
 #: benchmarked weights. Keys are neuralk-oss's model names.
 HF_REVISIONS: dict[str, str] = {
-    "seldon": "b113e1cebe6748538ddcd992e060aec5de772b27",
-    "seldon-mini": "28507308fd67e3bb1796682294cb8ea3aeab4eec",
+    "seldon": "290b8e3e6f3d5748c02d2414742cc4b4f9ac01d3",
+    "seldon-mini": "67d1672fa193a82d9bf5a3b8f921fa5c9587c280",
 }
+
+#: The checkpoint of each task in a repository (neuralk-oss's ``HUB_CHECKPOINTS`` suffix).
+_TASK_SUFFIX = {BINARY: "classifier", MULTICLASS: "classifier", REGRESSION: "regressor"}
 
 
 @dataclass
 class FittedSeldon:
-    """The shared network next to the fitted classifier, whose estimator holds it only during a call.
+    """The shared network next to the fitted classifier or regressor, whose estimator holds it only during a call.
 
     AutoGluon's shared-weights pickle finds the network by identity in the fitted state but treats a
     ``torch.nn.Module`` as one unit, and the library's estimator (``SeldonICL``) is a module holding the
@@ -34,28 +37,31 @@ class FittedSeldon:
     """
 
     network: Any
-    classifier: Any
+    estimator: Any
 
 
 def _attached(fitted: FittedSeldon):
-    """The fitted classifier with the shared network attached to its estimator."""
-    fitted.classifier.estimator.model = fitted.network
-    return fitted.classifier
+    """The fitted classifier or regressor with the shared network attached to its estimator."""
+    fitted.estimator.estimator.model = fitted.network
+    return fitted.estimator
 
 
 def _detach(fitted: FittedSeldon) -> None:
-    fitted.classifier.estimator.model = None
+    fitted.estimator.estimator.model = None
 
 
 class SeldonModel(AbstractTorchModel):
     """Seldon: Neuralk-AI's pretrained in-context-learning tabular foundation model.
 
-    A thin pass-through to ``neuralk_oss.SeldonClassifier``: ``from_pretrained(<name>)`` builds the
-    classifier with the released model's packaged config (ensemble size, per-member preprocessing
-    recipe, context size, float16 autocast on CUDA), ``fit`` keeps the training table as context and
-    ``predict_proba`` classifies the query rows against it. The wrapper hands the library AutoGluon's
-    preprocessed frame (unsigned integer columns cast to signed), the fit's seed and its device, sets
-    torch's thread count to ``num_cpus``, and gives a class a bagged fold did not see a zero column.
+    A thin pass-through to ``neuralk_oss.SeldonClassifier`` and ``neuralk_oss.SeldonRegressor``:
+    ``from_pretrained(<name>)`` builds either with the released model's packaged config for its task
+    (ensemble size, per-member preprocessing recipe, context size, float16 autocast on CUDA; for regression
+    also the quantiles' clamp to the training target's range), ``fit`` keeps the training table as context,
+    ``predict_proba`` classifies the query rows against it and, for regression, ``predict`` returns the mean
+    of the predicted quantiles. Both tasks come from one Hugging Face repository per model, a checkpoint each.
+    The wrapper hands the library AutoGluon's preprocessed frame (unsigned integer columns cast to signed),
+    the fit's seed and its device, sets torch's thread count to ``num_cpus``, and gives a class a bagged
+    fold did not see a zero column.
 
     Paper: Seldon — Technical Report (https://technical-report.neuralk.ai/seldon-technical-report.pdf)
     Codebase: https://pypi.org/project/neuralk-oss/ (weights: https://huggingface.co/Neuralk-AI/seldon,
@@ -72,7 +78,7 @@ class SeldonModel(AbstractTorchModel):
     ag_name = "TA-Seldon"
     ag_priority = 65
     seed_name = "random_state"
-    _supported_problem_types: ClassVar[list[str]] = [BINARY, MULTICLASS]
+    _supported_problem_types: ClassVar[list[str]] = [BINARY, MULTICLASS, REGRESSION]
     default_num_gpus = 1
     default_resources_physical_cores_only = True
     minimum_num_gpus = 1
@@ -93,27 +99,30 @@ class SeldonModel(AbstractTorchModel):
 
     def _fit(self, X: pd.DataFrame, y: pd.Series, num_cpus: int = 1, num_gpus: int = 0, **kwargs):
         import torch
-        from neuralk_oss import Seldon, SeldonClassifier
+        from neuralk_oss import Seldon, SeldonClassifier, SeldonRegressor
 
         X = self.preprocess(X, y=y)
         device = self._resolve_fit_device(num_gpus)
-        # What ``SeldonClassifier.from_pretrained(<name>)`` does, with the network loaded through the shared
-        # loader: the packaged config's settings, then the constructor on the loaded network.
+        regression = self.problem_type == REGRESSION
+        # What ``SeldonClassifier.from_pretrained(<name>)`` (``SeldonRegressor``'s) does, with the network loaded
+        # through the shared loader: the packaged config's settings, then the constructor on the loaded network.
         network = Seldon.from_pretrained(
-            f"{self.model_name}-classifier", revision=HF_REVISIONS[self.model_name], device=device
+            f"{self.model_name}-{_TASK_SUFFIX[self.problem_type]}",
+            revision=HF_REVISIONS[self.model_name],
+            device=device,
         )
         settings = {
-            **_packaged_settings(self.model_name),
+            **_packaged_settings(self.model_name, regression=regression),
             "device": device,
             "random_state": self.random_seed if isinstance(self.random_seed, int) else 0,
         }
-        classifier = SeldonClassifier(network, **settings)
-        self.model = FittedSeldon(network=network, classifier=classifier)
+        estimator = (SeldonRegressor if regression else SeldonClassifier)(network, **settings)
+        self.model = FittedSeldon(network=network, estimator=estimator)
         self._num_cpus = num_cpus
         previous_threads = torch.get_num_threads()
         try:
             torch.set_num_threads(num_cpus)
-            classifier.fit(X, y)
+            estimator.fit(X, y)
         finally:
             torch.set_num_threads(previous_threads)
             _detach(self.model)
@@ -125,14 +134,17 @@ class SeldonModel(AbstractTorchModel):
         previous_threads = torch.get_num_threads()
         try:
             torch.set_num_threads(self._num_cpus)
-            classifier = _attached(self.model)
-            proba = classifier.predict_proba(X)
+            estimator = _attached(self.model)
+            if self.problem_type == REGRESSION:
+                # The mean of the members' quantiles.
+                return estimator.predict(X)
+            proba = estimator.predict_proba(X)
         finally:
             torch.set_num_threads(previous_threads)
             _detach(self.model)
         # A bagged fold can miss a class; its column stays 0.
         predictions = np.zeros((len(X), self.num_classes), dtype=np.float32)
-        predictions[:, np.asarray(self.model.classifier.classes_, dtype=int)] = proba
+        predictions[:, np.asarray(self.model.estimator.classes_, dtype=int)] = proba
         return self._convert_proba_to_unified_form(predictions)
 
     def _preprocess(self, X: pd.DataFrame, **kwargs) -> pd.DataFrame:
@@ -143,7 +155,7 @@ class SeldonModel(AbstractTorchModel):
         return str(param.device) if param is not None else "cpu"
 
     def _set_device(self, device: str):
-        """Move the shared network and the fitted classifier (``SeldonClassifier.to``).
+        """Move the shared network and the fitted classifier or regressor (their ``to``).
 
         The members' context cache stays in pinned CPU memory, from which ``predict_proba`` streams it.
         """
@@ -163,7 +175,7 @@ class SeldonModel(AbstractTorchModel):
         100k-row table, and AutoGluon pickles a model to save it and to measure it. Developer fix: the cache is sdm's
         private ``ICLModel._cache``; re-check it whenever the pin moves.
         """
-        estimator = self.model.classifier.estimator
+        estimator = self.model.estimator.estimator
         cache = estimator._cache
         estimator._cache = None
         try:
@@ -173,7 +185,7 @@ class SeldonModel(AbstractTorchModel):
 
     def save(self, path: str | None = None, verbose: bool = True) -> str:
         """Pickle the model without the context cache and write the cache with ``torch.save``, which needs no copy."""
-        if self.model is None or self.model.classifier.estimator._cache is None:
+        if self.model is None or self.model.estimator.estimator._cache is None:
             return super().save(path=path, verbose=verbose)
         import torch
 
@@ -198,7 +210,7 @@ class SeldonModel(AbstractTorchModel):
             cache = torch.load(cache_path, mmap=True, weights_only=False)
             if torch.cuda.is_available():
                 cache = cache._apply_tensor(lambda t: t.pin_memory() if t.device.type == "cpu" else t)
-            model.model.classifier.estimator._cache = cache
+            model.model.estimator.estimator._cache = cache
         return model
 
     def _get_pickled_size(self) -> int:
@@ -220,22 +232,24 @@ class SeldonModel(AbstractTorchModel):
         repo = {"seldon": "Neuralk-AI/seldon", "seldon-mini": "Neuralk-AI/seldon-mini"}[cls.model_name]
         return [
             snapshot_download(
-                repo, revision=HF_REVISIONS[cls.model_name], allow_patterns=["config.json", "model.safetensors"]
+                repo,
+                revision=HF_REVISIONS[cls.model_name],
+                allow_patterns=["config.json", f"{cls.model_name}-*.safetensors"],
             )
         ]
 
 
-def _packaged_settings(model_name: str) -> dict:
-    """The released model's packaged config (``neuralk_oss/configs/<name>.yaml``), as ``from_pretrained`` reads it.
+def _packaged_settings(model_name: str, *, regression: bool = False) -> dict:
+    """The released model's packaged config (``neuralk_oss/configs/<name>[-regressor].yaml``), as ``from_pretrained`` reads it.
 
-    Developer fix: neuralk-oss 0.2.3 reads the packaged config only inside ``from_pretrained``, which also loads
+    Developer fix: neuralk-oss 0.3.0 reads the packaged config only inside ``from_pretrained``, which also loads
     the network, so the wrapper calls the private ``_read_config`` to load the network through the shared loader.
     The library could expose the settings publicly, or take a prebuilt network in ``from_pretrained``. Re-check
     this function whenever the pin moves.
     """
-    from neuralk_oss.inference.classifier import _CONFIGS, _read_config
+    from neuralk_oss.inference._inference import _CONFIGS, _read_config
 
-    settings = _read_config(_CONFIGS / f"{model_name}.yaml")
+    settings = _read_config(_CONFIGS / f"{model_name}{'-regressor' if regression else ''}.yaml")
     settings.pop("checkpoint", None)
     return settings
 
