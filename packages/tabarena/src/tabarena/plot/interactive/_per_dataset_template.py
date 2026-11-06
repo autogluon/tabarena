@@ -611,7 +611,8 @@ __BASE_JS__
   function escapeHtml(text) {
     return String(text).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
   }
-  const VARIANT_SHORT = { "Default": "D", "Tuned": "T", "Tuned + Ens.": "T+E" };
+  // A default carries no badge, as it carries no tag in the leaderboard table.
+  const VARIANT_SHORT = { "Tuned": "T", "Tuned + Ens.": "T+E" };
   function variantBadge(method) {
     const short = VARIANT_SHORT[method.variant];
     if (!short) return "";
