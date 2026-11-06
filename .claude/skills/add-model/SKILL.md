@@ -281,10 +281,10 @@ found and removed later. The four shapes seen so far, with the in-tree reference
 
 | The library... | Developer fix | Reference |
 |---|---|---|
-| flips a global torch flag or the root logger when imported or fitted (TF32, cuDNN, `logging.basicConfig`) | pin the flag explicitly in `_fit` right after the import (one policy for every fit, whatever imported first) and save/restore the rest in a context manager around the fit | `iltm/model.py` (`_isolate_iltm_global_state`, `allow_tf32 = False`) |
+| flips a global torch flag or the root logger when imported or fitted (TF32, cuDNN, `logging.basicConfig`) | import the library inside a context manager that pins the flag right after the import (one policy for every fit, whatever imported first) and restores the caller's state on exit; run fit, predict and the warm-up's import inside it | `iltm/model.py` (`_isolate_iltm_global_state`, the `warmup` classmethod) |
 | builds its network only at the first predict | build it at the end of `_fit`, so the load is shared and the timed predict starts warm | `nori/model.py` (the eager `_get_predictor()` call) |
 | loads the checkpoint inside `__init__`, with no `_load_model` and no `network=` argument | a `load_network(...)` function in `<model>/_estimators.py` replicating the loading half of the constructor (declared as the `shared_weights` loader), plus a constructor replica when the constructor cannot take a prebuilt network, guarded against library bumps | `exaone_tabular/_estimators.py` (TabDPT had one until layer6ai-labs/TabDPT-inference#79 merged) |
-| declares no `logger` until `__init__` ran, breaks after an unpickle, or has another bug the fit path hits | the narrowest patch at the call site, idempotent, applied where the code path enters the library | `iltm/model.py` (`_ensure_iltm_logger_patched`) |
+| declares no `logger` until `__init__` ran, breaks after an unpickle, or has another bug the fit path hits | the narrowest patch at the call site, idempotent, applied where the code path enters the library | none in tree at the moment |
 
 The header is the contract: the module docstring, function docstring or comment opens with
 `Developer fix` (or `Developer fix:` inline), then says what the library does, what it should offer
