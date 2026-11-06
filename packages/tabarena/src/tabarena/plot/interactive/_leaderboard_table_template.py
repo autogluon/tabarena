@@ -184,7 +184,9 @@ __BASE_JS__
   // How a variant is written out. The short "Tuned + Ens." form is the internal key
   // (the charts' colour and marker tables are keyed by it), but nothing on the page
   // should show the abbreviation: the row tag uses the spelling the data and the
-  // app's cross-subset table use, and the toggle spells it out in full.
+  // app's cross-subset table use, and the toggle spells it out in full. A default
+  // row carries no tag (`tagged`), so a bare name reads as the model out of the box.
+  const tagged = v => Boolean(v) && v !== "Default";
   const VARIANT_TEXT = {
     "Default": "default",
     "Tuned": "tuned",
@@ -266,7 +268,7 @@ __BASE_JS__
   function nameCell(p) {
     const ink = famInk(p) || "var(--muted)";
     let inner = escapeHtml(p.method);
-    if (p.variant) inner += ' <span class="variant-tag">(' + escapeHtml(variantText(p.variant)) + ")</span>";
+    if (tagged(p.variant)) inner += ' <span class="variant-tag">(' + escapeHtml(variantText(p.variant)) + ")</span>";
     if (p.verified) inner += ' <span class="verified" title="Verified implementation">&#10004;&#65039;</span>';
     if (fresh.has(p.method)) inner += '<span class="new-tag" title="' + escapeHtml(fresh.get(p.method)) + '">new</span>';
     const leaked = leakageOf(p.method);

@@ -61,8 +61,8 @@ _COLUMNS: list[dict] = [
         "label": "Method",
         "always": True,
         "hint": (
-            "The method, its tuning variant in brackets, ✔️ when the implementation was "
-            "verified, and ‡ when some results are imputed."
+            "The method, (tuned) or (tuned + ensembled) when it was tuned (a bare name is its "
+            "default), ✔️ when the implementation was verified, and ‡ when some results are imputed."
         ),
     },
     {
