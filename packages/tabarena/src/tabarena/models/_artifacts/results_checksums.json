@@ -247,5 +247,9 @@
  "artifacts/tabarena-2026-11-03/methods/Seldon-Mini/results/hpo_results.parquet": "962c1a62239ed4bd670a3540296632c3",
  "artifacts/tabarena-2026-11-03/methods/Seldon-Mini/results/model_results.parquet": "ea8f677e99ffda16d617145058ca2dad",
  "artifacts/tabarena-2026-11-03/methods/Seldon/results/hpo_results.parquet": "3608188deb885fccdebaed0409c71834",
- "artifacts/tabarena-2026-11-03/methods/Seldon/results/model_results.parquet": "0c6ac50051508755800b47f081aafd44"
+ "artifacts/tabarena-2026-11-03/methods/Seldon/results/model_results.parquet": "0c6ac50051508755800b47f081aafd44",
+ "artifacts/tabarena-2026-11-05/methods/MLP-A/results/hpo_results.parquet": "cf81616de5de0a1b7e594f86dfcb51ae",
+ "artifacts/tabarena-2026-11-05/methods/MLP-A/results/model_results.parquet": "2a8dac097bd0726b079a377da77845cf",
+ "artifacts/tabarena-2026-11-05/methods/TabM-A/results/hpo_results.parquet": "a5becdb1903d0ae391a9df564424a1e2",
+ "artifacts/tabarena-2026-11-05/methods/TabM-A/results/model_results.parquet": "d4e292f47cf2730c1daddf8750511e0a"
 }

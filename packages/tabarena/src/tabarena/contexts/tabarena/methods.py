@@ -42,6 +42,8 @@ from tabarena.models._method_metadata_collection import MethodMetadataCollection
 # Per-model `info.py` is the canonical source for each method's `MethodMetadata`; the collection
 # below references these directly. (Some keep their historical alias, used by the per-suite full
 # lists / downstream collections.)
+from tabarena.models.agentic_mlp.info import agentic_mlp_method_metadata
+from tabarena.models.agentic_tabm.info import agentic_tabm_method_metadata
 from tabarena.models.aplr.info import aplr_method_metadata
 from tabarena.models.catboost.info import catboost_new_method_metadata
 from tabarena.models.causilo.info import causilo_method_metadata, causilo_new_method_metadata
@@ -218,6 +220,8 @@ tabarena_method_metadata_collection = MethodMetadataCollection(
         random_forest_method_metadata,
         xgboost_method_metadata,
         # Neural / GPU / foundation models
+        agentic_mlp_method_metadata,
+        agentic_tabm_method_metadata,
         mitra_metadata,
         modernnca_gpu_method_metadata,
         realmlp_gpu_metadata,
