@@ -47,6 +47,12 @@ uploads — start each method's dry-run + real upload as soon as its processing 
 
 ## Step 0: Gather inputs
 
+**Results from a contributor's own run** (a submission hosted instead of a maintainer re-run): verify the
+files before anything is processed, following `references/verify_submission.md` (safe download and
+unpickling, a scan of every `results.pkl` with `scripts/scan_submission.py`, split and label hashes against
+our own run, hyperparameters against the search space, the claimed Elo reproduced with `compare`, and the
+impact of any problem the review finds). `verified=True` needs the maintainer's sign-off on that report.
+
 Parse `$ARGUMENTS`. Collect (ask only for what's missing or ambiguous):
 
 | Input | Example | Notes |
