@@ -34,6 +34,55 @@ run against `main`. To reproduce an entry, check out its recorded **git SHA**.
 
 ---
 
+## 2026-11-08 — seldonreg_08112026
+
+- **Model(s):** Seldon and Seldon-Mini (default config only), every split of the 13 TabArena-v0.1 regression datasets,
+  222 items each, 444 in total
+- **Git SHA:** `e8e91b08` (PR #714 head `b3e39124` plus a note in `models/seldon/info.py`), clean; AutoGluon from the
+  editable `../autogluon` checkout (`88d33ba6`, untracked files only)
+- **Validation protocol:** `8x1`
+- **Purpose:** Stage-2 maintainer run of PR #714, which adds regression to Seldon and Seldon-Mini (`neuralk-oss==0.3.0`,
+  gated weights `Neuralk-AI/seldon@290b8e3e` and `Neuralk-AI/seldon-mini@67d1672f`). Regression only: the
+  classification results stay those of seldonfix_03112026 / seldonminifix_03112026 below and are merged with these
+  at upload.
+- **Notes:** SkyPilot pool `seldonreg-0811` (32 spot RTX PRO 6000 workers), one item per bundle,
+  `fake_memory_for_estimates=96`, `sequential_local` fold fitting from the wrapper, env manifest `env/cf405643a5d7`,
+  launch `seldonreg_08112026_gpu-20261108-103845-03a9`. Run venv `~/.venvs/tabarena_rerun_16092026` (torch
+  2.13.0+cu130) with `neuralk-oss==0.3.0` and `structured-data-models==0.2.1` added. Before the launch, three reviewer
+  agents (leakage, protocol, data path) found no blocker. The classifier weights at the new revisions are
+  byte-identical to the old pins and the classifier configs are unchanged; 0.3.0's new `max_cache_gb=8.0` only moves
+  time from fit to predict on the largest classification tables, which the `info.py` note records. The setup reused
+  the bucket's `weights/Seldon*.json` manifests from 11-03, so the new revisions were not seeded while the jobs were
+  set to run offline; they were seeded by hand into the same `snapshots/` and `trees/` prefixes and loaded offline
+  from a bucket copy before the launch (setup fix in #715). The 444 items finished in about 11 minutes with 0
+  failed; `audit_warmup --results` shows warm-up `ok` on all 444 and no package imported inside the timed sections.
+  Eval on the regression subset (110 methods, 0% imputed): Seldon #6, Elo 2207 (+168/-87), the PR expected about 2160;
+  Seldon-Mini #8, Elo 2147 (+164/-69), the PR expected about 2115. Median per 1K rows: Seldon 1.14 s train and
+  0.077 s inference, Seldon-Mini 0.39 s and 0.035 s.
+
+```python
+TabArenaV0pt1BenchmarkPlan(
+    benchmark_name="seldonreg_08112026",
+    model_jobs=[
+        ModelJob(
+            models=[("Seldon", 0), ("Seldon-Mini", 0)],
+            name="gpu",
+            resources={"num_gpus": 1, "fake_memory_for_estimates": 96},
+        ),
+    ],
+    task_subset=TaskSubset(subset="regression"),
+    path_setup=PathSetup(
+        workspace="/home/lennart_priorlabs_ai/workspace/benchmarking/tabarena_workspace",
+        python_path="/home/lennart_priorlabs_ai/.venvs/tabarena_rerun_16092026/bin/python",
+    ),
+    experiment_bundle=TabArenaV0pt1ExperimentBundle(model_verbosity=2),
+    resources_setup=TabArenaV0pt1ResourcesSetup(num_cpus=None, memory_limit=None),
+    scheduler_setup=SkyPilotSetup(bundle_size=1, workers=32, use_pool=True, pool_name="seldonreg-0811"),
+).setup_jobs()
+```
+
+---
+
 ## 2026-11-03 — seldonfix_03112026, seldonminifix_03112026
 
 - **Model(s):** Seldon and Seldon-Mini (default config only), one run per model, every split of the 38 TabArena-v0.1
