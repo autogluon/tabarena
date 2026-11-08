@@ -111,6 +111,7 @@ from tabarena.models.tabfm.info import (
     tabfm_method_metadata,
     tabfm_new_method_metadata,
 )
+from tabarena.models.tabh2o.info import tabh2o_method_metadata
 from tabarena.models.tabicl.info import (
     tabicl_method_metadata,
     tabiclv2_2026_09_method_metadata,
@@ -263,6 +264,7 @@ tabarena_method_metadata_collection = MethodMetadataCollection(
         tababax_method_metadata,
         seldon_method_metadata,
         seldon_mini_method_metadata,
+        tabh2o_method_metadata,
     ],
 )
 
