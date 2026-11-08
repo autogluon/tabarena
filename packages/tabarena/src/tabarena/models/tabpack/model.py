@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-import logging
+import time
 from typing import ClassVar
 
 import numpy as np
 import pandas as pd
+from autogluon.core.utils.exceptions import TimeLimitExceeded
 from autogluon.tabular.models.abstract.abstract_torch_model import AbstractTorchModel
-
-logger = logging.getLogger(__name__)
 
 #: AutoGluon scorer name to the TabPack metric used for each member's checkpoint selection and early stopping.
 _METRIC_MAP = {
@@ -29,14 +28,13 @@ _INDICATOR_PREFIX = "__tabpack_missing__"
 def _drop_training_checkpoints(estimator) -> None:
     """Free the per-member training checkpoints a fitted TabPack estimator keeps but never predicts with.
 
-    Developer fix. A fitted ``TabPackClassifier`` / ``TabPackRegressor`` (tabpackage 0.0.1) keeps
+    Developer fix. A fitted ``TabPackClassifier`` / ``TabPackRegressor`` (tabpackage 0.0.2.dev0) keeps
     ``tabpack_``, whose checkpoint store holds the best state of every member, padded to the pack's
     largest shape, for ``refit`` and inspection; prediction uses only the ensemble's ``_predictor``. On
     a 20-feature table with the default 64 members the store took a fitted model's pickle from 11 MB to
-    159 MB, and every bagged fold model is saved. The wrapper never refits, so it clears the store's
-    state dicts after the fit; predictions are unchanged. The library could offer this itself (an
-    option to keep no training checkpoints, or a public method that drops them); to be asked upstream
-    at yandex-research/tabpack together with the time budget.
+    159 MB, and every bagged fold model is saved. The library has no option to skip or drop the store,
+    and the wrapper never refits, so it clears the store's state dicts after the fit; predictions are
+    unchanged.
     """
     estimator.tabpack_._checkpoints.state_dicts.clear()
 
@@ -49,12 +47,11 @@ class TabPackModel(AbstractTorchModel):
     greedy ensemble of their checkpoints on ``X_val`` while they train. Both steps use the validation
     rows TabArena passes to ``_fit``; the library never splits the training data itself.
 
-    Not supported yet: ``time_limit`` and refit on train+val. ``tabpackage`` 0.0.1 has no time budget
-    or stop hook, so a fit runs until its members and the ensemble stop early, and a bag whose first
-    folds overrun their share fails with ``TimeLimitExceeded``; the library should take a
-    ``time_limit`` or a per-epoch stop callback in ``tabpackage.train`` and ``fit`` (upstream ask to
-    be filed at yandex-research/tabpack). The library's ``refit`` would put each fold's out-of-fold
-    rows into the model that predicts them, so it is not used.
+    ``time_limit`` becomes the library's ``training_loop_time_budget``: what is left of it after the
+    preprocessing, less 5% headroom for building the predictor. The library checks the budget after
+    each epoch, so a fit can overrun it by up to one epoch, and the online greedy ensemble keeps the
+    members it selected so far. Refit on train+val is not supported: the library's ``refit`` would put
+    each fold's out-of-fold rows into the model that predicts them.
 
     Paper: TabPack: Efficient Hyperparameter Ensembles for Tabular Deep Learning
     Authors: Yury Gorishniy, Akim Kotelnikov, Ivan Rubachev, Artem Babenko
@@ -97,13 +94,12 @@ class TabPackModel(AbstractTorchModel):
         verbosity: int = 2,
         **kwargs,
     ):
+        start_time = time.time()
         import torch
         from tabpackage.sklearn import TabPackClassifier, TabPackRegressor
 
         device = self._resolve_fit_device(num_gpus=num_gpus)
         torch.set_num_threads(num_cpus)  # restored after the fit by the reset_torch_threads class tag
-        if time_limit is not None:
-            logger.log(30, f"\tWarning: TabPack has no time budget; time_limit={time_limit:.1f}s is not enforced.")
 
         if X_val is None:
             # The library needs held-out rows for early stopping and for building the ensemble.
@@ -134,6 +130,11 @@ class TabPackModel(AbstractTorchModel):
             # The authors' TabArena setting: the training loss as the greedy ensembling score.
             ensemble_metric = "log_loss" if is_classification else "mse"
         hps.setdefault("ensembles", {"default": {"type": "greedy", "algorithm_metric": ensemble_metric}})
+        if time_limit is not None:
+            budget = 0.95 * (time_limit - (time.time() - start_time))
+            if budget <= 0:
+                raise TimeLimitExceeded
+            hps["training_loop_time_budget"] = budget
 
         model_cls = TabPackClassifier if is_classification else TabPackRegressor
         self.model = model_cls(

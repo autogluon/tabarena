@@ -1,5 +1,5 @@
 """TabPack wrapper logic the registry fit test does not reach: its preprocessing, a class missing from
-a fold's training rows, and the regression target scale. Cheap CPU fits (two members, one epoch).
+a fold's training rows, the regression target scale, and the time limit. Cheap CPU fits (two members).
 """
 
 from __future__ import annotations
@@ -27,7 +27,9 @@ def _frame(n: int, seed: int = 0) -> pd.DataFrame:
     )
 
 
-def _fit(tmp_path, X, y, problem_type, metric, X_val=None, y_val=None, **fit_kwargs) -> TabPackModel:
+def _fit(
+    tmp_path, X, y, problem_type, metric, X_val=None, y_val=None, hyperparameters=None, **fit_kwargs
+) -> TabPackModel:
     """Fit on AutoGluon's default features, as the benchmark does (bool and category special types included)."""
     generator = AutoMLPipelineFeatureGenerator(verbosity=0)
     X = generator.fit_transform(X)
@@ -37,7 +39,7 @@ def _fit(tmp_path, X, y, problem_type, metric, X_val=None, y_val=None, **fit_kwa
         name="TabPack",
         problem_type=problem_type,
         eval_metric=get_metric(metric, problem_type),
-        hyperparameters={"n_models": 2, "max_epochs": 1},
+        hyperparameters=hyperparameters or {"n_models": 2, "max_epochs": 1},
     )
     model.generator = generator  # the tests transform new rows the same way
     model.fit(
@@ -98,3 +100,26 @@ def test_regression_predictions_are_on_the_target_scale(tmp_path):
 
     pred = model.predict(model.generator.transform(X.iloc[200:]))
     assert abs(pred.mean() - 5000.0) < 200.0
+
+
+def test_time_limit_stops_a_fit_with_no_other_stopping_condition(tmp_path):
+    X = _frame(300)
+    y = pd.Series((X["num"] > 0).astype(int))
+    # No epoch limit, no member early stopping, no stop on ensemble finalization: only the budget ends the loop.
+    hps = {"n_models": 2, "early_stopping_patience": None, "stop_when_all_ensembles_are_finalized": False}
+    model = _fit(
+        tmp_path,
+        X.iloc[:200],
+        y.iloc[:200],
+        "binary",
+        "log_loss",
+        X.iloc[200:],
+        y.iloc[200:],
+        hyperparameters=hps,
+        time_limit=3.0,
+    )
+
+    budget = model.model.training_loop_time_budget
+    assert 0 < budget < 0.95 * 3.0
+    assert budget <= model.model.tabpack_.get_training_loop_time() < 3.0
+    assert model.predict_proba(model.generator.transform(X.iloc[:5])).shape == (5,)

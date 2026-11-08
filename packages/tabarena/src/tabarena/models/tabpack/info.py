@@ -28,5 +28,5 @@ tabpack_info = ModelInfo(
     method_metadata=tabpack_method_metadata,
     # tabpackage is experimental ("expect breaking changes"), and the wrapper moves the fitted
     # predictor between devices through two private attributes, so the release is pinned exactly.
-    pip_extra=("tabpackage[sklearn]==0.0.1",),
+    pip_extra=("tabpackage[sklearn]==0.0.2.dev0",),
 )
