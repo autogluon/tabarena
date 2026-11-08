@@ -34,6 +34,39 @@ def _category_strings(values: pd.Series) -> pd.Series:
     return values.where(values.notna(), _MISSING_CATEGORY).astype(str)
 
 
+def _max_pack_size(X: pd.DataFrame, hps: dict, memory_budget: float) -> int | None:
+    """How many models to train at once when the first layers of the whole pack would exceed ``memory_budget`` bytes.
+
+    Developer fix. ``tabpackage`` trains all models of the pack at once, and each model's first layer takes
+    ``n_numerical x d_embedding + n_categories`` inputs (numerical embeddings up to 32 wide by default, one
+    input per category) and ``d_block`` (384) outputs, held as float32 weights, gradients and two AdamW
+    moments. On BeyondArena's ``lung_cancer`` (197 rows, 12,600 features) that is 2.5 GB per model, 159 GB
+    for 64, and the first backward pass ran out of memory on a 96 GB card. Above the budget, the library's
+    ``max_pack_size`` trains as many models at once as fit and replaces them as they finish. ``X`` is the
+    preprocessed frame (categorical features as string columns); ``None`` means the whole pack fits.
+    """
+    n_models = hps.get("n_models") or 64
+    is_categorical = [str(dtype) == "string" for dtype in X.dtypes]
+    n_categories = sum(X[c].nunique() for c, cat in zip(X.columns, is_categorical, strict=True) if cat)
+    n_numerical = len(is_categorical) - sum(is_categorical)
+    d_embedding = hps.get("numerical_embeddings_d")
+    if hps.get("numerical_embeddings") == "none":
+        d_embedding = 1
+    elif not isinstance(d_embedding, int):
+        d_embedding = 32  # the top of the library's default range (8 to 32); the pack pads to its widest model
+    d_block = hps.get("d_block") if isinstance(hps.get("d_block"), int) else 384
+    bytes_per_model = 16 * d_block * (n_numerical * d_embedding + n_categories)
+    n_fit = int(memory_budget // bytes_per_model)
+    if n_fit >= n_models:
+        return None
+    logger.log(
+        20,
+        f"\tThe first layers of {n_models} models need ~{n_models * bytes_per_model / 1e9:.0f} GB: "
+        f"training {max(n_fit, 1)} at once (max_pack_size).",
+    )
+    return max(n_fit, 1)
+
+
 def _drop_training_checkpoints(estimator) -> None:
     """Free the per-member training checkpoints a fitted TabPack estimator keeps but never predicts with.
 
@@ -123,6 +156,7 @@ class TabPackModel(AbstractTorchModel):
         criterion_metric = hps.pop("eval_criterion_metric", "auto")
         ensemble_metric = hps.pop("ensemble_metric", "auto")
         max_total_categories = hps.pop("max_total_categories", None)
+        max_pack_memory_fraction = hps.pop("max_pack_memory_fraction", None)
 
         X = self.preprocess(X, is_train=True, max_total_categories=max_total_categories)
         X_val = self.preprocess(X_val)
@@ -146,6 +180,11 @@ class TabPackModel(AbstractTorchModel):
             if budget <= 0:
                 raise TimeLimitExceeded
             hps["training_loop_time_budget"] = budget
+        if max_pack_memory_fraction and "max_pack_size" not in hps and str(device).startswith("cuda"):
+            total_memory = torch.cuda.get_device_properties(torch.device(device)).total_memory
+            max_pack_size = _max_pack_size(X, hps, max_pack_memory_fraction * total_memory)
+            if max_pack_size is not None:
+                hps["max_pack_size"] = max_pack_size
 
         model_cls = TabPackClassifier if is_classification else TabPackRegressor
         self.model = model_cls(
@@ -296,6 +335,9 @@ class TabPackModel(AbstractTorchModel):
             # Memory cap on the one-hot categoricals (see `_select_categories`): about 50 GB at the largest
             # batch, and above every TabArena-v0.1 table (kddcup09_appetency: ~25k categories per fold).
             "max_total_categories": 32768,
+            # Wide tables (see `_max_pack_size`): the pack's first layers may take this share of the GPU's
+            # memory. Engages above ~4,000 numerical features on a 96 GB card, above every TabArena-v0.1 table.
+            "max_pack_memory_fraction": 0.5,
         }
         for param, val in default_params.items():
             self._set_default_param_value(param, val)

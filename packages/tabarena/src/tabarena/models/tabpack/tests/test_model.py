@@ -1,6 +1,6 @@
 """TabPack wrapper logic the registry fit test does not reach: its preprocessing, a class missing from
-a fold's training rows, the regression target scale, the time limit and the category budget. Cheap CPU
-fits (two members).
+a fold's training rows, the regression target scale, the time limit, the category budget and the pack
+size for wide tables. Cheap CPU fits (two members).
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ from autogluon.features.generators import AutoMLPipelineFeatureGenerator
 
 pytest.importorskip("tabpackage")
 
-from tabarena.models.tabpack.model import TabPackModel
+from tabarena.models.tabpack.model import TabPackModel, _max_pack_size
 
 
 def _frame(n: int, seed: int = 0) -> pd.DataFrame:
@@ -141,3 +141,16 @@ def test_category_budget_trims_only_the_largest_feature(tmp_path):
     assert set(model._kept_categories) == {"id"}
     assert "__missing__" in set(out["id"])  # the trimmed values join the missing category
     assert model.predict_proba(model.generator.transform(X.iloc[:5])).shape == (5,)
+
+
+def test_pack_size_shrinks_only_when_the_first_layers_exceed_the_budget():
+    X = pd.DataFrame(np.zeros((4, 100), dtype=np.float32)).rename(columns=str)
+    X["cat"] = pd.array(["a", "b", "c", "a"], dtype="string")
+    bytes_per_model = 16 * 384 * (100 * 32 + 3)  # float32 weights, gradients and two AdamW moments
+
+    assert _max_pack_size(X, {}, memory_budget=64 * bytes_per_model) is None  # the default 64 models fit
+    assert _max_pack_size(X, {}, memory_budget=10.5 * bytes_per_model) == 10
+    assert _max_pack_size(X, {"n_models": 8}, memory_budget=10.5 * bytes_per_model) is None
+    assert _max_pack_size(X, {}, memory_budget=0.1 * bytes_per_model) == 1
+    # Narrower embeddings than the default range's top make each model smaller.
+    assert _max_pack_size(X, {"numerical_embeddings_d": 8}, memory_budget=10.5 * bytes_per_model) == 41
