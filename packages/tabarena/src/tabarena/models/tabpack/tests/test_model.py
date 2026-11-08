@@ -1,5 +1,6 @@
 """TabPack wrapper logic the registry fit test does not reach: its preprocessing, a class missing from
-a fold's training rows, the regression target scale, and the time limit. Cheap CPU fits (two members).
+a fold's training rows, the regression target scale, the time limit and the category budget. Cheap CPU
+fits (two members).
 """
 
 from __future__ import annotations
@@ -122,4 +123,21 @@ def test_time_limit_stops_a_fit_with_no_other_stopping_condition(tmp_path):
     budget = model.model.training_loop_time_budget
     assert 0 < budget < 0.95 * 3.0
     assert budget <= model.model.tabpack_.get_training_loop_time() < 3.0
+    assert model.predict_proba(model.generator.transform(X.iloc[:5])).shape == (5,)
+
+
+def test_category_budget_trims_only_the_largest_feature(tmp_path):
+    X = _frame(400)
+    X["id"] = [f"user{i // 2}" for i in range(400)]  # 200 categories, each seen twice
+    y = pd.Series((X["num"] > 0).astype(int))
+    hps = {"n_models": 2, "max_epochs": 1, "max_total_categories": 30}
+    model = _fit(tmp_path, X, y, "binary", "roc_auc", hyperparameters=hps)
+
+    out = model.preprocess(model.generator.transform(X))
+    sizes = {c: out[c].nunique() for c in ["id", "cat", "flag"]}  # the categorical features the budget covers
+    assert sizes["id"] == 24  # 200 categories: the 23 most frequent plus the missing category
+    assert sum(sizes.values()) == 30
+    assert sizes["cat"] == 4 and sizes["flag"] == 2  # below the shared cap, so whole
+    assert set(model._kept_categories) == {"id"}
+    assert "__missing__" in set(out["id"])  # the trimmed values join the missing category
     assert model.predict_proba(model.generator.transform(X.iloc[:5])).shape == (5,)

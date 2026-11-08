@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import time
 from typing import ClassVar
 
@@ -9,6 +10,8 @@ import numpy as np
 import pandas as pd
 from autogluon.core.utils.exceptions import TimeLimitExceeded
 from autogluon.tabular.models.abstract.abstract_torch_model import AbstractTorchModel
+
+logger = logging.getLogger(__name__)
 
 #: AutoGluon scorer name to the TabPack metric used for each member's checkpoint selection and early stopping.
 _METRIC_MAP = {
@@ -23,6 +26,12 @@ _METRIC_MAP = {
 _CLASSIFICATION_METRICS = ("roc_auc", "log_loss", "accuracy")
 _MISSING_CATEGORY = "__missing__"
 _INDICATOR_PREFIX = "__tabpack_missing__"
+
+
+def _category_strings(values: pd.Series) -> pd.Series:
+    """A categorical feature's values as strings, with missing values as their own category."""
+    values = values.astype(object)
+    return values.where(values.notna(), _MISSING_CATEGORY).astype(str)
 
 
 def _drop_training_checkpoints(estimator) -> None:
@@ -78,6 +87,7 @@ class TabPackModel(AbstractTorchModel):
         self._num_features: list[str] | None = None
         self._cat_features: list[str] | None = None
         self._indicator_features: list[str] | None = None
+        self._kept_categories: dict[str, list[str]] = {}
         self._quantile_transformer = None
         self._y_mean: float | None = None
         self._y_std: float | None = None
@@ -112,8 +122,9 @@ class TabPackModel(AbstractTorchModel):
         hps = self._get_model_params()
         criterion_metric = hps.pop("eval_criterion_metric", "auto")
         ensemble_metric = hps.pop("ensemble_metric", "auto")
+        max_total_categories = hps.pop("max_total_categories", None)
 
-        X = self.preprocess(X, is_train=True)
+        X = self.preprocess(X, is_train=True, max_total_categories=max_total_categories)
         X_val = self.preprocess(X_val)
         y_train, y_extra = self._encode_target(y, is_train=True), self._encode_target(y_val)
         is_classification = self.problem_type != "regression"
@@ -167,7 +178,9 @@ class TabPackModel(AbstractTorchModel):
             self._y_std = std if np.isfinite(std) and std > 0 else 1.0
         return ((y.to_numpy(dtype=np.float64) - self._y_mean) / self._y_std).astype(np.float32)
 
-    def _preprocess(self, X: pd.DataFrame, is_train: bool = False, **kwargs) -> pd.DataFrame:
+    def _preprocess(
+        self, X: pd.DataFrame, is_train: bool = False, max_total_categories: int | None = None, **kwargs
+    ) -> pd.DataFrame:
         """Shape the frame into ``tabpackage``'s input contract.
 
         Numerical features get the quantile transform of the authors' examples (normal output,
@@ -175,7 +188,9 @@ class TabPackModel(AbstractTorchModel):
         training rows only; a feature with missing training values then fills them with 0 and gets a
         categorical missing indicator. Categorical features and AutoGluon's bool features (the paper
         treats binary features as categorical) become string columns with missing values as their own
-        category; the library ordinal-encodes them and maps unseen values to an extra index.
+        category; the library ordinal-encodes them and maps unseen values to an extra index. Above
+        ``max_total_categories`` the largest categorical features keep only their most frequent training
+        categories (see ``_select_categories``).
         """
         X = super()._preprocess(X, **kwargs)
         if is_train:
@@ -184,6 +199,7 @@ class TabPackModel(AbstractTorchModel):
             cat_features = self._feature_metadata.get_features(valid_raw_types=["category"])
             cat_features += self._feature_metadata.get_features(required_special_types=["bool"])
             self._cat_features = list(dict.fromkeys(cat_features))
+            self._kept_categories = self._select_categories(X, max_total_categories)
             self._num_features = [f for f in X.columns if f not in self._cat_features]
             if self._num_features:
                 X_num = self._numeric_frame(X)
@@ -207,9 +223,45 @@ class TabPackModel(AbstractTorchModel):
                     np.where(X_num[feature].isna(), "1", "0"), dtype="string"
                 )
         for feature in self._cat_features:
-            values = X[feature].astype(object)
-            columns[feature] = values.where(values.notna(), _MISSING_CATEGORY).astype(str).astype("string")
+            values = _category_strings(X[feature])
+            if feature in self._kept_categories:
+                values = values.where(values.isin(self._kept_categories[feature]), _MISSING_CATEGORY)
+            columns[feature] = values.astype("string")
         return pd.DataFrame(columns, index=X.index)
+
+    def _select_categories(self, X: pd.DataFrame, max_total_categories: int | None) -> dict[str, list[str]]:
+        """The categories each trimmed feature keeps, when the training rows hold more than ``max_total_categories``.
+
+        Developer fix. ``tabpackage`` one-hot encodes every training category into each member's first
+        layer, so its memory grows with the total category count: members x batch x categories for the
+        ``int64`` one-hot, plus a ``d_block``-wide weight row per category in each of the 64 members. On
+        BeyondArena's ``ieee_fraud_detection`` (an ID-like ``uid`` with ~55k categories per fold) one step
+        asked for 28 GB more on a 96 GB card. Above the budget, the largest features keep their most frequent
+        training categories under one shared cap, the largest that keeps the total within the budget, and
+        their other values join the missing category, as AutoGluon's ``maximum_num_cat`` does with rare
+        values. Features below the cap stay whole.
+        """
+        if not max_total_categories or not self._cat_features:
+            return {}
+        counts = {f: _category_strings(X[f]).value_counts() for f in self._cat_features}
+        sizes = np.array([len(c) for c in counts.values()])
+        if sizes.sum() <= max_total_categories:
+            return {}
+        low, high = 1, int(sizes.max())
+        while low < high:  # the largest per-feature cap whose total stays within the budget
+            mid = (low + high + 1) // 2
+            low, high = (mid, high) if np.minimum(sizes, mid).sum() <= max_total_categories else (low, mid - 1)
+        kept = {}
+        for feature, feature_counts in counts.items():
+            if len(feature_counts) > low:
+                frequent = feature_counts.index[feature_counts.index != _MISSING_CATEGORY][: low - 1]
+                kept[feature] = [_MISSING_CATEGORY, *frequent]
+        logger.log(
+            20,
+            f"\t{sizes.sum()} categories exceed max_total_categories={max_total_categories}: "
+            f"{len(kept)} feature(s) keep their {low - 1} most frequent categories.",
+        )
+        return kept
 
     def _numeric_frame(self, X: pd.DataFrame) -> pd.DataFrame:
         """The numerical features as float32 with infinities marked missing."""
@@ -241,6 +293,9 @@ class TabPackModel(AbstractTorchModel):
             "eval_criterion_metric": "auto",
             # Greedy ensembling score: the training loss (log loss / MSE), as the authors ran TabArena.
             "ensemble_metric": "auto",
+            # Memory cap on the one-hot categoricals (see `_select_categories`): about 50 GB at the largest
+            # batch, and above every TabArena-v0.1 table (kddcup09_appetency: ~25k categories per fold).
+            "max_total_categories": 32768,
         }
         for param, val in default_params.items():
             self._set_default_param_value(param, val)
