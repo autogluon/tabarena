@@ -34,6 +34,56 @@ run against `main`. To reproduce an entry, check out its recorded **git SHA**.
 
 ---
 
+## 2026-11-08 — tabh2o_t214_08112026, tabh2o_08112026
+
+- **Model(s):** TabH2O (default config only, no search space), every split of the 51 TabArena-v0.1 tasks, 816 items
+- **Git SHA:** `a60a75d4` (PR #716 head: the contributor's `4443f6c0` plus the Python 3.12 CI commits), clean;
+  `tabh2o_08112026` ran on `de33c2ec`, which has the same model code
+- **Validation protocol:** `8x1`
+- **Purpose:** Maintainer re-run of the TabH2O submission (PR #716, H2O.ai, `h2ofm==0.43.1`, checkpoint
+  `h2oai/tabh2o-v1.1` at `7542639f`).
+- **Notes:** SkyPilot pool `tabh2o-t214-0811` (32 spot RTX PRO 6000 workers, `g4-standard-48`), one item per
+  bundle, `fake_memory_for_estimates=96`, venv `~/.venvs/tabarena_tabh2o_t214_08112026` (torch 2.14.1+cu130,
+  AutoGluon 1.6.4b20261108, env manifest `39b376f122bf`). 816 items in about 20 minutes, 0 failed. Elo 1556
+  (+46/-50), 24th of 116 on all tasks, 0% imputed. The first run, `tabh2o_08112026` (pool `tabh2o-0811`, venv
+  `~/.venvs/tabarena_tabh2o_08112026`, torch 2.15.0+cu132, env manifest `cba3cacf33be`), failed 27 of 816 items:
+  every split of Amazon_employee_access, in_vehicle_coupon_recommendation and online_shoppers_intention raised
+  `CUDA error: an illegal memory access` in `F.scaled_dot_product_attention` of h2ofm's column embedder during the
+  out-of-fold predict. torch 2.14.1, the PR author's version, ran all 27. On the other 789 splits the two runs
+  agree within fp16 noise (median relative error difference 2.5e-5, largest 1.8% on one hazelnut split) and in
+  time (median train and predict time ratio 1.02). The weights are gated (auto-approved licence): the head node's
+  HF account needs it accepted, `setup` seeded the checkpoint into the bucket and the workers ran offline. The
+  three-lens agent review before the launch found no blocker; its notes are on #716.
+
+```python
+TabArenaV0pt1BenchmarkPlan(
+    benchmark_name="tabh2o_t214_08112026",  # "tabh2o_08112026" with the torch 2.15 venv and pool "tabh2o-0811"
+    model_jobs=[
+        ModelJob(
+            models=("TabH2O", 0),
+            name="gpu",
+            resources={"num_gpus": 1, "fake_memory_for_estimates": 96},
+        ),
+    ],
+    task_subset=TaskSubset(),
+    path_setup=PathSetup(
+        workspace="/home/lennart_priorlabs_ai/workspace/benchmarking/tabarena_workspace",
+        python_path="/home/lennart_priorlabs_ai/.venvs/tabarena_tabh2o_t214_08112026/bin/python",
+    ),
+    experiment_bundle=TabArenaV0pt1ExperimentBundle(model_verbosity=2),
+    resources_setup=TabArenaV0pt1ResourcesSetup(num_cpus=None, memory_limit=None),
+    scheduler_setup=SkyPilotSetup(
+        bundle_size=1,
+        workers=32,
+        secrets=("HF_TOKEN",),
+        use_pool=True,
+        pool_name="tabh2o-t214-0811",
+    ),
+).setup_jobs()
+```
+
+---
+
 ## 2026-11-03 — seldonfix_03112026, seldonminifix_03112026
 
 - **Model(s):** Seldon and Seldon-Mini (default config only), one run per model, every split of the 38 TabArena-v0.1
