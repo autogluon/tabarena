@@ -804,7 +804,7 @@ __BASE_JS__
 
   function showTip(p, ev) {
     emphasize(p.method, true);
-    const sub = TRAJECTORY ? (p.n_configs != null ? `${p.n_configs} configs` : "") : (p.variant || "");
+    const sub = TRAJECTORY ? (p.n_configs != null ? `${p.n_configs} configs` : "") : (p.variant === "Default" ? "" : p.variant || "");
     let html = `<div class="t-name">${escHtml(displayName(p.method))}` + (sub ? ` <span class="t-var">(${sub})</span>` : "") + "</div>" +
       (names.has(p.method) ? `<div class="t-var">${escHtml(p.method)}</div>` : "") +
       `<div>${famLabel(p)}</div>`;

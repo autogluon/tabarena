@@ -243,13 +243,14 @@ __BASE_JS__
     return String(text).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
   }
 
-  // Labels always carry their variant tag — "(default)" / "(tuned + ensembled)" —
-  // including in one-per-model mode, where the tag is precisely what says which
-  // variant survived the filter. The static figure labels them the same way. A renamed
-  // model keeps its tag after the new name.
+  // Labels carry their variant tag — "(tuned)" / "(tuned + ensembled)" — including in
+  // one-per-model mode, where the tag is precisely what says which variant survived the
+  // filter. A default carries none, as in the leaderboard table, so a bare name is the
+  // model out of the box. A renamed model keeps its tag after the new name.
   function labelText(label) {
     const model = info.get(label).model;
-    return displayName(model) + label.slice(model.length);
+    const tag = label.slice(model.length);
+    return displayName(model) + (tag.trim() === "(default)" ? "" : tag);
   }
 
   function shown() {

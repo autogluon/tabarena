@@ -42,6 +42,8 @@ from tabarena.models._method_metadata_collection import MethodMetadataCollection
 # Per-model `info.py` is the canonical source for each method's `MethodMetadata`; the collection
 # below references these directly. (Some keep their historical alias, used by the per-suite full
 # lists / downstream collections.)
+from tabarena.models.agentic_mlp.info import agentic_mlp_method_metadata
+from tabarena.models.agentic_tabm.info import agentic_tabm_method_metadata
 from tabarena.models.aplr.info import aplr_method_metadata
 from tabarena.models.catboost.info import catboost_new_method_metadata
 from tabarena.models.causilo.info import causilo_method_metadata, causilo_new_method_metadata
@@ -97,6 +99,8 @@ from tabarena.models.realmlp.info import realmlp_method_metadata as realmlp_gpu_
 from tabarena.models.sap_rpt_oss.info import (
     sap_rpt_oss_method_metadata as contexttab_metadata,
 )
+from tabarena.models.seldon.info import seldon_method_metadata, seldon_mini_method_metadata
+from tabarena.models.tababax.info import tababax_method_metadata
 from tabarena.models.tabdpt.info import (
     tabdpt_method_metadata as tabdpt_metadata,
     tabdpt_turbo_method_metadata,
@@ -216,6 +220,8 @@ tabarena_method_metadata_collection = MethodMetadataCollection(
         random_forest_method_metadata,
         xgboost_method_metadata,
         # Neural / GPU / foundation models
+        agentic_mlp_method_metadata,
+        agentic_tabm_method_metadata,
         mitra_metadata,
         modernnca_gpu_method_metadata,
         realmlp_gpu_metadata,
@@ -254,6 +260,9 @@ tabarena_method_metadata_collection = MethodMetadataCollection(
         kumo_tabular_small_method_metadata,
         lightpfn_method_metadata,
         ftfm_method_metadata,
+        tababax_method_metadata,
+        seldon_method_metadata,
+        seldon_mini_method_metadata,
     ],
 )
 

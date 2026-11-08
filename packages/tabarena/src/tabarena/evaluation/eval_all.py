@@ -169,7 +169,15 @@ def evaluate_single(
     elo_bootstrap_rounds: int = 200,
     custom_folder_name: str | None = None,
     website_only: bool = False,
+    static_figures: str = "all",
+    verbose: bool = True,
 ):
+    """Evaluate one cell of the subset grid and write its artifacts under ``eval_save_path``.
+
+    ``static_figures`` and ``verbose`` go to :meth:`LeaderboardReporter.eval`: the website build
+    passes ``"uncovered"`` and ``False``, since it publishes the interactive pages only and runs
+    every cell of the grid.
+    """
     from tabarena.nips2025_utils.compare import subset_tasks
 
     df_results = df_results.copy()
@@ -274,6 +282,8 @@ def evaluate_single(
         # so moved every other number, while the figures pretended it was not there. A pool that
         # admits no system has no baseline row, so this is a no-op for models-only.
         plot_with_baselines=True,
+        static_figures=static_figures,
+        verbose=verbose,
         **eval_kwargs,
     )
 

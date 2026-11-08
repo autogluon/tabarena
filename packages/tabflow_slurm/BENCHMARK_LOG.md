@@ -34,6 +34,174 @@ run against `main`. To reproduce an entry, check out its recorded **git SHA**.
 
 ---
 
+## 2026-11-03 — seldonfix_03112026, seldonminifix_03112026
+
+- **Model(s):** Seldon and Seldon-Mini (default config only), one run per model, every split of the 38 TabArena-v0.1
+  classification datasets, 594 items each
+- **Git SHA:** `ac212a3b` (PR #701: the wrapper saves its context cache with `torch.save` beside `model.pkl`),
+  clean; AutoGluon from the editable `../autogluon` checkout (`88d33ba6`)
+- **Validation protocol:** `8x1`
+- **Purpose:** Rerun of seldon_03112026 / seldonmini_03112026 below with the cache fix on every item. In those runs
+  AutoGluon's pickled-size estimate and the refit model's save copied the cache inside the timed fit, so their
+  training times were too high on every dataset, not only on GiveMeSomeCredit where it ran out of RAM.
+- **Notes:** SkyPilot pools `seldonfix-0311` and `seldonminifix-0311` (32 spot RTX PRO 6000 workers each), venv
+  `~/.venvs/tabarena_seldon_t213_03112026` (torch 2.13.0+cu130, where APSFailure passes), one item per bundle,
+  `fake_memory_for_estimates=96`. Both finished in about 25 minutes with 0 failed items. Against the runs below
+  (same splits): Seldon training time median ratio 0.58 (total 20400 s to 15006 s), inference 0.84; Seldon-Mini
+  0.85 and 0.83. Errors unchanged up to fp16 noise (max absolute difference 7.9e-4). Two controls separate the
+  causes: GiveMeSomeCredit (fix in both runs, torch 2.15 to 2.13) moved neither time (1.00, 1.00); APSFailure
+  (torch 2.13 in both, fix added) trained 0.81 and predicted 0.94 of the old time, so the gain is the fix.
+  Re-processed and re-uploaded over suite `tabarena-2026-11-03` (same `info.py` metadata, `verified=True`),
+  replacing the results of the runs below.
+
+```python
+TabArenaV0pt1BenchmarkPlan(
+    benchmark_name="seldonfix_03112026",  # "seldonminifix_03112026" with ("Seldon-Mini", 0)
+    model_jobs=[
+        ModelJob(
+            models=("Seldon", 0),
+            name="gpu",
+            resources={"num_gpus": 1, "fake_memory_for_estimates": 96},
+        ),
+    ],
+    task_subset=TaskSubset(subset="classification"),
+    path_setup=PathSetup(
+        workspace="/home/lennart_priorlabs_ai/workspace/benchmarking/tabarena_workspace",
+        python_path="/home/lennart_priorlabs_ai/.venvs/tabarena_seldon_t213_03112026/bin/python",
+    ),
+    experiment_bundle=TabArenaV0pt1ExperimentBundle(model_verbosity=2),
+    resources_setup=TabArenaV0pt1ResourcesSetup(num_cpus=None, memory_limit=None),
+    scheduler_setup=SkyPilotSetup(bundle_size=1, workers=32, use_pool=True, pool_name="seldonfix-0311"),
+).setup_jobs()
+```
+
+---
+
+## 2026-11-03 — seldon_03112026, seldonmini_03112026
+
+- **Model(s):** Seldon and Seldon-Mini (default config only, no search space), one run per model, on every split of
+  the 38 TabArena-v0.1 classification datasets (`TaskSubset(subset="classification")`), 594 items each
+- **Git SHA:** `167b5d61` (PR #701 head `58350eb3` merged with main `dc3a340f`, checked out as `pr-701-seldon`) for
+  the launches, and `dbcff7d3` (one commit on top: the Seldon context cache saved with `torch.save` beside
+  `model.pkl`) for the last 9 Seldon items. AutoGluon from the editable `../autogluon` checkout (`88d33ba6`,
+  untracked files only).
+- **Validation protocol:** `8x1`
+- **Purpose:** Stage-2 maintainer run of the PR #701 submission (`neuralk-oss==0.2.1`, gated weights
+  `Neuralk-AI/seldon@b113e1ce` and `Neuralk-AI/seldon-mini@28507308`).
+- **Notes:** SkyPilot pools of spot RTX PRO 6000 workers (`g4-standard-48`, 96 GB VRAM, 177 GB RAM), one item per
+  bundle, `fake_memory_for_estimates=96`, `sequential_local` fold fitting from the wrapper. Weights seeded into the
+  bucket from the head node's HF login, workers offline, no `secrets`. Run venv `~/.venvs/tabarena_seldon_03112026`
+  (torch 2.15.0+cu132), its own because `neuralk-oss` pins `structured-data-models==0.2.1` against the
+  `kumo_tabular` extra. Before the launch, three reviewer agents (leakage, protocol, data path) found no blocker;
+  the device-move and GPU-memory points went to the PR as API recommendations for neuralk-oss.
+  Seldon-Mini: pool `seldonmini-0311`, 32 workers, 594 of 594 in about 15 minutes, 0 failed.
+  Seldon: pool `seldon-0311`, 32 workers, 576 of 594. All 9 APSFailure splits crashed with a CUDA illegal memory
+  access in a row-attention block (cuBLAS fp16 GEMM, in the fit or the test predict) under torch 2.15.0+cu132; they
+  passed on pool `seldon-t213-0311` with `~/.venvs/tabarena_seldon_t213_03112026` (identical except torch
+  2.13.0+cu130). All 9 GiveMeSomeCredit splits ran the node out of RAM on both torch versions (Ray OOM kills, retried
+  forever): the wrapper pickled the context cache (every member's key/value projections of about 100k training rows)
+  inside `model.pkl`, and AutoGluon's save and pickled-size estimate copied it. With the cache written through
+  `torch.save` (`dbcff7d3`, as in the Kumo-Tabular wrapper) the 9 items finished in about 6 minutes on pool
+  `seldon-fix-0311` (9 workers, torch 2.15). Final mix for Seldon: 576 items on torch 2.15 at `167b5d61`, 9
+  APSFailure on torch 2.13 at `167b5d61`, 9 GiveMeSomeCredit on torch 2.15 at `dbcff7d3`. The shared SkyPilot API
+  server ran out of disk during the rerun; after an admin cleared it, `sky check gcp` re-enabled GCP.
+  Eval on the classification subset (106 methods, 0% imputed): Seldon #3, Elo 1889 (+150/-105), the PR expected
+  1884; Seldon-Mini #9, Elo 1790 (+88/-62), the PR expected 1788. Binary #3 (1902) and #10 (1780), multiclass #8
+  (1878) and #8 (1865). Median per 1K rows: Seldon 3.5 s train and 0.17 s inference, Seldon-Mini 0.75 s and 0.045 s.
+  Processed and uploaded as suite `tabarena-2026-11-03` (`seldon_method_metadata`, `seldon_mini_method_metadata` in
+  `models/seldon/info.py`), `verified=True` on the maintainer's sign-off. Replaced by the rerun above.
+
+```python
+TabArenaV0pt1BenchmarkPlan(
+    benchmark_name="seldon_03112026",  # "seldonmini_03112026" with ("Seldon-Mini", 0)
+    model_jobs=[
+        ModelJob(
+            models=("Seldon", 0),
+            name="gpu",
+            resources={"num_gpus": 1, "fake_memory_for_estimates": 96},
+        ),
+    ],
+    task_subset=TaskSubset(subset="classification"),
+    path_setup=PathSetup(
+        workspace="/home/lennart_priorlabs_ai/workspace/benchmarking/tabarena_workspace",
+        python_path="/home/lennart_priorlabs_ai/.venvs/tabarena_seldon_03112026/bin/python",
+        # the APSFailure rerun: /home/lennart_priorlabs_ai/.venvs/tabarena_seldon_t213_03112026/bin/python
+    ),
+    experiment_bundle=TabArenaV0pt1ExperimentBundle(model_verbosity=2),
+    resources_setup=TabArenaV0pt1ResourcesSetup(num_cpus=None, memory_limit=None),
+    scheduler_setup=SkyPilotSetup(
+        bundle_size=1,
+        workers=32,  # 9 for the reruns
+        use_pool=True,
+        pool_name="seldon-0311",  # seldonmini-0311; reruns seldon-t213-0311, seldon-gmsc-0311 (cancelled), seldon-fix-0311
+    ),
+).setup_jobs()
+```
+
+---
+
+## 2026-11-02 — tababax_02112026
+
+- **Model(s):** TabAbax (default config only, no search space) on every split of the 51 TabArena-v0.1 datasets,
+  816 items
+- **Git SHA:** `f47f00a0`: the PR #700 head `16f3c6fb` (`tababax-research:tababax-corrected`, checked out as
+  `pr-700-add-tababax`) plus one commit that only touches `.claude/skills/benchmark-model/` and `CLAUDE.md`; archive
+  `tabarena-edit-copy-f47f00a0-b2b9f032.tar.gz`, clean. AutoGluon from PyPI, `1.6.4b20261102`.
+- **Validation protocol:** `8x1`
+- **Purpose:** Stage-2 maintainer run of the PR #700 submission (`tababax @ git+...TabAbax.git@b7c9ba7`, a TabICLv2
+  derivative, weights `tababax-ai/TabAbax@039e4f2`, public).
+- **Notes:** SkyPilot pool `tababax-0211` (32 spot RTX PRO 6000 workers, `g4-standard-48`, env `77eeea3e00b4`); new
+  venv `~/.venvs/tabarena_tababax_02112026` (torch 2.15.0+cu132, the first run on a CUDA 13.2 build; the workers'
+  driver ran it). One item per bundle, `fake_memory_for_estimates=96`; the wrapper fits folds with
+  `sequential_local`. Weights seeded into the bucket, workers offline. Before the launch, three reviewer agents
+  (leakage, protocol, data path; add-model `references/model_review.md`) found no blocker; the points for the
+  authors were the short git pin, `HF_HUB_DISABLE_XET` set at import, the AMP choice after a device change, and the
+  submitter's own numbers coming from `outer_experiments=True` (no bagging). Smoke fit 58 s on the head node's
+  CPU; `audit_warmup --model` clean. Pool applied 15:05 UTC, jobs launched 15:15 with 24 of 32 workers READY, the
+  last item finished by 15:42; 9 jobs were preempted and recovered (one twice, its `hiva_agnostic` item restarted
+  from scratch), 0 items failed. Slowest fit APSFailure (174 s train). Result: 816 of 816; `audit_warmup --results`
+  reports warm-up ok on all 816 and no packages imported inside the timed fit or predict. Eval: full #16 of 107,
+  Elo 1671 (+67/-56), 0% imputed; binary #17 (1654), multiclass #21 (1604), regression #11 (2031); median 1.69 s
+  train and 0.35 s inference per 1K rows. TabICLv2 (default), its parent, sits at #22 with 1562. Processed and
+  uploaded as suite `tabarena-2026-11-02` (`tababax_method_metadata` in `models/tababax/info.py`), `verified=True`
+  after the maintainer signed off on 2026-11-03. After the run the library pin moved to the full SHA of the same commit
+  (`0b9cfc61`) and then to `125d2685`, whose only change scopes the `HF_HUB_DISABLE_XET` workaround to Windows; the
+  wrapper gained a docstring note on `time_limit` and an AMP re-resolve after a device move (`641925b0`), neither of
+  which changes predictions made on the fit device. The hosted results stay those of `b7c9ba70`; no re-run.
+
+```python
+from tabarena.benchmark.experiment import TabArenaV0pt1ExperimentBundle
+from tabarena.benchmark.task.metadata import TaskSubset
+from tabflow_slurm import (
+    ModelJob,
+    PathSetup,
+    SkyPilotSetup,
+    TabArenaV0pt1BenchmarkPlan,
+    TabArenaV0pt1ResourcesSetup,
+)
+
+TabArenaV0pt1BenchmarkPlan(
+    benchmark_name="tababax_02112026",
+    model_jobs=[
+        ModelJob(
+            models=("TabAbax", 0),
+            name="gpu",
+            resources={"num_gpus": 1, "fake_memory_for_estimates": 96},
+        ),
+    ],
+    task_subset=TaskSubset(),
+    path_setup=PathSetup(
+        workspace="/home/lennart_priorlabs_ai/workspace/benchmarking/tabarena_workspace",
+        python_path="/home/lennart_priorlabs_ai/.venvs/tabarena_tababax_02112026/bin/python",
+    ),
+    experiment_bundle=TabArenaV0pt1ExperimentBundle(model_verbosity=2),
+    resources_setup=TabArenaV0pt1ResourcesSetup(num_cpus=None, memory_limit=None),
+    scheduler_setup=SkyPilotSetup(bundle_size=1, workers=32, use_pool=True, pool_name="tababax-0211"),
+).setup_jobs()
+```
+
+---
+
 ## 2026-10-28 — beyondarena_tabmfix_28102026
 
 - **Model(s):** TabM (`TA-TabM`), default config plus the hosted suite's 25 random configs (26 per split, the same

@@ -111,6 +111,10 @@ realmlp = ["pytabkit>=1.5.0,<2.0"]
 # 1.3.1 is the first release with TabDPT-1.3's shared-weights loader (`TabDPTEstimator._load_model`).
 tabdpt = ["tabdpt>=1.3.1"]
 tabm = ["torch", "tabm>=0.0.3", "rtdl_num_embeddings>=0.0.12"]
+# agentic-tabular requires Python >= 3.12 (PEP 695 syntax in bin/{mlp,tabm}/_util.py), so these two extras, and
+# `extended` / `all` that include them, do not install on Python 3.11.
+agentic_mlp = ["agentic-tabular[torch] @ git+https://github.com/yandex-research/agentic-hpset.git@3d7349b36df9bea48a5c236830a8f313ba1819c9"]
+agentic_tabm = ["agentic-tabular[torch] @ git+https://github.com/yandex-research/agentic-hpset.git@3d7349b36df9bea48a5c236830a8f313ba1819c9", "loguru>=0.7.0"]
 
 # Extended model extras — opt-in individually or together via the `extended` union below.
 causilo = ["causilo==1.0.2"]  # 1.0.2 fits more than ten classes with its own output codes; 1.0.0 rejected them
@@ -168,10 +172,10 @@ exaone_tabular = [
 tabswift = []
 # TabLDM is not published on PyPI; pinned to a commit so the benchmarked code is fixed.
 # Keep in sync with `pip_extra` in models/tabldm/info.py.
-tabldm = ["Xiaomi-TabLDM @ git+https://github.com/xiaomi-research/xiaomi-tabldm.git@d3fc3b7a0644631c8e3c18fa50629440e334f3f4"]
+tabldm = ["Xiaomi-TabLDM @ git+https://github.com/xiaomi-research/xiaomi-tabldm.git@19e752a7f09ec7e3d4bf2e04e6a45c4170f8e518"]
 # Xiaomi-TabLDM+ (systems/tabldm_plus) runs the same commit as `tabldm`. Keep in sync with
 # `pip_extra` in systems/tabldm_plus/info.py.
-tabldm_plus = ["Xiaomi-TabLDM @ git+https://github.com/xiaomi-research/xiaomi-tabldm.git@d3fc3b7a0644631c8e3c18fa50629440e334f3f4"]
+tabldm_plus = ["Xiaomi-TabLDM @ git+https://github.com/xiaomi-research/xiaomi-tabldm.git@19e752a7f09ec7e3d4bf2e04e6a45c4170f8e518"]
 # Mitra-v2 runs on AutoGluon's Mitra implementation; this is AutoGluon's own `mitra` extra
 # (loguru, einops, transformers, huggingface_hub, ...). Keep in sync with models/mitra_v2/info.py.
 # flash-attn is optional (faster attention, same results) and needs a prebuilt wheel:
@@ -185,6 +189,9 @@ tabpfn_3_5 = ["tabpfn>=9.0.0"]
 kumo_tabular = [
   "structured-data-models @ git+https://github.com/NVIDIA/structured-data-models.git@98f61289c7a4e1bce3b33771223ac2e123b63f19",
 ]
+# Seldon / Seldon-Mini (Neuralk-AI). Keep in sync with `pip_extra` in models/seldon/info.py. Not in `extended`
+# because neuralk-oss and the `kumo_tabular` extra pin different versions of structured-data-models.
+seldon = ["neuralk-oss==0.2.3"]
 # LightPFN: a 4.6M-parameter in-context classifier; keep in sync with `pip_extra` in models/lightpfn/info.py.
 lightpfn = ["lightpfn==1.0.0"]
 # FTFM is not published on PyPI; pinned to a commit so the benchmarked code is fixed (empty extra on
@@ -193,6 +200,13 @@ ftfm = ["ftfm @ git+https://github.com/machinelearningnuremberg/ftfm-official.gi
 # tabpackage is experimental upstream ("expect breaking changes"), so the release is pinned exactly.
 # Keep in sync with `pip_extra` in models/tabpack/info.py.
 tabpack = ["tabpackage[sklearn]==0.0.1"]
+# TabAbax is not on PyPI. Its model code is derived from TabICL
+# (github.com/soda-inria/tabicl, BSD-3-Clause). Keep in sync with `pip_extra`
+# in models/tababax/info.py. The default checkpoints download from
+# huggingface.co/tababax-ai/TabAbax under CC-BY-NC-4.0.
+tababax = [
+  "tababax @ git+https://github.com/tababax-research/TabAbax.git@125d26850015597ed371993f3a00375806c0f32c",
+]
 
 # Core benchmark set: the always-on models for benchmarking, plus the plotting and
 # preprocessing capabilities split out of the core install. Self-references avoid
@@ -239,6 +253,9 @@ extended = [
   "tabarena[lightpfn]",
   "tabarena[ftfm]",
   "tabarena[tabpack]",
+  "tabarena[tababax]",
+  "tabarena[agentic_mlp]",
+  "tabarena[agentic_tabm]",
 ]
 
 # Convenience: everything (core + extended + probmetrics).

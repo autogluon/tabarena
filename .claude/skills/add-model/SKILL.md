@@ -194,7 +194,7 @@ The search-space generator. By default use an **empty search space** (like TabPF
 
 Defines `{ModelKey}_method_metadata: MethodMetadata` and `{ModelKey}_info: ModelInfo`. `info.py` is the single source the auto-discovery registry walks — populating it correctly is how the model becomes visible to `discover_models()`. See template in `references/model_patterns.md` section "info.py template".
 
-Set `organization` to who develops the model (the company, lab or university, as the leaderboard should name it next to its logo, e.g. `"Prior Labs"`, `"Yandex Research"`). Take it from the paper's affiliations or the code's GitHub organization; when neither settles it, ask the user rather than guess, and leave it unset for a solo author's package. Reuse the exact spelling of an organization that already exists in another `info.py` so the leaderboard finds its logo.
+Set `organization` to who develops the model (the company, lab or university, as the leaderboard should name it next to its logo, e.g. `"Prior Labs"`, `"Yandex Research"`). Take it from the paper's affiliations or the code's GitHub organization; when neither settles it, ask the user rather than guess, and leave it unset for a solo author's package. Reuse the exact spelling of an organization that already exists in another `info.py` so the leaderboard finds its logo. A new organization has no logo yet, and the leaderboard shows its initial instead: ask the user for one (square SVG or PNG of at least 128 px, transparent background, readable on a dark background) and say in the PR description that it is attached there. The file goes to the leaderboard Space at the next `update-leaderboard`, not into this repository.
 
 Leave `leakage_evidence` / `leakage_datasets` unset. They record proven leakage of test data into a model's training (a link to the evidence, and the datasets it is proven on), which a maintainer sets later on the `ModelDescriptor` when such evidence turns up (LimiX-2, autogluon/tabarena#648): the leaderboard then warns about the model and every entrant pool gets a twin computed without it.
 
@@ -510,7 +510,8 @@ Summarize what was created/edited:
   rejected ones in a line each, and the lenses that came back clean
 - Note any TODOs left for the user (e.g., implementing `_predict_proba` if the library API is unclear, tuning `ag_priority`, adding a real search space later, registering benchmark artifacts after a real run)
 
-When asked to open the PR, use `.github/pull_request_template.md`: a two-to-four sentence summary,
+When asked to open the PR, start its body with `🤖 Generated with [Claude Code](https://claude.com/claude-code)` (unless the user says otherwise) and use
+`.github/pull_request_template.md`: a two-to-four sentence summary,
 everything longer inside the collapsed `<details><summary>Details</summary>` block, the commands run
 under Tests. Fill in the "Model or system submission" section for a model (delete the system lines)
 and keep the closing contribution line. Do not paste this Report into the PR body; the Report is for

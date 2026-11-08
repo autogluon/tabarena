@@ -200,7 +200,7 @@ TabArena uses five independent caches. Configure them all at once with `tabarena
 
 | Cache | `CacheConfig` field | Holds | Set via | Default |
 |---|---|---|---|---|
-| OpenML (most important) | `openml` | Materialized datasets + CV splits + all TabArena-derived task artifacts (`tabarena_tasks/`, `tabarena_text_cache/`, `tabarena_metadata_cache/`, `local/datasets/`) | `openml.config.set_root_cache_directory` (no env var) | `~/.cache/openml` |
+| OpenML (most important) | `openml` | Materialized datasets + CV splits + all TabArena-derived task artifacts (`tabarena_tasks/`, `tabarena_text_cache/`, `tabarena_metadata_cache/`, `local/datasets/` unless a `UserTask` sets `task_cache_path`, which then holds it) | `openml.config.set_root_cache_directory` (no env var) | `~/.cache/openml` |
 | HuggingFace | `huggingface` | Foundation-model weights (Mitra / LimiX / ... + text-embedding models) | `HF_HOME` | `~/.cache/huggingface/hub` |
 | Data Foundry | `data_foundry` | The one-time raw dataset download (data_foundry/BeyondArena), later materialized into the OpenML cache. **Not** `HF_HOME` — data_foundry passes an explicit `cache_dir` to `snapshot_download` | `DATA_FOUNDRY_CACHE` | `~/.cache/data_foundry` |
 | TabArena | `tabarena` | Results / baselines / leaderboard artifacts (~100 GB raw, ~10 GB processed, <1 MB results per method) | `set_tabarena_cache_root` / `TABARENA_CACHE` | `~/.cache/tabarena` |

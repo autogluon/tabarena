@@ -81,7 +81,10 @@ raw results record, with a warning), `license` is the terms of service plus the 
 models served behind the API, and `commercial_use` is False when one of those models is
 non-commercial: ask the submitter what runs behind the endpoint. `organization` is who develops the
 system (a company, lab or university, spelled as in other `info.py` files so the leaderboard finds
-its logo); ask the submitter when the paper or repository does not settle it.
+its logo); ask the submitter when the paper or repository does not settle it. A new organization
+has no logo yet: ask the submitter to attach one to the PR description (square SVG or PNG of at
+least 128 px, transparent background, readable on a dark background), which maintainers add to
+the leaderboard Space at the next `update-leaderboard`.
 
 Maintainers also need, before the benchmark run: an evaluation key with quota for every config on
 every split (816 per config on TabArena-v0.1, plus about 30 calls for the audit), the concurrency the
@@ -168,7 +171,8 @@ There is no per-system fit test. Tests specific to the system, if any, go into `
 Summarize the new files, the edited files, the chosen `tags` and why, and the open TODOs (results,
 `verified`, the `methods.py` registration once artifacts exist).
 
-When asked to open the PR, use `.github/pull_request_template.md`: a two-to-four sentence summary,
+When asked to open the PR, start its body with `🤖 Generated with [Claude Code](https://claude.com/claude-code)` (unless the user says otherwise) and use
+`.github/pull_request_template.md`: a two-to-four sentence summary,
 everything longer inside the collapsed `<details><summary>Details</summary>` block, the commands run
 under Tests. Fill in the "Model or system submission" section for a system (delete the model lines)
 and keep the closing contribution line. Do not paste the Report into the PR body; the Report is for

@@ -118,6 +118,7 @@ def get_model_family(model_name: str, system_names: Container[str] = frozenset()
         return Constants.system
     prefixes_mapping = {
         Constants.neural_network: [
+            "MLP-A",
             "REALMLP",
             "TABM",
             "TABPACK",
@@ -174,8 +175,10 @@ def get_model_family(model_name: str, system_names: Container[str] = frozenset()
             "EXAONE",
             "XIAOMI-TABLDM",
             "TA-KUMO-TABULAR",
+            "TA-SELDON",
             "FTFM",
             "LIGHTPFN",
+            "TABABAX",
         ],
         Constants.baseline: ["KNN", "LR", "LINEAR"],
         Constants.other: ["XRFM", "APLR"],
@@ -271,6 +274,7 @@ def get_rename_map() -> dict[str, str]:
         "SAP-RPT-OSS": "SAP-RPT-OSS",
         "TABSWIFT": "TabSwift",
         "XIAOMI-TABLDM": "Xiaomi-TabLDM",
+        "TABABAX": "TabAbax",
     }
 
 

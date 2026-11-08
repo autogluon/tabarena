@@ -11,6 +11,8 @@ from tabarena.models._registry import (
 
 if TYPE_CHECKING:
     from tabarena.models._method_metadata import MethodMetadata
+    from tabarena.models.agentic_mlp.model import AgenticMLPModel
+    from tabarena.models.agentic_tabm.model import AgenticTabMModel
     from tabarena.models.aplr.model import APLRModel
     from tabarena.models.causilo.model import CausiloModel
     from tabarena.models.chimeraboost.model import ChimeraBoostModel
@@ -35,6 +37,8 @@ if TYPE_CHECKING:
     from tabarena.models.prismboost.model import PrismBoostModel
     from tabarena.models.realmlp.model import RealMLPModel
     from tabarena.models.sap_rpt_oss.model import SAPRPTOSSModel
+    from tabarena.models.seldon.model import SeldonMiniModel, SeldonModel
+    from tabarena.models.tababax.model import TabAbaxModel
     from tabarena.models.tabdpt.model import TabDPTModel, TabDPTTurboModel, TabDPTv13Model
     from tabarena.models.tabfm.model import TabFMModel
     from tabarena.models.tabicl.model import TabICLModel, TabICLv2Model
@@ -56,7 +60,10 @@ if TYPE_CHECKING:
 # repository transitive imports we don't want to charge every consumer for.
 _LAZY_CLASSES: dict[str, str] = {
     "MethodMetadata": "tabarena.models._method_metadata",
+    "AgenticMLPModel": "tabarena.models.agentic_mlp.model",
+    "AgenticTabMModel": "tabarena.models.agentic_tabm.model",
     "APLRModel": "tabarena.models.aplr.model",
+    "TabAbaxModel": "tabarena.models.tababax.model",
     "CausiloModel": "tabarena.models.causilo.model",
     "ChimeraBoostModel": "tabarena.models.chimeraboost.model",
     "CTBoostModel": "tabarena.models.ctboost.model",
@@ -80,6 +87,8 @@ _LAZY_CLASSES: dict[str, str] = {
     "RealMLPModel": "tabarena.models.realmlp.model",
     "RealTabPFNv25Model": "tabarena.models.tabpfnv2_5.model",
     "SAPRPTOSSModel": "tabarena.models.sap_rpt_oss.model",
+    "SeldonMiniModel": "tabarena.models.seldon.model",
+    "SeldonModel": "tabarena.models.seldon.model",
     "TabDPTModel": "tabarena.models.tabdpt.model",
     "TabDPTTurboModel": "tabarena.models.tabdpt.model",
     "TabDPTv13Model": "tabarena.models.tabdpt.model",

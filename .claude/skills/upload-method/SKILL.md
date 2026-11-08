@@ -47,6 +47,12 @@ uploads — start each method's dry-run + real upload as soon as its processing 
 
 ## Step 0: Gather inputs
 
+**Results from a contributor's own run** (a submission hosted instead of a maintainer re-run): verify the
+files before anything is processed, following `references/verify_submission.md` (safe download and
+unpickling, a scan of every `results.pkl` with `scripts/scan_submission.py`, split and label hashes against
+our own run, hyperparameters against the search space, the claimed Elo reproduced with `compare`, and the
+impact of any problem the review finds). `verified=True` needs the maintainer's sign-off on that report.
+
 Parse `$ARGUMENTS`. Collect (ask only for what's missing or ambiguous):
 
 | Input | Example | Notes |
@@ -347,7 +353,7 @@ Tell the maintainer:
 
 Open a PR, comment on one or edit its description only when the maintainer asks: the Report above
 goes to the chat, and any text meant for a PR is shown to the maintainer first and posted only after
-they say so. When asked to open the PR, use `.github/pull_request_template.md` and delete its "Model
+they say so, starting with `🤖 Generated with [Claude Code](https://claude.com/claude-code)` as its first line unless they say otherwise. When asked to open the PR, use `.github/pull_request_template.md` and delete its "Model
 or system submission" section (that one is for external submissions). The summary names the method
 and what was uploaded; the collapsed Details block carries the method key, suite and date, the r2
 destinations, the `verified` state, and whether `update-leaderboard` is the next step. Do not paste

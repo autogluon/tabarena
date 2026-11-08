@@ -91,6 +91,12 @@ SMOKE_OVERRIDES: dict[str, ModelSmokeTest] = {
     "Kumo-Tabular": ModelSmokeTest({"num_estimators": 1}, verify_single_prediction_equivalent_to_multi=False),
     "Kumo-Tabular-Medium": ModelSmokeTest({"num_estimators": 1}, verify_single_prediction_equivalent_to_multi=False),
     "Kumo-Tabular-Small": ModelSmokeTest({"num_estimators": 1}, verify_single_prediction_equivalent_to_multi=False),
+    # Seldon predicts under float16 autocast on CUDA, so a row predicted alone vs. inside a batch drifts
+    # ~2e-4 (1.9e-4 for Seldon, 2.7e-4 for Seldon-Mini; the tolerance is 1e-5), as Kumo Tabular does. The
+    # drift is numerical: with the autocast off it is ~4e-7, and `FitHelper.verify_model` passes with the
+    # check on under CUDA_VISIBLE_DEVICES="" for both models.
+    "Seldon": ModelSmokeTest(verify_single_prediction_equivalent_to_multi=False),
+    "Seldon-Mini": ModelSmokeTest(verify_single_prediction_equivalent_to_multi=False),
     "TabSTAR-v1.1": ModelSmokeTest({"max_epochs": 1}),
     "TabFM": ModelSmokeTest({"n_estimators": 1}),
     "Nori": ModelSmokeTest(problem_types=("regression",)),
