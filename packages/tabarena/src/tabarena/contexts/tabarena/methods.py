@@ -99,7 +99,12 @@ from tabarena.models.realmlp.info import realmlp_method_metadata as realmlp_gpu_
 from tabarena.models.sap_rpt_oss.info import (
     sap_rpt_oss_method_metadata as contexttab_metadata,
 )
-from tabarena.models.seldon.info import seldon_method_metadata, seldon_mini_method_metadata
+from tabarena.models.seldon.info import (
+    seldon_classification_method_metadata,
+    seldon_method_metadata,
+    seldon_mini_classification_method_metadata,
+    seldon_mini_method_metadata,
+)
 from tabarena.models.tababax.info import tababax_method_metadata
 from tabarena.models.tabdpt.info import (
     tabdpt_method_metadata as tabdpt_metadata,
@@ -287,6 +292,8 @@ methods_superseded: list[MethodMetadata] = [
     mitra_v2_method_metadata,  # rerun tabarena-2026-09-16 replaced it
     tabldm_method_metadata,  # rerun tabarena-2026-09-16 replaced it
     tabstar_metadata,  # TabSTAR-v1.1 (models/tabstar_v1p1) replaced it
+    seldon_classification_method_metadata,  # classification only; tabarena-2026-11-08 adds regression
+    seldon_mini_classification_method_metadata,  # classification only; tabarena-2026-11-08 adds regression
 ]
 
 # All historical results for each method = the latest collection + every superseded variant: the

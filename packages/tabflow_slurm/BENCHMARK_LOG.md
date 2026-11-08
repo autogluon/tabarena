@@ -58,7 +58,11 @@ run against `main`. To reproduce an entry, check out its recorded **git SHA**.
   failed; `audit_warmup --results` shows warm-up `ok` on all 444 and no package imported inside the timed sections.
   Eval on the regression subset (110 methods, 0% imputed): Seldon #6, Elo 2207 (+168/-87), the PR expected about 2160;
   Seldon-Mini #8, Elo 2147 (+164/-69), the PR expected about 2115. Median per 1K rows: Seldon 1.14 s train and
-  0.077 s inference, Seldon-Mini 0.39 s and 0.035 s.
+  0.077 s inference, Seldon-Mini 0.39 s and 0.035 s. Processed together with the hosted raw results of the
+  2026-11-03 classification runs (594 per model; the merged classification rows equal the hosted ones exactly) and
+  uploaded as suite `tabarena-2026-11-08` (`seldon_method_metadata`, `seldon_mini_method_metadata`, 816 splits each,
+  `verified=True`); the classification-only 2026-11-03 entries moved to
+  `methods_superseded`.
 
 ```python
 TabArenaV0pt1BenchmarkPlan(
