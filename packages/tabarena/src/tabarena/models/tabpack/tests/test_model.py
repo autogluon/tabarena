@@ -1,6 +1,6 @@
 """TabPack wrapper logic the registry fit test does not reach: its preprocessing, a class missing from
-a fold's training rows, the regression target scale, the time limit, the category budget and the pack
-size for wide tables. Cheap CPU fits (two members).
+a fold's training rows, the regression target scale, the time limit with its epoch reserve, the category
+budget and the pack size for wide tables. Cheap CPU fits (two members).
 """
 
 from __future__ import annotations
@@ -123,6 +123,36 @@ def test_time_limit_stops_a_fit_with_no_other_stopping_condition(tmp_path):
     budget = model.model.training_loop_time_budget
     assert 0 < budget < 0.95 * 3.0
     assert budget <= model.model.tabpack_.get_training_loop_time() < 3.0
+    assert model.predict_proba(model.generator.transform(X.iloc[:5])).shape == (5,)
+
+
+def test_time_limit_reserves_one_probed_epoch_on_large_tables(tmp_path, monkeypatch):
+    probed = []
+    real_probe = TabPackModel._estimate_epoch_seconds
+
+    def probe_then_reserve_ten_seconds(self, *args):
+        probed.append(real_probe(self, *args))
+        return 10.0
+
+    monkeypatch.setattr(TabPackModel, "_estimate_epoch_seconds", probe_then_reserve_ten_seconds)
+    X = _frame(300)
+    y = pd.Series((X["num"] > 0).astype(int))
+    # A row threshold of 1 makes this toy table "large"; the explicit batch size is the one the probe reuses.
+    hps = {"n_models": 2, "max_epochs": 1, "batch_size": 32, "epoch_probe_min_rows": 1}
+    model = _fit(
+        tmp_path,
+        X.iloc[:200],
+        y.iloc[:200],
+        "binary",
+        "log_loss",
+        X.iloc[200:],
+        y.iloc[200:],
+        hyperparameters=hps,
+        time_limit=30.0,
+    )
+
+    assert len(probed) == 1 and probed[0] > 0  # the probe fit ran and timed its training loop
+    assert 0 < model.model.training_loop_time_budget < 0.95 * 30.0 - 10.0  # the epoch is reserved from the budget
     assert model.predict_proba(model.generator.transform(X.iloc[:5])).shape == (5,)
 
 

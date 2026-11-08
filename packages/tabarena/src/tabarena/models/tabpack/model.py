@@ -95,7 +95,8 @@ class TabPackModel(AbstractTorchModel):
     ``time_limit`` becomes the library's ``training_loop_time_budget``: what is left of it after the
     preprocessing, less 5% headroom for building the predictor. The library checks the budget after
     each epoch, so a fit can overrun it by up to one epoch, and the online greedy ensemble keeps the
-    members it selected so far. Refit on train+val is not supported: the library's ``refit`` would put
+    members it selected so far. From ``epoch_probe_min_rows`` training rows on, where an epoch can take
+    minutes, a short probe fit estimates one epoch and the budget reserves it (``_estimate_epoch_seconds``). Refit on train+val is not supported: the library's ``refit`` would put
     each fold's out-of-fold rows into the model that predicts them.
 
     Paper: TabPack: Efficient Hyperparameter Ensembles for Tabular Deep Learning
@@ -160,6 +161,7 @@ class TabPackModel(AbstractTorchModel):
         ensemble_metric = hps.pop("ensemble_metric", "auto")
         max_total_categories = hps.pop("max_total_categories", None)
         max_pack_memory_fraction = hps.pop("max_pack_memory_fraction", None)
+        epoch_probe_min_rows = hps.pop("epoch_probe_min_rows", None)
 
         X = self.preprocess(X, is_train=True, max_total_categories=max_total_categories)
         X_val = self.preprocess(X_val)
@@ -178,11 +180,6 @@ class TabPackModel(AbstractTorchModel):
             # The authors' TabArena setting: the training loss as the greedy ensembling score.
             ensemble_metric = "log_loss" if is_classification else "mse"
         hps.setdefault("ensembles", {"default": {"type": "greedy", "algorithm_metric": ensemble_metric}})
-        if time_limit is not None:
-            budget = 0.95 * (time_limit - (time.time() - start_time))
-            if budget <= 0:
-                raise TimeLimitExceeded
-            hps["training_loop_time_budget"] = budget
         if max_pack_memory_fraction and "max_pack_size" not in hps and str(device).startswith("cuda"):
             total_memory = torch.cuda.get_device_properties(torch.device(device)).total_memory
             max_pack_size = _max_pack_size(X, hps, max_pack_memory_fraction * total_memory)
@@ -190,15 +187,61 @@ class TabPackModel(AbstractTorchModel):
                 hps["max_pack_size"] = max_pack_size
 
         model_cls = TabPackClassifier if is_classification else TabPackRegressor
-        self.model = model_cls(
-            eval_criterion_metric=criterion_metric,
-            device=device,
-            print_progress=verbosity >= 3,
-            show_progress_bar=False,
+        model_kwargs = {
+            "eval_criterion_metric": criterion_metric,
+            "device": device,
+            "print_progress": verbosity >= 3,
+            "show_progress_bar": False,
             **hps,
-        )
+        }
+        if time_limit is not None:
+            epoch_seconds = 0.0
+            if epoch_probe_min_rows is not None and len(X) >= epoch_probe_min_rows:
+                epoch_seconds = self._estimate_epoch_seconds(model_cls, model_kwargs, X, y_train, X_val, y_extra)
+            budget = 0.95 * (time_limit - (time.time() - start_time)) - epoch_seconds
+            if budget <= 0:
+                raise TimeLimitExceeded
+            model_kwargs["training_loop_time_budget"] = budget
+
+        self.model = model_cls(**model_kwargs)
         self.model.fit(X, y_train, extra_set=(X_val, y_extra))
         _drop_training_checkpoints(self.model)
+
+    def _estimate_epoch_seconds(
+        self, model_cls, model_kwargs: dict, X: pd.DataFrame, y: np.ndarray, X_val: pd.DataFrame, y_val: np.ndarray
+    ) -> float:
+        """The seconds one training epoch of the full pack takes on these rows, from a short probe fit.
+
+        Developer fix. ``tabpackage`` checks ``training_loop_time_budget`` only after a complete epoch, and on large
+        tables an epoch takes minutes (about 10 minutes for 64 models on 875k rows x 988 features), so a fit can
+        overrun its budget by up to one epoch. On BeyondArena's ``maps_router_eta_1m`` each of the eight folds then
+        took slightly more than its share and AutoGluon stopped the bag on its time limit. The probe trains the same
+        pack for one epoch on about 16 batches of training rows and the same share of validation rows, and scales the
+        library's training-loop time by the inverse of that share; ``_fit`` reserves the estimate from the budget.
+        """
+        import torch
+
+        n_train = len(X)
+        # The library's batch size for this many rows (512 below 131,072, then 1024); the probe must use the same.
+        batch_size = model_kwargs.get("batch_size") or (512 if n_train < 131_072 else 1024)
+        share = min(1.0, 16 * batch_size / n_train)
+        rng = np.random.default_rng(0)
+        train_idx = np.sort(rng.choice(n_train, size=int(np.ceil(share * n_train)), replace=False))
+        val_idx = np.sort(rng.choice(len(X_val), size=max(1, int(np.ceil(share * len(X_val)))), replace=False))
+        y_probe, X_val_probe, y_val_probe = y[train_idx], X_val.iloc[val_idx], y_val[val_idx]
+        if self.problem_type != "regression":
+            seen = np.isin(y_val_probe, np.unique(y_probe))
+            X_val_probe, y_val_probe = X_val_probe[seen], y_val_probe[seen]
+        if len(y_val_probe) == 0:
+            return 0.0
+        probe = model_cls(**{**model_kwargs, "max_epochs": 1, "batch_size": batch_size})
+        probe.fit(X.iloc[train_idx], y_probe, extra_set=(X_val_probe, y_val_probe))
+        seconds = probe.tabpack_.get_training_loop_time() / share
+        del probe
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        logger.log(20, f"\tOne epoch takes ~{seconds:.0f}s (probe on {len(train_idx)} rows); reserved from the budget.")
+        return seconds
 
     def _resolve_criterion_metric(self, y_val: np.ndarray) -> str:
         """The TabPack metric closest to the stopping metric, falling back to the training loss."""
@@ -342,6 +385,9 @@ class TabPackModel(AbstractTorchModel):
             # memory, and stay below 2**31 weights. Together they engage above ~2,700 numerical features,
             # above every TabArena-v0.1 table.
             "max_pack_memory_fraction": 0.5,
+            # Large tables (see `_estimate_epoch_seconds`): reserve one probed epoch from the time budget. Above
+            # every TabArena-v0.1 fold (at most 87,500 training rows).
+            "epoch_probe_min_rows": 100_000,
         }
         for param, val in default_params.items():
             self._set_default_param_value(param, val)
