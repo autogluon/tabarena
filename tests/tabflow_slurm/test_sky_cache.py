@@ -21,6 +21,7 @@ from tabflow_slurm.setup.sky_cache import (
     dataset_id_from_task_xml,
     is_portable_user_task,
     mirror_local_weights,
+    model_weights_fingerprint,
     openml_task_entries,
     prefetch_weights_into,
     seed_dataset_cache,
@@ -381,6 +382,124 @@ class TestLocalFirstSeeding:
         assert rels[0] == "huggingface/hub/models--Prior-Labs--tabpfn_3/snapshots"
         remote = json.loads(local_storage.read_text("gs://b/tabarena/cache/weights/TabPFN-3.json"))
         assert remote["entries"] == rels
+
+    def test_seed_model_weights_reseeds_when_the_fingerprint_changes_and_keeps_the_old_revision(
+        self, tmp_path, local_storage
+    ):
+        state = {"fingerprint": "a", "revision": "rev1"}
+        calls: list = []
+
+        def prefetch(models, *, python, cache_root):
+            calls.append(state["revision"])
+            snapshot = Path(cache_root) / "huggingface" / "hub" / "models--org--m" / "snapshots" / state["revision"]
+            snapshot.mkdir(parents=True)
+            (snapshot / "model.safetensors").write_text(state["revision"])
+
+        kwargs = {
+            "python": "x",
+            "storage": local_storage,
+            "cache_uri": "gs://b/tabarena/cache",
+            "scratch_dir": tmp_path / "scratch",
+            "prefetch": prefetch,
+            "has_prefetcher": lambda m: True,
+            "fingerprint": lambda m: state["fingerprint"],
+        }
+        first, _ = seed_model_weights(["M"], **kwargs)
+        again, _ = seed_model_weights(["M"], **kwargs)
+        assert calls == ["rev1"] and again == first
+        # The wrapper pins another revision: the next setup seeds it next to the first one.
+        state.update(fingerprint="b", revision="rev2")
+        moved, report = seed_model_weights(["M"], **kwargs)
+        assert calls == ["rev1", "rev2"]
+        assert (
+            moved == first == {"weights": {"M": ["huggingface/hub/models--org--m/snapshots"]}, "offline_weights": True}
+        )
+        assert report.uploaded_files == 1
+        snapshots = "gs://b/tabarena/cache/huggingface/hub/models--org--m/snapshots"
+        assert local_storage.read_text(f"{snapshots}/rev1/model.safetensors") == "rev1"
+        assert local_storage.read_text(f"{snapshots}/rev2/model.safetensors") == "rev2"
+        assert json.loads(local_storage.read_text("gs://b/tabarena/cache/weights/M.json"))["fingerprint"] == "b"
+
+    def test_seed_model_weights_reseeds_a_manifest_written_without_a_fingerprint(self, tmp_path, local_storage):
+        local_storage.write_text(
+            "gs://b/tabarena/cache/weights/TabPFN-3.json",
+            '{"model": "TabPFN-3", "entries": ["huggingface/hub/models--Prior-Labs--tabpfn_3/snapshots"]}',
+        )
+        calls: list = []
+
+        def prefetch(models, *, python, cache_root):
+            calls.append(list(models))
+            _fake_prefetch(models, python=python, cache_root=cache_root)
+
+        manifest, _ = seed_model_weights(
+            ["TabPFN-3"],
+            python="x",
+            storage=local_storage,
+            cache_uri="gs://b/tabarena/cache",
+            scratch_dir=tmp_path / "scratch",
+            prefetch=prefetch,
+            has_prefetcher=lambda m: True,
+            fingerprint=lambda m: "f1",
+        )
+        assert calls == [["TabPFN-3"]] and manifest["offline_weights"] is True
+        remote = json.loads(local_storage.read_text("gs://b/tabarena/cache/weights/TabPFN-3.json"))
+        assert remote["fingerprint"] == "f1" and remote["entries"] == manifest["weights"]["TabPFN-3"]
+
+    def test_read_only_mode_leaves_weights_seeded_under_another_fingerprint_to_the_workers(
+        self, tmp_path, local_storage
+    ):
+        local_storage.write_text(
+            "gs://curated/weights/TabPFN-3.json",
+            '{"model": "TabPFN-3", "entries": ["huggingface/hub/x/snapshots"], "fingerprint": "old"}',
+        )
+        manifest, report = seed_model_weights(
+            ["TabPFN-3"],
+            python="x",
+            storage=local_storage,
+            cache_uri="gs://curated",
+            upload=False,
+            scratch_dir=tmp_path,
+            prefetch=lambda *a, **k: pytest.fail("must not prefetch"),
+            has_prefetcher=lambda m: True,
+            fingerprint=lambda m: "new",
+        )
+        assert manifest == {"weights": {}, "offline_weights": False}
+        assert report.unverified == ["weights of TabPFN-3 (seeded under another fingerprint)"]
+
+    def test_model_weights_fingerprint_follows_the_pin_and_the_prefetcher_folder(self, tmp_path, monkeypatch):
+        import importlib.util
+        import sys
+        from types import SimpleNamespace
+
+        import tabarena.models.utils as model_utils
+
+        folder = tmp_path / "mymodel"
+        (folder / "tests").mkdir(parents=True)
+        model_file = folder / "model.py"
+        model_file.write_text('REVISION = "rev1"\n\n\ndef prefetch():\n    return []\n')
+        (folder / "tests" / "test_model.py").write_text("x = 1\n")
+        spec = importlib.util.spec_from_file_location("mymodel_model", model_file)
+        module = importlib.util.module_from_spec(spec)
+        monkeypatch.setitem(sys.modules, "mymodel_model", module)
+        spec.loader.exec_module(module)
+        info = SimpleNamespace(prefetch_weights=module.prefetch, pip_extra=("lib==1.0",))
+
+        def lookup(name):
+            if name != "M":
+                raise ValueError(name)
+            return info
+
+        monkeypatch.setattr(model_utils, "get_model_info_from_name", lookup)
+        first = model_weights_fingerprint("M")
+        assert first is not None and model_weights_fingerprint("M") == first
+        assert model_weights_fingerprint("unknown") is None
+        (folder / "tests" / "test_model.py").write_text("x = 2\n")
+        assert model_weights_fingerprint("M") == first  # the wrapper's own tests do not count
+        model_file.write_text(model_file.read_text().replace("rev1", "rev2"))
+        moved = model_weights_fingerprint("M")
+        assert moved not in (None, first)
+        info.pip_extra = ("lib==1.1",)
+        assert model_weights_fingerprint("M") not in (None, first, moved)
 
     def test_mirror_local_weights_links_the_node_cache_into_the_scratch_root(self, tmp_path):
         node = tmp_path / "node"  # this node's caches, laid out as the libraries keep them

@@ -150,8 +150,9 @@ class SkyPilotSetup(SchedulerSetup):
     the workers from OpenML or the Hub as a fallback. A legacy data-foundry task pickle is upgraded
     to the portable format first."""
     seed_model_weights: bool = True
-    """Prefetch the run's model weights on this node into ``weights_cache_uri`` (once per model; a
-    remote ``weights/<model>.json`` makes later setups skip it) so the workers load them from the
+    """Prefetch the run's model weights on this node into ``weights_cache_uri`` (once per model and weight
+    declaration; a remote ``weights/<model>.json`` with the model's current fingerprint makes later setups skip
+    it, see :func:`~tabflow_slurm.setup.sky_cache.model_weights_fingerprint`) so the workers load them from the
     bucket with ``HF_HUB_OFFLINE=1`` and need no Hugging Face token. ``False`` leaves the download to
     each worker (gated weights then need the token in ``secrets``)."""
     workers: int = 8
