@@ -107,7 +107,7 @@ fails collection instead of parametrizing a registry-driven test over nothing, a
 (or `PYTHONSAFEPATH=1`) makes the interpreter safe from any cwd. The `pytest` console script is
 safe from any cwd. `setup`, `sbatch` and `python -m tabflow_slurm.run_local` are run from the repo
 root too: Ray puts the driver's cwd on every worker's `sys.path`, which `-P` does not cover. CI's per-PR job (`.github/workflows/pytest-pytest.yml`)
-runs `pytest` on Python 3.11 against `./packages/tabarena[plot,preprocessing,data-foundry]`
+runs `pytest` on Python 3.12 against `./packages/tabarena[plot,preprocessing,data-foundry]`
 plus the editable `tabflow_slurm` package (so its tests and the data_foundry-gated tests run),
 but **not** `[text]`/`[benchmark]` — so it stays fast (no model fitting, no torch).
 
