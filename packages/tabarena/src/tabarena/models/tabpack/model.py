@@ -42,7 +42,9 @@ def _max_pack_size(X: pd.DataFrame, hps: dict, memory_budget: float) -> int | No
     input per category) and ``d_block`` (384) outputs, held as float32 weights, gradients and two AdamW
     moments. On BeyondArena's ``lung_cancer`` (197 rows, 12,600 features) that is 2.5 GB per model, 159 GB
     for 64, and the first backward pass ran out of memory on a 96 GB card. Above the budget, the library's
-    ``max_pack_size`` trains as many models at once as fit and replaces them as they finish. ``X`` is the
+    ``max_pack_size`` trains as many models at once as fit and replaces them as they finish. The pack's
+    stacked first-layer weights also stay below 2**31 elements: at 3.2e9 (38 models on a 6,771-feature table)
+    the fit stopped with a CUDA illegal memory access, the mark of a kernel with 32-bit indexing. ``X`` is the
     preprocessed frame (categorical features as string columns); ``None`` means the whole pack fits.
     """
     n_models = hps.get("n_models") or 64
@@ -55,8 +57,9 @@ def _max_pack_size(X: pd.DataFrame, hps: dict, memory_budget: float) -> int | No
     elif not isinstance(d_embedding, int):
         d_embedding = 32  # the top of the library's default range (8 to 32); the pack pads to its widest model
     d_block = hps.get("d_block") if isinstance(hps.get("d_block"), int) else 384
-    bytes_per_model = 16 * d_block * (n_numerical * d_embedding + n_categories)
-    n_fit = int(memory_budget // bytes_per_model)
+    weights_per_model = d_block * (n_numerical * d_embedding + n_categories)
+    bytes_per_model = 16 * weights_per_model
+    n_fit = min(int(memory_budget // bytes_per_model), (2**31 - 1) // weights_per_model)
     if n_fit >= n_models:
         return None
     logger.log(
@@ -336,7 +339,8 @@ class TabPackModel(AbstractTorchModel):
             # batch, and above every TabArena-v0.1 table (kddcup09_appetency: ~25k categories per fold).
             "max_total_categories": 32768,
             # Wide tables (see `_max_pack_size`): the pack's first layers may take this share of the GPU's
-            # memory. Engages above ~4,000 numerical features on a 96 GB card, above every TabArena-v0.1 table.
+            # memory, and stay below 2**31 weights. Together they engage above ~2,700 numerical features,
+            # above every TabArena-v0.1 table.
             "max_pack_memory_fraction": 0.5,
         }
         for param, val in default_params.items():

@@ -154,3 +154,10 @@ def test_pack_size_shrinks_only_when_the_first_layers_exceed_the_budget():
     assert _max_pack_size(X, {}, memory_budget=0.1 * bytes_per_model) == 1
     # Narrower embeddings than the default range's top make each model smaller.
     assert _max_pack_size(X, {"numerical_embeddings_d": 8}, memory_budget=10.5 * bytes_per_model) == 41
+
+
+def test_pack_size_keeps_the_stacked_first_layer_below_int32_indexing():
+    X = pd.DataFrame(np.zeros((4, 3000), dtype=np.float32)).rename(columns=str)
+    weights_per_model = 384 * 3000 * 32
+    # Memory alone would allow all 64 models; 64 first layers would hold more than 2**31 weights.
+    assert _max_pack_size(X, {}, memory_budget=1e15) == (2**31 - 1) // weights_per_model == 58
