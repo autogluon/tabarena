@@ -262,7 +262,7 @@ beyond_kumo_tabular_small_metadata = kumo_tabular_small_descriptor.method_metada
 # -- Seldon and Seldon-Mini, run 2026-11-09 (`beyondarena_seldon_09112026` in BENCHMARK_LOG.md) -----------------
 # The official protocol on every core2k split, up to the 1M-row tables, with neuralk-oss 0.3.0 and the fit time
 # limits of the Kumo-Tabular run: 16 h on the tables above 10k training rows, the 4 h default on the others.
-_seldon_run_kwargs = {**_common_fm_kwargs, "suite": "beyondarena-2026-11-09", "date": "2026-11-09", "verified": False}
+_seldon_run_kwargs = {**_common_fm_kwargs, "suite": "beyondarena-2026-11-09", "date": "2026-11-09", "verified": True}
 
 beyond_seldon_metadata = seldon_descriptor.method_metadata(
     method="TA-Seldon",

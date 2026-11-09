@@ -65,7 +65,7 @@ run against `main`. To reproduce an entry, check out its recorded **git SHA**.
   train and 0.44 s inference, Seldon-Mini 1.24 s and 0.12 s (the fastest point on the Elo vs inference-time front).
   Figures for 16 slices under `tmp_scripts/eval_output/beyondarena_seldon_09112026/`. Processed and uploaded as
   suite `beyondarena-2026-11-09` (`beyond_seldon_metadata` and `beyond_seldon_mini_metadata` in
-  `contexts/beyondarena/methods.py`, 2,000 splits each, raw included, `verified=False`).
+  `contexts/beyondarena/methods.py`, 2,000 splits each, raw included, `verified=True`).
 
 ```python
 TabArenaBenchmarkPlan(
