@@ -15,14 +15,10 @@ torch = pytest.importorskip("torch")
 
 from autogluon.core.models import AbstractModel
 
-from tabarena.tools.audit_pickle import audit_pickle, autogluon_saves_tensors_apart, tensor_nbytes
+from tabarena.tools.audit_pickle import audit_pickle, tensor_nbytes
 
 #: Bytes per training row of the dummy cache (1024 float32).
 CACHE_BYTES_PER_ROW = 4096
-
-requires_tensor_file = pytest.mark.skipif(
-    not autogluon_saves_tensors_apart(), reason="this AutoGluon keeps a model's tensors in model.pkl"
-)
 
 
 class _TensorCacheModel(AbstractModel):
@@ -91,7 +87,6 @@ def test_tensor_nbytes_counts_a_shared_storage_once():
     assert tensor_nbytes({"a": base[:2], "b": [base[2:], base]}) == base.untyped_storage().nbytes()
 
 
-@requires_tensor_file
 @pytest.mark.parametrize(
     ("model_cls", "flagged", "noted"),
     [

@@ -16,9 +16,8 @@ measured training time everywhere and the RAM on large tables (Seldon, autogluon
 
 ``FLAG`` means ``model.pkl`` grows by more than ``16x`` the table's own bytes per row and by more than
 1 KiB per row, and the model's tensors make up most of that growth: they reach the pickle in a form
-AutoGluon cannot see, because the AutoGluon in use predates the tensor file or because the model or its
-library serializes them itself (a ``__getstate__`` or ``__reduce__`` that turns them into bytes or
-arrays). Storing the training table itself (TabPFN, KNN) stays below the threshold. A pickle that
+AutoGluon cannot see, because the model or its library serializes them itself (a ``__getstate__`` or
+``__reduce__`` that turns them into bytes or arrays). Storing the training table itself (TabPFN, KNN) stays below the threshold. A pickle that
 grows without tensors behind it is reported as ``NOTE``: the nodes of boosted trees or forests grow
 with the data and are no finding, while an in-context cache held as NumPy arrays is one, and keeping it
 as torch tensors moves it out of the pickle.
@@ -49,8 +48,8 @@ EXIT_MISSING_DEPENDENCY = 3
 MAX_TABLE_MULTIPLE = 16
 #: ... unless it grows by less than this many bytes per row.
 MIN_FLAG_BYTES_PER_ROW = 1024
-#: The default name of the tensor file AutoGluon writes beside ``model.pkl`` (``model_tensors_file_name``); an
-#: AutoGluon without it keeps tensors in the pickle.
+#: The default name of the tensor file AutoGluon writes beside ``model.pkl`` (``model_tensors_file_name``), used in
+#: the report.
 TENSORS_FILE_NAME = "model_tensors.pt"
 
 
@@ -90,13 +89,6 @@ def tensor_nbytes(obj: Any) -> int:
     return sum(storages.values())
 
 
-def autogluon_saves_tensors_apart() -> bool:
-    """Whether the installed AutoGluon writes a model's tensors beside ``model.pkl``."""
-    from autogluon.core.models import AbstractModel
-
-    return hasattr(AbstractModel, "model_tensors_file_name")
-
-
 def measure_fit(
     model_cls,
     *,
@@ -132,7 +124,7 @@ def measure_fit(
         save_s = time.perf_counter() - start
         files = {name: os.path.getsize(os.path.join(path, name)) for name in os.listdir(path)}
         pkl = files.pop(model.model_file_name, 0)
-        tensors_file = files.pop(getattr(model, "model_tensors_file_name", TENSORS_FILE_NAME), 0)
+        tensors_file = files.pop(model.model_tensors_file_name, 0)
         return {
             "n_rows": n_rows,
             "table_bytes": int(X.memory_usage(deep=True).sum() + y.memory_usage(deep=True)),
@@ -183,7 +175,6 @@ def audit_pickle(
     return {
         "model_cls": model_cls.__name__,
         "problem_type": problem_type,
-        "autogluon_saves_tensors_apart": autogluon_saves_tensors_apart(),
         "fits": [small, large],
         "bytes_per_row": per_row,
         "limit_bytes_per_row": limit,
@@ -208,17 +199,12 @@ def format_audit(data: dict[str, Any]) -> str:
         f"{TENSORS_FILE_NAME} {per_row['tensors_file_bytes']:,.0f} B, the model's tensors "
         f"{per_row['tensor_bytes']:,.0f} B (limit for model.pkl {data['limit_bytes_per_row']:,.0f} B)"
     )
-    if not data["autogluon_saves_tensors_apart"]:
-        lines.append(
-            f"WARNING: this AutoGluon keeps a model's tensors in model.pkl (no {TENSORS_FILE_NAME}); install a "
-            "version that writes them beside it."
-        )
     if data["flag"]:
         lines.append(
             "FLAG: model.pkl grows with the training rows, mostly through tensors (a context or KV cache) that "
             f"AutoGluon did not write to {TENSORS_FILE_NAME}. AutoGluon pickles the model inside the timed fit, so "
-            "this state is copied on every dataset. Check the AutoGluon version, then for a __getstate__ or "
-            "__reduce__ in the wrapper or library that serializes the tensors itself."
+            "this state is copied on every dataset. Look for a __getstate__ or __reduce__ in the wrapper or "
+            "library that serializes the tensors itself."
         )
     elif data["note"]:
         lines.append(

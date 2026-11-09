@@ -150,8 +150,7 @@ code before you report it. A blocker stops the run until the maintainer decides.
 `python -P -m tabarena.tools.audit_pickle --model <Method>` alongside them: a `FLAG` (the fitted
 model's pickle grows with the training rows) costs every item of the run time and the large tables
 their RAM, so fix it before the launch, not after (Seldon, #701, ran twice; see add-model's "Keep the
-cache out of the pickle"). Run it with the run venv, since its `WARNING` line says when that venv's
-AutoGluon still keeps tensors in the pickle.
+cache out of the pickle").
 
 Fixing what the review finds, on top of the PR, follows the add-model skill and its
 `references/model_patterns.md`, which hold the conventions a wrapper is held to: the `_fit` contract
