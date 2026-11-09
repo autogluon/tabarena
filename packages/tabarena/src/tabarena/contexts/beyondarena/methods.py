@@ -33,6 +33,7 @@ from tabarena.models.limix_2.info import limix_2_descriptor
 from tabarena.models.lr.info import lr_descriptor
 from tabarena.models.random_forest.info import random_forest_descriptor
 from tabarena.models.realmlp.info import realmlp_descriptor
+from tabarena.models.seldon.info import seldon_descriptor, seldon_mini_descriptor
 from tabarena.models.tabdpt.info import tabdpt_descriptor, tabdpt_v13_descriptor
 from tabarena.models.tabfm.info import tabfm_descriptor
 from tabarena.models.tabicl.info import tabiclv2_descriptor
@@ -258,6 +259,24 @@ beyond_kumo_tabular_small_metadata = kumo_tabular_small_descriptor.method_metada
     **_kumo_run_kwargs,
 )
 
+# -- Seldon and Seldon-Mini, run 2026-11-09 (`beyondarena_seldon_09112026` in BENCHMARK_LOG.md) -----------------
+# The official protocol on every core2k split, up to the 1M-row tables, with neuralk-oss 0.3.0 and the fit time
+# limits of the Kumo-Tabular run: 16 h on the tables above 10k training rows, the 4 h default on the others.
+_seldon_run_kwargs = {**_common_fm_kwargs, "suite": "beyondarena-2026-11-09", "date": "2026-11-09", "verified": True}
+
+beyond_seldon_metadata = seldon_descriptor.method_metadata(
+    method="TA-Seldon",
+    ag_key="TA-SELDON",
+    config_default="TA-Seldon_c1_BAG_L1",
+    **_seldon_run_kwargs,
+)
+beyond_seldon_mini_metadata = seldon_mini_descriptor.method_metadata(
+    method="TA-Seldon-Mini",
+    ag_key="TA-SELDON-MINI",
+    config_default="TA-Seldon-Mini_c1_BAG_L1",
+    **_seldon_run_kwargs,
+)
+
 beyond_method_metadata_lst: list[MethodMetadata] = [
     beyond_linear_2026_09_metadata,
     beyond_random_forest_metadata,
@@ -283,6 +302,8 @@ beyond_method_metadata_lst: list[MethodMetadata] = [
     beyond_kumo_tabular_metadata,
     beyond_kumo_tabular_medium_metadata,
     beyond_kumo_tabular_small_metadata,
+    beyond_seldon_metadata,
+    beyond_seldon_mini_metadata,
 ]
 
 beyond_method_metadata_collection = MethodMetadataCollection(
