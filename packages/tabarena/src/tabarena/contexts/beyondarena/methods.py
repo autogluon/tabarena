@@ -179,18 +179,20 @@ beyond_tabpfn3_metadata = tabpfn_3_descriptor.method_metadata(
 # deviation from the 4 h default). TabPFN-3.5, TabPFN-3.5-Fast and Causilo ran every core dataset; the other
 # six ran the tables up to 100k training rows and are imputed on the larger ones.
 _tfm_run_kwargs = {**_common_fm_kwargs, "suite": "beyondarena-2026-09-22", "date": "2026-09-22", "verified": False}
+# TabPFN-3.5 and TabPFN-3.5-Fast are verified (maintainer sign-off, 2026-11-09); the other seven are not yet.
+_tfm_verified_run_kwargs = {**_tfm_run_kwargs, "verified": True}
 
 beyond_tabpfn35_metadata = tabpfn_3_5_descriptor.method_metadata(
     method="TA-TabPFN-3.5",
     ag_key="TA-TABPFN-3.5",
     config_default="TA-TabPFN-3.5_c1_BAG_L1",
-    **_tfm_run_kwargs,
+    **_tfm_verified_run_kwargs,
 )
 beyond_tabpfn35_fast_metadata = tabpfn_3_5_fast_descriptor.method_metadata(
     method="TA-TabPFN-3.5-Fast",
     ag_key="TA-TABPFN-3.5-FAST",
     config_default="TA-TabPFN-3.5-Fast_c1_BAG_L1",
-    **_tfm_run_kwargs,
+    **_tfm_verified_run_kwargs,
 )
 beyond_causilo_metadata = causilo_descriptor.method_metadata(
     method="Causilo",
