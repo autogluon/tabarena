@@ -96,8 +96,9 @@ class TabPackModel(AbstractTorchModel):
     preprocessing, less 5% headroom for building the predictor. The library checks the budget after
     each epoch, so a fit can overrun it by up to one epoch, and the online greedy ensemble keeps the
     members it selected so far. From ``epoch_probe_min_rows`` training rows on, where an epoch can take
-    minutes, a short probe fit estimates one epoch and the budget reserves it (``_estimate_epoch_seconds``). Refit on train+val is not supported: the library's ``refit`` would put
-    each fold's out-of-fold rows into the model that predicts them.
+    minutes, a short probe fit estimates one epoch and the budget reserves it
+    (``_estimate_epoch_seconds``). Refit on train+val is not supported: the library's ``refit`` would
+    put each fold's out-of-fold rows into the model that predicts them.
 
     Paper: TabPack: Efficient Hyperparameter Ensembles for Tabular Deep Learning
     Authors: Yury Gorishniy, Akim Kotelnikov, Ivan Rubachev, Artem Babenko
