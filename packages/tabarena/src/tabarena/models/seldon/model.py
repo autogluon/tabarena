@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import contextlib
-import os
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, ClassVar
 
@@ -93,6 +91,8 @@ class SeldonModel(AbstractTorchModel):
     )
     #: The two models are registered separately; each owns its ``share_weights`` class setting.
     class_settings_per_subclass = True
+    #: The members' context cache stays on the CPU, from which ``predict_proba`` streams it; AutoGluon pins it on load.
+    pin_tensors_on_load: ClassVar[bool] = True
 
     #: The released model this class runs (neuralk-oss's model name).
     model_name: ClassVar[str] = "seldon"
@@ -101,6 +101,9 @@ class SeldonModel(AbstractTorchModel):
         import torch
         from neuralk_oss import Seldon, SeldonClassifier, SeldonRegressor
 
+        from tabarena.models.warmup import configure_cuda_allocator
+
+        configure_cuda_allocator(pinned_cache=True)
         X = self.preprocess(X, y=y)
         device = self._resolve_fit_device(num_gpus)
         regression = self.problem_type == REGRESSION
@@ -164,65 +167,20 @@ class SeldonModel(AbstractTorchModel):
         finally:
             _detach(self.model)
 
-    #: The context cache is saved next to ``model.pkl`` rather than inside it.
-    cache_file_name: ClassVar[str] = "context_cache.pt"
-
-    @contextlib.contextmanager
-    def _without_cache(self):
-        """Detach the estimator's context cache while ``self`` is pickled, so the pickle never copies it.
-
-        The cache holds every member's key/value projections of the training rows, tens of GB for Seldon on a
-        100k-row table, and AutoGluon pickles a model to save it and to measure it. Developer fix: the cache is sdm's
-        private ``ICLModel._cache``; re-check it whenever the pin moves.
-        """
-        estimator = self.model.estimator.estimator
-        cache = estimator._cache
-        estimator._cache = None
-        try:
-            yield cache
-        finally:
-            estimator._cache = cache
-
-    def save(self, path: str | None = None, verbose: bool = True) -> str:
-        """Pickle the model without the context cache and write the cache with ``torch.save``, which needs no copy."""
-        if self.model is None or self.model.estimator.estimator._cache is None:
-            return super().save(path=path, verbose=verbose)
-        import torch
-
-        with self._without_cache() as cache:
-            path = super().save(path=path, verbose=verbose)
-        cache_path = os.path.join(path, self.cache_file_name)
-        # Written beside the file and swapped in: a cache loaded on the CPU stays memory-mapped from this file, and
-        # truncating it under the mapping kills the process with SIGBUS (refit_full re-saves a loaded model).
-        torch.save(cache, cache_path + ".tmp")
-        os.replace(cache_path + ".tmp", cache_path)
-        return path
-
-    @classmethod
-    def load(cls, path: str, reset_paths: bool = True, verbose: bool = True):
-        """Load the model and its context cache, memory-mapped, with the CPU tensors pinned for transfers on CUDA."""
-        model = super().load(path=path, reset_paths=reset_paths, verbose=verbose)
-        cache_path = os.path.join(path, cls.cache_file_name)
-        if os.path.exists(cache_path):
-            import torch
-
-            # The cache file is as trusted as model.pkl.
-            cache = torch.load(cache_path, mmap=True, weights_only=False)
-            if torch.cuda.is_available():
-                cache = cache._apply_tensor(lambda t: t.pin_memory() if t.device.type == "cpu" else t)
-            model.model.estimator.estimator._cache = cache
-        return model
-
-    def _get_pickled_size(self) -> int:
-        """The pickle size without the context cache plus the cache's bytes."""
-        if self.model is None:
-            return super()._get_pickled_size()
-        with self._without_cache() as cache:
-            size = super()._get_pickled_size()
-        return size + (cache.size() if cache is not None else 0)
-
     def _more_tags(self) -> dict:
         return {"can_refit_full": True}
+
+    @classmethod
+    def warmup(cls, *, num_gpus: float | None = None, **kwargs) -> None:
+        """Configure the CUDA allocator before the CUDA context exists, then create that context.
+
+        The allocator reads ``PYTORCH_CUDA_ALLOC_CONF`` when it first runs, so this runs before the
+        generic torch layer of ``warmup_model_cls`` and calls :func:`warmup_torch` itself (idempotent).
+        """
+        from tabarena.models.warmup import configure_cuda_allocator, warmup_torch
+
+        configure_cuda_allocator(pinned_cache=True)
+        warmup_torch(cuda=None if num_gpus is None else num_gpus > 0)
 
     @classmethod
     def prefetch_weights(cls) -> list:

@@ -174,52 +174,62 @@ Keep the cached and the uncached path equivalent (the same predictions up to flo
 and test it, as `tests/tabarena/models/kumo_tabular/test_model.py` does after a save/load round trip.
 Keep whatever the uncached path stores on `self.model`, not on the wrapper, so a dropped fold model
 drops it. Then estimate the refit model's cache for the largest tables of both arenas: it stays in host
-memory and is pickled with the model, so it has to fit the workers' disk (128 GB on the SkyPilot pool)
+memory and is saved with the model, so it has to fit the workers' disk (128 GB on the SkyPilot pool)
 and stay below the persist guard (40% of RAM) or the timed inference loads it from disk. Kumo Tabular
 keeps about 12 KB per context row per ensemble member, plus a per-column part, multiplied by the ECOC
 tasks of a many-class head (autogluon/tabarena#641). A cache that writes into the network also turns
 off weight sharing for that fit (`disabled_by`, see "Shared pretrained weights"), so the refit model
 then loads its own copy.
 
-Check the pickle, not only the tensors. A pickle writes each tensor's whole underlying storage, so a
-cache whose per-member entries are slices of one batched tensor (FTFM prefills its eight views in one
-batch on CUDA and slices the result per member) pickles every member with all members' data: eight
-times its size. AutoGluon pickles a model to save it and also in memory to size it
-(`_get_pickled_size`), so the inflation fills the disk and the RAM at once, and on a 22k-row table
-FTFM's refit model was past 34 GB before the worker ran out of disk. CPU fits often take an unbatched
-path and hide it, so force the batched one (FTFM: `view_batch_size=8`) or measure on a GPU:
+Measure the saved model against that estimate on the library's GPU code path, since CPU fits often
+take another one (FTFM prefills its eight views in one batch on CUDA; force it on the CPU with
+`view_batch_size=8`). AutoGluon writes each tensor storage once and whole (see below), so a cache kept
+as slices of one batched tensor saves the batch once, which is its own size when the slices together
+cover the batch. A slice that keeps a much larger tensor alive, such as one row of a batch whose
+other rows are dropped, still saves all of it: copy it into its own storage after `fit`
+(`tensor.clone()`, bit-exact), mark that as a developer fix and ask the library to do it upstream.
+`audit_pickle` (below) reports the tensor file's growth per training row to compare with the estimate.
+
+Keep the cache out of the pickle. Even a pickle the size of its cache costs the run: AutoGluon
+pickles the model inside the timed fit, once in memory to size it (`_get_pickled_size`) and once to
+disk to save the refit model, and TabArena times the whole fit by the wall clock. A cache inside
+`model.pkl` is therefore copied on every dataset. Seldon's first wrapper kept its estimator's cache
+there (786 KB per training row on the CPU path, 8 members): the run trained at 1.7x its real time at
+the median, predicted at 1.2x, and ran out of RAM on GiveMeSomeCredit's 100k rows (autogluon/tabarena#701).
+
+AutoGluon handles tensors itself. `AbstractModel.save` writes every torch tensor of the model with
+`torch.save` to `model_tensors.pt` beside `model.pkl` (one copy per storage, written to a temporary
+file and swapped in), `load` reads them back, and `_get_pickled_size` counts each storage's bytes
+without serializing it. A cache held as torch tensors on the fitted estimator needs no wrapper code.
+A cache kept on the CPU and streamed to the GPU at predict time should sit in pinned memory; one class
+attribute has `load` copy each storage from the mapped tensor file straight into pinned memory when
+CUDA is available (`models/kumo_tabular/model.py` and `models/seldon/model.py`). torch rounds every
+pinned block up to a power of two and keeps freed blocks, so a cache of tens of GB can pin up to
+twice its size; `configure_cuda_allocator(pinned_cache=True)` from `tabarena.models.warmup`, called
+in the wrapper's `warmup` classmethod and at the start of `_fit`, stops that for large blocks:
 
 ```python
-import pickle
+class MyModel(AbstractTorchModel):
+    pin_tensors_on_load: ClassVar[bool] = True
 
-import torch
+    @classmethod
+    def warmup(cls, *, num_gpus: float | None = None, **kwargs) -> None:
+        from tabarena.models.warmup import configure_cuda_allocator, warmup_torch
 
-
-def storage_bytes(obj) -> tuple[int, int]:
-    """(bytes the tensors view, bytes of the storages behind them) for the tensors inside ``obj``."""
-    seen, viewed = {}, 0
-    def walk(value):
-        nonlocal viewed
-        if torch.is_tensor(value):
-            seen[value.untyped_storage().data_ptr()] = value.untyped_storage().nbytes()
-            viewed += value.numel() * value.element_size()
-        elif isinstance(value, dict):
-            for item in value.values():
-                walk(item)
-        elif isinstance(value, (list, tuple)):
-            for item in value:
-                walk(item)
-    walk(obj)
-    return viewed, sum(seen.values())
-
-# After a fit with the network detached (shared weights pickle without it):
-# len(pickle.dumps(estimator)) should be close to the viewed bytes of its cache, not a multiple of them.
+        configure_cuda_allocator(pinned_cache=True)
+        warmup_torch(cuda=None if num_gpus is None else num_gpus > 0)
 ```
 
-When the pickle is a multiple of the viewed bytes, copy each slice into its own storage after `fit`
-(`tensor.clone()` for a tensor whose `untyped_storage().nbytes()` exceeds `numel() * element_size()`),
-which is bit-exact, mark it as a developer fix and ask the library to do it upstream;
-`models/ftfm/_estimators.py` (`_own_storage`) is the reference, with its test in `models/ftfm/tests/`.
+What still reaches `model.pkl` is state the pickle does not see as tensors: a cache kept as NumPy
+arrays, or tensors behind a library's own `__getstate__` or `__reduce__` that turns them into bytes.
+Keep the first as torch tensors; the second needs a developer fix in the wrapper and an issue
+upstream. Check the result with `python -P -m tabarena.tools.audit_pickle --model <Method>`: it fits
+the model on 200 and 400 synthetic rows, reports how much `model.pkl` and `model_tensors.pt` grow per
+training row, and flags a `model.pkl` that grows by more than 16x the table's own bytes per row,
+mostly through tensors (Seldon's first wrapper on an AutoGluon that pickled tensors: 786,544 B per row
+against a 49 B row). It warns when the installed AutoGluon still keeps tensors in the pickle. Growth
+without tensors, such as LightGBM's or a random forest's nodes, is reported as `NOTE`; it is a finding
+only when it is an in-context cache held in NumPy.
 
 ### Declare config as class attributes (AutoGluon 1.6)
 
