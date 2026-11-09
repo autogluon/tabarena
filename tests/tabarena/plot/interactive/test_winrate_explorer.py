@@ -102,9 +102,10 @@ def test_models_are_renamed_for_display_only(tmp_path):
         method_names={"A": "Alpha <x>"},
     ).read_text()
     assert '"methodNames": {"A": "Alpha <x>"}' in html
-    # The new name (and a leakage mark, `displayName`) goes before the variant tag the label keeps.
+    # The new name (and a leakage mark, `displayName`) goes before the variant tag the label keeps; a default
+    # keeps no tag, as in the leaderboard table.
     assert "function plainName(model) { return names.get(model) || model; }" in html
-    assert "return displayName(model) + label.slice(model.length);" in html
+    assert 'return displayName(model) + (tag.trim() === "(default)" ? "" : tag);' in html
     assert "const row = escHtml(labelText(rowLabel)), col = escHtml(labelText(colLabel));" in html
     assert 'id="btn-reset-names"' in html
     plain = build_winrate_explorer_html(_matrix(["A (default)", "B (default)"]), save_path=tmp_path / "plain.html")

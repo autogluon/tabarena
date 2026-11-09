@@ -107,7 +107,7 @@ fails collection instead of parametrizing a registry-driven test over nothing, a
 (or `PYTHONSAFEPATH=1`) makes the interpreter safe from any cwd. The `pytest` console script is
 safe from any cwd. `setup`, `sbatch` and `python -m tabflow_slurm.run_local` are run from the repo
 root too: Ray puts the driver's cwd on every worker's `sys.path`, which `-P` does not cover. CI's per-PR job (`.github/workflows/pytest-pytest.yml`)
-runs `pytest` on Python 3.11 against `./packages/tabarena[plot,preprocessing,data-foundry]`
+runs `pytest` on Python 3.12 against `./packages/tabarena[plot,preprocessing,data-foundry]`
 plus the editable `tabflow_slurm` package (so its tests and the data_foundry-gated tests run),
 but **not** `[text]`/`[benchmark]` — so it stays fast (no model fitting, no torch).
 
@@ -200,7 +200,7 @@ TabArena uses five independent caches. Configure them all at once with `tabarena
 
 | Cache | `CacheConfig` field | Holds | Set via | Default |
 |---|---|---|---|---|
-| OpenML (most important) | `openml` | Materialized datasets + CV splits + all TabArena-derived task artifacts (`tabarena_tasks/`, `tabarena_text_cache/`, `tabarena_metadata_cache/`, `local/datasets/`) | `openml.config.set_root_cache_directory` (no env var) | `~/.cache/openml` |
+| OpenML (most important) | `openml` | Materialized datasets + CV splits + all TabArena-derived task artifacts (`tabarena_tasks/`, `tabarena_text_cache/`, `tabarena_metadata_cache/`, `local/datasets/` unless a `UserTask` sets `task_cache_path`, which then holds it) | `openml.config.set_root_cache_directory` (no env var) | `~/.cache/openml` |
 | HuggingFace | `huggingface` | Foundation-model weights (Mitra / LimiX / ... + text-embedding models) | `HF_HOME` | `~/.cache/huggingface/hub` |
 | Data Foundry | `data_foundry` | The one-time raw dataset download (data_foundry/BeyondArena), later materialized into the OpenML cache. **Not** `HF_HOME` — data_foundry passes an explicit `cache_dir` to `snapshot_download` | `DATA_FOUNDRY_CACHE` | `~/.cache/data_foundry` |
 | TabArena | `tabarena` | Results / baselines / leaderboard artifacts (~100 GB raw, ~10 GB processed, <1 MB results per method) | `set_tabarena_cache_root` / `TABARENA_CACHE` | `~/.cache/tabarena` |

@@ -42,6 +42,8 @@ from tabarena.models._method_metadata_collection import MethodMetadataCollection
 # Per-model `info.py` is the canonical source for each method's `MethodMetadata`; the collection
 # below references these directly. (Some keep their historical alias, used by the per-suite full
 # lists / downstream collections.)
+from tabarena.models.agentic_mlp.info import agentic_mlp_method_metadata
+from tabarena.models.agentic_tabm.info import agentic_tabm_method_metadata
 from tabarena.models.aplr.info import aplr_method_metadata
 from tabarena.models.catboost.info import catboost_new_method_metadata
 from tabarena.models.causilo.info import causilo_method_metadata, causilo_new_method_metadata
@@ -97,7 +99,12 @@ from tabarena.models.realmlp.info import realmlp_method_metadata as realmlp_gpu_
 from tabarena.models.sap_rpt_oss.info import (
     sap_rpt_oss_method_metadata as contexttab_metadata,
 )
-from tabarena.models.seldon.info import seldon_method_metadata, seldon_mini_method_metadata
+from tabarena.models.seldon.info import (
+    seldon_classification_method_metadata,
+    seldon_method_metadata,
+    seldon_mini_classification_method_metadata,
+    seldon_mini_method_metadata,
+)
 from tabarena.models.tababax.info import tababax_method_metadata
 from tabarena.models.tabdpt.info import (
     tabdpt_method_metadata as tabdpt_metadata,
@@ -109,6 +116,7 @@ from tabarena.models.tabfm.info import (
     tabfm_method_metadata,
     tabfm_new_method_metadata,
 )
+from tabarena.models.tabh2o.info import tabh2o_method_metadata
 from tabarena.models.tabicl.info import (
     tabicl_method_metadata,
     tabiclv2_2026_09_method_metadata,
@@ -218,6 +226,8 @@ tabarena_method_metadata_collection = MethodMetadataCollection(
         random_forest_method_metadata,
         xgboost_method_metadata,
         # Neural / GPU / foundation models
+        agentic_mlp_method_metadata,
+        agentic_tabm_method_metadata,
         mitra_metadata,
         modernnca_gpu_method_metadata,
         realmlp_gpu_metadata,
@@ -259,6 +269,7 @@ tabarena_method_metadata_collection = MethodMetadataCollection(
         tababax_method_metadata,
         seldon_method_metadata,
         seldon_mini_method_metadata,
+        tabh2o_method_metadata,
     ],
 )
 
@@ -283,6 +294,8 @@ methods_superseded: list[MethodMetadata] = [
     mitra_v2_method_metadata,  # rerun tabarena-2026-09-16 replaced it
     tabldm_method_metadata,  # rerun tabarena-2026-09-16 replaced it
     tabstar_metadata,  # TabSTAR-v1.1 (models/tabstar_v1p1) replaced it
+    seldon_classification_method_metadata,  # classification only; tabarena-2026-11-08 adds regression
+    seldon_mini_classification_method_metadata,  # classification only; tabarena-2026-11-08 adds regression
 ]
 
 # All historical results for each method = the latest collection + every superseded variant: the

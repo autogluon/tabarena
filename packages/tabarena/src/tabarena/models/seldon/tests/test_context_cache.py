@@ -7,7 +7,10 @@ import pytest
 pytest.importorskip("neuralk_oss")
 
 
-def _fitted(tmp_path):
+PROBLEM_TYPES = pytest.mark.parametrize("problem_type", ["binary", "regression"])
+
+
+def _fitted(tmp_path, problem_type):
     import numpy as np
     import pandas as pd
 
@@ -15,20 +18,24 @@ def _fitted(tmp_path):
 
     rng = np.random.default_rng(0)
     X = pd.DataFrame(rng.normal(size=(300, 5)), columns=[f"f{i}" for i in range(5)])
-    y = pd.Series((X["f0"] > 0).astype(int))
-    model = SeldonMiniModel(path=str(tmp_path), name="m", problem_type="binary", eval_metric="log_loss")
+    if problem_type == "regression":
+        y, eval_metric = X["f0"] + 0.1 * rng.normal(size=300), "root_mean_squared_error"
+    else:
+        y, eval_metric = pd.Series((X["f0"] > 0).astype(int)), "log_loss"
+    model = SeldonMiniModel(path=str(tmp_path), name="m", problem_type=problem_type, eval_metric=eval_metric)
     model.fit(X=X, y=y, num_gpus=0)
     return model, X
 
 
-def test_context_cache_is_saved_beside_the_pickle(tmp_path):
+@PROBLEM_TYPES
+def test_context_cache_is_saved_beside_the_pickle(tmp_path, problem_type):
     import numpy as np
 
     from tabarena.models.seldon.model import SeldonMiniModel
 
-    model, X = _fitted(tmp_path)
+    model, X = _fitted(tmp_path, problem_type)
     expected = model.predict_proba(X.iloc[:20])
-    cache_bytes = model.model.classifier.estimator._cache.size()
+    cache_bytes = model.model.estimator.estimator._cache.size()
     size_estimate = model._get_pickled_size()
     path = model.save()
 
@@ -43,12 +50,13 @@ def test_context_cache_is_saved_beside_the_pickle(tmp_path):
     np.testing.assert_allclose(loaded.predict_proba(X.iloc[:20]), expected, atol=1e-6)
 
 
-def test_resave_of_a_loaded_model(tmp_path):
+@PROBLEM_TYPES
+def test_resave_of_a_loaded_model(tmp_path, problem_type):
     import numpy as np
 
     from tabarena.models.seldon.model import SeldonMiniModel
 
-    model, X = _fitted(tmp_path)
+    model, X = _fitted(tmp_path, problem_type)
     expected = model.predict_proba(X.iloc[:20])
     loaded = SeldonMiniModel.load(model.save())
     # refit_full re-saves a loaded model over the files it was loaded from.
