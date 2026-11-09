@@ -198,6 +198,9 @@ lightpfn = ["lightpfn==1.0.0"]
 # FTFM is not published on PyPI; pinned to a commit so the benchmarked code is fixed (empty extra on
 # PyPI). Keep in sync with `pip_extra` in models/ftfm/info.py.
 ftfm = ["ftfm @ git+https://github.com/machinelearningnuremberg/ftfm-official.git@7e5e237daa26ef20f0faec1650d000b04de5122e"]
+# tabpackage is experimental upstream ("expect breaking changes"), so the release is pinned exactly.
+# Keep in sync with `pip_extra` in models/tabpack/info.py.
+tabpack = ["tabpackage[sklearn]==0.0.2.dev0"]
 # TabAbax is not on PyPI. Its model code is derived from TabICL
 # (github.com/soda-inria/tabicl, BSD-3-Clause). Keep in sync with `pip_extra`
 # in models/tababax/info.py. The default checkpoints download from
@@ -250,6 +253,7 @@ extended = [
   "tabarena[kumo_tabular]",
   "tabarena[lightpfn]",
   "tabarena[ftfm]",
+  "tabarena[tabpack]",
   "tabarena[tababax]",
   "tabarena[agentic_mlp]",
   "tabarena[agentic_tabm]",
