@@ -781,7 +781,7 @@ class AGWrapper(AbstractExecModel):
             release_after_inference(predictor)
         else:
             free_inference_memory()
-        if predictor is not None:
+        if predictor is not None and predictor.path is not None:
             shutil.rmtree(predictor.path, ignore_errors=True)
         if self.release_shared_weights_on_cleanup:
             from tabarena.models import _weights

@@ -131,6 +131,7 @@ tabfm = [
   "tabpfn-extensions[many_class]>=0.6.1",  # the output coding of datasets with more than ten classes
 ]
 tabstar_v1p1 = ["tabstar==1.2.0"]
+tabh2o = ["h2ofm==0.43.1"]
 # Chakra-Tab is a hosted API (systems/chakra_tab): the extra is only the HTTP client and the table encoding.
 chakra-tab = ["requests>=2.31", "pyarrow>=14"]
 perpetualboosting = ["perpetual"] # We used version 2.1.0
@@ -252,6 +253,7 @@ extended = [
   "tabarena[tababax]",
   "tabarena[agentic_mlp]",
   "tabarena[agentic_tabm]",
+  "tabarena[tabh2o]",
 ]
 
 # Convenience: everything (core + extended + probmetrics).
