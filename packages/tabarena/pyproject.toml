@@ -192,7 +192,7 @@ kumo_tabular = [
 ]
 # Seldon / Seldon-Mini (Neuralk-AI). Keep in sync with `pip_extra` in models/seldon/info.py. Not in `extended`
 # because neuralk-oss and the `kumo_tabular` extra pin different versions of structured-data-models.
-seldon = ["neuralk-oss==0.2.3"]
+seldon = ["neuralk-oss==0.3.0"]
 # LightPFN: a 4.6M-parameter in-context classifier; keep in sync with `pip_extra` in models/lightpfn/info.py.
 lightpfn = ["lightpfn==1.0.0"]
 # FTFM is not published on PyPI; pinned to a commit so the benchmarked code is fixed (empty extra on
