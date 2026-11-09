@@ -23,6 +23,12 @@ def _descriptor(display_name: str, reference_url: str) -> ModelDescriptor:
     )
 
 
+#: The intrinsic model facts, shared by the TabArena entries below and the BeyondArena ones in
+#: ``contexts/beyondarena/methods.py``.
+seldon_descriptor = _descriptor("Seldon", "https://huggingface.co/Neuralk-AI/seldon")
+seldon_mini_descriptor = _descriptor("Seldon-Mini", "https://huggingface.co/Neuralk-AI/seldon-mini")
+
+
 # Classification: runs seldonfix_03112026 and seldonminifix_03112026, the 38 classification datasets. Regression: run
 # seldonreg_08112026, the 13 regression datasets. Both on SkyPilot pools of 32 RTX PRO 6000 with torch 2.13, every
 # split, with the context cache kept out of the pickle (BENCHMARK_LOG.md).
@@ -52,26 +58,21 @@ _tabarena_classification_run_kwargs = {
 }
 
 
-def _method_metadata(method: str, ag_key: str, reference_url: str, run_kwargs: dict) -> MethodMetadata:
-    return _descriptor(method, reference_url).method_metadata(
+def _method_metadata(descriptor: ModelDescriptor, method: str, ag_key: str, run_kwargs: dict) -> MethodMetadata:
+    return descriptor.method_metadata(
         method=method, ag_key=ag_key, config_default=f"{method}_c1_default_BAG_L1", **run_kwargs
     )
 
 
-seldon_method_metadata = _method_metadata(
-    "Seldon", "TA-SELDON", "https://huggingface.co/Neuralk-AI/seldon", _tabarena_run_kwargs
-)
+seldon_method_metadata = _method_metadata(seldon_descriptor, "Seldon", "TA-SELDON", _tabarena_run_kwargs)
 seldon_mini_method_metadata = _method_metadata(
-    "Seldon-Mini", "TA-SELDON-MINI", "https://huggingface.co/Neuralk-AI/seldon-mini", _tabarena_run_kwargs
+    seldon_mini_descriptor, "Seldon-Mini", "TA-SELDON-MINI", _tabarena_run_kwargs
 )
 seldon_classification_method_metadata = _method_metadata(
-    "Seldon", "TA-SELDON", "https://huggingface.co/Neuralk-AI/seldon", _tabarena_classification_run_kwargs
+    seldon_descriptor, "Seldon", "TA-SELDON", _tabarena_classification_run_kwargs
 )
 seldon_mini_classification_method_metadata = _method_metadata(
-    "Seldon-Mini",
-    "TA-SELDON-MINI",
-    "https://huggingface.co/Neuralk-AI/seldon-mini",
-    _tabarena_classification_run_kwargs,
+    seldon_mini_descriptor, "Seldon-Mini", "TA-SELDON-MINI", _tabarena_classification_run_kwargs
 )
 
 seldon_info = ModelInfo(

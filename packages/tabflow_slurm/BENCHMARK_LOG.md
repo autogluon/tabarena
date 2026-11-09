@@ -34,6 +34,70 @@ run against `main`. To reproduce an entry, check out its recorded **git SHA**.
 
 ---
 
+## 2026-11-09 — beyondarena_seldon_09112026
+
+- **Model(s):** Seldon and Seldon-Mini (default config only), the 2,000 splits of the BeyondArena `core2k` protocol at
+  every table size, 2,000 items each, 4,000 in total
+- **Git SHA:** `f2564fad` (main after #714 and #705), clean; AutoGluon 1.6.4b20261109 from PyPI
+- **Validation protocol:** BeyondArena `8x1+tiny5x5<=500+task-specific+adapt-classes`
+- **Purpose:** First BeyondArena run of Seldon and Seldon-Mini (`neuralk-oss==0.3.0`, gated weights
+  `Neuralk-AI/seldon@290b8e3e` and `Neuralk-AI/seldon-mini@67d1672f`), with the context cache in AutoGluon's
+  `model_tensors.pt` (#705).
+- **Notes:** SkyPilot pool `seldon-beyond-0911` (32 spot RTX PRO 6000 workers), one item per bundle,
+  `fake_memory_for_estimates=96`, `sequential_local` fold fitting from the wrapper, env manifest `env/a31aee083ae4`.
+  Two launches on the pool: `..._gpu_16h-20261109-103745-6188` (medium and large tables, 368 items, 16 h limit) and
+  `..._gpu-20261109-103950-7e9a` (tiny and small tables, 3,632 items, BeyondArena's 4 h default), the time-limit split
+  of the TFM and Kumo-Tabular runs. No dataset caps: the library reads a random 200k-row context subset per member on
+  larger tables, cuts to 500 features and handles classes past its head with ECOC. Run venv
+  `~/.venvs/tabarena_seldon_beyond_09112026` (torch 2.13.0 from PyPI, its CUDA 13.0 build; build script in
+  `tmp_scripts/logs/`). The first pool apply failed on all 32 workers: the venv had torch from the PyTorch cu130
+  index, the frozen requirements pinned `torch==2.13.0+cu130`, and the workers' `uv pip install -r` resolves from
+  PyPI only. Reinstalling PyPI's `torch==2.13.0` (the same build) and running setup again fixed it; nothing had
+  launched. Before the launch: a CPU smoke fit of both models, the model's tests (4 passed), `audit_pickle` (no
+  per-row state in `model.pkl`) and `audit_warmup` (clean). The 4,000 items ran from 10:49 to 13:16 UTC with 0
+  failed and 0 recoveries; the last three were Seldon on `delivery_eta_1m`, `home_credit_default_stability_1m` and
+  `electric_motor_temperature_prediction`, about 1 h each, while 29 workers idled (a resize was not possible, see
+  CLU-162). `audit_warmup --results`: warm-up `ok` on all 4,000, no package imported and no CUDA initialized inside
+  the timed sections. Eval (`BeyondArenaContext(only_valid_tasks=True)`, 42 methods, 0% imputed for both): on
+  `core2k` Seldon #4, Elo 1358 (+39/-44), behind Kumo-Tabular (1430), Kumo-Tabular-Medium (1376) and TabPFN-3.5
+  (1372); Seldon-Mini #8, Elo 1301 (+28/-33). On `!large` Seldon is #3 (1450), on `iid` #2 (1518); on `temporal`
+  (#17) and `grouped` (#18) and on `large` (#16 of 36) it falls back. Median per 1K rows on `core2k`: Seldon 3.88 s
+  train and 0.44 s inference, Seldon-Mini 1.24 s and 0.12 s (the fastest point on the Elo vs inference-time front).
+  Figures for 16 slices under `tmp_scripts/eval_output/beyondarena_seldon_09112026/`. Processed and uploaded as
+  suite `beyondarena-2026-11-09` (`beyond_seldon_metadata` and `beyond_seldon_mini_metadata` in
+  `contexts/beyondarena/methods.py`, 2,000 splits each, raw included, `verified=False`).
+
+```python
+TabArenaBenchmarkPlan(
+    benchmark_name="beyondarena_seldon_09112026",
+    model_jobs=[
+        ModelJob(
+            models=[("Seldon", 0), ("Seldon-Mini", 0)],
+            name="gpu_16h",
+            resources={"num_gpus": 1, "fake_memory_for_estimates": 96, "time_limit": 16 * 3600},
+            tasks=TaskSubset(subset=["core2k", "medium|large"]),
+        ),
+        ModelJob(
+            models=[("Seldon", 0), ("Seldon-Mini", 0)],
+            name="gpu",
+            resources={"num_gpus": 1, "fake_memory_for_estimates": 96, "time_limit": 4 * 3600},
+            tasks=TaskSubset(subset=["core2k", "!medium", "!large"]),
+        ),
+    ],
+    task_subset=TaskSubset(subset=["core2k"]),
+    context=BeyondArenaContext(),
+    experiment_bundle=BeyondArenaExperimentBundle(model_verbosity=2),
+    path_setup=PathSetup(
+        workspace="/home/lennart_priorlabs_ai/workspace/benchmarking/tabarena_workspace",
+        python_path="/home/lennart_priorlabs_ai/.venvs/tabarena_seldon_beyond_09112026/bin/python",
+    ),
+    resources_setup=BeyondArenaResourcesSetup(),
+    scheduler_setup=SkyPilotSetup(bundle_size=1, workers=32, use_pool=True, pool_name="seldon-beyond-0911"),
+).setup_jobs()
+```
+
+---
+
 ## 2026-11-08 — seldonreg_08112026
 
 - **Model(s):** Seldon and Seldon-Mini (default config only), every split of the 13 TabArena-v0.1 regression datasets,
