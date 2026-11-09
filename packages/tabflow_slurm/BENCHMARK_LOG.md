@@ -34,6 +34,104 @@ run against `main`. To reproduce an entry, check out its recorded **git SHA**.
 
 ---
 
+## 2026-11-08 — beyondarena_tabpack_core2k_08112026
+
+- **Model(s):** TabPack (default config only, no search space), every BeyondArena `core2k` split (142 datasets,
+  2,000 items)
+- **Git SHA:** `e2113666` (PR #698: `time_limit` through `training_loop_time_budget` of
+  `tabpackage[sklearn]==0.0.2.dev0`), clean, for the first launch; `bb4eaba9` and `77731742` for the two reruns
+  below. AutoGluon from the editable `../autogluon` checkout (`88d33ba6`).
+- **Validation protocol:** `8x1+tiny5x5<=500+task-specific+adapt-classes` (BeyondArena's official protocol)
+- **Purpose:** BeyondArena run of the PR #698 integration, in parallel with tabpack_08112026 below.
+- **Notes:** SkyPilot pool `tabpackba-0811` (64 spot RTX PRO 6000 workers), venv `~/.venvs/tabarena_10082026`, one
+  item per bundle, `fake_memory_for_estimates=96`, BeyondArena's default 4 h fit time limit, launched 10:49 UTC.
+  Every split of 7 datasets ran out of GPU memory: three with ID-like categoricals (`ieee_fraud_detection`,
+  `consumer_complaints_1m`, `cooking_time_1m`), where the library one-hot encodes every training category, and four
+  gene-expression tables with 6.8k to 22k features (`lung_cancer`, `prostate_cancer_detection`,
+  `lung_cancer_epithelial_genexp`, `pancreatic_cancer_mouse_detection`), where the first layers of the 64 models
+  exceed the card. The wrapper got a category budget (`4e764d13`) and a pack-size cap (`430fb16b`, plus the 2**31
+  bound of `bb4eaba9` after a CUDA illegal memory access); the 28 items of these datasets ran on pool
+  `tabpackba-0811r` (28 workers) at `bb4eaba9`. `maps_router_eta_1m` then stopped on the bag's time limit: an epoch
+  takes about 10 minutes there, the library checks the budget only after an epoch, and each fold ran slightly over
+  its share. With one probed epoch reserved from the budget on tables from 100,000 training rows (`77731742`), all
+  32 splits of the 20 datasets that reach that size ran again on pool `tabpackba-0811p` (33 workers), and
+  `maps_router_eta_1m` finished in 13,321 s. Their earlier results are under the run's
+  `set_aside_epochprobe_08112026/` and were not uploaded. Final: 2,000 of 2,000, 0 failed; each later fix only
+  engages on the tables that were rerun, so the final code reproduces every result. Eval with
+  `BeyondArenaContext(extra_methods=...)` on `core2k` (41 methods): #18, Elo 1157 (+28/-23); grouped #3, high-dim #8,
+  large, temporal and text #10, regression #13. Processed and uploaded as suite `beyondarena-2026-11-08`
+  (`beyond_tabpack_metadata` in `contexts/beyondarena/methods.py`), `verified=False`.
+
+```python
+TabArenaBenchmarkPlan(
+    benchmark_name="beyondarena_tabpack_core2k_08112026",
+    model_jobs=[
+        ModelJob(
+            models=("TabPack", 0),
+            name="gpu",  # reruns: "gpu_rerun", "gpu_rerun_large"
+            resources={"num_gpus": 1, "fake_memory_for_estimates": 96},
+            # reruns: tasks=TaskSubset(subset=["core2k"], dataset_names=[<the 7, then the 20 datasets above>]),
+        ),
+    ],
+    task_subset=TaskSubset(subset=["core2k"]),
+    context=BeyondArenaContext(),
+    experiment_bundle=BeyondArenaExperimentBundle(model_verbosity=2),
+    path_setup=PathSetup(
+        workspace="/home/lennart_priorlabs_ai/workspace/benchmarking/tabarena_workspace",
+        python_path="/home/lennart_priorlabs_ai/.venvs/tabarena_10082026/bin/python",
+    ),
+    resources_setup=BeyondArenaResourcesSetup(),
+    scheduler_setup=SkyPilotSetup(
+        bundle_size=1,
+        workers=64,  # reruns: 28, 33
+        use_pool=True,
+        pool_name="tabpackba-0811",  # reruns: tabpackba-0811r, tabpackba-0811p
+        api_server_endpoint="http://skypilot-api:46580",
+    ),
+).setup_jobs()
+```
+
+---
+
+## 2026-11-08 — tabpack_08112026
+
+- **Model(s):** TabPack (default config only, no search space), every TabArena-v0.1 split, 816 items
+- **Git SHA:** `e2113666` (PR #698: `time_limit` through `training_loop_time_budget` of
+  `tabpackage[sklearn]==0.0.2.dev0`), clean; AutoGluon from the editable `../autogluon` checkout (`88d33ba6`)
+- **Validation protocol:** `8x1`
+- **Purpose:** Maintainer run of the PR #698 integration (TabPack, Yandex Research), not an author submission.
+- **Notes:** SkyPilot pool `tabpack-0811` (32 spot RTX PRO 6000 workers), venv `~/.venvs/tabarena_10082026`, one
+  item per bundle, `fake_memory_for_estimates=96`, `sequential_local` fold fitting from the wrapper, launched 10:36
+  UTC. 816 of 816, 0 failed. The wrapper changes made for the BeyondArena run above engage on no TabArena table: the
+  most categories per fold are about 25k (`kddcup09_appetency`, below the 32,768 budget), the widest table stays
+  below the pack cap, and the largest training fold has 87,500 rows (below the 100,000 of the epoch probe). Eval on
+  116 methods: #49, Elo 1356 (+43/-38); binary #59 (1344), multiclass #61 (1346), regression #39 (1530). Processed
+  and uploaded as suite `tabarena-2026-11-08` (`tabpack_method_metadata` in `models/tabpack/info.py`),
+  `verified=False`.
+
+```python
+TabArenaV0pt1BenchmarkPlan(
+    benchmark_name="tabpack_08112026",
+    model_jobs=[
+        ModelJob(
+            models=("TabPack", 0),
+            name="gpu",
+            resources={"num_gpus": 1, "fake_memory_for_estimates": 96},
+        ),
+    ],
+    task_subset=TaskSubset(),
+    path_setup=PathSetup(
+        workspace="/home/lennart_priorlabs_ai/workspace/benchmarking/tabarena_workspace",
+        python_path="/home/lennart_priorlabs_ai/.venvs/tabarena_10082026/bin/python",
+    ),
+    experiment_bundle=TabArenaV0pt1ExperimentBundle(model_verbosity=2),
+    resources_setup=TabArenaV0pt1ResourcesSetup(num_cpus=None, memory_limit=None),
+    scheduler_setup=SkyPilotSetup(bundle_size=1, workers=32, use_pool=True, pool_name="tabpack-0811"),
+).setup_jobs()
+```
+
+---
+
 ## 2026-11-03 — seldonfix_03112026, seldonminifix_03112026
 
 - **Model(s):** Seldon and Seldon-Mini (default config only), one run per model, every split of the 38 TabArena-v0.1

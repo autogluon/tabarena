@@ -37,6 +37,7 @@ from tabarena.models.tabdpt.info import tabdpt_descriptor, tabdpt_v13_descriptor
 from tabarena.models.tabfm.info import tabfm_descriptor
 from tabarena.models.tabicl.info import tabiclv2_descriptor
 from tabarena.models.tabm.info import tabm_descriptor
+from tabarena.models.tabpack.info import tabpack_descriptor
 from tabarena.models.tabpfn_3.info import tabpfn_3_descriptor
 from tabarena.models.tabpfn_3_5.info import tabpfn_3_5_descriptor, tabpfn_3_5_fast_descriptor
 from tabarena.models.tabpfnv2_5.info import realtabpfnv25_descriptor, tabpfnv26_descriptor
@@ -258,6 +259,16 @@ beyond_kumo_tabular_small_metadata = kumo_tabular_small_descriptor.method_metada
     **_kumo_run_kwargs,
 )
 
+# -- TabPack, run 2026-11-08 (`beyondarena_tabpack_core2k_08112026` in BENCHMARK_LOG.md) ---------------------------
+# The same official protocol on every core2k split, with the 4 h default fit time limit. A hyperparameter ensemble of
+# MLPs trained from scratch, so bagged like TabM and RealMLP but without a search space (default config only).
+beyond_tabpack_metadata = tabpack_descriptor.method_metadata(
+    method="TA-TabPack",
+    ag_key="TA-TABPACK",
+    config_default="TA-TabPack_c1_BAG_L1",
+    **{**_common_fm_kwargs, "suite": "beyondarena-2026-11-08", "date": "2026-11-08", "verified": False},
+)
+
 beyond_method_metadata_lst: list[MethodMetadata] = [
     beyond_linear_2026_09_metadata,
     beyond_random_forest_metadata,
@@ -267,6 +278,7 @@ beyond_method_metadata_lst: list[MethodMetadata] = [
     beyond_xgboost_metadata,
     beyond_realmlp_metadata,
     beyond_tabm_2026_10_metadata,
+    beyond_tabpack_metadata,
     beyond_tabdpt_metadata,
     beyond_tabpfnv26_metadata,
     beyond_tabiclv2_metadata,

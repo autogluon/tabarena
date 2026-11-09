@@ -55,6 +55,8 @@
  "artifacts/beyondarena-2026-10-28-tabmfix/methods/TA-TabM/results/model_results.parquet": "b48a9389d955d7f2c9b91f57abd8f6cd",
  "artifacts/beyondarena-2026-10-28/methods/TA-TabM/results/hpo_results.parquet": "22839c918b7928d7e9490e04b6677eac",
  "artifacts/beyondarena-2026-10-28/methods/TA-TabM/results/model_results.parquet": "5a7848945e7b81eb6a6018839b663b7c",
+ "artifacts/beyondarena-2026-11-08/methods/TA-TabPack/results/hpo_results.parquet": "6ae1c1393427dc6c724dc83efe628a1e",
+ "artifacts/beyondarena-2026-11-08/methods/TA-TabPack/results/model_results.parquet": "81f0a7f4a5a5684d95da7f388aea25ad",
  "artifacts/tabarena-2025-06-12/methods/AutoGluon_v130/results/model_results.parquet": "3525df816c4fd01467362a8b856b4111",
  "artifacts/tabarena-2025-06-12/methods/CatBoost/results/hpo_results.parquet": "0cb9272dd7bae3df34b61aa176d9c4e0",
  "artifacts/tabarena-2025-06-12/methods/CatBoost/results/model_results.parquet": "3877455d95edfe52d8b32e3c97feb4da",
@@ -251,5 +253,7 @@
  "artifacts/tabarena-2026-11-05/methods/MLP-A/results/hpo_results.parquet": "cf81616de5de0a1b7e594f86dfcb51ae",
  "artifacts/tabarena-2026-11-05/methods/MLP-A/results/model_results.parquet": "2a8dac097bd0726b079a377da77845cf",
  "artifacts/tabarena-2026-11-05/methods/TabM-A/results/hpo_results.parquet": "a5becdb1903d0ae391a9df564424a1e2",
- "artifacts/tabarena-2026-11-05/methods/TabM-A/results/model_results.parquet": "d4e292f47cf2730c1daddf8750511e0a"
+ "artifacts/tabarena-2026-11-05/methods/TabM-A/results/model_results.parquet": "d4e292f47cf2730c1daddf8750511e0a",
+ "artifacts/tabarena-2026-11-08/methods/TabPack/results/hpo_results.parquet": "419b7f153c1df9b8cf04a7f0188c0c41",
+ "artifacts/tabarena-2026-11-08/methods/TabPack/results/model_results.parquet": "d6727fb2f93643806edc6292b41106ab"
 }
