@@ -238,6 +238,14 @@ Notes:
 - Run the process and upload chain as a background shell task that writes a progress file, and watch that file with
   a monitor. A command run inside a monitor is killed when the monitor times out, which can cut an upload off
   midway.
+- Flipping `verified` (or another metadata field) after the upload also changes the hosted `metadata.yaml`, which
+  still carries the old value. `run_upload_results.py` cannot do that once Step 8 removed the local raw and processed
+  copies, so upload only the metadata: read the hosted file (`get_object` on
+  `cache/artifacts/<suite>/methods/<Method>/metadata.yaml`), compare it with the committed metadata's
+  `_to_yaml_dict()` (only the intended fields may differ; an older file may also lack fields the current schema
+  writes), then call `method_metadata.method_uploader().upload_metadata()`, plus `method_metadata.to_yaml()` when a
+  local cached copy exists. The results tables do not change, so `results_checksums.json` does not either. Mention
+  the change in the run's `BENCHMARK_LOG.md` entry.
 
 ## Step 5: Register in the arena collection (Claude does now)
 
