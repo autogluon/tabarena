@@ -130,6 +130,9 @@ to `process_method` / `process_raw`). Register the method in
 with the file's `_common_fm_kwargs` / `_common_bag_kwargs`), adding a descriptor to the model's `info.py` when
 it only has `MethodMetadata.config(...)` entries; the BeyondArena bundle names configs `<Method>_c1_BAG_L1`
 (no `_default` infix) and `method` follows the raw `ag_name` (`TA-...` for most wrappers, `Causilo` for Causilo).
+A new suite also has to go into the set that `TestPresets.test_beyond_presets_resolve_offline` in
+`tests/tabarena/contexts/test_beyond_arena_context.py` compares against (every suite the roster uses), or CI fails;
+run `pytest tests/tabarena/contexts -q` before pushing.
 
 **Multi-method run dirs**: if the run's `data/` holds several methods' config dirs side by side,
 `run_process_method.py` can't split them — write a small gitignored driver in `tmp_scripts/` that
@@ -137,6 +140,9 @@ discovers the `results.pkl` paths once, splits them by top-level config-dir pref
 `_infer_from_raw` / `verify_method_metadata` / `process_raw(file_paths=...)` per method (see the
 `multi-method-run-upload` pattern; a `--c1-only` pass over just the `_c1_` dirs makes
 `config_default` inferable even for HPO methods with hundreds of configs).
+A run of several default-only models keeps each model in a top-level config dir of its own
+(`data/TA-Seldon_c1_BAG_L1/`, `data/TA-Seldon-Mini_c1_BAG_L1/`); point `run_process_method.py` at that dir per
+method, no driver needed.
 
 ## Step 3: Edit `info.py` (Claude does now)
 
@@ -227,6 +233,11 @@ Notes:
   environment (export them or use a `.env`) — never as CLI flags (they'd leak into shell history /
   the process table). The dry-run prints how to obtain them if unset
   (`MethodMetadata.r2_credentials_help()`).
+- Several methods can process in parallel, but run their real uploads one after another: each upload rewrites
+  `results_checksums.json`.
+- Run the process and upload chain as a background shell task that writes a progress file, and watch that file with
+  a monitor. A command run inside a monitor is killed when the monitor times out, which can cut an upload off
+  midway.
 
 ## Step 5: Register in the arena collection (Claude does now)
 

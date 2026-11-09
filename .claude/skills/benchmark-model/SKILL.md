@@ -202,6 +202,14 @@ the model key, e.g. `tabm`, `mitra_v2`, `nori`; check the file, some differ). If
 install the `pip_extra` requirement strings directly with `uv pip install --python "$PY" <req...>`.
 Skip the install when the library already imports at the pinned version. Report what was installed.
 
+Take torch from PyPI (its Linux wheel is a CUDA build), not from the PyTorch index. A SkyPilot worker rebuilds the
+venv from `setup`'s frozen requirements with `uv pip install --no-deps -r` against PyPI, so a pin with a local label
+such as `torch==2.13.0+cu130` resolves on no worker: every worker of `beyondarena_seldon_09112026`'s first pool
+FAILED in setup that way. When another CUDA build is needed, pass its index through
+`SkyPilotSetup(requirements_extra_lines=...)`, and before applying a pool check that the staged requirements resolve:
+`uv pip install --dry-run -r <requirements.txt>` into a throwaway venv (the pool YAML's `ENV_SPEC` names the env
+manifest, whose `requirements` entry is the file's URI).
+
 ## Step 3: Generate `tmp_scripts/run_<model>.py`
 
 Create `tmp_scripts/` at the repo root if it does not exist (`.gitignore` lists `/tmp_scripts/`).
@@ -356,6 +364,7 @@ and classify:
 | CUDA out of memory | folds co-scheduled on the card, or one huge table | confirm `fake_memory_for_estimates`; for a single wide table consider `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` in the wrapper's warm-up, a smaller support size, or `fold_fitting_strategy="sequential_local"` |
 | Python traceback in the wrapper | a bug the smoke fit did not reach | fix it in the wrapper, then relaunch |
 | `jq: command not found`, import errors | environment, not the model | fix the venv, then relaunch |
+| every pool worker `FAILED` minutes after `pool apply`, the controller log (`sky jobs pool logs --controller --no-follow --tail 2000 <pool>`) showing `No solution found when resolving dependencies` for a `+cu...` torch pin | the run venv's torch came from the PyTorch index and its local version label is not on PyPI (Step 2) | `pool down`, reinstall PyPI's torch of the same version in the run venv, run `setup` again (a new env manifest) and dry-run the staged requirements before the next `pool apply` |
 | `PENDING` with reason `launch failed requeued held` | the spot node failed to boot; SLURM requeued the task but holds it until someone releases it | `scontrol release <job>_<task>`; a loop over `squeue -r -o "%i %r"` every few minutes when the partition keeps losing nodes |
 | `LocalEntryNotFoundError`, `PretrainedWeightsUnavailableError`, `WeightsUnavailableError` | the job ran with `offline_weights` and a checkpoint was not in the shared cache | re-run `setup` (its head-node prefetch fills the cache) or set `offline_weights=False` on the plan for that run |
 | `##### item FAILED` lines with `##### bundle summary: ok=N failed=M` | one item of the bundle failed; the array task continues with its siblings and exits non-zero at the end | count the `results.pkl` files, not the task state: a `FAILED` task may have completed most of its items, and only the failed ones are missing |
@@ -565,7 +574,12 @@ been read and the API probed.
 - The scripts target TabArena-v0.1 (`TabArenaContext`, `TabArenaV0pt1ExperimentBundle`,
   `TabArenaEvalConfig`). BeyondArena is a different eval shape (`BeyondArenaContext`,
   `BeyondArenaEvalConfig`, `BenchmarkRun` comparisons); adapt
-  `packages/tabflow_slurm/experiments/run_beyondarena.py` for that instead.
+  `packages/tabflow_slurm/experiments/run_beyondarena.py` for that instead. For a foundation model on `core2k`
+  at every size, split the plan into two `ModelJob`s by table size: `TaskSubset(subset=["core2k", "medium|large"])`
+  with a 16 h `time_limit` and `TaskSubset(subset=["core2k", "!medium", "!large"])` with BeyondArena's 4 h default
+  (the Kumo-Tabular and Seldon runs in `BENCHMARK_LOG.md`), launched on one pool, the long group first. `setup` then
+  warns, for the second group, that the first launch "still has N bundle(s) not done" and would be fitted twice;
+  the two groups cover disjoint datasets, so that warning is a false alarm here.
 - SLURM tasks import the checkout live over the shared filesystem (SkyPilot workers use the archive
   staged at `setup`). Do not pull, rebase or edit package code in that checkout while an array runs;
   a task that starts during the change fails on a half-updated registry. Test-only edits are safe.
