@@ -33,7 +33,7 @@ lightpfn_method_metadata = lightpfn_descriptor.method_metadata(
     **_run_kwargs,
     date="2026-11-10",
     suite="tabarena-2026-11-10",
-    verified=False,
+    verified=True,
 )
 
 # Run lightpfn_09102026 (SkyPilot pool, 32 RTX PRO 6000, BENCHMARK_LOG.md): every split of the 38 classification
