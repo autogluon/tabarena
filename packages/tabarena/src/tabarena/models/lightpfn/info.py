@@ -16,22 +16,33 @@ lightpfn_descriptor = ModelDescriptor(
     date_introduced="2026-10-05",
 )
 
-# Run lightpfn_09102026 (SkyPilot pool, 32 RTX PRO 6000, BENCHMARK_LOG.md): every split of the 38 classification
-# datasets at 3d8217c0, lightpfn 1.0.0, weights ueuegio/LightPFN@bd389ab5. The pin below moves to lightpfn 1.5.0,
-# which changes the classification weights and adds regression, so both task types need a new run; until then these
-# results describe 1.0.0.
+_run_kwargs = {
+    "method": "LightPFN",
+    "ag_key": "TA-LIGHTPFN",
+    "model_key": "LIGHTPFN",
+    "config_default": "LightPFN_c1_default_BAG_L1",
+    "can_hpo": False,
+    "validation_protocol": "8x1",
+    "cache_type": "r2",
+    "cache_kwargs": {"bucket": "tabarena", "prefix": "cache"},
+}
+
+# Run lightpfn15t214_10112026 (SkyPilot pool, 32 RTX PRO 6000, BENCHMARK_LOG.md): all 816 splits, classification and
+# regression, at c82b4dad, lightpfn 1.5.0, weights ueuegio/LightPFN@00a2536c, torch 2.14.1.
 lightpfn_method_metadata = lightpfn_descriptor.method_metadata(
-    method="LightPFN",
+    **_run_kwargs,
+    date="2026-11-10",
+    suite="tabarena-2026-11-10",
+    verified=False,
+)
+
+# Run lightpfn_09102026 (SkyPilot pool, 32 RTX PRO 6000, BENCHMARK_LOG.md): every split of the 38 classification
+# datasets at 3d8217c0, lightpfn 1.0.0, weights ueuegio/LightPFN@bd389ab5. Superseded by the 1.5.0 run above.
+lightpfn_1p0_method_metadata = lightpfn_descriptor.method_metadata(
+    **_run_kwargs,
     date="2026-10-09",
-    ag_key="TA-LIGHTPFN",
-    model_key="LIGHTPFN",
-    config_default="LightPFN_c1_default_BAG_L1",
-    can_hpo=False,
-    validation_protocol="8x1",
     suite="tabarena-2026-10-09",
     verified=True,
-    cache_type="r2",
-    cache_kwargs={"bucket": "tabarena", "prefix": "cache"},
 )
 
 lightpfn_info = ModelInfo(

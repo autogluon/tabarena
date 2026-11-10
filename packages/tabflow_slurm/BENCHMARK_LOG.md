@@ -81,6 +81,9 @@ run against `main`. To reproduce an entry, check out its recorded **git SHA**.
   - Regression: #53 of 112, Elo 1417.
   - Median 0.29 s train and 0.019 s inference per 1K rows. LightPFN 1.5 is on both full-set Pareto fronts and on
     the regression Elo-against-inference front.
+- **Upload:** processed and uploaded as suite `tabarena-2026-11-10` (`lightpfn_method_metadata` in
+  `models/lightpfn/info.py`), `verified=False` until sign-off. The 1.0.0 run stays hosted as
+  `lightpfn_1p0_method_metadata` (suite `tabarena-2026-10-09`) in `methods_superseded`.
 
 ```python
 TabArenaV0pt1BenchmarkPlan(
