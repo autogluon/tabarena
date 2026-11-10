@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, ClassVar
 
 import numpy as np
 import pandas as pd
-from autogluon.core.constants import BINARY, MULTICLASS
+from autogluon.core.constants import BINARY, MULTICLASS, REGRESSION
 from autogluon.core.models.abstract import SharedWeights
 from autogluon.tabular.models.abstract.abstract_torch_model import AbstractTorchModel
 
@@ -15,6 +15,19 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
 
 logger = logging.getLogger(__name__)
+
+
+def _context_storage(value, *, tensors: bool):
+    """Keep uncached fold inputs in AutoGluon's tensor sidecar; NumPy views are temporary."""
+    import torch
+
+    if isinstance(value, np.ndarray):
+        return torch.from_numpy(value) if tensors else value
+    if isinstance(value, torch.Tensor):
+        return value if tensors else value.cpu().numpy()
+    if isinstance(value, (tuple, list)):
+        return type(value)(_context_storage(v, tensors=tensors) for v in value)
+    return value
 
 
 class _LightPFNOutputCodeEstimator:
@@ -48,19 +61,29 @@ class _LightPFNOutputCodeEstimator:
 
 
 class LightPFNModel(AbstractTorchModel):
-    """LightPFN is a small tabular foundation model for classification (2 to 10 classes): an in-context
-    learner with 4.6M parameters, pretrained only on synthetic data (structural causal graph and rule
-    priors), designed to run on a CPU as well as on a GPU.
+    """LightPFN is a small tabular foundation model for classification (2 to 10 classes) and regression, pretrained
+    only on synthetic data (structural causal graph and rule priors) and designed to run on a CPU as well as on a GPU.
+    Version 1.5 uses two networks of about 4.8M parameters each: a classifier with a categorical adapter, fine-tuned
+    on wide synthetic tables, and a quantile regressor.
 
-    Paper: A Sling Against Giants: LightPFN, a 4.6M-parameter tabular in-context classifier designed to stay small
+    Paper: LightPFN 1.5: Native categoricals, quantile regression, wide tables, and fast portable inference under 5
+    million parameters (https://github.com/GioOtto/LightPFN/blob/v1.5.0/paper/LightPFN15_report.pdf), extending
+    A Sling Against Giants: LightPFN, a 4.6M-parameter tabular in-context classifier designed to stay small
     Authors: Giorgio Ottoboni
     Codebase: https://github.com/GioOtto/LightPFN
     License: Apache-2.0 (code and weights)
 
-    Categorical columns arrive with the category dtype; the library encodes them as ordinal codes of the
-    training categories, with unseen and missing values as NaN, which the model reads as missing. The
-    classifier's fit has no training loop, early stopping or internal validation split, so ``X_val`` and
-    ``time_limit`` are not used, as for the other in-context models.
+    Classification uses four members, regression two (the second on log(y) for skewed positive targets, otherwise
+    on -y) and predicts the mean of a 999-level quantile curve. The library reads the category dtype of the columns
+    and handles unseen and missing levels. On CUDA/ROCm, precision="auto" runs fp16 and silently retries non-finite
+    blocks in fp32; the CPU runs fp32.
+
+    There is no training loop, internal validation split or tuning, so ``X_val``, ``y_val`` and ``time_limit`` are
+    not used, as for the other in-context models. Thread counts and the CPU torch RNG state are restored after fit.
+    The allocated ``num_gpus`` selects the device unless an explicit estimator ``device`` is given; an unavailable
+    device raises. Classification encodes the context only for the refit model by default; regression always
+    encodes it in fit. Contexts and uncached fold inputs are torch tensors, which AutoGluon saves beside
+    ``model.pkl``.
 
     The checkpoint's classification head is ten classes wide. Above ``many_class_threshold`` (an
     ``ag_args_fit`` parameter, ten by default) the fit wraps a :class:`_LightPFNOutputCodeEstimator` in the
@@ -75,12 +98,13 @@ class LightPFNModel(AbstractTorchModel):
     warmup_modules: ClassVar[tuple[str, ...]] = (
         "lightpfn",
         "lightpfn.sklearn",
+        "lightpfn.regressor",
         "lightpfn.checkpoint",
         "lightpfn.model.lightpfn",
         "safetensors.torch",
         "tabpfn_extensions.many_class",
     )
-    _supported_problem_types = ["binary", "multiclass"]
+    _supported_problem_types = ["binary", "multiclass", "regression"]
     default_resources_physical_cores_only = True
     default_num_gpus = 1
     minimum_num_gpus = 0  # the library runs on the CPU as well
@@ -91,12 +115,13 @@ class LightPFNModel(AbstractTorchModel):
         "many_class_threshold": 10,
     }
     _default_ag_args_ensemble_extra = {"fold_fitting_strategy": "sequential_local", "refit_folds": True}
-    #: ``LightPFNClassifier.fit`` builds its network in ``_initialize_backend``: the released weights at the
-    #: revision pinned in the package (or ``checkpoint`` / ``repo_id`` + ``revision``) and their folded copy for
-    #: inference (``fold``). Fitting never writes into the network; a user-supplied torch ``model`` keeps its own.
+    #: Each task loads a frozen network through its own backend initializer. A user-supplied model stays private.
     shared_weights: ClassVar[SharedWeights] = SharedWeights(
-        loader="lightpfn.sklearn:LightPFNClassifier._initialize_backend",
-        key=("checkpoint", "repo_id", "revision", "fold"),
+        loader=(
+            "lightpfn.sklearn:LightPFNClassifier._initialize_backend",
+            "lightpfn.regressor:LightPFNRegressor._initialize_backend",
+        ),
+        key=("checkpoint", "repo_id", "revision", "fold", "cache_dir", "local_files_only"),
         disabled_by=("model",),
     )
     #: Knobs that make the warm-up's dummy fit cheap without touching the network.
@@ -111,18 +136,35 @@ class LightPFNModel(AbstractTorchModel):
         num_gpus: int = 0,
         **kwargs,
     ):
-        import torch
-        from lightpfn import LightPFNClassifier
+        import os
+        from pathlib import Path
 
-        device = self._resolve_fit_device(num_gpus=num_gpus)
+        import torch
+        from lightpfn import LightPFNClassifier, LightPFNRegressor
+        from lightpfn.device import resolve_device
+
+        params = self._get_model_params()
+        self.__dict__.pop("_cuda_precision", None)
+        local = os.environ.get("LIGHTPFN_WEIGHTS_DIR")
+        if local and all(params.get(name) is None for name in ("checkpoint", "model", "repo_id", "revision")):
+            # Include an offline weight override in SharedWeights' checkpoint key.
+            task = "regressor" if self.problem_type == REGRESSION else "classifier"
+            params["checkpoint"] = str(Path(local) / task)
+        requested = params.get("device")
+        device = (
+            resolve_device(requested)
+            if requested not in (None, "auto")
+            else self._resolve_fit_device(num_gpus=num_gpus)
+        )
+        self.device = device
         self._inference_threads = num_cpus
         previous_threads = torch.get_num_threads()
+        previous_rng = torch.random.get_rng_state()
         try:
             # the library's n_threads would set the process-wide thread count; set it here and restore it
             torch.set_num_threads(num_cpus)
-            params = self._get_model_params()
-            # Resource allocations take precedence over estimator hyperparameters.
             params.update(device=device, n_threads=None)
+            self._uncached_context = None
             X = self.preprocess(X)
             many_class_threshold = self.params_aux.get("many_class_threshold", 10)
             self._use_many_class = (
@@ -130,7 +172,10 @@ class LightPFNModel(AbstractTorchModel):
                 and self.num_classes is not None
                 and self.num_classes > many_class_threshold
             )
-            if self._use_many_class:
+            if self.problem_type == REGRESSION:
+                params.pop("cache_context", None)  # the regression API always caches its encoded context
+                self.model = LightPFNRegressor(**params).fit(X, y)
+            elif self._use_many_class:
                 ManyClassClassifier = import_many_class_classifier()
 
                 logger.log(
@@ -145,7 +190,10 @@ class LightPFNModel(AbstractTorchModel):
             else:
                 self.model = LightPFNClassifier(**params)
                 self.model.fit(X, y)
+                self._uncached_context = _context_storage(self.model._uncached_data, tensors=True)
+                self.model._uncached_data = None
         finally:
+            torch.random.set_rng_state(previous_rng)
             torch.set_num_threads(previous_threads)
 
     def _predict_proba(self, X, **kwargs):
@@ -154,12 +202,52 @@ class LightPFNModel(AbstractTorchModel):
         previous_threads = torch.get_num_threads()
         try:
             torch.set_num_threads(self._inference_threads)
+            context = getattr(self, "_uncached_context", None)
+            if context is not None:
+                self.model._uncached_data = _context_storage(context, tensors=False)
+            if self.problem_type != REGRESSION:
+                proba = self.model.predict_proba(self.preprocess(X, **kwargs))
+                ordered = np.zeros((len(X), self.num_classes), dtype=proba.dtype)
+                ordered[:, np.asarray(self.model.classes_, dtype=int)] = proba
+                return self._convert_proba_to_unified_form(ordered)
             return super()._predict_proba(X, **kwargs)
         finally:
+            if getattr(self, "_uncached_context", None) is not None:
+                self.model._uncached_data = None
             torch.set_num_threads(previous_threads)
 
+    def _clear_fp16_views(self):
+        """Detach derived views before AutoGluon traverses or moves the estimator's graph."""
+        if self.model is not None and not self._use_many_class:
+            self.model.__dict__.pop("_fp16_net", None)
+            self.model.__dict__.pop("_fp16_source", None)
+            engine = getattr(self.model, "regressor_", None)
+            if engine is not None:
+                engine.__dict__.pop("_fp16_net", None)
+
+    def __getstate__(self):
+        # AutoGluon bypasses the estimator's pickle protocol for shared weights.
+        self._clear_fp16_views()
+        return super().__getstate__()
+
+    def set_device(self, device: str):
+        # A derived fp16 module shares leaves with the frozen source. It must not be moved
+        # as an owned module while AutoGluon swaps the source's shared registry entry.
+        device = str(device)
+        engine = getattr(self.model, "regressor_", self.model)
+        if getattr(engine, "precision_", None) == "fp16":
+            self._cuda_precision = "fp16"
+        self._clear_fp16_views()
+        super().set_device(device)
+        if not self._use_many_class and self.model is not None:
+            # The shared path moves tensors generically. The library also converts CPU
+            # context caches to fp32; its network is already on this device after the swap.
+            self.model.to(device)
+            if device.startswith("cuda") and getattr(self, "_cuda_precision", None) == "fp16":
+                getattr(self.model, "regressor_", self.model).precision_ = "fp16"
+
     def _set_default_params(self):
-        self._set_default_param_value("n_estimators", 4)
+        self._set_default_param_value("n_estimators", 2 if self.problem_type == REGRESSION else 4)
 
     def get_device(self) -> str:
         if self._use_many_class:
@@ -181,11 +269,28 @@ class LightPFNModel(AbstractTorchModel):
 
 
 def prefetch_weights() -> str:
-    """Download the released weights at the commit pinned in the installed package and return the snapshot folder."""
-    from huggingface_hub import snapshot_download
-    from lightpfn.checkpoint import pretrained_spec
+    """Fetch both networks at the immutable Hugging Face revision pinned in the installed package."""
+    import os
+    from pathlib import Path
 
+    from huggingface_hub import snapshot_download
+    from lightpfn.checkpoint import pretrained_spec, validate_pretrained_pin
+
+    local = os.environ.get("LIGHTPFN_WEIGHTS_DIR")
+    if local:
+        for task in ("classifier", "regressor"):
+            for filename in ("config.json", "model.safetensors"):
+                if not (Path(local) / task / filename).is_file():
+                    raise FileNotFoundError(Path(local) / task / filename)
+        return str(Path(local))
     spec = pretrained_spec()
+    revision = validate_pretrained_pin()
     return snapshot_download(
-        spec["repo_id"], revision=spec["revision"], allow_patterns=["config.json", "model.safetensors"]
+        spec["repo_id"],
+        revision=revision,
+        allow_patterns=[
+            f"{task}/{filename}"
+            for task in ("classifier", "regressor")
+            for filename in ("config.json", "model.safetensors")
+        ],
     )

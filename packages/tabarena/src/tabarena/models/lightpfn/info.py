@@ -17,7 +17,9 @@ lightpfn_descriptor = ModelDescriptor(
 )
 
 # Run lightpfn_09102026 (SkyPilot pool, 32 RTX PRO 6000, BENCHMARK_LOG.md): every split of the 38 classification
-# datasets at 3d8217c0, lightpfn 1.0.0, weights ueuegio/LightPFN@bd389ab5.
+# datasets at 3d8217c0, lightpfn 1.0.0, weights ueuegio/LightPFN@bd389ab5. The pin below moves to lightpfn 1.5.0,
+# which changes the classification weights and adds regression, so both task types need a new run; until then these
+# results describe 1.0.0.
 lightpfn_method_metadata = lightpfn_descriptor.method_metadata(
     method="LightPFN",
     date="2026-10-09",
@@ -36,6 +38,6 @@ lightpfn_info = ModelInfo(
     model_cls=LightPFNModel,
     search_space=gen_lightpfn,
     method_metadata=lightpfn_method_metadata,
-    pip_extra=("lightpfn==1.0.0", "tabpfn-extensions[many_class]>=0.6.1"),
+    pip_extra=("lightpfn==1.5.0", "tabpfn-extensions[many_class]>=0.6.1"),
     prefetch_weights=prefetch_weights,
 )
