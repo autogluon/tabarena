@@ -465,14 +465,26 @@ shape each other's predictions, is not allowed. Watch for:
 - statistics or transforms fit on the rows being predicted: a scaler, imputer, PCA or category
   vocabulary fit at predict time, batch statistics, `fit_transform` in the predict path;
 - test-time training or adaptation on the unlabeled test rows, pseudo-labeling, or `X_test` passed
-  into `fit` in any form (semi-supervised use).
+  into `fit` in any form (semi-supervised use);
+- statistics inside the network over the whole train + query sequence, such as a count of valid
+  features or a normalization over every row instead of the training rows;
+- randomness whose stream depends on the number of rows: a draw sized by the rows that advances a
+  global RNG, followed by random feature embeddings drawn from the same RNG without a generator.
+  No value of another row reaches the prediction, but it changes with the batch size;
+- per-row state carried across the rows being predicted, such as row hashes whose collisions are
+  resolved over train + query, so two identical test rows get different inputs.
+
+The last three hid in LimiX `977c3de` after its preprocessing had been fixed (autogluon/tabarena#720).
 
 Conditioning on the training rows is inductive (that is what an in-context model's context is), and
 so is splitting the test rows into chunks for memory, as long as each row's prediction does not
 depend on its chunk. When a library offers a transductive mode, the wrapper uses its inductive mode;
 when it has no inductive switch, ask the maintainer and the library's authors for one before the
-wrapper is written (autogluon/tabarena#720). The check is cheap: predict some rows alone and inside
-the test set, with the other rows shuffled or replaced, and compare.
+wrapper is written (autogluon/tabarena#720). The check is cheap:
+`python -P -m tabarena.tools.audit_transduction --model <Method>` fits the model on the CPU and
+predicts probe rows alone, in batches of other sizes, next to decoy rows, after an identical copy and
+at the end of the batch, and the probes that fail name the kind of cause. Run it on the CPU: float16
+autocast and GPU kernels drift between batch sizes and hide small effects.
 
 Why we require it:
 
