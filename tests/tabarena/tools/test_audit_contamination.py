@@ -26,7 +26,9 @@ from tabarena.tools.audit_contamination import (
     audit_contamination,
     augmentation_off,
     calibrate_order,
+    collinear_column_groups,
     column_orders,
+    cyclic_rotations,
     dataset_verdicts,
     error_of,
     group_probe_data,
@@ -235,10 +237,28 @@ def test_order_statistics_rank_and_minimum():
     assert stats["rank_pub"] == 1.0
     assert stats["rank_p"] == pytest.approx(1 / 3)
     assert stats["d_min"] == pytest.approx(np.mean([np.log(10), np.log(10)]))
-    assert stats["d_mean"] > stats["d_min"]
+    assert stats["d_mean"] > stats["d_low"] >= stats["d_min"]
+    assert set(stats["d_low_per_split"]) == {"0", "1"}
     assert stats["n_splits"] == 2
     flat = {PUBLISHED: {"0": 0.1}, REVERSED: {"0": 0.1}, "random0": {"0": 0.1}}
     assert order_statistics(flat, eps=1e-3)["rank_pub"] == 2.0
+
+
+def test_rotations_and_collinear_columns_are_flagged():
+    orders = {
+        PUBLISHED: ["a", "b", "c", "d"],
+        REVERSED: ["d", "c", "b", "a"],
+        "random0": ["c", "d", "a", "b"],
+        "random1": ["b", "a", "d", "c"],
+    }
+    assert cyclic_rotations(orders) == ["random0"]
+    rng = np.random.default_rng(0)
+    X = pd.DataFrame({"x": rng.normal(size=50), "y": rng.normal(size=50)})
+    X["x250"] = 250 * X["x"]
+    X["cat"] = pd.Series(rng.choice(["a", "b"], size=50), dtype="category")
+    X["const"] = 1.0
+    assert collinear_column_groups(X) == [["x", "x250"]]
+    assert collinear_column_groups(X[["cat", "const"]]) == []
 
 
 def test_infer_problem_type():
@@ -327,8 +347,11 @@ def test_order_memorizer_fails_only_the_memorized_dataset():
     assert order["synth-b"].verdict == FAIL, order["synth-b"].summary
     assert set(_by_check(results, "ensemble")) == {"synth-b"}  # the released fit runs on the flagged dataset only
     assert _by_check(results, "ensemble")["synth-b"].verdict == INFO  # same class released: nothing to strip
-    assert order["synth-b"].details["d_min"] > 1.0
+    assert order["synth-b"].details["d_low"] > 1.0
     assert order["synth-b"].details["rank_p"] <= 0.1
+    assert order["synth-b"].details["rotations"] == [] or all(
+        r.startswith("random") for r in order["synth-b"].details["rotations"]
+    )
     assert order["synth-b"].details["n_orders"] == 11  # the confirmation rerun
     for name in ("synth-a", "synth-c", "synth-d", "synth-e"):
         assert order[name].verdict == PASS, order[name].summary
@@ -391,7 +414,9 @@ def test_calibration_is_unreliable_when_most_datasets_move_with_the_order():
             {
                 "d_perm": {REVERSED: d},
                 "d_mean": d,
+                "d_low": d,
                 "d_min": d,
+                "d_low_per_split": {"0": d},
                 "d_min_per_split": {"0": d},
                 "rank_pub": 1.0,
                 "rank_p": 0.5,
@@ -453,7 +478,9 @@ def test_calibrate_order_uses_the_problem_type_center_when_it_has_enough_dataset
         details = {
             "d_perm": {REVERSED: d},
             "d_mean": d,
+            "d_low": d,
             "d_min": d,
+            "d_low_per_split": {"0": d},
             "d_min_per_split": {"0": d},
             "rank_pub": 1.0,
             "rank_p": 0.5,

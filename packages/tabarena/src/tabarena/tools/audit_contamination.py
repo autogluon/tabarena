@@ -21,17 +21,22 @@ and compares what the published order buys. The checks:
     information, so its error moves by noise only; a model that memorized the table in its published order
     loses the memory under every permutation. The statistic per permutation is the log ratio of the errors,
     ``d = log(err_permuted / err_published)`` (1 - AUC, log loss or RMSE, floored at ``ERR_EPS``); ``d_mean``
-    averages the permutations and ``d_min`` is the weakest one. The published order's rank among all orders
-    is reported as ``rank_p`` (1 / n_orders when it beats every permutation on every split): under the null
-    that order carries no information, the rank is uniform. Honest models are not all order-invariant (an
+    averages the permutations, ``d_low`` is their 25th percentile and ``d_min`` the weakest one. The verdict
+    reads ``d_low``, not ``d_min``: a memory can survive one particular permutation, a cyclic rotation of the
+    published order when the model's own augmentation rotates columns (LimiX-2 on blood-transfusion kept its
+    memory under a rotation by two and lost it under every other order), or a swap of two collinear columns,
+    and such an order scores like the published one. Orders that are rotations, and groups of collinear
+    columns, are listed in the details. The published order's rank among all orders is reported as
+    ``rank_p`` (1 / n_orders when it beats every permutation on every split): under the null that order
+    carries no information, the rank is uniform. Honest models are not all order-invariant (an
     ensemble member can read a column position; a hand-chosen column order carries a little information),
     so the verdict is an across-dataset outlier rule on top of a fixed floor: ``d_mean`` is compared with
     the median and MAD of the same model over every dataset of the run, and a dataset is suspect when it
     stands ``ORDER_MAD_MULTIPLIER`` MADs above the median and above ``ORDER_LOG_RATIO_WARN``. FAIL needs the
-    effect on every permutation (``d_min`` above ``ORDER_LOG_RATIO_FAIL``) and the confirmation stage:
+    effect on nearly every permutation (``d_low`` above ``ORDER_LOG_RATIO_FAIL``) and the confirmation stage:
     ``--confirm`` reruns every suspect dataset with ``ORDER_N_RANDOM_CONFIRM`` random orders on every split,
-    and a FAIL needs ``rank_p`` at or below ``ORDER_RANK_P_CONFIRM`` there (or a positive ``d_min`` on every
-    one of several splits). A ``d_min`` above ``ORDER_LOG_RATIO_FAIL`` is at least a WARN whatever the run's
+    and a FAIL needs ``rank_p`` at or below ``ORDER_RANK_P_CONFIRM`` there (or a positive ``d_low`` on every
+    one of several splits). A ``d_low`` above ``ORDER_LOG_RATIO_FAIL`` is at least a WARN whatever the run's
     median, and a run whose median ``d_mean`` is itself above ``ORDER_LOG_RATIO_WARN`` cannot calibrate (the
     model prefers the published order on most of its datasets): it gets a run-level WARN row and the floors
     apply alone. Fewer than ``CALIBRATION_MIN_DATASETS`` datasets give no calibration: the probe then reports
@@ -130,8 +135,9 @@ VERDICT_CHECK = "verdict"
 #: ``d_mean`` an honest model stays within: the largest move on 51 datasets x 9 splits for TabPFN-3.5 and
 #: Kumo Tabular (polish bankruptcy, 0.0088 vs 0.0099, a few samples deciding) in the #648 write-up.
 ORDER_LOG_RATIO_WARN = 0.12
-#: ``d_min`` a FAIL needs: between the honest bound above and the weakest proven case (LimiX-2 on
-#: blood-transfusion-service-center, 0.1774 vs 0.2596 over 30 splits, d = 0.38).
+#: ``d_low`` a FAIL needs: between the strongest honest case (TabPFN-3 on anneal, d_low 0.14 over 30 splits,
+#: an honest preference for the curated column order) and the weakest proven case (LimiX-2 on
+#: blood-transfusion-service-center, 0.1770 vs 0.2604 over 30 splits, d_low 0.35).
 ORDER_LOG_RATIO_FAIL = 0.25
 #: MADs above the model's own median ``d_mean`` (over the run's datasets) for a dataset to stand out.
 ORDER_MAD_MULTIPLIER = 3.0
@@ -140,9 +146,14 @@ ORDER_MIN_MAD = 0.03
 #: Random orders in the screen and in the confirmation rerun (plus published and reversed in both).
 ORDER_N_RANDOM = 3
 ORDER_N_RANDOM_CONFIRM = 9
+#: Percentile of the permutations' ``d`` that the verdict reads (``d_low``); the minimum is reported only.
+ORDER_LOW_PERCENTILE = 25
+#: Absolute correlation above which two numeric columns count as collinear (a swap of them is no permutation).
+COLLINEAR_CORRELATION = 0.9999
 #: ``rank_p`` of the published order a confirmed FAIL needs: 1 / 11 when it wins against every one of the
-#: confirmation's 10 permutations on every split.
-ORDER_RANK_P_CONFIRM = 0.1
+#: confirmation's 10 permutations on every split, 2 / 11 when one order the memory survives (a rotation) ties
+#: with it. Honest order preferences rank 3.8 or worse of 11 (TabPFN-3 on anneal).
+ORDER_RANK_P_CONFIRM = 0.2
 #: Datasets a run needs before the across-dataset rule has a median and a MAD.
 CALIBRATION_MIN_DATASETS = 5
 #: Datasets of one problem type before its own calibration replaces the pooled one.
@@ -691,13 +702,44 @@ def probe_order(mua: ModelUnderAudit, dataset: DatasetSplits, *, n_random: int, 
             fit_s[name][str(split)] = time.monotonic() - start
     stats = order_statistics(err, eps=error_floor(first))
     stats["metric"] = first.eval_metric
-    return CheckResult(
-        "order",
-        dataset.name,
-        INFO,
-        _order_summary(stats, err),
-        {"orders": {k: [str(c) for c in v] for k, v in orders.items()}, "err": err, "fit_s": fit_s, **stats},
-    )
+    details = {
+        "orders": {k: [str(c) for c in v] for k, v in orders.items()},
+        "rotations": cyclic_rotations(orders),
+        "collinear_columns": [[str(c) for c in group] for group in collinear_column_groups(first.X_train)],
+        "err": err,
+        "fit_s": fit_s,
+        **stats,
+    }
+    return CheckResult("order", dataset.name, INFO, _order_summary(stats, err), details)
+
+
+def cyclic_rotations(orders: dict[str, list]) -> list[str]:
+    """The orders that are a cyclic rotation of the published one (a memory formed under rotation
+    augmentation survives them).
+    """
+    published = list(orders[PUBLISHED])
+    rotations = {tuple(published[k:] + published[:k]) for k in range(1, len(published))}
+    return [name for name, order in orders.items() if name != PUBLISHED and tuple(order) in rotations]
+
+
+def collinear_column_groups(X: pd.DataFrame) -> list[list]:
+    """Groups of numeric columns whose absolute correlation exceeds ``COLLINEAR_CORRELATION`` (swapping two of
+    them changes nothing for a model that standardizes its columns).
+    """
+    numeric = [c for c in X.columns if pd.api.types.is_numeric_dtype(X[c]) and X[c].astype(float).std() > 0]
+    if len(numeric) < 2:
+        return []
+    corr = X[numeric].astype(float).corr().abs().to_numpy()
+    groups: list[list] = []
+    seen: set[int] = set()
+    for i in range(len(numeric)):
+        if i in seen:
+            continue
+        group = [j for j in range(i, len(numeric)) if j not in seen and corr[i, j] >= COLLINEAR_CORRELATION]
+        if len(group) > 1:
+            groups.append([numeric[j] for j in group])
+            seen.update(group)
+    return groups
 
 
 def order_statistics(err: dict[str, dict[str, float]], *, eps: float) -> dict:
@@ -722,7 +764,9 @@ def order_statistics(err: dict[str, dict[str, float]], *, eps: float) -> dict:
     return {
         "d_perm": d_perm,
         "d_mean": float(np.mean(list(d_perm.values()))),
+        "d_low": float(np.percentile(list(d_perm.values()), ORDER_LOW_PERCENTILE)),
         "d_min": float(min(d_perm.values())),
+        "d_low_per_split": {s: float(np.percentile(list(d_split[s].values()), ORDER_LOW_PERCENTILE)) for s in splits},
         "d_min_per_split": {s: float(min(d_split[s].values())) for s in splits},
         "rank_pub": rank_pub,
         "rank_p": rank_pub / n_orders,
@@ -739,8 +783,8 @@ def _order_summary(stats: dict, err: dict[str, dict[str, float]]) -> str:
     random_text = ", random " + "/".join(f"{mean_err(n):.4f}" for n in randoms) if randoms else ""
     return (
         f"{stats['metric']} published {mean_err(PUBLISHED):.4f}, reversed {mean_err(REVERSED):.4f}{random_text}; "
-        f"d_mean {stats['d_mean']:+.2f}, d_min {stats['d_min']:+.2f}, rank {stats['rank_pub']:.1f}/{stats['n_orders']} "
-        f"over {stats['n_splits']} split(s)"
+        f"d_mean {stats['d_mean']:+.2f}, d_low {stats['d_low']:+.2f}, d_min {stats['d_min']:+.2f}, "
+        f"rank {stats['rank_pub']:.1f}/{stats['n_orders']} over {stats['n_splits']} split(s)"
     )
 
 
@@ -827,9 +871,9 @@ def calibrate_order(
         z = (d["d_mean"] - center["median_d"]) / center["mad_d"] if center else None
         r.details["z"] = z
         stands_out = z is None or unreliable or z >= ORDER_MAD_MULTIPLIER
-        big_effect = d["d_min"] >= ORDER_LOG_RATIO_FAIL
+        big_effect = d["d_low"] >= ORDER_LOG_RATIO_FAIL
         effect = big_effect and stands_out
-        several_splits = d["n_splits"] > 1 and all(v > 0 for v in d["d_min_per_split"].values())
+        several_splits = d["n_splits"] > 1 and all(v > 0 for v in d["d_low_per_split"].values())
         is_confirmed = r.dataset in confirmed and d["rank_p"] <= ORDER_RANK_P_CONFIRM
         if effect and (is_confirmed or several_splits):
             r.verdict = FAIL
