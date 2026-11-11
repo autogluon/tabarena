@@ -27,23 +27,18 @@ _run_kwargs = {
     "cache_kwargs": {"bucket": "tabarena", "prefix": "cache"},
 }
 
-# Run lightpfn15t214_10112026 (SkyPilot pool, 32 RTX PRO 6000, BENCHMARK_LOG.md): all 816 splits, classification and
-# regression, at c82b4dad, lightpfn 1.5.0, weights ueuegio/LightPFN@00a2536c, torch 2.14.1.
-lightpfn_method_metadata = lightpfn_descriptor.method_metadata(
-    **_run_kwargs,
-    date="2026-11-10",
-    suite="tabarena-2026-11-10",
-    verified=True,
-)
-
 # Run lightpfn_09102026 (SkyPilot pool, 32 RTX PRO 6000, BENCHMARK_LOG.md): every split of the 38 classification
-# datasets at 3d8217c0, lightpfn 1.0.0, weights ueuegio/LightPFN@bd389ab5. Superseded by the 1.5.0 run above.
+# datasets at 3d8217c0, lightpfn 1.0.0, weights ueuegio/LightPFN@bd389ab5.
 lightpfn_1p0_method_metadata = lightpfn_descriptor.method_metadata(
     **_run_kwargs,
     date="2026-10-09",
     suite="tabarena-2026-10-09",
     verified=True,
 )
+
+# The pin below is lightpfn 1.5.1, which changes the classification weights and adds regression. Until its maintainer
+# run is uploaded, the collection keeps the 1.0.0 results.
+lightpfn_method_metadata = lightpfn_1p0_method_metadata
 
 lightpfn_info = ModelInfo(
     model_cls=LightPFNModel,
