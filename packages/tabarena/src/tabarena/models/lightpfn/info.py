@@ -16,26 +16,39 @@ lightpfn_descriptor = ModelDescriptor(
     date_introduced="2026-10-05",
 )
 
-# Run lightpfn_09102026 (SkyPilot pool, 32 RTX PRO 6000, BENCHMARK_LOG.md): every split of the 38 classification
-# datasets at 3d8217c0, lightpfn 1.0.0, weights ueuegio/LightPFN@bd389ab5.
+_run_kwargs = {
+    "method": "LightPFN",
+    "ag_key": "TA-LIGHTPFN",
+    "model_key": "LIGHTPFN",
+    "config_default": "LightPFN_c1_default_BAG_L1",
+    "can_hpo": False,
+    "validation_protocol": "8x1",
+    "cache_type": "r2",
+    "cache_kwargs": {"bucket": "tabarena", "prefix": "cache"},
+}
+
+# Run lightpfn151_11112026 (SkyPilot pool, 32 RTX PRO 6000, BENCHMARK_LOG.md): all 816 splits, classification and
+# regression, at a90db4b0, lightpfn 1.5.1, weights ueuegio/LightPFN@00a2536c, torch 2.14.1.
 lightpfn_method_metadata = lightpfn_descriptor.method_metadata(
-    method="LightPFN",
+    **_run_kwargs,
+    date="2026-11-11",
+    suite="tabarena-2026-11-11",
+    verified=True,
+)
+
+# Run lightpfn_09102026 (SkyPilot pool, 32 RTX PRO 6000, BENCHMARK_LOG.md): every split of the 38 classification
+# datasets at 3d8217c0, lightpfn 1.0.0, weights ueuegio/LightPFN@bd389ab5. Superseded by the 1.5.1 run above.
+lightpfn_1p0_method_metadata = lightpfn_descriptor.method_metadata(
+    **_run_kwargs,
     date="2026-10-09",
-    ag_key="TA-LIGHTPFN",
-    model_key="LIGHTPFN",
-    config_default="LightPFN_c1_default_BAG_L1",
-    can_hpo=False,
-    validation_protocol="8x1",
     suite="tabarena-2026-10-09",
     verified=True,
-    cache_type="r2",
-    cache_kwargs={"bucket": "tabarena", "prefix": "cache"},
 )
 
 lightpfn_info = ModelInfo(
     model_cls=LightPFNModel,
     search_space=gen_lightpfn,
     method_metadata=lightpfn_method_metadata,
-    pip_extra=("lightpfn==1.0.0", "tabpfn-extensions[many_class]>=0.6.1"),
+    pip_extra=("lightpfn==1.5.1", "tabpfn-extensions[many_class]>=0.6.1"),
     prefetch_weights=prefetch_weights,
 )
