@@ -341,36 +341,64 @@ __BASE_JS__
   const ELO = CONFIG.elo || null;
   const ELO_POS = new Map((ELO ? ELO.field : []).map((m, k) => [m, k]));
   const BT_RIDGE = 0.5 / (1e6 * Math.LN10 * Math.LN10);
-  // Each dataset's win totals over the whole field.
-  const ELO_WINS = ELO ? ELO.grid.map(rows => {
-    const n = rows.length, splits = n ? rows[0].length : 0;
-    const wins = new Float64Array(n);
+  // The leaderboard's board for a set of datasets: the field methods measured (not imputed) on at least one split of
+  // them, as `compare` keeps them (it fills in missing results only for the methods a subset has results for), and
+  // per dataset each member's win totals, mean rank and improvability among the board, from the unrounded errors
+  // with imputed results included, as the leaderboard computes them.
+  const boardCache = new Map();
+  function boardOf(datasets) {
+    const cacheKey = datasets.join(",");
+    let board = boardCache.get(cacheKey);
+    if (board) return board;
+    const n = ELO.field.length, on = new Uint8Array(n);
+    for (const d of datasets) {
+      const real = ELO.real ? ELO.real[d] : null;
+      for (let k = 0; k < n; k++) if (!real || real[k] === "1") on[k] = 1;
+    }
+    const members = [...Array(n).keys()].filter(k => on[k]);
+    const stats = new Map();
+    for (const d of datasets) stats.set(d, boardStats(d, members));
+    board = { members: members, pos: new Map(members.map((k, i) => [k, i])), stats: stats };
+    boardCache.set(cacheKey, board);
+    return board;
+  }
+  // One dataset's numbers for the board `members`: on a split a method wins against every member with a higher
+  // error and half against every tie, its rank is the board's size less its wins (average ranks for ties), and its
+  // improvability is 1 - best / error (0 where the error is 0); each is the mean over the dataset's splits.
+  function boardStats(d, members) {
+    const rows = ELO.grid[d], m = members.length, splits = m ? rows[members[0]].length : 0;
+    const wins = new Float64Array(m), imp = new Float64Array(m), rank = new Float64Array(m), split = new Float64Array(m);
     for (let s = 0; s < splits; s++) {
-      for (let i = 0; i < n; i++) {
-        const ei = rows[i][s];
-        for (let j = i + 1; j < n; j++) {
-          const ej = rows[j][s];
+      let best = Infinity;
+      for (let i = 0; i < m; i++) { split[i] = rows[members[i]][s]; if (split[i] < best) best = split[i]; }
+      for (let i = 0; i < m; i++) {
+        const ei = split[i];
+        for (let j = i + 1; j < m; j++) {
+          const ej = split[j];
           if (ei < ej) wins[i] += 1; else if (ej < ei) wins[j] += 1; else { wins[i] += 0.5; wins[j] += 0.5; }
         }
+        imp[i] += ei === 0 ? 0 : 1 - best / ei;
       }
     }
-    for (let i = 0; i < n; i++) wins[i] /= splits || 1;
-    return wins;
-  }) : [];
-  // Each field member's share of wins against field member `x` on dataset `d`: what leaving `x`
-  // out of the field takes off its win totals.
-  function winsAgainst(d, x) {
-    const rows = ELO.grid[d], n = rows.length, splits = rows[x].length;
-    const out = new Float64Array(n);
+    for (let i = 0; i < m; i++) {
+      wins[i] /= splits || 1;
+      imp[i] = (100 * imp[i]) / (splits || 1);
+      rank[i] = m - wins[i];
+    }
+    return { wins: wins, rank: rank, imp: imp };
+  }
+  // Each board member's share of wins against member `x` on dataset `d`: what leaving `x` out takes off its totals.
+  function winsAgainst(d, members, x) {
+    const rows = ELO.grid[d], ex = rows[x], splits = ex.length, out = new Float64Array(members.length);
     for (let s = 0; s < splits; s++) {
-      const ex = rows[x][s];
-      for (let k = 0; k < n; k++) {
+      for (let i = 0; i < members.length; i++) {
+        const k = members[i];
         if (k === x) continue;
         const ek = rows[k][s];
-        if (ek < ex) out[k] += 1; else if (ek === ex) out[k] += 0.5;
+        if (ek < ex[s]) out[i] += 1; else if (ek === ex[s]) out[i] += 0.5;
       }
     }
-    for (let k = 0; k < n; k++) out[k] /= splits || 1;
+    for (let i = 0; i < out.length; i++) out[i] /= splits || 1;
     return out;
   }
   // Ridge-penalised Bradley-Terry log-strengths from win totals, every pair meeting `nTasks` times
@@ -434,13 +462,18 @@ __BASE_JS__
     if (cal >= 0) { const shift = 1000 - out[cal]; for (let i = 0; i < out.length; i++) out[i] += shift; }
     return out;
   }
-  // The leaderboard's board over `datasets`: every method of the field on one board, A and B included, so their
-  // games against each other count as on the leaderboard and A's rating does not depend on which method is B.
+  // The leaderboard's board over `datasets` (`boardOf`), A and B included, so their games against each other count
+  // as on the leaderboard and A's rating does not depend on which method is B. Null when A or B is not on it.
   function fullBoard(datasets, ma = state.a, mb = state.b) {
-    const a = ELO_POS.get(ma), b = ELO_POS.get(mb);
-    if (a === undefined || b === undefined || a === b) return null;
-    const n = ELO.field.length;
-    return { a: a, b: b, n: n, members: [...Array(n).keys()], perDataset: datasets.map(d => ELO_WINS[d]) };
+    const fa = ELO_POS.get(ma), fbp = ELO_POS.get(mb);
+    if (fa === undefined || fbp === undefined || fa === fbp) return null;
+    const board = boardOf(datasets);
+    const a = board.pos.get(fa), b = board.pos.get(fbp);
+    if (a === undefined || b === undefined) return null;
+    return {
+      a: a, b: b, n: board.members.length, members: board.members, board: board,
+      perDataset: datasets.map(d => board.stats.get(d).wins),
+    };
   }
   // The full board fitted with each dataset counted `counts[i]` times (once each without counts).
   function fitFull(fb, counts, init) {
@@ -463,15 +496,16 @@ __BASE_JS__
   // centring or calibration shift: the calibration method's place differs between a board with A and one with B,
   // so pinning both to it at 1000 would move the gap by how differently A and B do against it.
   function boardsFor(datasets, ma = state.a, mb = state.b) {
-    const a = ELO_POS.get(ma), b = ELO_POS.get(mb);
-    if (a === undefined || b === undefined || a === b) return null;
-    const n = ELO.field.length;
-    const boardA = [...Array(n).keys()].filter(k => k !== b), boardB = [...Array(n).keys()].filter(k => k !== a);
+    const fb = fullBoard(datasets, ma, mb);
+    if (!fb) return null;
+    const m = fb.n, ia = fb.a, ib = fb.b;
+    const keepA = [...Array(m).keys()].filter(i => i !== ib), keepB = [...Array(m).keys()].filter(i => i !== ia);
     const perDataset = datasets.map(d => {
-      const full = ELO_WINS[d], vsA = winsAgainst(d, a), vsB = winsAgainst(d, b);
-      return { a: boardA.map(k => full[k] - vsB[k]), b: boardB.map(k => full[k] - vsA[k]) };
+      const w = fb.board.stats.get(d).wins;
+      const vsA = winsAgainst(d, fb.members, fb.members[ia]), vsB = winsAgainst(d, fb.members, fb.members[ib]);
+      return { a: keepA.map(i => w[i] - vsB[i]), b: keepB.map(i => w[i] - vsA[i]) };
     });
-    return { a: a, b: b, n: n, boardA: boardA, boardB: boardB, perDataset: perDataset };
+    return { a: keepA.indexOf(ia), b: keepB.indexOf(ib), n: m, perDataset: perDataset };
   }
   // Both boards fitted with each dataset counted `counts[i]` times (once each without counts). A's and B's ratings
   // are the raw log-strengths on the Elo scale (400 / ln 10 per unit, around 1000): each board's ridge-penalised fit
@@ -488,7 +522,7 @@ __BASE_JS__
     });
     const ta = bradleyTerry(wa, tasks, initA), tb = bradleyTerry(wb, tasks, initB);
     const raw = v => 1000 + 400 * v / Math.LN10;
-    return { ta: ta, tb: tb, eloA: raw(ta[bd.boardA.indexOf(bd.a)]), eloB: raw(tb[bd.boardB.indexOf(bd.b)]) };
+    return { ta: ta, tb: tb, eloA: raw(ta[bd.a]), eloB: raw(tb[bd.b]) };
   }
   function gapSummary(point, gaps, datasets) {
     gaps.sort();
@@ -528,7 +562,7 @@ __BASE_JS__
     return out;
   }
   // Each dataset's pull on the gap: the gap over `datasets` less the gap refitted without that
-  // dataset. Positive when the dataset moves the gap towards A, negative towards B.
+  // dataset, on the same board. Positive when the dataset moves the gap towards A, negative towards B.
   function eloPull(datasets) {
     if (!ELO || datasets.length < 3) return null;
     const fb = fullBoard(datasets);
@@ -720,8 +754,8 @@ __BASE_JS__
       return {
         pa: pa, pb: pb, n: n, wins: wins, losses: losses, ties: ties,
         margin: marginOf(pa.e, pb.e),
-        dRank: pa.r != null && pb.r != null ? pb.r - pa.r : null,
-        dImp: pa.i != null && pb.i != null ? pb.i - pa.i : null,
+        // The ranks and improvability of the view's board (`computeView`).
+        ra: null, rb: null, ia: null, ib: null, dRank: null, dImp: null,
         logRatio: pa.e > 0 && pb.e > 0 ? Math.log(pa.e / pb.e) : null,
         p: tested ? test.p : null,
         pRaw: test.p,
@@ -770,15 +804,69 @@ __BASE_JS__
     }
     return true;
   }
-  // The datasets in view where both methods ran, with the BH adjustment over the tested ones.
+  // The datasets in view where both methods ran, with the BH adjustment over the tested ones, and the leaderboard's
+  // board over every dataset in view: the ranks, improvability, win rate and Elo are the leaderboard's for it.
   let inView = [];
   let missingInView = 0;
+  let VIEW_DATASETS = [], VIEW_BOARD = null;
+  // A method's mean rank and improvability (%) on dataset `d` on the view's board; for a method outside the Elo
+  // field, its rank and improvability among the methods measured there.
+  function viewRank(d, m) {
+    const at = boardPlace(d, m);
+    if (at) return at.st.rank[at.i];
+    const p = key(d, m);
+    return p ? p.r : null;
+  }
+  function viewImp(d, m) {
+    const at = boardPlace(d, m);
+    if (at) return at.st.imp[at.i];
+    const p = key(d, m);
+    return p ? p.i : null;
+  }
+  function boardPlace(d, m) {
+    if (!VIEW_BOARD) return null;
+    const k = ELO_POS.get(m), st = VIEW_BOARD.stats.get(d);
+    const i = k === undefined ? undefined : VIEW_BOARD.pos.get(k);
+    return i === undefined || !st ? null : { st: st, i: i };
+  }
+  // Mean rank and win rate of A and X over every dataset in view, as the leaderboard and its win-rate matrix have
+  // them: per dataset the share of its splits where A's error is lower (ties half, imputed results included), each
+  // dataset weighted equally. Null when either is not on the view's board.
+  function pairOverView(ma, mx) {
+    const fa = ELO_POS.get(ma), fx = ELO_POS.get(mx);
+    if (!VIEW_BOARD || fa === undefined || fx === undefined || !VIEW_DATASETS.length) return null;
+    const ia = VIEW_BOARD.pos.get(fa), ix = VIEW_BOARD.pos.get(fx);
+    if (ia === undefined || ix === undefined) return null;
+    let rankA = 0, rankX = 0, win = 0, wins = 0, ties = 0, losses = 0;
+    for (const d of VIEW_DATASETS) {
+      const st = VIEW_BOARD.stats.get(d), ra = ELO.grid[d][fa], rx = ELO.grid[d][fx];
+      rankA += st.rank[ia];
+      rankX += st.rank[ix];
+      let share = 0;
+      for (let s = 0; s < ra.length; s++) {
+        if (ra[s] < rx[s]) { share += 1; wins++; } else if (ra[s] === rx[s]) { share += 0.5; ties++; } else losses++;
+      }
+      win += share / (ra.length || 1);
+    }
+    const n = VIEW_DATASETS.length;
+    return { n: n, rankA: rankA / n, rankX: rankX / n, win: win / n, wins: wins, ties: ties, losses: losses };
+  }
   function computeView() {
     inView = [];
     missingInView = 0;
+    VIEW_DATASETS = [];
     for (let d = 0; d < nD; d++) {
       if (!passes(d, {})) continue;
+      VIEW_DATASETS.push(d);
       if (PAIR[d]) inView.push(d); else missingInView++;
+    }
+    VIEW_BOARD = ELO && VIEW_DATASETS.length ? boardOf(VIEW_DATASETS) : null;
+    for (const d of inView) {
+      const x = PAIR[d];
+      x.ra = viewRank(d, state.a); x.rb = viewRank(d, state.b);
+      x.ia = viewImp(d, state.a); x.ib = viewImp(d, state.b);
+      x.dRank = x.ra != null && x.rb != null ? x.rb - x.ra : null;
+      x.dImp = x.ia != null && x.ib != null ? x.ib - x.ia : null;
     }
     for (const d of inView) PAIR[d].q = null;
     const tested = inView.filter(d => PAIR[d].p != null);
@@ -805,8 +893,10 @@ __BASE_JS__
       if (v === "a") aSig++;
       if (v === "b") bSig++;
       splitWins += x.wins; splitTies += x.ties; splitN += x.n;
-      if (x.pa.r != null && x.pb.r != null) { rankA += x.pa.r; rankB += x.pb.r; rankN++; }
+      if (x.ra != null && x.rb != null) { rankA += x.ra; rankB += x.rb; rankN++; }
     }
+    // As the leaderboard has them, over every dataset in view; the measured pairs above only without an Elo field.
+    const lb = pairOverView(state.a, state.b);
     // The overall error ratio A / B: the geometric mean over datasets of the ratio of the mean
     // errors, with a 95% interval from resampling datasets, and the signed-rank test of the
     // per-dataset log ratios. A dataset where either error is zero has no ratio and is left out.
@@ -853,13 +943,23 @@ __BASE_JS__
         `Datasets where the splits tell the two apart (${SIG.test || "signed-rank test"}, \u03b1 = ${ALPHA}). ` +
         `Testable: at least ${MIN_SPLITS} splits. With no real difference anywhere, about \u03b1 \u00d7 testable datasets ` +
         "come out significant by chance, split between the two sides.") +
-      tile("Split win rate of A", splitRate == null ? "\u2014" : (splitRate * 100).toFixed(1) + "%",
-        `${fmtInt(splitWins)} won, ${fmtInt(splitTies)} tied, ${fmtInt(splitN - splitWins - splitTies)} lost of ${fmtInt(splitN)}`,
-        "Share of the paired splits where A's error is lower than B's, ties counting half") +
+      (lb
+        ? tile("Win rate of A over B", (lb.win * 100).toFixed(1) + "%", `${lb.n} datasets, each counted once`,
+          "As the leaderboard's win-rate matrix: on each dataset the share of its splits where A's error is lower than " +
+          "B's (ties half, imputed results included), averaged over the datasets in view. Over all their splits: " +
+          `${fmtInt(lb.wins)} won, ${fmtInt(lb.ties)} tied, ${fmtInt(lb.losses)} lost.`)
+        : tile("Split win rate of A", splitRate == null ? "\u2014" : (splitRate * 100).toFixed(1) + "%",
+          `${fmtInt(splitWins)} won, ${fmtInt(splitTies)} tied, ${fmtInt(splitN - splitWins - splitTies)} lost of ${fmtInt(splitN)}`,
+          "Share of the paired splits where A's error is lower than B's, ties counting half")) +
       timeTile() +
-      tile("Mean rank in the field", rankN ? `${sw("a")}${(rankA / rankN).toFixed(2)} <span class="hh-vs">vs</span> ${sw("b")}${(rankB / rankN).toFixed(2)}` : "\u2014",
-        `over ${rankN} datasets` + (missingInView ? ` \u00b7 ${missingInView} without both left out` : ""),
-        "Each method's rank among all methods on a dataset, averaged over its splits and then over the datasets in view");
+      (lb
+        ? tile("Mean rank in the field", `${sw("a")}${lb.rankA.toFixed(2)} <span class="hh-vs">vs</span> ${sw("b")}${lb.rankX.toFixed(2)}`,
+          `over ${lb.n} datasets`,
+          "The leaderboard's rank for the datasets in view: each method's rank among the methods on the board on every " +
+          "split (average ranks for ties, imputed results included), averaged over the splits and then the datasets")
+        : tile("Mean rank in the field", rankN ? `${sw("a")}${(rankA / rankN).toFixed(2)} <span class="hh-vs">vs</span> ${sw("b")}${(rankB / rankN).toFixed(2)}` : "\u2014",
+          `over ${rankN} datasets` + (missingInView ? ` \u00b7 ${missingInView} without both left out` : ""),
+          "Each method's rank among the methods measured on a dataset, averaged over its splits and then over the datasets in view"));
     scheduleElo();
   }
   // Training and prediction time, A against B: the geometric mean over the datasets in view of the
@@ -1005,7 +1105,7 @@ __BASE_JS__
     // The margin itself: with the pull or the rank difference on the y-axis, a line through 0 fitted on each side
     // shows whether a loss moves the method more than a gain of the same size.
     { key: "margin", label: "A's margin over B (%)", scale: "linear", value: d => PAIR[d].margin, fmt: v => fmtSigned(v, 1, "%"), sides: true },
-    { key: "impB", label: "B's distance to the best (improvability, %)", scale: "linear", value: d => PAIR[d].pb.i, fmt: v => v.toFixed(1) + "%" },
+    { key: "impB", label: "B's distance to the best (improvability, %)", scale: "linear", value: d => PAIR[d].ib, fmt: v => v.toFixed(1) + "%" },
     { key: "trainRatio", label: "Training time A / B", scale: "ratio", value: d => PAIR[d].trainRatio },
     { key: "inferRatio", label: "Prediction time A / B", scale: "ratio", value: d => PAIR[d].inferRatio },
     ...(CONFIG.xAxes || []).map(ax => ({
@@ -1201,7 +1301,7 @@ __BASE_JS__
     return `<div class="t-name">${escapeHtml(ds.name)}</div>` +
       `<div>${escapeHtml(metricName(ds))}: A <b>${fmtErr(x.pa.e)}</b> \u00b7 B <b>${fmtErr(x.pb.e)}</b></div>` +
       `<div>A's margin: <b>${fmtSigned(x.margin, 2, "%")}</b></div>` +
-      `<div>Rank: A ${fmtNum(x.pa.r, 1)} \u00b7 B ${fmtNum(x.pb.r, 1)}</div>` +
+      `<div>Rank: A ${fmtNum(x.ra, 1)} \u00b7 B ${fmtNum(x.rb, 1)}</div>` +
       `<div>Splits: A lower on ${x.wins}, B on ${x.losses}${x.ties ? `, tied ${x.ties}` : ""}</div>` +
       `<div>${escapeHtml(verdictText(d))}</div>` +
       (pull != null ? `<div>Pull on the Elo gap: <b>${fmtSigned(pull, 2)}</b></div>` : "") +
@@ -1242,8 +1342,8 @@ __BASE_JS__
       case "train_rows": return trainRows(ds);
       case "features": return ds.features;
       case "margin": return x.margin;
-      case "rankA": return x.pa.r;
-      case "rankB": return x.pb.r;
+      case "rankA": return x.ra;
+      case "rankB": return x.rb;
       case "dRank": return x.dRank;
       case "pull": return ELO_PULL ? (ELO_PULL.get(d) ?? null) : null;
       case "train": return x.trainRatio;
@@ -1327,8 +1427,8 @@ __BASE_JS__
         `<td class="hh-num">${fmtCount(trainRows(ds))}</td>` +
         `<td class="hh-num hh-wide">${fmtCount(ds.features)}</td>` +
         leadCell(x.margin, fmtSigned(x.margin, 2, "%"), sig) +
-        `<td class="hh-num hh-wide">${fmtNum(x.pa.r, 1)}</td>` +
-        `<td class="hh-num hh-wide">${fmtNum(x.pb.r, 1)}</td>` +
+        `<td class="hh-num hh-wide">${fmtNum(x.ra, 1)}</td>` +
+        `<td class="hh-num hh-wide">${fmtNum(x.rb, 1)}</td>` +
         leadCell(x.dRank, fmtSigned(x.dRank, 1), false) +
         (() => {
           const pull = ELO_PULL ? ELO_PULL.get(d) : null;
@@ -1385,7 +1485,7 @@ __BASE_JS__
       ["A: " + sideName("a"), `${fmtErr(x.pa.e)}${x.pa.s != null ? ` \u00b1 ${fmtErr(x.pa.s)}` : ""}`],
       ["B: " + sideName("b"), `${fmtErr(x.pb.e)}${x.pb.s != null ? ` \u00b1 ${fmtErr(x.pb.s)}` : ""}`],
       ["A's margin over B", fmtSigned(x.margin, 2, "%")],
-      ["Rank in the field, A / B", `${fmtNum(x.pa.r, 2)} / ${fmtNum(x.pb.r, 2)}`],
+      ["Rank in the field, A / B", `${fmtNum(x.ra, 2)} / ${fmtNum(x.rb, 2)}`],
       ["Splits A lower : B lower : tied", `${x.wins} : ${x.losses} : ${x.ties}`],
       ["Signed-rank test", x.p == null ? `too few splits (${x.n})` : `p = ${fmtP(x.p)}${x.q != null ? `, BH q = ${fmtP(x.q)}` : ""}`],
       ["Verdict", verdictText(d)],
@@ -1440,8 +1540,25 @@ __BASE_JS__
     { key: "b", label: "Highest B first" },
   ];
   // Both methods on split `i` of dataset `d`: error, improvability (how far behind the split's best,
-  // in %) and rank among the whole field (average rank for ties).
+  // in %) and rank among the whole field (average rank for ties). The improvability and rank are the
+  // leaderboard's, among the view's board on the unrounded errors; for a method outside the Elo field,
+  // among the methods measured on the dataset.
   function splitValues(d, i, pa, pb) {
+    const fa = ELO_POS.get(state.a), fb = ELO_POS.get(state.b);
+    const ia = VIEW_BOARD && fa !== undefined ? VIEW_BOARD.pos.get(fa) : undefined;
+    const ib = VIEW_BOARD && fb !== undefined ? VIEW_BOARD.pos.get(fb) : undefined;
+    if (ia !== undefined && ib !== undefined && VIEW_BOARD.stats.has(d)) {
+      const board = VIEW_BOARD.members.map(k => ELO.grid[d][k][i]);
+      const top = Math.min(...board);
+      const rankOn = v => {
+        let less = 0, equal = 0;
+        for (const u of board) { if (u < v) less++; else if (u === v) equal++; }
+        return less + (equal + 1) / 2;
+      };
+      const impOn = v => (v === 0 ? 0 : (1 - top / v) * 100);
+      const ra = ELO.grid[d][fa][i], rb = ELO.grid[d][fb][i];
+      return { a: { e: pa.f[i], i: impOn(ra), r: rankOn(ra) }, b: { e: pb.f[i], i: impOn(rb), r: rankOn(rb) } };
+    }
     const field = BY_DATASET[d].map(p => p.f[i]).filter(v => v != null);
     const best = Math.min(...field);
     const rank = v => {
@@ -1718,7 +1835,7 @@ __BASE_JS__
     for (const d of visible) {
       const ds = DATASETS[d], x = PAIR[d];
       lines.push([METHODS[state.a].name, METHODS[state.b].name, ds.key, ds.task, trainRows(ds), ds.features, x.n,
-        x.pa.e, x.pb.e, x.margin, x.pa.r, x.pb.r, x.dRank, ELO_PULL ? ELO_PULL.get(d) : null, x.wins, x.losses, x.ties,
+        x.pa.e, x.pb.e, x.margin, x.ra, x.rb, x.dRank, ELO_PULL ? ELO_PULL.get(d) : null, x.wins, x.losses, x.ties,
         x.p, x.q, verdictOf(d), BETTER && BETTER[d] ? BETTER[d].methods.length : null, x.pa.t, x.pb.t, x.pa.it, x.pb.it]
         .map(cell).join(","));
     }
@@ -1754,8 +1871,8 @@ __BASE_JS__
     { key: "leadX", label: "X lower", num: true, hint: "Datasets where X has the lower mean error" },
     { key: "sigX", label: "X sig. better", num: true, hint: "Datasets where X's error is significantly lower than A's (as the Significant tile counts them)" },
     { key: "sigA", label: "A sig. better", num: true, hint: "Datasets where A's error is significantly lower than X's" },
-    { key: "win", label: "A split wins", num: true, hint: "Share of the paired splits where A's error is lower, ties counting half" },
-    { key: "rankX", label: "Rank X / A", num: true, hint: "Mean rank in the field over the datasets both ran on" },
+    { key: "win", label: "A win rate", num: true, hint: "As the leaderboard's win-rate matrix: per dataset the share of its splits where A's error is lower (ties half), averaged over the datasets in view" },
+    { key: "rankX", label: "Rank X / A", num: true, hint: "The leaderboard's mean rank for the datasets in view" },
   ];
   const vsState = { sort: "sigX", dir: -1, results: new Map(), ticket: 0 };
   function versus(x, datasets) {
@@ -1780,6 +1897,9 @@ __BASE_JS__
       if (pa.r != null && px.r != null) { rankA += pa.r; rankX += px.r; }
       if (w + l + t >= MIN_SPLITS) tested.push({ p: signedRank(diffs).p, lead: lead });
     }
+    // The win rate and ranks as the leaderboard has them over the datasets in view; the measured pairs only
+    // without an Elo field.
+    const lb = pairOverView(state.a, x);
     const ps = state.bh ? bhAdjust(tested.map(r => r.p)) : tested.map(r => r.p);
     let sigA = 0, sigX = 0;
     tested.forEach((r, i) => { if (ps[i] < ALPHA && r.lead === "a") sigA++; if (ps[i] < ALPHA && r.lead === "x") sigX++; });
@@ -1787,8 +1907,8 @@ __BASE_JS__
     return {
       n: n, leadA: leadA, leadX: leadX, sigA: sigA, sigX: sigX,
       ratio: logs.length ? Math.exp(logs.reduce((s, v) => s + v, 0) / logs.length) : null,
-      win: splits ? (wins + 0.5 * ties) / splits : null,
-      rankA: n ? rankA / n : null, rankX: n ? rankX / n : null,
+      win: lb ? lb.win : splits ? (wins + 0.5 * ties) / splits : null,
+      rankA: lb ? lb.rankA : n ? rankA / n : null, rankX: lb ? lb.rankX : n ? rankX / n : null,
       gap: elo ? elo.gap : null, lo: elo ? elo.lo : null, hi: elo ? elo.hi : null, above: elo ? elo.above : null,
     };
   }
@@ -2035,9 +2155,9 @@ __BASE_JS__
   }
 
   function refreshView() {
+    computeView();
     scheduleBetter();
     scheduleVersus();
-    computeView();
     summarize();
     buildLegend();
     renderList();

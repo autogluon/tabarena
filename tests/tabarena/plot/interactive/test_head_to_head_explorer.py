@@ -325,3 +325,24 @@ def test_the_page_fits_the_leaderboard_board_and_shows_the_excluded_gap_beside_i
     html = page.read_text(encoding="utf-8")
     assert "function fullBoard(" in html and "function fitFull(" in html
     assert 'id="elo-excl"' in html and "Excl. each other" in html
+
+
+def test_the_elo_field_marks_where_each_method_was_measured(tmp_path):
+    # My portfolio is imputed on every split of beta: still in the Elo field (its imputed rows are complete), but not
+    # measured there, which is what decides whether it is on a subset's board.
+    results = _results_per_split(_ERRORS)
+    results.loc[(results["dataset"] == "beta") & (results["method"] == "My portfolio"), "imputed"] = True
+    page = build_head_to_head_explorer_html(
+        results_per_split=results,
+        method_info=_METHOD_INFO,
+        save_path=tmp_path / "h2h.html",
+    )
+    config = _config(page.read_text(encoding="utf-8"))
+    names = [m["name"] for m in config["methods"]]
+    elo = config["elo"]
+    portfolio = elo["field"].index(names.index("My portfolio"))
+    by_key = {ds["key"]: d for d, ds in enumerate(config["datasets"])}
+    assert portfolio >= 0  # its imputed rows keep it in the field
+    assert elo["real"][by_key["beta"]][portfolio] == "0"
+    assert elo["real"][by_key["alpha"]][portfolio] == "1"
+    assert set(elo["real"][by_key["beta"]]) == {"0", "1"}

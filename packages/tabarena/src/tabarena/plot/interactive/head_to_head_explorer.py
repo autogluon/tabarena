@@ -275,14 +275,17 @@ def elo_grid(
     results_per_split: pd.DataFrame,
     folds: dict[str, list[int]],
     method_index: dict[str, int],
-) -> tuple[list[int], list[list[list[float]]]]:
+) -> tuple[list[int], list[list[list[float]]], list[str]]:
     """The field the page fits its Elo on, and every member's error on every split of every dataset.
 
     The field is every method with a result on every split, imputed results included, as on the
     leaderboard (bencheval's rank path needs that complete grid). The errors are the unrounded ones
     the leaderboard ranks, so the page's Elo is the leaderboard's; the per-dataset statistics use the
-    rounded errors of :func:`round_to_dataset_precision` instead. Returns the field's method indices
-    and, per dataset in ``folds`` order, one row of split errors per field method.
+    rounded errors of :func:`round_to_dataset_precision` instead. Returns the field's method indices,
+    per dataset in ``folds`` order one row of split errors per field method, and per dataset one
+    ``"0"`` / ``"1"`` character per field method: whether it was measured (not imputed) on at least
+    one of the dataset's splits. ``compare`` fills in missing results only for the methods a subset
+    has results for, so a method on a subset's board is one measured somewhere in it.
     """
     units = pd.MultiIndex.from_tuples(
         [(dataset, fold) for dataset, dataset_folds in folds.items() for fold in dataset_folds],
@@ -294,7 +297,15 @@ def elo_grid(
     wide = wide.reindex(columns=units)
     field = [method for method in wide.index[wide.notna().all(axis=1)] if method in method_index]
     grid = [wide.loc[field, dataset].to_numpy().tolist() for dataset in folds]
-    return [method_index[method] for method in field], grid
+    if "imputed" in results_per_split.columns:
+        measured = results_per_split[~results_per_split["imputed"].fillna(False).astype(bool)]
+    else:
+        measured = results_per_split
+    measured_methods = measured.groupby("dataset")["method"].agg(set)
+    real = [
+        "".join("1" if method in measured_methods.get(dataset, set()) else "0" for method in field) for dataset in folds
+    ]
+    return [method_index[method] for method in field], grid, real
 
 
 def build_head_to_head_explorer_html(
@@ -369,7 +380,7 @@ def build_head_to_head_explorer_html(
     )
     # The Elo grid holds the unrounded errors the leaderboard ranks; every point carries its own rounded split
     # errors for the per-split comparisons, where floating-point noise is a tie.
-    elo_field, grid = elo_grid(results_per_split, folds, method_index)
+    elo_field, grid, real = elo_grid(results_per_split, folds, method_index)
     records["f"] = list(points["splits"])
 
     # Fallback order for an unnamed or unknown pick: the mean rank over the datasets each method
@@ -417,6 +428,7 @@ def build_head_to_head_explorer_html(
         "elo": {
             "field": elo_field,
             "grid": grid,
+            "real": real,
             "calibration": method_index.get(elo_calibration) if elo_calibration else None,
             "resamples": ELO_RESAMPLES,
         }
