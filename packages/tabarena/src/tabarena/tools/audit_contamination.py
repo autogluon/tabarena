@@ -34,12 +34,15 @@ and compares what the published order buys. The checks:
     one of several splits). Fewer than ``CALIBRATION_MIN_DATASETS`` datasets give no calibration: the probe
     then reports SKIP, unless ``--no-calibration`` applies the fixed floors alone.
 ``ensemble``
-    One extra fit with the released configuration on the published order. Stripping a model's test-time
-    ensemble (the augmentation-off configuration below) makes an honest model equal or worse; a model that
-    memorized the published table gets better, because the released members that reorder columns, rescale
-    values or add features hide what it remembers (LimiX-2 on ``diabetes``: 1 - AUC 0.1249 as released,
-    0.0066 stripped). ``d = log(err_released / err_off)`` above ``ENSEMBLE_LOG_RATIO_WARN`` warns; the probe
-    never fails a dataset on its own.
+    One extra fit with the released configuration on the published order, on the datasets the ``order``
+    probe flagged (WARN or FAIL), after the calibration. Stripping a model's test-time ensemble (the
+    augmentation-off configuration below) makes an honest model equal or worse; a model that memorized the
+    published table gets better, because the released members that reorder columns, rescale values or add
+    features hide what it remembers (LimiX-2 on ``diabetes``: 1 - AUC 0.1249 as released, 0.0066 stripped).
+    ``d = log(err_released / err_off)`` above ``ENSEMBLE_LOG_RATIO_WARN`` warns; the probe never fails a
+    dataset on its own. A released fit is the expensive one (32 members for LimiX-2), which is why it is not
+    run on every dataset; on 51 datasets TabPFN-3's released ensemble was better than its single member by
+    a median d of -0.02 and never worse than +0.05.
 ``labels``, ``shuffled``, ``jitter``
     The behaviour probes of :mod:`tabarena.tools.audit_system`, run on the published order: relabeled
     classes, shuffled training labels, and 1% feature noise against a local reference model. They were
@@ -888,6 +891,8 @@ def audit_contamination(
         raise ValueError(f"Unknown check(s) {sorted(unknown)}; valid: {CHECKS}")
     if config not in ("off", "released"):
         raise ValueError(f"config must be 'off' or 'released', got {config!r}")
+    if "ensemble" in checks and "order" not in checks:
+        raise ValueError("The ensemble probe runs on the datasets the order probe flags; add 'order' to the checks.")
     meta = meta if meta is not None else {}
     method = model if isinstance(model, str) else None
     model_cls = resolve_model(model).model_cls if isinstance(model, str) else model
@@ -956,11 +961,6 @@ def audit_contamination(
             if "order" in checks:
                 new.append(probe_order(mua, g, n_random=n_random_orders, seed=seed))
                 log(format_result(new[-1]))
-            if "ensemble" in checks and config == "off":
-                if not any(r.check == "order" for r in new):
-                    raise ValueError("The ensemble probe needs the order probe's augmentation-off error.")
-                new.append(probe_ensemble(mua_for(g, "released"), g, new[0], seed=seed))
-                log(format_result(new[-1]))
             secondary = [c for c in checks if c in SECONDARY_CHECKS]
             if secondary:
                 for r in probe_secondary(mua, g, secondary, seed=seed):
@@ -1013,6 +1013,23 @@ def audit_contamination(
         for r in results:
             if r.check == "order":
                 log(format_result(r))
+    if "ensemble" in checks and config == "off":
+        for g in groups:
+            order_result = next((r for r in results if r.check == "order" and r.dataset == g.name), None)
+            if order_result is None or order_result.verdict not in (WARN, FAIL):
+                continue
+            log(f"--- ensemble probe on {g.name}: one fit with the released configuration")
+            mua = mua_for(g, "released")
+            try:
+                results.append(probe_ensemble(mua, g, order_result, seed=seed))
+            except Exception as exc:
+                results.append(
+                    CheckResult(
+                        "probe", g.name, FAIL, f"the released fit raised {type(exc).__name__}: {str(exc)[:300]}"
+                    )
+                )
+            calls += mua.calls
+            log(format_result(results[-1]))
     verdicts = dataset_verdicts(results)
     results += verdicts
     for r in verdicts:

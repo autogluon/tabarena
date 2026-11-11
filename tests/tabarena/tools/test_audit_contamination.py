@@ -320,10 +320,12 @@ def test_order_memorizer_fails_only_the_memorized_dataset():
     datasets = _five_datasets()
     _memorize(_OrderMemorizer, datasets[1], as_received=True)
     results = audit_contamination(
-        _OrderMemorizer, datasets=datasets, checks=("order",), confirm=True, num_gpus=0, seed=3
+        _OrderMemorizer, datasets=datasets, checks=("order", "ensemble"), confirm=True, num_gpus=0, seed=3
     )
     order = _by_check(results, "order")
     assert order["synth-b"].verdict == FAIL, order["synth-b"].summary
+    assert set(_by_check(results, "ensemble")) == {"synth-b"}  # the released fit runs on the flagged dataset only
+    assert _by_check(results, "ensemble")["synth-b"].verdict == INFO  # same class released: nothing to strip
     assert order["synth-b"].details["d_min"] > 1.0
     assert order["synth-b"].details["rank_p"] <= 0.1
     assert order["synth-b"].details["n_orders"] == 11  # the confirmation rerun
