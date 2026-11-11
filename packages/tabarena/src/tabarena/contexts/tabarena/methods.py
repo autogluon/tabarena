@@ -72,7 +72,7 @@ from tabarena.models.kumo_tabular.info import (
     kumo_tabular_small_method_metadata,
 )
 from tabarena.models.lightgbm.info import lightgbm_method_metadata
-from tabarena.models.lightpfn.info import lightpfn_method_metadata
+from tabarena.models.lightpfn.info import lightpfn_1p0_method_metadata, lightpfn_method_metadata
 from tabarena.models.limix.info import limix_method_metadata as limix_metadata
 from tabarena.models.limix_2.info import limix_2_method_metadata
 from tabarena.models.lr.info import (
@@ -296,6 +296,7 @@ methods_superseded: list[MethodMetadata] = [
     tabstar_metadata,  # TabSTAR-v1.1 (models/tabstar_v1p1) replaced it
     seldon_classification_method_metadata,  # classification only; tabarena-2026-11-08 adds regression
     seldon_mini_classification_method_metadata,  # classification only; tabarena-2026-11-08 adds regression
+    lightpfn_1p0_method_metadata,  # lightpfn 1.0.0, classification only; 1.5.1 (tabarena-2026-11-11) replaced it
 ]
 
 # All historical results for each method = the latest collection + every superseded variant: the
