@@ -31,6 +31,12 @@ answer you expect.
   when both exist; a release that differs from the repository is itself a finding.
 - The paper or README section that describes how the authors evaluate, including any TabArena
   section, and the Hugging Face model card for a foundation model (its training data).
+- For a pin bump that claims to fix an earlier finding: the library diff between the two pins, and
+  the whole library as well. Ask the reviewers to check the claim on every path the wrapper reaches,
+  not only in the changed lines, and to follow each changed step back to its caller: a step that
+  finds the training rows from an argument (`y`, `eval_pos`) is fixed only if the driver passes it.
+  LimiX `977c3de` fixed the four preprocessing steps named in the first review of
+  autogluon/tabarena#720, while three paths outside the changed lines stayed transductive.
 - This file, as the checklist.
 
 ## The three lenses
@@ -46,10 +52,10 @@ Anything that lets test or out-of-fold information into a prediction, or that re
 | Look for | Why it matters | Where it hides |
 |---|---|---|
 | Training on `X_val` inside a fold model: `X` and `X_val` concatenated, a library `refit(X + X_val)`, the validation rows passed as extra training data | Bagging scores the out-of-fold predictions of each fold model on its `X_val`; a fold model trained on those rows reports leaked OOF scores and leaks into the stacker and the ensemble built on them | the wrapper's `_fit`, the library's `fit` (`refit`, `retrain`, `use_val_for_training`, `final_fit`) |
-| Transductive prediction: test rows that attend to each other, a transform fit or a normalisation computed on the rows being predicted (`fit_transform` in the predict path, batch mean or std at inference, `BatchNorm` in train mode at predict), test-time training or adaptation on the unlabeled test rows | Predictions then depend on which other test rows came in the batch. TabArena evaluates inductive learning only (`model_patterns.md` → "The `_fit` contract", item 6, autogluon/tabarena#720): predict some rows alone and inside the test set, with the other rows replaced, and compare | `_predict_proba`, the library's `predict` and its attention masks, preprocessing classes, any `fit` call on test rows |
+| Transductive prediction: test rows that attend to each other, a transform fit or a normalisation computed on the rows being predicted (`fit_transform` in the predict path, batch mean or std at inference, `BatchNorm` in train mode at predict), test-time training or adaptation on the unlabeled test rows. Also the quieter forms found in autogluon/tabarena#720: a statistic inside the network over the whole train + query sequence (a feature-validity count such as `~torch.all(x == x[:, 0:1], dim=1)`); a random draw sized by the rows that advances a global RNG used afterwards (random feature embeddings drawn without a generator), which makes predictions depend on the batch size alone; per-row state carried across the query rows (hash collisions or duplicate counters resolved over train + query), which makes duplicate test rows change each other | Predictions then depend on which other test rows came in the batch. TabArena evaluates inductive learning only (`model_patterns.md` → "The `_fit` contract", item 6, autogluon/tabarena#720): run `python -P -m tabarena.tools.audit_transduction --model <Method>` on the CPU, which predicts probe rows alone, in batches of other sizes, next to decoy rows, after an identical copy and at the end of the batch, and names the kind of cause from the probes that fail | `_predict_proba`, the library's `predict`, its attention masks and the network's input encoders, preprocessing classes, any `fit` call on test rows, every `torch.randn` / `np.random` call without an explicit generator on the predict path |
 | The task's identity: dataset names, OpenML or task ids, fold or repeat numbers, column-name or data-hash lookups that switch settings, per-dataset config tables | A method that recognises a benchmark dataset can apply settings tuned on its test splits | wrapper kwargs, `os.environ`, the library's config files and lookup dicts |
 | External data or network access during fit or predict, other than downloading pinned weights: `requests`, `urllib`, `http`, `socket`, `openml`, `kaggle`, `datasets.load_dataset`, telemetry | A fetch can pull the benchmark's own data or labels, and sends the task's data out | the library's whole import tree, not only `fit` |
-| Pretrained weights whose training data overlaps the benchmark (real-data pretraining, OpenML or Kaggle corpora) | The leaderboard warns about such a model and recomputes every pool without it once the overlap is shown (`leakage_evidence` / `leakage_datasets` on the `ModelDescriptor`, set by a maintainer) | the paper's data section, the model card |
+| Pretrained weights whose training data overlaps the benchmark (real-data pretraining, OpenML or Kaggle corpora) | The leaderboard warns about such a model and recomputes every pool without it once the overlap is shown (`leakage_evidence` / `leakage_datasets` on the `ModelDescriptor`, set by a maintainer). `python -P -m tabarena.tools.audit_contamination --model <Method>` (autogluon/tabarena#723) tests a checkpoint directly with the column-order probe of #648, and decides whether a replacement checkpoint still carries the warning | the paper's data section, the model card, the probe |
 | Seed or configuration search scored on validation or test data, or a fixed seed that overrides the framework seed | Picks a lucky run and hides the variance the benchmark measures | loops over seeds, `random_state=<constant>` in `_set_default_params` or in the library default |
 
 ### B. Protocol and fairness
@@ -126,12 +132,19 @@ Do not edit any file.
 
 ## Verify, then act
 
-Treat each finding as a claim until you have read the cited lines yourself.
+Treat each finding as a claim until you have read the cited lines yourself. Run the audit tools next
+to the agents: `audit_pickle` and `audit_transduction` on the CPU, and `audit_contamination`
+(autogluon/tabarena#723) for a checkpoint trained on anything but synthetic data or one that replaces
+a checkpoint with a `leakage_evidence` entry. A `FAIL` or `FLAG` is a finding like any agent's.
 
 1. Open every cited location, follow the call path from `_fit` or `_predict_proba`, and mark each
    finding confirmed, plausible (the path is reachable but needs a condition you cannot rule out) or
    rejected (with the reason). When a cheap check settles it (a toy fit on CPU, a grep, comparing two
-   predictions), run it.
+   predictions), run it. For a transduction finding, confirm each path on its own before it goes into
+   a PR comment: fix the batch size, switch the suspected path off with a small patch in a probe
+   script (a seeded generator for a global-RNG draw, a statistic restricted to the training rows),
+   and check that the difference falls to floating-point rounding. Quote the difference with and
+   without the patch; the second LimiX review on autogluon/tabarena#720 is the example.
 2. A confirmed finding in a wrapper you own: fix it, lint, and say what changed. A finding in the
    library: decide with the maintainer; the options for an internal split are the three of #637
    (submit as a system, use a version without the step, run the step on the passed `X_val`). Draft

@@ -118,7 +118,8 @@ size change. Test rows that attend to each other, statistics or transforms fit o
 predicted, and test-time training on the unlabeled test rows are transductive and not allowed
 (`references/model_patterns.md` → "The `_fit` contract", item 6, with the reasons). When the library
 offers a transductive mode, the wrapper uses its inductive one; when it has none, raise it with the
-maintainer before writing the wrapper, quoting where it happens (autogluon/tabarena#720).
+maintainer before writing the wrapper, quoting where it happens (autogluon/tabarena#720). Once the
+wrapper fits, `python -P -m tabarena.tools.audit_transduction --model <Method>` checks it on the CPU.
 
 For an in-context model, check whether the library can cache the fitted context for later predict
 calls: a KV cache (TabICL's `kv_cache`, OrionMSP's `enable_kv_cache`), TabPFN's
@@ -508,7 +509,9 @@ checklist, and leave your own conclusions out of the brief. Then read every cite
 mark each finding confirmed, plausible or rejected, fix the confirmed ones in the wrapper, and take
 library-level findings to the maintainer. Run `python -P -m tabarena.tools.audit_pickle --model <Method>`
 next to the agents (it fits the model on two table sizes and prints how much `model.pkl` grows per
-training row); a `FLAG` is a confirmed finding. The review's outcome goes into the Report.
+training row) and `python -P -m tabarena.tools.audit_transduction --model <Method>` (it predicts probe
+rows alone, in other batches, next to decoys and next to a duplicate, on the CPU); a `FLAG` or `FAIL`
+is a confirmed finding. The review's outcome goes into the Report.
 
 ## Step 8: Arena registration (optional — only if the model has been benchmarked)
 
