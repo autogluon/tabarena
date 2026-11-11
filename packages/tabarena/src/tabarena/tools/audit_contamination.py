@@ -54,8 +54,12 @@ and compares what the published order buys. The checks:
 ``labels``, ``shuffled``, ``jitter``
     The behaviour probes of :mod:`tabarena.tools.audit_system`, run on the published order: relabeled
     classes, shuffled training labels, and 1% feature noise against a local reference model. They were
-    written for a system that looks test labels up at prediction time; whether a pretrained memory shows
-    the same way is not established, so their verdicts raise a dataset to WARN at most.
+    written for a system that looks test labels up at prediction time, and a pretrained memory does not show
+    the same way on every one of them: LimiX-2 on ``diabetes`` follows relabeled context classes (accuracy
+    0.988 on the new labels) and loses its skill under shuffled labels, so ``labels`` and ``shuffled`` pass,
+    while ``jitter`` fails (1 - AUC 0.0054 on the published test rows, 0.1662 with 1% noise on them, the
+    reference unchanged): the memory is of the rows' exact values, read through the context labels. Their
+    verdicts raise a dataset to WARN at most until the honest side of ``jitter`` is measured on more models.
 
 The probes run with the model's test-time augmentation turned off (``--config off``, the default): one
 ensemble member, no feature shift, for the registry names in ``AUGMENTATION_OFF`` (LimiX-2: the members that
