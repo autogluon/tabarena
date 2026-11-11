@@ -264,7 +264,7 @@ __BASE_CSS__
   </div>
 
   <details class="hh-subsets" id="subsets" open>
-    <summary>Elo gap A &minus; B by subset<span class="hint">paired, each against the field without the other; bold:
+    <summary>Elo gap A &minus; B by subset<span class="hint">the leaderboard's Elo on each subset, both on the board; bold:
       the interval excludes 0; click a row once to keep only those datasets, twice to take them out (red), a third time
       to clear; marks combine</span></summary>
     <div class="hh-subwrap"><table class="hh-subtable"><thead><tr>
@@ -336,11 +336,10 @@ __BASE_JS__
   // with a higher error and half against every tie; a dataset's win totals are the means over its
   // splits; a Bradley-Terry fit with bencheval's small ridge turns the summed totals into ratings,
   // shifted so that the calibration method sits at 1000. The field is every method with a result
-  // on every split, imputed results included, as on the leaderboard. A field member's split errors
-  // are its rows of this grid.
+  // on every split, imputed results included, as on the leaderboard, and the grid holds the same
+  // unrounded errors the leaderboard ranks (a point's `f` holds its rounded ones).
   const ELO = CONFIG.elo || null;
   const ELO_POS = new Map((ELO ? ELO.field : []).map((m, k) => [m, k]));
-  if (ELO) for (const p of POINTS) if (!p.f && ELO_POS.has(p.m)) p.f = ELO.grid[p.d][ELO_POS.get(p.m)];
   const BT_RIDGE = 0.5 / (1e6 * Math.LN10 * Math.LN10);
   // Each dataset's win totals over the whole field.
   const ELO_WINS = ELO ? ELO.grid.map(rows => {
@@ -435,8 +434,32 @@ __BASE_JS__
     if (cal >= 0) { const shift = 1000 - out[cal]; for (let i = 0; i < out.length; i++) out[i] += shift; }
     return out;
   }
-  // The two boards over `datasets`: A with the field without B, B with the field without A, and each
-  // dataset's win totals on both (the field's, less the wins against the left-out method).
+  // The leaderboard's board over `datasets`: every method of the field on one board, A and B included, so their
+  // games against each other count as on the leaderboard and A's rating does not depend on which method is B.
+  function fullBoard(datasets, ma = state.a, mb = state.b) {
+    const a = ELO_POS.get(ma), b = ELO_POS.get(mb);
+    if (a === undefined || b === undefined || a === b) return null;
+    const n = ELO.field.length;
+    return { a: a, b: b, n: n, members: [...Array(n).keys()], perDataset: datasets.map(d => ELO_WINS[d]) };
+  }
+  // The full board fitted with each dataset counted `counts[i]` times (once each without counts).
+  function fitFull(fb, counts, init) {
+    const wins = new Float64Array(fb.n);
+    let tasks = 0;
+    fb.perDataset.forEach((w, i) => {
+      const c = counts ? counts[i] : 1;
+      if (!c) return;
+      tasks += c;
+      for (let k = 0; k < fb.n; k++) wins[k] += c * w[k];
+    });
+    const t = bradleyTerry(wins, tasks, init);
+    const r = ratings(t, fb.members);
+    return { t: t, eloA: r[fb.a], eloB: r[fb.b] };
+  }
+  // The two boards that leave A and B out of each other's: A with the field without B, B with the field without A,
+  // and each dataset's win totals on both (the field's, less the wins against the left-out method). Shown beside the
+  // leaderboard's gap only: when A and B are often first and second, leaving the other out makes both first and
+  // drops exactly the games that separate them.
   function boardsFor(datasets, ma = state.a, mb = state.b) {
     const a = ELO_POS.get(ma), b = ELO_POS.get(mb);
     if (a === undefined || b === undefined || a === b) return null;
@@ -481,44 +504,56 @@ __BASE_JS__
     alignBoards(bd, ra, rb);
     return { ta: ta, tb: tb, eloA: ra[bd.boardA.indexOf(bd.a)], eloB: rb[bd.boardB.indexOf(bd.b)] };
   }
-  // A's Elo against the field without B, and B's against the field without A, over `datasets`,
-  // with the paired bootstrap of their gap: both boards fitted on the same dataset resamples.
-  function eloGap(datasets, ma = state.a, mb = state.b, resamples = ELO ? ELO.resamples : 0) {
-    if (!ELO || datasets.length < 2) return null;
-    const bd = boardsFor(datasets, ma, mb);
-    if (!bd) return null;
-    const point = fitBoards(bd, null);
-    const rand = mulberry32(2026);
-    const gaps = new Float64Array(resamples);
-    const counts = new Uint32Array(datasets.length);
-    for (let r = 0; r < resamples; r++) {
-      counts.fill(0);
-      for (let i = 0; i < datasets.length; i++) counts[Math.floor(rand() * datasets.length)]++;
-      const res = fitBoards(bd, counts, point.ta, point.tb);
-      gaps[r] = res.eloA - res.eloB;
-    }
+  function gapSummary(point, gaps, datasets) {
     gaps.sort();
     let above = 0;
     for (const v of gaps) if (v > 0) above++;
     return {
       eloA: point.eloA, eloB: point.eloB, gap: point.eloA - point.eloB,
       lo: gaps[Math.floor(0.025 * (gaps.length - 1))], hi: gaps[Math.ceil(0.975 * (gaps.length - 1))],
-      above: above / gaps.length, datasets: datasets.length,
+      above: above / gaps.length, datasets: datasets,
     };
+  }
+  // A's and B's Elo over `datasets` on the leaderboard's board (every method of the field, both included), with the
+  // bootstrap of their gap over dataset resamples. With `excluded`, also the gap on the two boards that leave A and B
+  // out of each other's (`boardsFor`), fitted on the same resamples, as `.excluded`.
+  function eloGap(datasets, ma = state.a, mb = state.b, resamples = ELO ? ELO.resamples : 0, excluded = false) {
+    if (!ELO || datasets.length < 2) return null;
+    const fb = fullBoard(datasets, ma, mb);
+    if (!fb) return null;
+    const bd = excluded ? boardsFor(datasets, ma, mb) : null;
+    const point = fitFull(fb, null);
+    const pointEx = bd ? fitBoards(bd, null) : null;
+    const rand = mulberry32(2026);
+    const gaps = new Float64Array(resamples), gapsEx = new Float64Array(bd ? resamples : 0);
+    const counts = new Uint32Array(datasets.length);
+    for (let r = 0; r < resamples; r++) {
+      counts.fill(0);
+      for (let i = 0; i < datasets.length; i++) counts[Math.floor(rand() * datasets.length)]++;
+      const res = fitFull(fb, counts, point.t);
+      gaps[r] = res.eloA - res.eloB;
+      if (bd) {
+        const ex = fitBoards(bd, counts, pointEx.ta, pointEx.tb);
+        gapsEx[r] = ex.eloA - ex.eloB;
+      }
+    }
+    const out = gapSummary(point, gaps, datasets.length);
+    if (bd) out.excluded = gapSummary(pointEx, gapsEx, datasets.length);
+    return out;
   }
   // Each dataset's pull on the gap: the gap over `datasets` less the gap refitted without that
   // dataset. Positive when the dataset moves the gap towards A, negative towards B.
   function eloPull(datasets) {
     if (!ELO || datasets.length < 3) return null;
-    const bd = boardsFor(datasets);
-    if (!bd) return null;
-    const point = fitBoards(bd, null);
+    const fb = fullBoard(datasets);
+    if (!fb) return null;
+    const point = fitFull(fb, null);
     const gap = point.eloA - point.eloB;
     const counts = new Uint32Array(datasets.length).fill(1);
     const pull = new Map();
     datasets.forEach((d, i) => {
       counts[i] = 0;
-      const res = fitBoards(bd, counts, point.ta, point.tb);
+      const res = fitFull(fb, counts, point.t);
       pull.set(d, gap - (res.eloA - res.eloB));
       counts[i] = 1;
     });
@@ -816,7 +851,7 @@ __BASE_JS__
     const sw = side => `<span class="hh-swatch ${side}"></span>`;
     box.innerHTML =
       `<div class="hh-tile" id="elo-tile"><div class="hh-tlabel">Elo gap A \u2212 B</div>` +
-      `<div class="hh-tvalue">\u2026</div><div class="hh-tsub">computing</div></div>` +
+      `<div class="hh-tvalue">\u2026</div><div class="hh-tsub">computing</div><div class="hh-tsub" id="elo-excl"></div></div>` +
       tile("Error ratio A / B", ratio == null ? "\u2014" : ratio.toFixed(4),
         lo == null ? `${logs.length} datasets` :
           `95% interval [${lo.toFixed(4)}, ${hi.toFixed(4)}] \u00b7 p = ${fmtP(pOverall)}`,
@@ -865,23 +900,29 @@ __BASE_JS__
       if (ticket !== eloTicket) return;
       const datasets = [];
       for (let d = 0; d < nD; d++) if (passes(d, {})) datasets.push(d);
-      const res = eloGapOf(datasets);
+      const res = eloGapOf(datasets, true);
       const el = document.getElementById("elo-tile");
       if (!el) return;
-      el.title = "The leaderboard's Elo, paired: A against the field without B and B against the field without A, " +
-        `fitted on the same ${ELO ? ELO.resamples : 0} resamples of the datasets in view (imputed results included, as on the ` +
-        "leaderboard; errors that differ only by floating-point noise tie). The interval is the gap's 2.5th to 97.5th " +
-        "percentile over the resamples.";
+      el.title = "The leaderboard's Elo over the datasets in view: one fit of the whole field with both A and B on the " +
+        "board, so A's rating is the same whoever B is (imputed results included, as on the leaderboard). " +
+        `The interval is the gap's 2.5th to 97.5th percentile over ${ELO ? ELO.resamples : 0} ` +
+        "resamples of the datasets. \"Excl. each other\" fits A against the field without B and B against the field " +
+        "without A on the same resamples, which leaves out their games against each other.";
       if (!res) {
         el.querySelector(".hh-tvalue").textContent = "\u2014";
         el.querySelector(".hh-tsub").textContent = !ELO ? "no Elo field in this page" :
           "needs both methods in the field and two datasets in view";
         return;
       }
+      // The tile keeps the gap, its interval and the two ratings; the rest is in its hover.
+      const ex = res.excluded;
       el.querySelector(".hh-tvalue").textContent = fmtSigned(res.gap, 1);
       el.querySelector(".hh-tsub").textContent =
-        `95% [${fmtSigned(res.lo, 1)}, ${fmtSigned(res.hi, 1)}] \u00b7 A above B in ${(res.above * 100).toFixed(1)}% ` +
-        `of resamples \u00b7 A ${res.eloA.toFixed(1)}, B ${res.eloB.toFixed(1)} over ${res.datasets} datasets`;
+        `95% [${fmtSigned(res.lo, 1)}, ${fmtSigned(res.hi, 1)}] \u00b7 A ${res.eloA.toFixed(1)}, B ${res.eloB.toFixed(1)}`;
+      document.getElementById("elo-excl").textContent = ex ? `Excl. each other: ${fmtSigned(ex.gap, 1)}` : "";
+      el.title += `\n\nA above B in ${(res.above * 100).toFixed(1)}% of the resamples, over ${res.datasets} datasets.` +
+        (ex ? ` Excluding each other: ${fmtSigned(ex.gap, 1)}, 95% [${fmtSigned(ex.lo, 1)}, ${fmtSigned(ex.hi, 1)}]; ` +
+          `A ${ex.eloA.toFixed(1)} without B, B ${ex.eloB.toFixed(1)} without A.` : "");
       postHeight();
       // Then each dataset's pull on that gap, for the list's column and the selected dataset.
       setTimeout(() => {
@@ -1720,7 +1761,7 @@ __BASE_JS__
   const VS_COLUMNS = [
     { key: "name", label: "Method X" },
     { key: "n", label: "Datasets", num: true },
-    { key: "gap", label: "Elo gap A \u2212 X", num: true, hint: "Paired: A against the field without X, X against the field without A" },
+    { key: "gap", label: "Elo gap A \u2212 X", num: true, hint: "The leaderboard's Elo over the datasets in view, A and X on one board with the whole field" },
     { key: "ci", label: "95% interval", num: true, sortable: false },
     { key: "above", label: "A ahead in", num: true, hint: "Share of the resamples in which A's Elo is above X's" },
     { key: "ratio", label: "Error ratio A / X", num: true },
@@ -1874,9 +1915,9 @@ __BASE_JS__
     }
     return rows;
   }
-  function eloGapOf(datasets) {
-    const cacheKey = `${state.a}|${state.b}|${datasets.join(",")}`;
-    if (!eloCache.has(cacheKey)) eloCache.set(cacheKey, eloGap(datasets));
+  function eloGapOf(datasets, excluded = false) {
+    const cacheKey = `${state.a}|${state.b}|${excluded ? 1 : 0}|${datasets.join(",")}`;
+    if (!eloCache.has(cacheKey)) eloCache.set(cacheKey, eloGap(datasets, state.a, state.b, ELO ? ELO.resamples : 0, excluded));
     return eloCache.get(cacheKey);
   }
   // The geometric-mean error ratio A / B over the datasets both were measured on, as in the summary.

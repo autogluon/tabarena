@@ -9,8 +9,9 @@ is any of it more than noise" is one click.
 Everything is computed in the page, for whichever two methods the reader picks, from the per-split
 errors embedded here: the per-dataset significance (a two-sided Wilcoxon signed-rank test over the
 dataset's paired splits, exact for up to 50 non-zero differences), and the leaderboard's Elo over
-the datasets in view as a paired gap, A against the field without B and B against the field
-without A on the same dataset resamples (:func:`elo_grid`), with each dataset's pull on that gap.
+the datasets in view, both on one board with the whole field as on the leaderboard (:func:`elo_grid`),
+as a gap with a dataset-bootstrap interval and each dataset's pull on it. Beside it the page shows the
+gap with A and B left out of each other's boards, which drops their games against each other.
 The page also has the gap for every subset of the datasets, A against every other method, and the
 dataset's task metadata. Built from the per-split results the compare pass already wrote, like the
 per-dataset browser, with every error rounded at its dataset's scale
@@ -270,21 +271,25 @@ def _points(rounded: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, list[int]]]:
 
 
 def elo_grid(
-    rounded: pd.DataFrame,
+    results_per_split: pd.DataFrame,
     folds: dict[str, list[int]],
     method_index: dict[str, int],
 ) -> tuple[list[int], list[list[list[float]]]]:
     """The field the page fits its Elo on, and every member's error on every split of every dataset.
 
     The field is every method with a result on every split, imputed results included, as on the
-    leaderboard (bencheval's rank path needs that complete grid). Returns the field's method
-    indices and, per dataset in ``folds`` order, one row of split errors per field method.
+    leaderboard (bencheval's rank path needs that complete grid). The errors are the unrounded ones
+    the leaderboard ranks, so the page's Elo is the leaderboard's; the per-dataset statistics use the
+    rounded errors of :func:`round_to_dataset_precision` instead. Returns the field's method indices
+    and, per dataset in ``folds`` order, one row of split errors per field method.
     """
     units = pd.MultiIndex.from_tuples(
         [(dataset, fold) for dataset, dataset_folds in folds.items() for fold in dataset_folds],
         names=["dataset", "fold"],
     )
-    wide = rounded.pivot_table(index="method", columns=["dataset", "fold"], values="metric_error", aggfunc="mean")
+    wide = results_per_split.pivot_table(
+        index="method", columns=["dataset", "fold"], values="metric_error", aggfunc="mean"
+    )
     wide = wide.reindex(columns=units)
     field = [method for method in wide.index[wide.notna().all(axis=1)] if method in method_index]
     grid = [wide.loc[field, dataset].to_numpy().tolist() for dataset in folds]
@@ -327,9 +332,8 @@ def build_head_to_head_explorer_html(
         defaults to TabArena's small / medium / large.
     elo_calibration
         The method (as the results name it) the page's Elo sets at 1000, as the leaderboard does;
-        without it in the field the ratings average 1000. The page's Elo gap between A and B is
-        paired: A against the field without B and B against the field without A, both on the same
-        dataset resamples (see :func:`elo_grid`).
+        without it in the field the ratings average 1000. The page's Elo is the leaderboard's: one
+        fit of the whole field over the datasets in view, A and B included (see :func:`elo_grid`).
 
     Returns:
     -------
@@ -362,10 +366,10 @@ def build_head_to_head_explorer_html(
             "it": [_significant(v, 4) for v in points["infer_s"]],
         },
     )
-    elo_field, grid = elo_grid(rounded, folds, method_index)
-    # A field member's split errors are its rows of the Elo grid; only the others carry their own.
-    in_field = set(elo_field)
-    records["f"] = [None if m in in_field else splits for m, splits in zip(records["m"], points["splits"], strict=True)]
+    # The Elo grid holds the unrounded errors the leaderboard ranks; every point carries its own rounded split
+    # errors for the per-split comparisons, where floating-point noise is a tie.
+    elo_field, grid = elo_grid(results_per_split, folds, method_index)
+    records["f"] = list(points["splits"])
 
     # Fallback order for an unnamed or unknown pick: the mean rank over the datasets each method
     # ran on, which is the per-dataset browser's fallback too.
