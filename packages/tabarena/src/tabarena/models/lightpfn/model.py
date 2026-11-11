@@ -90,7 +90,8 @@ class LightPFNModel(AbstractTorchModel):
     not used, as for the other in-context models. Thread counts and the CPU torch RNG state are restored after fit.
     The allocated ``num_gpus`` selects the device unless an explicit estimator ``device`` is given; an unavailable
     device raises. Explicit CUDA requires an allocated GPU. Both tasks encode the context only for the refit model by
-    default: a fold model keeps its inputs and, on a GPU, encodes and predicts its out-of-fold rows in one pass.
+    default: a fold model keeps its inputs and encodes them at its out-of-fold prediction; on a GPU, a small table
+    (within the library's row and cell limits) encodes and predicts in one pass.
     Contexts and uncached fold inputs are torch tensors, which AutoGluon saves beside ``model.pkl``. Output coding
     keeps its NumPy training arrays in ``model.pkl``.
 
@@ -221,8 +222,14 @@ class LightPFNModel(AbstractTorchModel):
                 from lightpfn.precision import _FP16_VIEWS, shared_fp16_view
                 from lightpfn.sklearn import _fast_fp16
 
-                # The dummy warm-up fit is smaller than the fp16 threshold. Prepare the
-                # shared projection view there, before the first real fold is timed.
+                # Developer fix: lightpfn 1.5.1 builds the shared fp16 projection view
+                # (`precision.shared_fp16_view`, cached per network in `_FP16_VIEWS`) lazily at the
+                # first fp16 fit or predict, and the warm-up's dummy fit stays below the fp16
+                # threshold. Build it here so the warm-up primes it before the first timed fold.
+                # This reads private internals (`_FP16_VIEWS`, `_fast_fp16`, `fit_net_`,
+                # `precision_`). Upstream ask (autogluon/tabarena#719): build the view in the
+                # SharedWeights loader (`_initialize_backend`) or offer a public prepare call;
+                # remove this block then.
                 engine = getattr(self.model, "regressor_", self.model)
                 if params.get("precision", "auto") != "fp32" and _fast_fp16(device):
                     net = engine.model if self.problem_type == REGRESSION else engine.fit_net_
