@@ -346,3 +346,20 @@ def test_the_elo_field_marks_where_each_method_was_measured(tmp_path):
     assert elo["real"][by_key["beta"]][portfolio] == "0"
     assert elo["real"][by_key["alpha"]][portfolio] == "1"
     assert set(elo["real"][by_key["beta"]]) == {"0", "1"}
+
+
+def test_the_page_averages_seeds_when_its_compare_did(tmp_path):
+    for average_seeds in (False, True):
+        page = build_head_to_head_explorer_html(
+            results_per_split=_results_per_split(_ERRORS),
+            method_info=_METHOD_INFO,
+            average_seeds=average_seeds,
+            save_path=tmp_path / f"h2h_{average_seeds}.html",
+        )
+        html = page.read_text(encoding="utf-8")
+        assert _config(html)["elo"]["averageSeeds"] is average_seeds
+        # The grid keeps every split either way: the page averages it, and the split chart reads it as it is.
+        assert [len(row) for row in _config(html)["elo"]["grid"][0]] == [3, 3, 3]
+    assert "function rowsOf(d)" in html
+    # The reader can switch it on the page either way; the builder's value is where the page opens.
+    assert 'id="avgseeds"' in html
