@@ -241,6 +241,8 @@ __BASE_CSS__
       <div class="hh-filtergroup" id="kindfilter"></div>
       <label class="hh-check" title="Call a dataset significant only when its Benjamini-Hochberg adjusted p-value, over the datasets in view, is below the level">
         <input type="checkbox" id="bh"> Adjust for the number of datasets (BH)</label>
+      <label class="hh-check" id="avg-box" hidden title="Score as compare(average_seeds=True): each method's errors averaged over a dataset's splits before the Elo, ranks, improvability and win rate compare them, so a dataset counts once rather than once per split. The significance tests and the split chart stay per split.">
+        <input type="checkbox" id="avgseeds"> Average seeds per dataset (Elo, ranks, win rate)</label>
     </div>
     <div class="hh-marks" id="marks" hidden></div>
   </div>
@@ -341,11 +343,14 @@ __BASE_JS__
   const ELO = CONFIG.elo || null;
   const ELO_POS = new Map((ELO ? ELO.field : []).map((m, k) => [m, k]));
   // With seeds averaged (`compare(average_seeds=True)`), a dataset is one comparison, on each member's mean error over
-  // its splits, rather than one per split: the board, the ranks, improvability and win rate all read `rowsOf`.
-  const AVERAGE_SEEDS = !!(ELO && ELO.averageSeeds);
+  // its splits, rather than one per split: the board, the ranks, improvability and win rate all read `rowsOf`. The
+  // page opens as its leaderboard was computed (`CONFIG.elo.averageSeeds`) and the reader can switch it; every cache of
+  // board-derived numbers is keyed on it.
+  let averageSeeds = !!(ELO && ELO.averageSeeds);
+  const modeKey = () => (averageSeeds ? "avg" : "split");
   const meanRows = new Map();
   function rowsOf(d) {
-    if (!AVERAGE_SEEDS) return ELO.grid[d];
+    if (!averageSeeds) return ELO.grid[d];
     let rows = meanRows.get(d);
     if (!rows) {
       rows = ELO.grid[d].map(r => [r.reduce((sum, v) => sum + v, 0) / (r.length || 1)]);
@@ -360,7 +365,7 @@ __BASE_JS__
   // with imputed results included, as the leaderboard computes them.
   const boardCache = new Map();
   function boardOf(datasets) {
-    const cacheKey = datasets.join(",");
+    const cacheKey = modeKey() + "|" + datasets.join(",");
     let board = boardCache.get(cacheKey);
     if (board) return board;
     const n = ELO.field.length, on = new Uint8Array(n);
@@ -939,7 +944,7 @@ __BASE_JS__
       `<div class="hh-tvalue">${value}</div><div class="hh-tsub">${sub}</div></div>`;
     const sw = side => `<span class="hh-swatch ${side}"></span>`;
     box.innerHTML =
-      `<div class="hh-tile" id="elo-tile"><div class="hh-tlabel">Elo gap A \u2212 B${AVERAGE_SEEDS ? " \u00b7 seeds averaged" : ""}</div>` +
+      `<div class="hh-tile" id="elo-tile"><div class="hh-tlabel">Elo gap A \u2212 B${averageSeeds ? " \u00b7 seeds averaged" : ""}</div>` +
       `<div class="hh-tvalue">\u2026</div><div class="hh-tsub">computing</div><div class="hh-tsub" id="elo-excl"></div></div>` +
       tile("Error ratio A / B", ratio == null ? "\u2014" : ratio.toFixed(4),
         lo == null ? `${logs.length} datasets` :
@@ -960,7 +965,7 @@ __BASE_JS__
         ? tile("Win rate of A over B", (lb.win * 100).toFixed(1) + "%", `${lb.n} datasets, each counted once`,
           "As the leaderboard's win-rate matrix: on each dataset the share of its splits where A's error is lower than " +
           "B's (ties half, imputed results included), averaged over the datasets in view" +
-          (AVERAGE_SEEDS ? ", here on the datasets' mean errors (seeds averaged). Over the datasets: " : ". Over all their splits: ") +
+          (averageSeeds ? ", here on the datasets' mean errors (seeds averaged). Over the datasets: " : ". Over all their splits: ") +
           `${fmtInt(lb.wins)} won, ${fmtInt(lb.ties)} tied, ${fmtInt(lb.losses)} lost.`)
         : tile("Split win rate of A", splitRate == null ? "\u2014" : (splitRate * 100).toFixed(1) + "%",
           `${fmtInt(splitWins)} won, ${fmtInt(splitTies)} tied, ${fmtInt(splitN - splitWins - splitTies)} lost of ${fmtInt(splitN)}`,
@@ -970,7 +975,7 @@ __BASE_JS__
         ? tile("Mean rank in the field", `${sw("a")}${lb.rankA.toFixed(2)} <span class="hh-vs">vs</span> ${sw("b")}${lb.rankX.toFixed(2)}`,
           `over ${lb.n} datasets`,
           "The leaderboard's rank for the datasets in view: each method's rank among the methods on the board on every " +
-          (AVERAGE_SEEDS ? "dataset's mean error (seeds averaged; average ranks for ties, imputed results included), averaged over the datasets"
+          (averageSeeds ? "dataset's mean error (seeds averaged; average ranks for ties, imputed results included), averaged over the datasets"
             : "split (average ranks for ties, imputed results included), averaged over the splits and then the datasets"))
         : tile("Mean rank in the field", rankN ? `${sw("a")}${(rankA / rankN).toFixed(2)} <span class="hh-vs">vs</span> ${sw("b")}${(rankB / rankN).toFixed(2)}` : "\u2014",
           `over ${rankN} datasets` + (missingInView ? ` \u00b7 ${missingInView} without both left out` : ""),
@@ -1006,7 +1011,7 @@ __BASE_JS__
       if (!el) return;
       el.title = "The leaderboard's Elo over the datasets in view: one fit of the whole field with both A and B on the " +
         "board, so A's rating is the same whoever B is (imputed results included, as on the leaderboard)" +
-        (AVERAGE_SEEDS ? ", with each method's errors averaged over a dataset's splits first (average_seeds). " : ". ") +
+        (averageSeeds ? ", with each method's errors averaged over a dataset's splits first (average_seeds). " : ". ") +
         `The interval is the gap's 2.5th to 97.5th percentile over ${ELO ? ELO.resamples : 0} ` +
         "resamples of the datasets. \"Excl. each other\" fits A against the field without B and B against the field " +
         "without A on the same resamples, which leaves out their games against each other, and compares the two fits " +
@@ -1029,7 +1034,7 @@ __BASE_JS__
       // Then each dataset's pull on that gap, for the list's column and the selected dataset.
       setTimeout(() => {
         if (ticket !== eloTicket) return;
-        const cacheKey = `${state.a}|${state.b}|${datasets.join(",")}`;
+        const cacheKey = `${modeKey()}|${state.a}|${state.b}|${datasets.join(",")}`;
         if (!pullCache.has(cacheKey)) pullCache.set(cacheKey, eloPull(datasets));
         ELO_PULL = pullCache.get(cacheKey);
         renderList();
@@ -1697,6 +1702,10 @@ __BASE_JS__
     refresh();
   });
   document.getElementById("bh").addEventListener("change", ev => { state.bh = ev.target.checked; refreshView(); });
+  // Averaging changes every board-derived number (the tiles, the subset table, the list's ranks and pulls, the versus
+  // table), so a switch refreshes the whole page; the pages built per mode stay cached.
+  document.getElementById("avg-box").hidden = !ELO;
+  document.getElementById("avgseeds").addEventListener("change", ev => { averageSeeds = ev.target.checked; refresh(); });
   for (const [id, list, field] of [["yaxis", Y_AXES, "yKey"], ["xaxis", X_AXES, "xKey"]]) {
     const select = document.getElementById(id);
     for (const item of list) {
@@ -1790,6 +1799,7 @@ __BASE_JS__
       if (state.marks.size) params.set("marks", [...state.marks].map(([label, mode]) => `${mode}:${label}`).join("|"));
       if (state.sort !== "p" || state.dir !== 1) params.set("sort", `${state.sort}:${state.dir}`);
       if (state.bh) params.set("bh", "1");
+      if (ELO && averageSeeds !== !!ELO.averageSeeds) params.set("avg", averageSeeds ? "1" : "0");
       if (state.yKey !== "margin") params.set("y", state.yKey);
       if (state.xKey !== "sorted") params.set("x", state.xKey);
       if (state.splitY !== "e") params.set("sy", state.splitY);
@@ -1820,6 +1830,7 @@ __BASE_JS__
       const [sortKey, dir] = (params.get("sort") || "").split(":");
       if (COLUMNS.some(c => c.key === sortKey && c.sortable !== false)) { state.sort = sortKey; state.dir = dir === "-1" ? -1 : 1; }
       state.bh = params.get("bh") === "1";
+      if (ELO && (params.get("avg") === "1" || params.get("avg") === "0")) averageSeeds = params.get("avg") === "1";
       if (Y_AXES.some(a => a.key === params.get("y"))) state.yKey = params.get("y");
       if (X_AXES.some(a => a.key === params.get("x"))) state.xKey = params.get("x");
       if (SPLIT_Y.some(a => a.key === params.get("sy"))) state.splitY = params.get("sy");
@@ -1831,6 +1842,7 @@ __BASE_JS__
     for (const b of document.querySelectorAll(".hh-fchip")) b.setAttribute("aria-pressed", String(b.dataset.v === state[b.dataset.f]));
     document.getElementById("search").value = state.query;
     document.getElementById("bh").checked = state.bh;
+    document.getElementById("avgseeds").checked = averageSeeds;
     document.getElementById("yaxis").value = state.yKey;
     document.getElementById("xaxis").value = state.xKey;
     renderMarks();
@@ -1934,7 +1946,7 @@ __BASE_JS__
     const datasets = [];
     for (let d = 0; d < nD; d++) if (passes(d, {})) datasets.push(d);
     const others = METHODS.map((m, i) => i).filter(i => i !== state.a && POINTS.some(p => p.m === i));
-    const viewKey = `${state.a}|${state.bh}|${datasets.join(",")}`;
+    const viewKey = `${modeKey()}|${state.a}|${state.bh}|${datasets.join(",")}`;
     if (vsState.viewKey !== viewKey) { vsState.results = new Map(); vsState.viewKey = viewKey; }
     renderVersus(others);
     let i = 0;
@@ -2038,7 +2050,7 @@ __BASE_JS__
     return rows;
   }
   function eloGapOf(datasets, excluded = false) {
-    const cacheKey = `${state.a}|${state.b}|${excluded ? 1 : 0}|${datasets.join(",")}`;
+    const cacheKey = `${modeKey()}|${state.a}|${state.b}|${excluded ? 1 : 0}|${datasets.join(",")}`;
     if (!eloCache.has(cacheKey)) eloCache.set(cacheKey, eloGap(datasets, state.a, state.b, ELO ? ELO.resamples : 0, excluded));
     return eloCache.get(cacheKey);
   }

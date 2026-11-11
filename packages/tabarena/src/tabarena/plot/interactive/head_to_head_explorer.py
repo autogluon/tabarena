@@ -348,10 +348,11 @@ def build_head_to_head_explorer_html(
         without it in the field the ratings average 1000. The page's Elo is the leaderboard's: one
         fit of the whole field over the datasets in view, A and B included (see :func:`elo_grid`).
     average_seeds
-        Score as ``compare(average_seeds=True)`` does: each method's errors are averaged over a
-        dataset's splits before the Elo, ranks, improvability and win rate compare them, so a
-        dataset counts as one comparison rather than one per split. The per-split statistics (the
-        signed-rank tests, the split chart) stay per split.
+        Whether the page opens scoring as ``compare(average_seeds=True)`` does: each method's errors
+        averaged over a dataset's splits before the Elo, ranks, improvability and win rate compare
+        them, so a dataset counts as one comparison rather than one per split. The page carries every
+        split either way and the reader can switch it; the per-split statistics (the signed-rank
+        tests, the split chart) stay per split.
 
     Returns:
     -------

@@ -361,3 +361,5 @@ def test_the_page_averages_seeds_when_its_compare_did(tmp_path):
         # The grid keeps every split either way: the page averages it, and the split chart reads it as it is.
         assert [len(row) for row in _config(html)["elo"]["grid"][0]] == [3, 3, 3]
     assert "function rowsOf(d)" in html
+    # The reader can switch it on the page either way; the builder's value is where the page opens.
+    assert 'id="avgseeds"' in html
