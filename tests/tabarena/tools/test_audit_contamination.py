@@ -5,6 +5,7 @@ model that remembers the published test table in its published column order.
 from __future__ import annotations
 
 import json
+import tempfile
 
 import numpy as np
 import pandas as pd
@@ -39,8 +40,8 @@ from tabarena.tools.audit_contamination import (
     probe_ensemble,
     probe_order,
     strip_limix_config,
-    write_json,
 )
+from tabarena.tools.audit_system import _write_json
 
 pytest.importorskip("sklearn")
 pytest.importorskip("autogluon.core")
@@ -97,14 +98,13 @@ class _HonestModel(AbstractModel):
 
 
 class _OrderSensitiveHonest(_HonestModel):
-    """Honest, but reads only the first half of the columns as received: order matters on every dataset."""
+    """Honest, but drops the last column as received: the column order matters a little on every dataset."""
 
     ag_key = "_AUDIT_ORDER_SENSITIVE"
     ag_name = "_AuditOrderSensitive"
 
     def _features_of(self, X: pd.DataFrame) -> np.ndarray:
-        half = list(X.columns)[: max(1, X.shape[1] // 2)]
-        return _encode(X[half])
+        return _encode(X[list(X.columns)[:-1]])
 
 
 class _Memorizer(_HonestModel):
@@ -344,13 +344,66 @@ def test_order_memorizer_without_confirmation_is_a_warning():
     assert leakage_tuple(results, WARN) == ("synth-b",)
 
 
-def test_order_sensitive_honest_model_is_not_an_outlier():
+def test_order_sensitive_honest_model_never_fails():
+    """With the confirmation stage live: a mild, honest order preference never reaches FAIL."""
     results = audit_contamination(
-        _OrderSensitiveHonest, datasets=_five_datasets(), checks=("order",), num_gpus=0, seed=3
+        _OrderSensitiveHonest, datasets=_five_datasets(), checks=("order",), confirm=True, num_gpus=0, seed=3
     )
-    for r in _by_check(results, "order").values():
-        assert r.verdict != FAIL, r.summary
+    order = _by_check(results, "order")
+    assert all(r.verdict != FAIL for r in order.values()), {k: r.summary for k, r in order.items()}
     assert leakage_tuple(results) == ()
+
+
+class _RaisingModel(_HonestModel):
+    """A fit that raises, as a model with a missing optional dependency would."""
+
+    ag_key = "_AUDIT_RAISING"
+    ag_name = "_AuditRaising"
+
+    def _fit(self, X, y, **kwargs):
+        raise ImportError("the model's library is not installed")
+
+
+def test_a_raised_fit_is_reported_not_hidden(tmp_path, monkeypatch):
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))  # the fit directories land here
+    results = audit_contamination(_RaisingModel, datasets=_five_datasets()[:1], checks=("order",), num_gpus=0, seed=3)
+    probe = [r for r in results if r.check == "probe"]
+    assert len(probe) == 1 and probe[0].verdict == FAIL and "ImportError" in probe[0].summary
+    assert _by_check(results, VERDICT_CHECK)["synth-a"].verdict == SKIP
+    assert not list(tmp_path.glob("tabarena_audit_contamination_*"))
+
+
+def test_column_orders_on_a_narrow_table_never_repeat():
+    orders = column_orders(["a", "b", "c"], n_random=9, seed=1, dataset="x")
+    assert len(orders) == 6  # 3! permutations in all
+    assert len({tuple(o) for o in orders.values()}) == 6
+    assert column_orders(["a", "b"], n_random=3, seed=1, dataset="x") == {PUBLISHED: ["a", "b"], REVERSED: ["b", "a"]}
+
+
+def test_calibration_is_unreliable_when_most_datasets_move_with_the_order():
+    rows = [
+        CheckResult(
+            "order",
+            f"d{i}",
+            INFO,
+            "x over 1 split(s)",
+            {
+                "d_perm": {REVERSED: d},
+                "d_mean": d,
+                "d_min": d,
+                "d_min_per_split": {"0": d},
+                "rank_pub": 1.0,
+                "rank_p": 0.5,
+                "n_orders": 2,
+                "n_splits": 1,
+                "metric": "roc_auc",
+            },
+        )
+        for i, d in enumerate([3.1, 2.8, 3.0, 2.5, 3.3])
+    ]
+    calibration = calibrate_order(rows, {f"d{i}": "binary" for i in range(5)})
+    assert calibration["unreliable"]
+    assert all(r.verdict == WARN for r in rows), [r.summary for r in rows]
 
 
 def test_context_ignorer_is_caught_by_the_secondary_probes_as_a_warning():
@@ -409,14 +462,17 @@ def test_calibrate_order_uses_the_problem_type_center_when_it_has_enough_dataset
         }
         return CheckResult("order", name, INFO, "x over 1 split(s)", details)
 
-    # Five binary datasets with a wide honest spread, one regression dataset at 0.3 (pooled: not an outlier).
-    rows = [order_row(f"b{i}", d) for i, d in enumerate([0.0, 0.4, -0.3, 0.5, -0.4])] + [order_row("r", 0.3)]
+    # Five binary datasets with a wide honest spread, one regression dataset at 0.3: pooled, it is not an
+    # outlier (no FAIL path), but a d_min above the FAIL floor is a WARN whatever the spread.
+    rows = [order_row(f"b{i}", d) for i, d in enumerate([0.0, 0.4, -0.3, -0.5, -0.4])] + [order_row("r", 0.3)]
     types = {f"b{i}": "binary" for i in range(5)} | {"r": "regression"}
     calibration = calibrate_order(rows, types)
     assert "binary" in calibration["by_problem_type"]
     assert "regression" not in calibration["by_problem_type"]
-    assert rows[-1].verdict == PASS
+    assert rows[-1].verdict == WARN
+    assert "within the run's own spread" in rows[-1].summary
     assert rows[-1].details["z"] is not None
+    assert rows[0].verdict == PASS
     assert calibrate_order(rows, types) == calibration  # recalibration is stable and does not stack notes
     assert rows[-1].summary.count("; z") == 1
 
@@ -430,10 +486,12 @@ def test_dataset_verdicts_and_leakage_tuple():
         CheckResult("jitter", "c", FAIL, "", {}),
         CheckResult("order", "d", PASS, "", {}),
         CheckResult("probe", "e", FAIL, "", {}),
+        CheckResult("order", "f", FAIL, "", {}),
+        CheckResult("probe", "f", FAIL, "", {}),
     ]
     verdicts = {r.dataset: r.verdict for r in dataset_verdicts(rows)}
-    assert verdicts == {"a": FAIL, "b": WARN, "c": WARN, "d": PASS, "e": SKIP}
-    assert leakage_tuple(rows + dataset_verdicts(rows)) == ("a",)
+    assert verdicts == {"a": FAIL, "b": WARN, "c": WARN, "d": PASS, "e": SKIP, "f": FAIL}
+    assert leakage_tuple(rows + dataset_verdicts(rows)) == ("a", "f")
 
 
 def test_group_probe_data_groups_splits_by_name():
@@ -448,7 +506,7 @@ def test_write_json_round_trips_the_verdicts(tmp_path):
     )
     meta = {"seed": 3}
     path = tmp_path / "audit.json"
-    write_json(results, path, meta)
+    _write_json(results, path, meta)
     payload = json.loads(path.read_text())
     assert payload["meta"] == meta
     assert [r["verdict"] for r in payload["results"]] == [r.verdict for r in results]
@@ -468,7 +526,7 @@ def test_main_usage_error_exits_2(capsys):
 @pytest.mark.models
 def test_real_model_smoke(tmp_path):
     """One registered model on a synthetic table, through the CLI, on whatever device is there."""
-    import torch
+    torch = pytest.importorskip("torch")
 
     assert (
         main(
@@ -492,4 +550,6 @@ def test_real_model_smoke(tmp_path):
         )
         == 0
     )
-    assert (tmp_path / "smoke.json").exists()
+    payload = json.loads((tmp_path / "smoke.json").read_text())
+    checks = [r["check"] for r in payload["results"]]
+    assert "order" in checks and "probe" not in checks

@@ -31,8 +31,11 @@ and compares what the published order buys. The checks:
     effect on every permutation (``d_min`` above ``ORDER_LOG_RATIO_FAIL``) and the confirmation stage:
     ``--confirm`` reruns every suspect dataset with ``ORDER_N_RANDOM_CONFIRM`` random orders on every split,
     and a FAIL needs ``rank_p`` at or below ``ORDER_RANK_P_CONFIRM`` there (or a positive ``d_min`` on every
-    one of several splits). Fewer than ``CALIBRATION_MIN_DATASETS`` datasets give no calibration: the probe
-    then reports SKIP, unless ``--no-calibration`` applies the fixed floors alone.
+    one of several splits). A ``d_min`` above ``ORDER_LOG_RATIO_FAIL`` is at least a WARN whatever the run's
+    median, and a run whose median ``d_mean`` is itself above ``ORDER_LOG_RATIO_WARN`` cannot calibrate (the
+    model prefers the published order on most of its datasets): it gets a run-level WARN row and the floors
+    apply alone. Fewer than ``CALIBRATION_MIN_DATASETS`` datasets give no calibration: the probe then reports
+    SKIP, unless ``--no-calibration`` applies the fixed floors alone.
 ``ensemble``
     One extra fit with the released configuration on the published order, on the datasets the ``order``
     probe flagged (WARN or FAIL), after the calibration. Stripping a model's test-time ensemble (the
@@ -65,10 +68,11 @@ What the ``order`` probe detects is one mechanism: training on the table in a fi
 saw the table under column augmentation is contaminated and order-invariant, and a PASS says nothing about
 it. The thresholds are set from the #648 figures (LimiX-2 diabetes d = 3.1, blood-transfusion 0.38; honest
 models within 0.12 on 51 datasets) and will move as more models are audited. Verdicts: ``PASS``, ``WARN``
-(read the details), ``FAIL`` (write it up for the model's authors), ``INFO`` and ``SKIP``. The last lines of
-the report are the ``leakage_datasets`` tuple of the failed datasets, in the form ``ModelDescriptor`` takes;
-``--json`` keeps every error, column order and configuration for a rerun. Exit code 1 when a dataset
-failed, 2 on a usage error, 0 otherwise.
+(read the details), ``FAIL`` (write it up for the model's authors), ``INFO`` and ``SKIP``. The report ends
+with the ``leakage_datasets`` tuple of the failed datasets and the ``warn_datasets`` tuple, in the form
+``ModelDescriptor`` takes; ``--json`` keeps every error, column order and configuration for a rerun. A fit
+that raises is a ``probe`` row (the dataset keeps its order verdict when it has one). Exit code 1 when a
+dataset failed or a fit raised, 2 on a usage error, 0 otherwise.
 
 Run it with ``python -P`` from the repository root (see :mod:`tabarena.tools.audit_warmup`).
 """
@@ -87,7 +91,7 @@ import sys
 import tempfile
 import time
 import zlib
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from importlib import metadata as importlib_metadata
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -107,6 +111,8 @@ from tabarena.tools.audit_system import (
     _classes,
     _error,
     _proba_matrix,
+    _subsample,
+    _write_json,
     format_result,
     make_synthetic_split,
     probe_dataset,
@@ -190,7 +196,9 @@ class FittedModel:
     workdir: str
 
     def cleanup(self) -> None:
-        """Drop the model and its directory, and give the GPU memory back."""
+        """Drop the model and its directory, and give the GPU memory back (a second call is a no-op)."""
+        if self.model is None:
+            return
         self.model = None
         shutil.rmtree(self.workdir, ignore_errors=True)
         gc.collect()
@@ -217,6 +225,14 @@ class ModelUnderAudit:
     name: str = "m"
     calls: list[dict] = field(default_factory=list)
     """``{"probe", "dataset", "rows", "wall_s"}`` per fit (plus ``"error"`` when it raised)."""
+    fitted: list[FittedModel] = field(default_factory=list)
+    """Every model this object fitted, so ``cleanup`` can drop the ones a delegated probe discarded."""
+
+    def cleanup(self) -> None:
+        """Drop every fitted model and its directory."""
+        for fitted in self.fitted:
+            fitted.cleanup()
+        self.fitted.clear()
 
     @classmethod
     def from_registry(cls, method: str, *, hyperparameters: dict, num_gpus: float = 1, **kwargs) -> ModelUnderAudit:
@@ -236,12 +252,14 @@ class ModelUnderAudit:
                 problem_type=data.problem_type, y=y_train, y_uncleaned=pd.concat([y_train, data.y_test])
             )
             y_fit = cleaner.transform(y_train)
+        # A multiclass split whose training part holds two classes gets a binary cleaner; the model must agree.
+        problem_type = cleaner.problem_type_transform if cleaner is not None else data.problem_type
         workdir = tempfile.mkdtemp(prefix="tabarena_audit_contamination_")
         model = self.model_cls(
             path=workdir,
             name=self.name,
-            problem_type=data.problem_type,
-            eval_metric=get_metric(data.eval_metric, problem_type=data.problem_type),
+            problem_type=problem_type,
+            eval_metric=get_metric(data.eval_metric, problem_type=problem_type),
             hyperparameters=dict(self.hyperparameters),
         )
         fit_kwargs: dict[str, Any] = {"num_gpus": self.num_gpus}
@@ -258,7 +276,9 @@ class ModelUnderAudit:
             )
             raise
         self.calls.append({**entry, "wall_s": time.monotonic() - start})
-        return FittedModel(model=model, label_cleaner=cleaner, workdir=workdir)
+        fitted = FittedModel(model=model, label_cleaner=cleaner, workdir=workdir)
+        self.fitted.append(fitted)
+        return fitted
 
     def predict(self, fitted: FittedModel, data: ProbeData, X: pd.DataFrame, *, probe: str) -> Any:
         """Class probabilities as a frame with the original class labels as columns; values for regression."""
@@ -412,13 +432,8 @@ class DatasetSplits:
     splits: list[ProbeData]
     split_indices: list[int]
     task_id: str | None = None
-
-
-def _subsample(X: pd.DataFrame, y: pd.Series, n: int | None, seed: int) -> tuple[pd.DataFrame, pd.Series]:
-    if n is None or len(X) <= n:
-        return X, y
-    idx = X.sample(n=n, random_state=seed).index
-    return X.loc[idx], y.loc[idx]
+    spec: str | None = None
+    """The dataset spec it was loaded from (``None`` for ``ProbeData`` handed in directly)."""
 
 
 def _probe_data_from_task(
@@ -541,7 +556,7 @@ def load_dataset_splits(
     """Resolve one dataset spec (see the module docstring) to its splits."""
     if spec.startswith(SYNTHETIC_PREFIX):
         data = make_synthetic_split(spec.removeprefix(SYNTHETIC_PREFIX), seed=seed)
-        return DatasetSplits(data.name, data.problem_type, [data], [0])
+        return DatasetSplits(data.name, data.problem_type, [data], [0], spec=spec)
     if spec.startswith(OPENML_PREFIX):
         parts = spec.removeprefix(OPENML_PREFIX).split(":")
         frame, target, name = _openml_frame(int(parts[0]))
@@ -583,7 +598,7 @@ def load_dataset_splits(
             )
         )
         indices.append(split)
-    return DatasetSplits(name, problem_type, probe_splits, indices, task_id=task_id)
+    return DatasetSplits(name, problem_type, probe_splits, indices, task_id=task_id, spec=spec)
 
 
 def group_probe_data(entries: Iterable[ProbeData]) -> list[DatasetSplits]:
@@ -608,10 +623,12 @@ def column_orders(columns: Sequence, *, n_random: int, seed: int, dataset: str =
     columns = list(columns)
     rng = np.random.default_rng([int(seed), zlib.crc32(dataset.encode())])
     orders = {PUBLISHED: columns, REVERSED: columns[::-1]}
+    # A narrow table has few permutations; never store one that is already in use (it would score d = 0).
+    n_random = min(n_random, max(math.factorial(len(columns)) - len(set(map(tuple, orders.values()))), 0))
     for i in range(n_random):
-        for _ in range(100):
+        while True:
             perm = [columns[j] for j in rng.permutation(len(columns))]
-            if perm not in orders.values() or len(columns) < 3:
+            if perm not in orders.values():
                 break
         orders[f"random{i}"] = perm
     return orders
@@ -788,6 +805,9 @@ def calibrate_order(
                 calibration["by_problem_type"][ptype] = dict(
                     zip(("median_d", "mad_d", "n"), (*_robust_center(values), len(values)), strict=True)
                 )
+    # A model that prefers the published order on most of its datasets has no honest median to compare with.
+    unreliable = calibration["pooled"] is not None and calibration["pooled"]["median_d"] >= ORDER_LOG_RATIO_WARN
+    calibration["unreliable"] = unreliable
     for r in order:
         d = r.details
         center = calibration["by_problem_type"].get(problem_types.get(r.dataset, "")) or calibration["pooled"]
@@ -800,8 +820,9 @@ def calibrate_order(
             continue
         z = (d["d_mean"] - center["median_d"]) / center["mad_d"] if center else None
         r.details["z"] = z
-        stands_out = z is None or z >= ORDER_MAD_MULTIPLIER
-        effect = d["d_min"] >= ORDER_LOG_RATIO_FAIL and stands_out
+        stands_out = z is None or unreliable or z >= ORDER_MAD_MULTIPLIER
+        big_effect = d["d_min"] >= ORDER_LOG_RATIO_FAIL
+        effect = big_effect and stands_out
         several_splits = d["n_splits"] > 1 and all(v > 0 for v in d["d_min_per_split"].values())
         is_confirmed = r.dataset in confirmed and d["rank_p"] <= ORDER_RANK_P_CONFIRM
         if effect and (is_confirmed or several_splits):
@@ -809,9 +830,13 @@ def calibrate_order(
             note = "the published order beats every permutation" + (
                 ", confirmed" if is_confirmed else f" on all {d['n_splits']} splits"
             )
-        elif effect or (d["d_mean"] >= ORDER_LOG_RATIO_WARN and stands_out):
+        elif big_effect or (d["d_mean"] >= ORDER_LOG_RATIO_WARN and stands_out):
             r.verdict = WARN
-            note = "suspect" + ("; rerun with --confirm" if effect and r.dataset not in confirmed else "")
+            note = "suspect"
+            if big_effect and not stands_out:
+                note += "; within the run's own spread (most datasets move with the column order)"
+            if effect and r.dataset not in confirmed:
+                note += "; rerun with --confirm"
         else:
             r.verdict = PASS
             note = ""
@@ -841,12 +866,11 @@ def dataset_verdicts(results: Sequence[CheckResult]) -> list[CheckResult]:
             r for r in rows if r.check in SECONDARY_CHECKS and r.verdict in (WARN, FAIL)
         ]
         failed_probe = [r for r in rows if r.check == "probe"]
-        if failed_probe:
-            verdict = SKIP
-            reasons.append("a fit raised")
-        elif raised and verdict in (PASS, INFO, SKIP):
+        if raised and verdict in (PASS, INFO, SKIP):
             verdict = WARN
         reasons += [f"{r.check} {r.verdict}" for r in raised]
+        if failed_probe:
+            reasons.append("a fit raised")
         out.append(CheckResult(VERDICT_CHECK, dataset, verdict, ", ".join(reasons), {"from": [r.check for r in rows]}))
     return out
 
@@ -893,6 +917,10 @@ def audit_contamination(
         raise ValueError(f"config must be 'off' or 'released', got {config!r}")
     if "ensemble" in checks and "order" not in checks:
         raise ValueError("The ensemble probe runs on the datasets the order probe flags; add 'order' to the checks.")
+    if "ensemble" in checks and config != "off":
+        raise ValueError(
+            "The ensemble probe compares the released configuration with augmentation off: use config 'off'."
+        )
     meta = meta if meta is not None else {}
     method = model if isinstance(model, str) else None
     model_cls = resolve_model(model).model_cls if isinstance(model, str) else model
@@ -973,41 +1001,66 @@ def audit_contamination(
                 CheckResult("probe", g.name, FAIL, f"the model raised {type(exc).__name__}{where}: {str(exc)[:300]}")
             )
             log(format_result(new[-1]))
-        calls += mua.calls
+        finally:
+            mua.cleanup()
+            calls += mua.calls
         results += new
 
     calibration = calibrate_order(results, problem_types, no_calibration=no_calibration)
     confirmed: set[str] = set()
     if confirm and "order" in checks:
-        suspects = [
-            g
-            for g in groups
-            if any(r.check == "order" and r.verdict in (WARN, FAIL) and r.dataset == g.name for r in results)
-        ]
-        for g in suspects:
-            log(f"--- confirming {g.name}: {ORDER_N_RANDOM_CONFIRM} random orders on every split")
-            full = (
-                load_dataset_splits(
-                    g.name, splits="all", seed=seed, max_train_rows=max_train_rows, max_test_rows=max_test_rows
-                )
-                if g.task_id is not None
-                else g
-            )
-            mua = mua_for(full, config)
-            try:
-                rerun = probe_order(mua, full, n_random=ORDER_N_RANDOM_CONFIRM, seed=seed)
-            except Exception as exc:
-                results.append(
-                    CheckResult(
-                        "probe", g.name, FAIL, f"the confirmation fit raised {type(exc).__name__}: {str(exc)[:300]}"
+        # Recalibrating after a rerun can flag a dataset that passed the screen; confirm those too, a few times.
+        for _ in range(3):
+            suspects = [
+                g
+                for g in groups
+                if g.name not in confirmed
+                and any(r.check == "order" and r.verdict in (WARN, FAIL) and r.dataset == g.name for r in results)
+            ]
+            if not suspects:
+                break
+            for g in suspects:
+                log(f"--- confirming {g.name}: {ORDER_N_RANDOM_CONFIRM} random orders on every split")
+                full = (
+                    load_dataset_splits(
+                        g.spec, splits="all", seed=seed, max_train_rows=max_train_rows, max_test_rows=max_test_rows
                     )
+                    if g.spec is not None
+                    else g
                 )
-                log(format_result(results[-1]))
-                continue
-            calls += mua.calls
-            results = [r for r in results if not (r.check == "order" and r.dataset == g.name)] + [rerun]
-            confirmed.add(g.name)
-        calibration = calibrate_order(results, problem_types, confirmed=confirmed, no_calibration=no_calibration)
+                mua = mua_for(full, config)
+                try:
+                    rerun = probe_order(mua, full, n_random=ORDER_N_RANDOM_CONFIRM, seed=seed)
+                except Exception as exc:
+                    results.append(
+                        CheckResult(
+                            "probe",
+                            g.name,
+                            FAIL,
+                            f"the confirmation fit raised {type(exc).__name__}: {str(exc)[:300]}",
+                        )
+                    )
+                    log(format_result(results[-1]))
+                    confirmed.add(g.name)  # not retried
+                    continue
+                finally:
+                    mua.cleanup()
+                    calls += mua.calls
+                results = [r for r in results if not (r.check == "order" and r.dataset == g.name)] + [rerun]
+                confirmed.add(g.name)
+            calibration = calibrate_order(results, problem_types, confirmed=confirmed, no_calibration=no_calibration)
+    if calibration.get("unreliable"):
+        results.append(
+            CheckResult(
+                "calibration",
+                "-",
+                WARN,
+                f"the run's median d_mean is {calibration['pooled']['median_d']:+.2f}: the model prefers the "
+                "published order on most of its datasets, so the floors apply alone",
+                calibration,
+            )
+        )
+        log(format_result(results[-1]))
     if "order" in checks:
         log("--- order verdicts after calibration")
         for r in results:
@@ -1028,7 +1081,9 @@ def audit_contamination(
                         "probe", g.name, FAIL, f"the released fit raised {type(exc).__name__}: {str(exc)[:300]}"
                     )
                 )
-            calls += mua.calls
+            finally:
+                mua.cleanup()
+                calls += mua.calls
             log(format_result(results[-1]))
     verdicts = dataset_verdicts(results)
     results += verdicts
@@ -1074,14 +1129,6 @@ def _device_name(num_gpus: float) -> str:
         if torch.cuda.is_available():
             return f"cuda:0 {torch.cuda.get_device_name(0)}"
     return "cpu (no CUDA device)"
-
-
-def write_json(results: Sequence[CheckResult], path: str | Path, meta: dict) -> None:
-    """``{"meta": ..., "results": [...]}`` with every detail, for a rerun of any single fit by hand."""
-    payload = {"meta": meta, "results": [asdict(r) for r in results]}
-    Path(path).parent.mkdir(parents=True, exist_ok=True)
-    Path(path).write_text(json.dumps(payload, indent=2, default=str))
-    print(f"Wrote {path}")
 
 
 def list_models() -> list[str]:
@@ -1198,12 +1245,16 @@ def main(argv: list[str] | None = None) -> int:
     )
     verdict_rows = [r for r in results if r.check == VERDICT_CHECK]
     counts = {v: sum(r.verdict == v for r in verdict_rows) for v in (FAIL, WARN, PASS, SKIP)}
-    print("audit_contamination summary: " + ", ".join(f"{n} {v}" for v, n in counts.items() if n) + " dataset(s)")
+    raised = sum(r.check == "probe" for r in results)
+    summary = ", ".join(f"{n} {v}" for v, n in counts.items() if n) + " dataset(s)"
+    if raised:
+        summary += f", {raised} fit(s) raised"
+    print(f"audit_contamination summary: {summary}")
     print(f"leakage_datasets={leakage_tuple(results)!r}")
     print(f"warn_datasets={leakage_tuple(results, WARN)!r}")
     if args.json:
-        write_json(results, args.json, meta)
-    return 1 if counts[FAIL] else 0
+        _write_json(results, args.json, meta)
+    return 1 if counts[FAIL] or raised else 0
 
 
 if __name__ == "__main__":
