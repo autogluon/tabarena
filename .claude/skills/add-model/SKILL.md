@@ -112,6 +112,14 @@ run the step on the passed `X_val` / `y_val`, the way a fine-tuning API takes an
 ignores `X_val`. EXAONE-Tabular's regression hold-out (a fifth of the support rows, used for the
 member weights) was accepted by oversight and is no precedent.
 
+Check as well that the library predicts inductively: a test row's prediction may depend only on the
+training data and that row, so it must not change when the other test rows, their order or the batch
+size change. Test rows that attend to each other, statistics or transforms fit on the rows being
+predicted, and test-time training on the unlabeled test rows are transductive and not allowed
+(`references/model_patterns.md` → "The `_fit` contract", item 6, with the reasons). When the library
+offers a transductive mode, the wrapper uses its inductive one; when it has none, raise it with the
+maintainer before writing the wrapper, quoting where it happens (autogluon/tabarena#720).
+
 For an in-context model, check whether the library can cache the fitted context for later predict
 calls: a KV cache (TabICL's `kv_cache`, OrionMSP's `enable_kv_cache`), TabPFN's
 `fit_mode="fit_with_cache"`, or a `fit` that records the encoded context, as Kumo Tabular's library
@@ -191,7 +199,7 @@ The AutoGluon wrapper class. Use the template in `references/model_patterns.md` 
   model's smoke test fails. The others (`_get_default_resources`, `get_minimum_resources`,
   `_get_default_ag_args_ensemble`, `_get_default_auxiliary_params`) still work but are the old
   style. Never mutate `self.params` / `self.params_aux` after construction — it raises in 1.7.
-- **Honor the `_fit` contract** (read `references/model_patterns.md` → "The `_fit` contract"). The most common review findings on new wrappers are: ignoring the provided `X_val`/`y_val` (and instead auto-splitting a second holdout), ignoring `time_limit`, hardcoding the thread count instead of wiring `num_cpus`, and label-encoding + `fillna(0)` categoricals when the library handles them natively. `models/realmlp/model.py` is the reference for all of these. (In-context-learning foundation models have no train loop / no eval set, so they legitimately ignore `time_limit` + `X_val` — see `sap_rpt_oss`/`tabfm`.)
+- **Honor the `_fit` contract** (read `references/model_patterns.md` → "The `_fit` contract"). The most common review findings on new wrappers are: ignoring the provided `X_val`/`y_val` (and instead auto-splitting a second holdout), ignoring `time_limit`, hardcoding the thread count instead of wiring `num_cpus`, label-encoding + `fillna(0)` categoricals when the library handles them natively, and transductive prediction (test rows that see each other or a transform fit on them; item 6). `models/realmlp/model.py` is the reference for all of these. (In-context-learning foundation models have no train loop / no eval set, so they legitimately ignore `time_limit` + `X_val` — see `sap_rpt_oss`/`tabfm`.)
 - For GPU models: also set `default_resources_physical_cores_only = True`, `default_num_gpus = 1`, `minimum_num_gpus = 1`, and `_default_ag_args_ensemble_extra` (with `fold_fitting_strategy: sequential_local` — **and `refit_folds: True` for foundation/pre-trained TFMs**; see the "Foundation models: set `refit_folds=True`" note in `references/model_patterns.md`. From-scratch NNs omit it), plus `_more_tags()` (with `can_refit_full: True`). Do **not** declare a `can_estimate_memory_usage_static` tag: AutoGluon derives it from whether you implement `_estimate_memory_usage_static`. **Only torch models** (`AbstractTorchModel`) additionally implement `get_device()` / `_set_device()`; non-torch GPU models on `AbstractModel` must NOT (they have no `.to(device)`).
 - Docstring must include: description, paper title, authors, codebase URL, license
 - Keep optional third-party imports (the wrapped library itself) inside `_fit` / per-method scope so importing this module never requires the optional dep at top-level

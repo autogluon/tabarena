@@ -452,6 +452,44 @@ finally:
 `models/denselight/model.py` is the reference. Symptom if you forget: the smoke test fails with
 `AssertionError: Global context changed across operation: - torch_cudnn_deterministic changed`.
 
+### 6. Predict inductively — a row's prediction depends only on the training data and that row
+
+TabArena evaluates inductive learning. The prediction for a test row may use the training data
+(`X`, `y`, and `X_val` / `y_val` for early stopping) and that row, and nothing else: the same row
+predicted alone, inside the full test set, in another order or in batches of any size gets the same
+prediction, up to floating-point rounding. Transductive prediction, where the rows being predicted
+shape each other's predictions, is not allowed. Watch for:
+
+- test rows that attend to each other, for example in-context models that put every test row into
+  one attention pass instead of attending to the training rows only;
+- statistics or transforms fit on the rows being predicted: a scaler, imputer, PCA or category
+  vocabulary fit at predict time, batch statistics, `fit_transform` in the predict path;
+- test-time training or adaptation on the unlabeled test rows, pseudo-labeling, or `X_test` passed
+  into `fit` in any form (semi-supervised use).
+
+Conditioning on the training rows is inductive (that is what an in-context model's context is), and
+so is splitting the test rows into chunks for memory, as long as each row's prediction does not
+depend on its chunk. When a library offers a transductive mode, the wrapper uses its inductive mode;
+when it has no inductive switch, ask the maintainer and the library's authors for one before the
+wrapper is written (autogluon/tabarena#720). The check is cheap: predict some rows alone and inside
+the test set, with the other rows shuffled or replaced, and compare.
+
+Why we require it:
+
+- **Fairness across methods.** A method that uses the test rows at prediction time gains an
+  advantage over the methods and baselines that predict purely inductively, and the comparison no
+  longer reflects the models' quality.
+- **Representativeness.** A transductive setup here gives the model the *entire* test set at once
+  rather than a batch. Outside of Kaggle-style competitions this rarely matches real-world
+  inference, where predictions are made on smaller batches as the data arrives. Benchmarking
+  transductive learning properly needs a dedicated benchmark and a study of which test-time batch
+  sizes are realistic; in our past investigations, many of the gains vanished once batches were cut
+  to a realistic size (for example 1,000 rows).
+
+Transductive learning is an interesting direction, and we would like to support it in a separate
+benchmark in the future. TabArena-v0.2 will include tests that check for this behavior, so model
+developers can spot it early.
+
 ---
 
 ## Warm-up (untimed environment warm-up)
