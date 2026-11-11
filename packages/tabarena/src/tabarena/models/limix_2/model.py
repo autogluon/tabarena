@@ -238,7 +238,7 @@ class LimiX2Model(AbstractTorchModel):
     The inference package is not on PyPI and pins ``torch==2.9.1``, so install it without its
     dependency tree next to the torch already present (it needs ``nvtx`` on top)::
 
-        pip install --no-deps "LimiX @ git+https://github.com/limix-ldm-ai/LimiX.git@8f038782508bda6bf507cca3dc328c09a4c5a1b2"
+        pip install --no-deps "LimiX @ git+https://github.com/limix-ldm-ai/LimiX.git@977c3de75981ba5f6723744493869338633fbbe7"
         pip install nvtx
 
     Hyperparameters: ``n_estimators`` keeps the first members of the packaged config (``None``, the
