@@ -2,8 +2,9 @@
 
 A master-detail page: a sortable, filterable list of datasets on top, and the selected
 dataset's detail below it. Each row carries a strip showing where every method landed on that
-dataset, with a star on the contender the reader picked; the detail below shows that dataset's
-tuning trajectories and its full ranking.
+dataset, with a star on the contender the reader picked and a shape on each other method they
+marked; the detail below shows that dataset's tuning trajectories and its full ranking. Methods the
+reader hides leave the page as the host's exclusions do.
 
 The detail sits in a fixed place under the list rather than expanding inside the row, so
 stepping through datasets with the arrow keys updates the chart without the page moving under
@@ -42,6 +43,19 @@ __BASE_CSS__
   }
   :root[data-theme="dark"] { --contender: #ffd21e; }
   :root[data-theme="light"] { --contender: #cf9200; }
+
+  /* The marked methods' colours, one per slot in a fixed order: blue, red, aqua, then ink. The
+     three hues stay clear of the family hues the field is drawn in and of the contender's yellow,
+     and pass an all-pairs check (any two marks can meet on a strip) on both surfaces: normal-vision
+     distance at least 20.9, colour-blind distance 6.5 or more, which the per-slot shape backs up.
+     No fourth hue clears that check, so the fourth slot is the neutral ink. Each mode has its own
+     steps, declared across the same four scopes as the contender. */
+  :root { --mark-1: #2a78d6; --mark-2: #e34948; --mark-3: #1baf7a; --mark-4: var(--ink); }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) { --mark-1: #3987e5; --mark-2: #e66767; --mark-3: #199e70; }
+  }
+  :root[data-theme="dark"] { --mark-1: #3987e5; --mark-2: #e66767; --mark-3: #199e70; }
+  :root[data-theme="light"] { --mark-1: #2a78d6; --mark-2: #e34948; --mark-3: #1baf7a; }
 
   /* Tighter than the shared 12px: this page is a full-width browser filling a panel, not a
      figure that wants breathing room around it. `body.paper` keeps the roomier figure padding,
@@ -252,6 +266,28 @@ __BASE_CSS__
     background: color-mix(in srgb, var(--contender) 20%, transparent); font-weight: 650;
   }
   .pd-rankrow.is-contender .star { color: var(--contender); }
+  /* Marked methods: each slot its own colour and shape (see --mark-*), so they stand apart from the
+     family-coloured field, from the contender's star and from one another. */
+  .pd-rankrow.is-marked { background: color-mix(in srgb, var(--mk) 14%, transparent); font-weight: 650; }
+  .pd-markicon { display: inline-block; flex: none; vertical-align: -2px; }
+  .pd-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 22px; }
+  .pd-pick {
+    font: 500 12px/1.2 system-ui, sans-serif; color: var(--ink); background: var(--chip-bg);
+    border: 1px solid var(--line); border-radius: 7px; padding: 4px 6px; max-width: 220px;
+  }
+  .pd-pick:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .pd-pick:disabled { opacity: 0.5; }
+  .pd-chips { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; }
+  .pd-chip {
+    display: inline-flex; align-items: center; gap: 5px; font: 600 11.5px/1 system-ui, sans-serif;
+    color: var(--ink); border: 1px solid var(--line); border-radius: 999px; padding: 2px 3px 2px 8px;
+  }
+  .pd-chip.is-hidden { color: var(--muted); border-style: dashed; }
+  .pd-chip button {
+    font: 700 13px/1 system-ui, sans-serif; color: var(--muted); background: none; border: 0;
+    border-radius: 999px; padding: 1px 4px; cursor: pointer;
+  }
+  .pd-chip button:hover, .pd-chip button:focus-visible { color: var(--ink); background: var(--chip-bg); outline: none; }
   .pd-rankrow .pos { color: var(--muted); text-align: right; font-variant-numeric: tabular-nums; }
   .pd-rankrow .who { display: flex; align-items: center; gap: 5px; min-width: 0; }
   .pd-rankrow .who .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -329,6 +365,20 @@ __BASE_CSS__
                placeholder="Find by name, domain or source" aria-label="Find a dataset">
         <span class="hint" id="count"></span>
         <span class="pd-keys" id="listhint" tabindex="0">Keys</span>
+      </div>
+    </div>
+    <div class="pd-tools">
+      <div class="pd-filtergroup">
+        <span class="grouplabel">Also mark</span>
+        <select class="pd-pick" id="markpick" aria-label="Mark another method"
+                title="Mark up to four more methods, each in its own colour and shape on the strips, the ranking and the chart"></select>
+        <span class="pd-chips" id="marks"></span>
+      </div>
+      <div class="pd-filtergroup">
+        <span class="grouplabel">Hide</span>
+        <select class="pd-pick" id="hidepick" aria-label="Hide a method"
+                title="Take a method off the page: the strips, the rankings, the winner column and the pickers"></select>
+        <span class="pd-chips" id="hiddenlist"></span>
       </div>
     </div>
     <div class="pd-filters">
@@ -414,7 +464,10 @@ __BASE_JS__
   // over the rest.
   const ALL_POINTS = POINTS.slice();
   let SHOWN = ALL_POINTS;
+  // The methods off the page: the host's exclusions and the ones the reader hid here (by base
+  // name, so a hidden family loses its default, tuned and ensembled rows together).
   let EXCLUDED = new Set();
+  let HOST_EXCLUDED = new Set();
   const nD = DATASETS.length;
   const byDataset = Array.from({ length: nD }, () => []);
   const cell = new Map();                       // "dataset:method" -> the point
@@ -578,7 +631,23 @@ __BASE_JS__
     // Trajectory methods drawn in colour. Empty means "the front plus the contender", which is
     // recomputed per dataset; a non-empty set is the reader's own choice and is left alone.
     picked: new Set(),
+    // Methods marked beside the contender, each with the slot (colour and shape) it keeps while it
+    // stays marked.
+    marks: [],
+    // Base names the reader hid on this page.
+    hidden: new Set(),
   };
+  // One shape and one colour per slot; a new mark takes the first free slot.
+  const MARK_SHAPES = ["diamond", "triangle", "square", "down"];
+  const MAX_MARKS = Math.min(CONFIG.maxHighlights || MARK_SHAPES.length, MARK_SHAPES.length);
+  function markOf(m) { return state.marks.find(k => k.m === m) || null; }
+  function addMark(m) {
+    if (m === state.contender || markOf(m) || state.marks.length >= MAX_MARKS) return;
+    const used = new Set(state.marks.map(k => k.slot));
+    const slot = MARK_SHAPES.findIndex((sh, i) => !used.has(i));
+    state.marks.push({ m: m, slot: slot, shape: MARK_SHAPES[slot], color: `var(--mark-${slot + 1})` });
+  }
+  for (const m of CONFIG.defaultHighlights || []) if (m >= 0 && m < METHODS.length) addMark(m);
 
   // ---------- formatting ----------
   function fmtErr(v) {
@@ -633,6 +702,31 @@ __BASE_JS__
     }
     return d + "Z";
   }
+  // The marked methods' shapes, centred on (cx, cy) and about as large as a star of radius r.
+  function markPath(shape, cx, cy, r) {
+    const f = v => v.toFixed(2);
+    const pts = {
+      diamond: [[0, -1.1], [0.9, 0], [0, 1.1], [-0.9, 0]],
+      triangle: [[0, -1.05], [0.95, 0.75], [-0.95, 0.75]],
+      down: [[0, 1.05], [0.95, -0.75], [-0.95, -0.75]],
+      square: [[-0.75, -0.75], [0.75, -0.75], [0.75, 0.75], [-0.75, 0.75]],
+      cross: [[-0.3, -1], [0.3, -1], [0.3, -0.3], [1, -0.3], [1, 0.3], [0.3, 0.3], [0.3, 1], [-0.3, 1],
+              [-0.3, 0.3], [-1, 0.3], [-1, -0.3], [-0.3, -0.3]],
+    }[shape] || [];
+    return pts.map(([x, y], i) => (i ? "L" : "M") + f(cx + x * r) + "," + f(cy + y * r)).join("") + "Z";
+  }
+  // A mark as inline HTML, for the chips, the ranking and the legend.
+  function markIcon(mk, size) {
+    const s = size || 12, c = s / 2;
+    return `<svg class="pd-markicon" width="${s}" height="${s}" viewBox="0 0 ${s} ${s}" aria-hidden="true">` +
+      `<path d="${markPath(mk.shape, c, c, c * 0.86)}" fill="${mk.color}"/></svg>`;
+  }
+  function starIcon(size) {
+    const s = size || 12, c = s / 2;
+    return `<svg class="pd-markicon" width="${s}" height="${s}" viewBox="0 0 ${s} ${s}" aria-hidden="true">` +
+      `<path d="${starPath(c, c, c)}" fill="var(--contender)"/></svg>`;
+  }
+
   // ---------- the strip ----------
   // One row of the list: every method's gap to the best on that dataset, with a star on the
   // contender. The winner needs no mark of its own — it is the method sitting at zero, which is
@@ -673,18 +767,36 @@ __BASE_JS__
       stroke: "var(--muted)", "stroke-width": 1, opacity: 0.5,
     }, svg);
     for (const p of byDataset[d]) {
-      if (p.i == null || p.m === state.contender) continue;
+      if (p.i == null || p.m === state.contender || markOf(p.m)) continue;
       el("circle", {
         cx: at(p.i), cy: mid, r: 2.7, fill: famColor(METHODS[p.m]), opacity: 0.6,
       }, svg);
     }
+    // A mark that would sit on the star or on another mark steps into a lane just above or below
+    // the line, a little smaller and drawn over the star, so a near tie between two marked methods
+    // still shows both: the larger star's points stay visible around it.
     const c = key(d, state.contender);
+    const placed = c && c.i != null ? [[at(c.i), mid]] : [];
+    const stepped = [];
+    for (const mk of state.marks) {
+      const q = key(d, mk.m);
+      if (!q || q.i == null) continue;
+      const x = at(q.i);
+      const lane = [mid, mid - 4, mid + 4].find(y => placed.every(([px, py]) => Math.abs(px - x) >= 8 || Math.abs(py - y) >= 4));
+      const y = lane === undefined ? mid + 4 : lane;
+      placed.push([x, y]);
+      const attrs = {
+        d: markPath(mk.shape, x, y, y === mid ? 5.4 : 4.6), fill: mk.color, stroke: "var(--card)", "stroke-width": 1,
+      };
+      if (y === mid) el("path", attrs, svg); else stepped.push(attrs);
+    }
     if (c && c.i != null) {
       el("path", {
         d: starPath(at(c.i), mid, 6.4), fill: "var(--contender)",
         stroke: "var(--card)", "stroke-width": 1,
       }, svg);
     }
+    for (const attrs of stepped) el("path", attrs, svg);
     svg.addEventListener("mousemove", ev => {
       const rect = svg.getBoundingClientRect();
       const mx = (ev.clientX - rect.left) * (STRIP_W / (rect.width || STRIP_W));
@@ -1034,7 +1146,7 @@ __BASE_JS__
       '<div class="pd-chartbar">' +
       '<label class="metricpick">Y-axis <select id="pd-yaxis"></select></label>' +
       '<div class="btnrow">' +
-      '<button class="btn" id="pd-front">Front + contender</button>' +
+      `<button class="btn" id="pd-front">Front + ${state.marks.length ? "marked" : "contender"}</button>` +
       '<button class="btn" id="pd-all">All</button>' +
       "</div>" +
       '<span class="hint">Click a line, a point or a method in the ranking to hold it in colour</span>' +
@@ -1082,9 +1194,11 @@ __BASE_JS__
       // artifact lacks one) cannot be drawn in the chart, so the row says so rather than
       // swallowing the click.
       const hasTraj = trajIndexOf(p.m) >= 0;
-      li.className = "pd-rankrow" + (p.m === state.contender ? " is-contender" : "") +
+      const mk = markOf(p.m);
+      li.className = "pd-rankrow" + (p.m === state.contender ? " is-contender" : "") + (mk ? " is-marked" : "") +
         (p.b === 1 && STATS[d].tiedKnown ? " is-tied" : "") + (hasTraj ? "" : " no-traj");
       li.style.setProperty("--fam", famColor(m));
+      if (mk) li.style.setProperty("--mk", mk.color);
       const verdict = tiedText(p, STATS[d]);
       li.title = `${m.name} — ${errWithStd(p, DATASETS[d])} ${metricName(DATASETS[d])}, ${fmtNum(p.i, 1)}% behind the best` +
         (p.t != null ? `, ${fmtTime(p.t)} to fit` : "") + (verdict ? `. ${verdict}` : "") +
@@ -1093,7 +1207,7 @@ __BASE_JS__
       li.innerHTML =
         `<span class="pos">${i + 1}</span>` +
         '<span class="who"><span class="dot"></span>' +
-        '<span class="nm">' + (p.m === state.contender ? '<span class="star">&#9733;</span> ' : "") +
+        '<span class="nm">' + (p.m === state.contender ? '<span class="star">&#9733;</span> ' : mk ? markIcon(mk, 11) + " " : "") +
         `${escapeHtml(m.base)}</span>` +
         variantBadge(m) + tieMark(p, STATS[d]) + "</span>" +
         `<span class="val">${fmtErr(p.e)}` + (p.s != null ? `<span class="pd-std">\u00b1${fmtErr(p.s)}</span>` : "") + "</span>" +
@@ -1135,6 +1249,10 @@ __BASE_JS__
     }
     const contenderTraj = trajIndexOf(state.contender);
     if (contenderTraj >= 0) front.add(contenderTraj);
+    for (const mk of state.marks) {
+      const t = trajIndexOf(mk.m);
+      if (t >= 0) front.add(t);
+    }
     return front;
   }
 
@@ -1147,7 +1265,9 @@ __BASE_JS__
       '<circle cx="6" cy="4.5" r="2.6" fill="var(--muted)"/><circle cx="17" cy="4.5" r="2.6" fill="var(--muted)"/>' +
       "</svg> Tuning trajectory</span>" +
       '<span class="item"><svg width="14" height="14" viewBox="0 0 14 14">' +
-      `<path d="${starPath(7, 7, 6)}" fill="var(--contender)"/></svg> Contender</span>` +
+      `<path d="${starPath(7, 7, 6)}" fill="var(--contender)"/></svg> ` +
+      (state.marks.length ? escapeHtml(METHODS[state.contender].base) : "Contender") + "</span>" +
+      state.marks.map(mk => `<span class="item">${markIcon(mk, 13)} ${escapeHtml(METHODS[mk.m].base)}</span>`).join("") +
       '<span class="item"><svg width="26" height="9" viewBox="0 0 26 9">' +
       '<line x1="0" y1="4.5" x2="26" y2="4.5" stroke="var(--ink)" stroke-width="1.6" stroke-dasharray="6 4"/>' +
       "</svg> Pareto front</span>";
@@ -1273,6 +1393,11 @@ __BASE_JS__
     }
 
     const contenderTraj = trajIndexOf(state.contender);
+    const markByTraj = new Map();
+    for (const mk of state.marks) {
+      const t = trajIndexOf(mk.m);
+      if (t >= 0 && t !== contenderTraj && !markByTraj.has(t)) markByTraj.set(t, mk);
+    }
     const lines = el("g", {}, svg);
     const marksOff = el("g", {}, svg);
     const marksOn = el("g", {}, svg);
@@ -1306,6 +1431,13 @@ __BASE_JS__
         const bestPt = pts.reduce((a, b) => (b[metric.key] < a[metric.key] ? b : a));
         el("path", {
           d: starPath(X(bestPt.x), Y(bestPt[metric.key]), 8.5), fill: "var(--contender)",
+          stroke: "var(--card)", "stroke-width": 1.2, "data-t": t,
+        }, marksOn);
+      } else if (markByTraj.has(t)) {
+        const bestPt = pts.reduce((a, b) => (b[metric.key] < a[metric.key] ? b : a));
+        const mk = markByTraj.get(t);
+        el("path", {
+          d: markPath(mk.shape, X(bestPt.x), Y(bestPt[metric.key]), 7), fill: mk.color,
           stroke: "var(--card)", "stroke-width": 1.2, "data-t": t,
         }, marksOn);
       }
@@ -1428,13 +1560,106 @@ __BASE_JS__
       group.appendChild(opt);
     }
     select.value = String(state.contender);
-    select.addEventListener("change", ev => {
+    // A property rather than a listener: the list is rebuilt on every exclusion change.
+    select.onchange = ev => {
       state.contender = Number(ev.target.value);
+      // A method cannot be both the contender and marked; the star wins.
+      state.marks = state.marks.filter(k => k.m !== state.contender);
       // A held selection of lines belonged to the previous contender; drop it so the chart
       // goes back to "the front plus whoever is the contender now".
       state.picked = new Set();
+      buildMethodTools();
       renderList();
       renderDetail();
+    };
+  }
+
+  // ---------- marking and hiding methods ----------
+  function byFamily(a, b) {
+    const fa = FAM_ORDER.indexOf(METHODS[a].family), fb = FAM_ORDER.indexOf(METHODS[b].family);
+    return fa - fb || METHODS[a].name.localeCompare(METHODS[b].name);
+  }
+  // A picker that acts on choosing and then returns to its placeholder; options grouped by family.
+  function fillPicker(select, placeholder, entries) {
+    select.textContent = "";
+    const first = document.createElement("option");
+    first.value = "";
+    first.textContent = placeholder;
+    select.appendChild(first);
+    let currentFamily = null, group = null;
+    for (const entry of entries) {
+      if (entry.family !== currentFamily) {
+        currentFamily = entry.family;
+        group = document.createElement("optgroup");
+        group.label = currentFamily;
+        select.appendChild(group);
+      }
+      const opt = document.createElement("option");
+      opt.value = entry.value;
+      opt.textContent = entry.label;
+      group.appendChild(opt);
+    }
+    select.value = "";
+  }
+  function chipHtml(cls, icon, label, action) {
+    return `<span class="pd-chip${cls}">${icon}${escapeHtml(label)}` +
+      `<button type="button" aria-label="${escapeHtml(action)}" title="${escapeHtml(action)}">\u00d7</button></span>`;
+  }
+  function refreshMarks() {
+    state.picked = new Set();
+    buildMethodTools();
+    renderList();
+    renderDetail();
+  }
+  function buildMethodTools() {
+    const markPick = document.getElementById("markpick");
+    const markable = METHODS.map((m, i) => i)
+      .filter(i => !EXCLUDED.has(METHODS[i].base) && i !== state.contender && !markOf(i)).sort(byFamily);
+    const full = state.marks.length >= MAX_MARKS;
+    fillPicker(markPick, full ? `${MAX_MARKS} marked (the most)` : "Add a method\u2026",
+      full ? [] : markable.map(i => ({ value: String(i), label: METHODS[i].name, family: METHODS[i].family })));
+    markPick.disabled = full || !markable.length;
+    markPick.onchange = ev => {
+      if (ev.target.value === "") return;
+      addMark(Number(ev.target.value));
+      refreshMarks();
+    };
+    const marksBox = document.getElementById("marks");
+    marksBox.innerHTML = state.marks.map(mk =>
+      chipHtml("", markIcon(mk, 12) + " ", METHODS[mk.m].name, `Unmark ${METHODS[mk.m].name}`)).join("");
+    marksBox.querySelectorAll("button").forEach((button, j) => {
+      const m = state.marks[j].m;
+      button.addEventListener("click", () => {
+        state.marks = state.marks.filter(k => k.m !== m);
+        refreshMarks();
+      });
+    });
+
+    // Hiding is by base name, as the host's exclusions are; at least one method stays on the page.
+    const hidePick = document.getElementById("hidepick");
+    const firstOf = new Map();
+    for (const i of METHODS.map((m, k) => k).sort(byFamily)) {
+      const base = METHODS[i].base;
+      if (!EXCLUDED.has(base) && !firstOf.has(base)) firstOf.set(base, i);
+    }
+    const hideable = firstOf.size > 1 ? [...firstOf] : [];
+    fillPicker(hidePick, "Hide a method\u2026",
+      hideable.map(([base, i]) => ({ value: base, label: base, family: METHODS[i].family })));
+    hidePick.disabled = !hideable.length;
+    hidePick.onchange = ev => {
+      if (ev.target.value === "") return;
+      state.hidden.add(ev.target.value);
+      applyExclusions();
+    };
+    const hiddenBox = document.getElementById("hiddenlist");
+    const hiddenNames = [...state.hidden].sort();
+    hiddenBox.innerHTML = hiddenNames.map(base => chipHtml(" is-hidden", "", base, `Show ${base} again`)).join("");
+    hiddenBox.querySelectorAll("button").forEach((button, j) => {
+      const base = hiddenNames[j];
+      button.addEventListener("click", () => {
+        state.hidden.delete(base);
+        applyExclusions();
+      });
     });
   }
 
@@ -1551,12 +1776,14 @@ __BASE_JS__
     renderList();
   });
 
-  // The host's exclusion list (see `onExcludeMessage` in the shared script). Points, strips,
-  // per-dataset summaries and the trajectory lines are all rebuilt over what is left; a
-  // contender that was excluded hands over to the best remaining method.
-  onExcludeMessage(excluded => {
-    EXCLUDED = excluded;
-    SHOWN = ALL_POINTS.filter(p => !excluded.has(METHODS[p.m].base));
+  // The host's exclusion list (see `onExcludeMessage` in the shared script) together with the
+  // methods hidden here. Points, strips, per-dataset summaries and the trajectory lines are all
+  // rebuilt over what is left; a contender that was excluded hands over to the best remaining
+  // method, and an excluded mark is dropped. Ranks and gaps stay those of the full field: they
+  // are averaged per split, which the page does not carry.
+  function applyExclusions() {
+    EXCLUDED = new Set([...HOST_EXCLUDED, ...state.hidden]);
+    SHOWN = ALL_POINTS.filter(p => !EXCLUDED.has(METHODS[p.m].base));
     indexPoints();
     indexTrajectories();
     DATASETS.forEach((ds, d) => { STATS[d] = computeStats(ds, d); });
@@ -1568,10 +1795,16 @@ __BASE_JS__
       };
       state.contender = remaining.length ? remaining.sort((a, b) => meanRank(a) - meanRank(b))[0] : 0;
     }
+    state.marks = state.marks.filter(k => !EXCLUDED.has(METHODS[k.m].base) && k.m !== state.contender);
     state.picked = new Set();
     buildContenderSelect();
+    buildMethodTools();
     renderList();
     renderDetail();
+  }
+  onExcludeMessage(excluded => {
+    HOST_EXCLUDED = excluded;
+    applyExclusions();
   });
 
   // ---------- keyboard ----------
@@ -1609,6 +1842,7 @@ __BASE_JS__
   window.addEventListener("load", () => { sizeList(); postHeight(); });
 
   buildContenderSelect();
+  buildMethodTools();
   buildHead();
   renderList();
   // The frame is often still being laid out when the first render runs, so the list is sized
