@@ -79,8 +79,10 @@ SMOKE_OVERRIDES: dict[str, ModelSmokeTest] = {
     # than batch-dependent preprocessing. Verified by running `FitHelper.verify_model` with
     # CUDA_VISIBLE_DEVICES="" — it passes with the check on.
     "TabSwift": ModelSmokeTest({"n_estimators": 1}, verify_single_prediction_equivalent_to_multi=False),
-    # LimiX-2 attends over the training context, so a row predicted alone and inside a batch drift
-    # ~2.6e-3 on CUDA (the tolerance is 1e-5), the GPU non-determinism TabSwift shows too. 17 members
+    # LimiX 977c3de predicts a row alone and inside a batch differently, on the CPU too (~2e-3 with the default
+    # config; the tolerance is 1e-5): the feature embeddings come from the global torch RNG after a draw sized by
+    # the row count, `ValidFeatureEncoder` counts over train + query rows, and duplicate query rows change each
+    # other's fingerprint (autogluon/tabarena#720). Turn the check on with the LimiX pin that fixes them. 17 members
     # (over the class's cheap single member) reach the first `power` member of the classification
     # config (the fifth of the regression config), whose lambdas the wrapper's pickle has to survive.
     "LimiX-2": ModelSmokeTest({"n_estimators": 17}, verify_single_prediction_equivalent_to_multi=False),

@@ -1,9 +1,9 @@
 from __future__ import annotations
 
+import copy
 import json
 import logging
 from importlib import resources
-from pathlib import Path
 from typing import ClassVar
 
 import numpy as np
@@ -49,36 +49,20 @@ LIMIX2_MAX_ROWS = 30_000
 #: only halves the batch after a CUDA out-of-memory error.
 LIMIX2_TEST_BATCH_SIZE = 4096
 
-_INSTALL_HINT = (
-    "LimiX-2 needs the LimiX inference package, installed without its dependency tree "
-    "(it pins torch==2.9.1): see the LimiX2Model docstring."
-)
+_INSTALL_HINT = "LimiX-2 needs the LimiX inference package, installed without its dependency tree: see the docstring."
+#: Per-row state a ``LimiXPredictor.predict`` leaves on the regression decoder (a copy of the training table).
+_REG_DECODE_STATE = ("_reg_decode_x_train", "_reg_decode_y_train", "_reg_decode_y_train_ori")
 
 
 def _patch_predictor(predictor_cls: type) -> None:
-    """Developer fix (LimiX ``774aa3e``): two habits of ``LimiXPredictor`` that do not fit a process
-    with a network shared across fits.
-
-    ``__init__`` builds a ``CacheManager`` on a hard-coded cluster path (``/mnt/public/...``) even
-    with ``use_data_cache=False``, and its ``os.makedirs`` fails on any other machine: an unwritable
-    cache root is redirected to ``~/.cache/limix/infe_cache``. ``close()`` (also run by ``__del__``)
-    moves the network to the CPU; with the network shared by the bagged children, one collected child
-    would move it away from the estimators still using it, and the next timed predict would pay the
-    copy back: ``close`` only shuts the pipeline-parallel worker pool down. Upstream should build the
-    cache manager lazily and leave a network it did not build alone. Applied once per process.
+    """Developer fix (LimiX ``977c3de``): ``LimiXPredictor.close()`` (also run by ``__del__``) moves the
+    network to the CPU. With the network shared by the bagged children, one collected child would move it
+    away from the estimators still using it, and the next timed predict would pay the copy back, so
+    ``close`` only shuts the pipeline-parallel worker pool down. Upstream should leave a network it did
+    not build alone. Applied once per process.
     """
     if getattr(predictor_cls, "_tabarena_patched", False):
         return
-    cache_cls = predictor_cls.CacheManager
-    cache_init = cache_cls.__init__
-
-    def init_cache(self, cache_dir="/mnt/public/infe_cache", *args, **kwargs):
-        try:
-            cache_init(self, cache_dir, *args, **kwargs)
-        except OSError:
-            fallback = Path.home() / ".cache" / "limix" / "infe_cache"
-            fallback.mkdir(parents=True, exist_ok=True)
-            cache_init(self, str(fallback), *args, **kwargs)
 
     def close(self):
         pool = getattr(self, "_pipeline_gpu_pool", None)
@@ -86,7 +70,6 @@ def _patch_predictor(predictor_cls: type) -> None:
             pool.close()
             self._pipeline_gpu_pool = None
 
-    cache_cls.__init__ = init_cache
     predictor_cls.close = close
     predictor_cls._tabarena_patched = True
 
@@ -113,7 +96,8 @@ class _TruncatedSVDWithArpackFallback(TruncatedSVD):
 
 
 def _patch_svd_fallback() -> None:
-    """Let LimiX's SVD preprocessing survive an ARPACK failure on a tiny or degenerate training fold.
+    """Developer fix (LimiX ``977c3de``): let LimiX's SVD preprocessing survive an ARPACK failure on a tiny
+    or degenerate training fold.
 
     ``inference.v2_0.preprocess`` builds ``TruncatedSVD(algorithm="arpack", ...)`` for its SVD-augmented
     members. On a fold with few rows and near-duplicate columns ARPACK can raise ``ArpackError`` ("No
@@ -141,13 +125,35 @@ def _build_limix2_predictor(*, device_str, model_path, inference_config, preproc
 
     _patch_predictor(LimiXPredictor)
     _patch_svd_fallback()
-    return LimiXPredictor(
+    predictor = LimiXPredictor(
         device=torch.device(device_str),
         model_path=str(model_path),
         inference_config=inference_config,
         preprocess_num_jobs=preprocess_num_jobs,
         **hps,
     )
+    # The unfitted member pipelines, restored after every predict by `_drop_query_state`.
+    predictor._tabarena_unfitted_pipelines = copy.deepcopy(predictor.preprocess_pipelines)
+    return predictor
+
+
+def _drop_query_state(predictor) -> None:
+    """Developer fix (LimiX ``977c3de``): forget the per-row state a ``predict`` leaves on the predictor.
+
+    Every predict refits each member's preprocessing steps on the training plus query rows, and the fitted
+    steps keep row-sized state afterwards: ``FingerprintFeatureEncoder`` one hash per row, ``FilterValidFeatures``
+    the rows of every dropped column, and the regression decoder a copy of the training table. Nothing reads
+    it before the next predict refits the steps, but ``get_info`` and ``get_memory_size`` pickle it. Swapping
+    in a fresh copy of the pipelines as built leaves the predictions unchanged (each step is refit from the
+    seeds fixed at construction); rebuilding them with ``build_preprocess_pipeline`` would reseed the global
+    ``random``. Upstream should not keep the state once ``predict`` returns.
+    """
+    unfitted = getattr(predictor, "_tabarena_unfitted_pipelines", None)
+    if unfitted is not None:
+        predictor.preprocess_pipelines = copy.deepcopy(unfitted)
+    for attr in _REG_DECODE_STATE:
+        if getattr(predictor, attr, None) is not None:
+            setattr(predictor, attr, None)
 
 
 def _predict_proba_limix2(predictor, X_train, y_train, X_test, *, task_type: str) -> np.ndarray:
@@ -157,6 +163,7 @@ def _predict_proba_limix2(predictor, X_train, y_train, X_test, *, task_type: str
     import torch
 
     preds = predictor.predict(X_train, y_train, X_test, task_type=task_type)
+    _drop_query_state(predictor)
     if isinstance(preds, torch.Tensor):
         preds = preds.detach().float().cpu().numpy()
     return np.asarray(preds, dtype=np.float32)
@@ -171,14 +178,26 @@ class _LimiX2SklearnWrapper:
     ``fit(X, y)``/``predict_proba(X)``/``classes_``) needs this wrapper. Mirrors LimiX-16M's own
     ``_LimiXSklearnWrapper`` and AutoGluon core's ``_MitraSklearnWrapper`` for the identical
     problem.
+
+    ``ManyClassClassifier`` hands its sub-estimators an object ndarray (``validate_data(dtype=None)``), on
+    which LimiX would treat every column as categorical and encode the numeric query values as unseen
+    categories (NaN). ``columns`` and ``dtypes`` rebuild the frame the plain path passes.
     """
 
-    def __init__(self, *, device_str, model_path, inference_config, preprocess_num_jobs, hps):
+    def __init__(self, *, device_str, model_path, inference_config, preprocess_num_jobs, hps, columns, dtypes):
         self._device_str = device_str
         self._model_path = model_path
         self._inference_config = inference_config
         self._preprocess_num_jobs = preprocess_num_jobs
         self._hps = hps
+        self._columns = columns
+        self._dtypes = dtypes
+
+    def _as_frame(self, X) -> pd.DataFrame:
+        """``X`` as a frame with the training table's column names and dtypes."""
+        if isinstance(X, pd.DataFrame):
+            return X
+        return pd.DataFrame(np.asarray(X), columns=self._columns).astype(self._dtypes)
 
     def fit(self, X, y):
         self._model = _build_limix2_predictor(
@@ -188,13 +207,15 @@ class _LimiX2SklearnWrapper:
             preprocess_num_jobs=self._preprocess_num_jobs,
             hps=self._hps,
         )
-        self._X_train = X
+        self._X_train = self._as_frame(X)
         self._y_train = np.asarray(y)
         self.classes_ = np.unique(self._y_train)
         return self
 
     def predict_proba(self, X):
-        return _predict_proba_limix2(self._model, self._X_train, self._y_train, X, task_type="Classification")
+        return _predict_proba_limix2(
+            self._model, self._X_train, self._y_train, self._as_frame(X), task_type="Classification"
+        )
 
     def get_params(self, deep=True):  # sklearn clone() compatibility
         return {
@@ -203,6 +224,8 @@ class _LimiX2SklearnWrapper:
             "inference_config": self._inference_config,
             "preprocess_num_jobs": self._preprocess_num_jobs,
             "hps": self._hps,
+            "columns": self._columns,
+            "dtypes": self._dtypes,
         }
 
     def set_params(self, **params):
@@ -224,8 +247,8 @@ class LimiX2Model(AbstractTorchModel):
     LimiX-2 is Stable AI's 400M-parameter tabular foundation model, a Contextual Mechanism Network
     pretrained with context-conditional masked modeling on synthetic data from structural causal
     models. Prediction is in context: the fit stores the training table, and every predict passes it
-    together with the query rows through an ensemble of preprocessing pipelines (32 members for
-    classification, 8 for regression) into one forward pass each. No parameter is updated, so the
+    together with the query rows through an ensemble of preprocessing pipelines (32 members per task
+    type) into one forward pass each. No parameter is updated, so the
     fit consumes no validation data and ignores the time limit. Regression predictions come back on
     the original target scale.
 
@@ -235,7 +258,8 @@ class LimiX2Model(AbstractTorchModel):
     Weights: https://huggingface.co/stable-ai/LimiX-2-1016 (LimiX-2-1016.ckpt,
     StableAI LimiX Non-Commercial License v1.0)
 
-    The inference package is not on PyPI and pins ``torch==2.9.1``, so install it without its
+    The inference package is not on PyPI, and its requirements would be resolved against the torch every
+    other model runs on (its constraints file pins ``torch==2.9.1``), so install it without its
     dependency tree next to the torch already present (it needs ``nvtx`` on top)::
 
         pip install --no-deps "LimiX @ git+https://github.com/limix-ldm-ai/LimiX.git@977c3de75981ba5f6723744493869338633fbbe7"
@@ -245,7 +269,8 @@ class LimiX2Model(AbstractTorchModel):
     default, keeps all), ``inference_config`` replaces the packaged config with a dict of the same
     shape, ``model_path`` points at another checkpoint, and every other key is forwarded to
     ``LimiXPredictor`` (``seed``, ``softmax_temperature``, ``test_batch_size``, ``deterministic``, ...).
-    ``softmax_temperature`` defaults to 1.0 on regression and 0.9 otherwise.
+    ``softmax_temperature`` defaults to 1.0 on regression and 0.9 otherwise. ``use_data_cache`` is rejected:
+    LimiX's preprocessing cache is keyed without the data, so one fold would reuse another fold's matrices.
 
     The checkpoint's classification head is fixed-width (``many_class_threshold``, 10 classes); above
     that, ``_fit`` wraps a :class:`_LimiX2SklearnWrapper` in
@@ -333,6 +358,11 @@ class LimiX2Model(AbstractTorchModel):
         model_path = hps.pop("model_path", None) or self.prefetch_weights()
         inference_config = hps.pop("inference_config", None) or self._default_inference_config()
         n_estimators = hps.pop("n_estimators", None)
+        # LimiX keys its preprocessing cache by config, seeds and an optional dataset name, never by the data,
+        # so with the cache on a fold (or the next dataset on the node) would get another fold's matrices.
+        if hps.pop("use_data_cache", False):
+            raise ValueError("LimiX-2: use_data_cache is not supported; its cache key does not include the data.")
+        hps.pop("cache_dir", None)
         if n_estimators is not None:
             inference_config = {**inference_config, "pipelines": inference_config["pipelines"][:n_estimators]}
         # Default softmax temperature to 1.0 on regression and 0.9 (default for classification) otherwise.
@@ -400,10 +430,13 @@ class LimiX2Model(AbstractTorchModel):
                 inference_config=inference_config,
                 preprocess_num_jobs=num_cpus,
                 hps=hps,
+                columns=list(self._X_train.columns),
+                dtypes=self._X_train.dtypes.to_dict(),
             )
             self.model = ManyClassClassifier(estimator=base_model, alphabet_size=many_class_threshold).fit(
                 self._X_train, self._y_train
             )
+            self._X_train = None  # the output coding keeps its own copy of the training rows
         else:
             # The ``limix.LimiXPredictor`` factory reads the checkpoint itself and hands the dict to
             # this constructor; constructed directly, the v2 class reads it through ``load_model``,
