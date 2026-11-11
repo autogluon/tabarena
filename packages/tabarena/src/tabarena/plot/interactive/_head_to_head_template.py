@@ -340,6 +340,19 @@ __BASE_JS__
   // unrounded errors the leaderboard ranks (a point's `f` holds its rounded ones).
   const ELO = CONFIG.elo || null;
   const ELO_POS = new Map((ELO ? ELO.field : []).map((m, k) => [m, k]));
+  // With seeds averaged (`compare(average_seeds=True)`), a dataset is one comparison, on each member's mean error over
+  // its splits, rather than one per split: the board, the ranks, improvability and win rate all read `rowsOf`.
+  const AVERAGE_SEEDS = !!(ELO && ELO.averageSeeds);
+  const meanRows = new Map();
+  function rowsOf(d) {
+    if (!AVERAGE_SEEDS) return ELO.grid[d];
+    let rows = meanRows.get(d);
+    if (!rows) {
+      rows = ELO.grid[d].map(r => [r.reduce((sum, v) => sum + v, 0) / (r.length || 1)]);
+      meanRows.set(d, rows);
+    }
+    return rows;
+  }
   const BT_RIDGE = 0.5 / (1e6 * Math.LN10 * Math.LN10);
   // The leaderboard's board for a set of datasets: the field methods measured (not imputed) on at least one split of
   // them, as `compare` keeps them (it fills in missing results only for the methods a subset has results for), and
@@ -366,7 +379,7 @@ __BASE_JS__
   // error and half against every tie, its rank is the board's size less its wins (average ranks for ties), and its
   // improvability is 1 - best / error (0 where the error is 0); each is the mean over the dataset's splits.
   function boardStats(d, members) {
-    const rows = ELO.grid[d], m = members.length, splits = m ? rows[members[0]].length : 0;
+    const rows = rowsOf(d), m = members.length, splits = m ? rows[members[0]].length : 0;
     const wins = new Float64Array(m), imp = new Float64Array(m), rank = new Float64Array(m), split = new Float64Array(m);
     for (let s = 0; s < splits; s++) {
       let best = Infinity;
@@ -389,7 +402,7 @@ __BASE_JS__
   }
   // Each board member's share of wins against member `x` on dataset `d`: what leaving `x` out takes off its totals.
   function winsAgainst(d, members, x) {
-    const rows = ELO.grid[d], ex = rows[x], splits = ex.length, out = new Float64Array(members.length);
+    const rows = rowsOf(d), ex = rows[x], splits = ex.length, out = new Float64Array(members.length);
     for (let s = 0; s < splits; s++) {
       for (let i = 0; i < members.length; i++) {
         const k = members[i];
@@ -839,7 +852,7 @@ __BASE_JS__
     if (ia === undefined || ix === undefined) return null;
     let rankA = 0, rankX = 0, win = 0, wins = 0, ties = 0, losses = 0;
     for (const d of VIEW_DATASETS) {
-      const st = VIEW_BOARD.stats.get(d), ra = ELO.grid[d][fa], rx = ELO.grid[d][fx];
+      const st = VIEW_BOARD.stats.get(d), ra = rowsOf(d)[fa], rx = rowsOf(d)[fx];
       rankA += st.rank[ia];
       rankX += st.rank[ix];
       let share = 0;
@@ -926,7 +939,7 @@ __BASE_JS__
       `<div class="hh-tvalue">${value}</div><div class="hh-tsub">${sub}</div></div>`;
     const sw = side => `<span class="hh-swatch ${side}"></span>`;
     box.innerHTML =
-      `<div class="hh-tile" id="elo-tile"><div class="hh-tlabel">Elo gap A \u2212 B</div>` +
+      `<div class="hh-tile" id="elo-tile"><div class="hh-tlabel">Elo gap A \u2212 B${AVERAGE_SEEDS ? " \u00b7 seeds averaged" : ""}</div>` +
       `<div class="hh-tvalue">\u2026</div><div class="hh-tsub">computing</div><div class="hh-tsub" id="elo-excl"></div></div>` +
       tile("Error ratio A / B", ratio == null ? "\u2014" : ratio.toFixed(4),
         lo == null ? `${logs.length} datasets` :
@@ -946,7 +959,8 @@ __BASE_JS__
       (lb
         ? tile("Win rate of A over B", (lb.win * 100).toFixed(1) + "%", `${lb.n} datasets, each counted once`,
           "As the leaderboard's win-rate matrix: on each dataset the share of its splits where A's error is lower than " +
-          "B's (ties half, imputed results included), averaged over the datasets in view. Over all their splits: " +
+          "B's (ties half, imputed results included), averaged over the datasets in view" +
+          (AVERAGE_SEEDS ? ", here on the datasets' mean errors (seeds averaged). Over the datasets: " : ". Over all their splits: ") +
           `${fmtInt(lb.wins)} won, ${fmtInt(lb.ties)} tied, ${fmtInt(lb.losses)} lost.`)
         : tile("Split win rate of A", splitRate == null ? "\u2014" : (splitRate * 100).toFixed(1) + "%",
           `${fmtInt(splitWins)} won, ${fmtInt(splitTies)} tied, ${fmtInt(splitN - splitWins - splitTies)} lost of ${fmtInt(splitN)}`,
@@ -956,7 +970,8 @@ __BASE_JS__
         ? tile("Mean rank in the field", `${sw("a")}${lb.rankA.toFixed(2)} <span class="hh-vs">vs</span> ${sw("b")}${lb.rankX.toFixed(2)}`,
           `over ${lb.n} datasets`,
           "The leaderboard's rank for the datasets in view: each method's rank among the methods on the board on every " +
-          "split (average ranks for ties, imputed results included), averaged over the splits and then the datasets")
+          (AVERAGE_SEEDS ? "dataset's mean error (seeds averaged; average ranks for ties, imputed results included), averaged over the datasets"
+            : "split (average ranks for ties, imputed results included), averaged over the splits and then the datasets"))
         : tile("Mean rank in the field", rankN ? `${sw("a")}${(rankA / rankN).toFixed(2)} <span class="hh-vs">vs</span> ${sw("b")}${(rankB / rankN).toFixed(2)}` : "\u2014",
           `over ${rankN} datasets` + (missingInView ? ` \u00b7 ${missingInView} without both left out` : ""),
           "Each method's rank among the methods measured on a dataset, averaged over its splits and then over the datasets in view"));
@@ -990,7 +1005,8 @@ __BASE_JS__
       const el = document.getElementById("elo-tile");
       if (!el) return;
       el.title = "The leaderboard's Elo over the datasets in view: one fit of the whole field with both A and B on the " +
-        "board, so A's rating is the same whoever B is (imputed results included, as on the leaderboard). " +
+        "board, so A's rating is the same whoever B is (imputed results included, as on the leaderboard)" +
+        (AVERAGE_SEEDS ? ", with each method's errors averaged over a dataset's splits first (average_seeds). " : ". ") +
         `The interval is the gap's 2.5th to 97.5th percentile over ${ELO ? ELO.resamples : 0} ` +
         "resamples of the datasets. \"Excl. each other\" fits A against the field without B and B against the field " +
         "without A on the same resamples, which leaves out their games against each other, and compares the two fits " +

@@ -1882,7 +1882,11 @@ class AbstractArenaContext:
             self._save_per_dataset_explorer(output_dir_subset, leaderboard=lb_df, subset_label=output_suffix)
         if save_head_to_head_explorer and plot_compare:
             self._save_head_to_head_explorer(
-                output_dir_subset, leaderboard=lb_df, subset_label=output_suffix, methods=head_to_head_methods
+                output_dir_subset,
+                leaderboard=lb_df,
+                subset_label=output_suffix,
+                methods=head_to_head_methods,
+                average_seeds=bool(compare_kwargs.get("average_seeds", False)),
             )
         return output_suffix, lb_compact
 
@@ -1941,11 +1945,13 @@ class AbstractArenaContext:
         leaderboard: pd.DataFrame | None,
         subset_label: str,
         methods: tuple[str, str] | None = None,
+        average_seeds: bool = False,
     ) -> Path | None:
         """``<output_dir_subset>/head_to_head_explorer.html``, two methods compared dataset by dataset over the
         subset's ``results_per_split.csv`` and ``method_info.csv`` (see :meth:`generate_all_figs`), opening on
-        ``methods`` or else ``leaderboard``'s top two. Returns the page, or ``None`` when the compare pass wrote
-        neither file.
+        ``methods`` or else ``leaderboard``'s top two, its Elo, ranks, improvability and win rates averaging seeds per
+        dataset when ``average_seeds`` (as the compare pass did). Returns the page, or ``None`` when the compare pass
+        wrote neither file.
         """
         from tabarena.plot.interactive.head_to_head_explorer import build_head_to_head_explorer_html
         from tabarena.website.process_artifacts_to_website import leader_names
@@ -1970,8 +1976,9 @@ class AbstractArenaContext:
             size_buckets=self._per_dataset_size_buckets,
             save_path=output_dir_subset / "head_to_head_explorer.html",
             page_title=f"{self.benchmark_name} head-to-head — {subset_label}",
-            # The page's Elo pins the method the leaderboard pins at 1000.
+            # The page's Elo pins the method the leaderboard pins at 1000, and averages seeds when its compare did.
             elo_calibration=self.calibration_method,
+            average_seeds=average_seeds,
         )
 
     def load_repo(
