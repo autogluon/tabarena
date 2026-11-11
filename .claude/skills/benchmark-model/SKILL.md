@@ -175,6 +175,14 @@ single 20% hold-out split"), but read the code, because a library can do it with
 so. Early stopping on `X_val` is fine, and so is an in-context model that ignores `X_val`.
 EXAONE-Tabular's regression hold-out was accepted by oversight and is no precedent.
 
+The second check is transductive prediction. A test row's prediction may depend only on the training
+data and that row, so read the library's predict path for test rows that attend to each other,
+statistics or transforms fit on the rows being predicted, and test-time training on the unlabeled
+test rows (add-model's `references/model_patterns.md` → "The `_fit` contract", item 6, which also
+gives the reasons). Where a run is cheap, predict a few rows alone and inside the test set, with the
+other rows replaced, and compare. A library with a transductive mode is wrapped in its inductive one;
+one without an inductive mode stops the run until its authors add one (autogluon/tabarena#720).
+
 ## Step 2: Resolve the run venv and install the model's extra
 
 The jobs import the code checked out **here**, so `PYTHON_PATH` must be a venv whose `tabarena`
