@@ -33,9 +33,9 @@ def test_uncached_predictions_match_the_cache(tmp_path):
         )
         model.fit(X=X.iloc[:250], y=y.iloc[:250], num_gpus=0)
         assert bool(model.model.members_) == cache_context
-        # uncached fold inputs live on the wrapper as torch tensors, saved beside model.pkl
+        # uncached fold inputs live on the estimator as torch tensors, saved beside model.pkl
         assert model.model._uncached_data is None
-        assert (model._uncached_context is None) == cache_context
+        assert (model.model._tabarena_uncached_context is None) == cache_context
         predictions[cache_context] = LightPFNModel.load(model.save()).predict_proba(X.iloc[250:])
 
     np.testing.assert_allclose(predictions[True], predictions[False], atol=1e-6)
@@ -165,13 +165,26 @@ def test_default_config_refit_and_metadata(tmp_path):
     assert get_model_family("TA-LIGHTPFN") == get_model_family("LIGHTPFN")
 
 
+def test_regressor_uncached_fold_inputs(tmp_path, weights):
+    cached, X = fit(tmp_path, "cached", "regression")
+    lazy, _ = fit(tmp_path, "lazy", "regression", cache_context=False)
+    engine = lazy.model.regressor_
+    assert not hasattr(engine, "ctx_") and engine._uncached_data is None
+    assert all(isinstance(t, torch.Tensor) for t in lazy.model._tabarena_uncached_context)
+    expected = cached.predict(X.iloc[:7])
+    np.testing.assert_array_equal(lazy.predict(X.iloc[:7]), expected)
+    assert engine._uncached_data is None and not hasattr(engine, "ctx_")
+    restored = LightPFNModel.load(lazy.save())
+    np.testing.assert_array_equal(restored.predict(X.iloc[:7]), expected)
+
+
 @pytest.mark.parametrize("cache", [False, True])
 def test_classifier_cache_and_unknown_categories(tmp_path, weights, cache):
     model, X = fit(tmp_path, "m", "binary", n_estimators=1, cache_context=cache)
     assert bool(model.model.members_) == cache
     if not cache:
         assert model.model._uncached_data is None
-        assert isinstance(model._uncached_context[0], torch.Tensor)
+        assert isinstance(model.model._tabarena_uncached_context[0], torch.Tensor)
     query = X.iloc[:4].copy()
     query["cat"] = pd.Categorical(["unseen", "x", None, "y"])
     predictions = model.predict_proba(query)
@@ -278,3 +291,75 @@ def test_absent_class_keeps_global_column_order(tmp_path, weights):
     assert proba.shape == (4, 4)
     np.testing.assert_allclose(proba[:, [0, 2, 3]], expected)
     assert np.all(proba[:, 1] == 0)
+
+
+def test_fold_context_is_released_with_estimator(tmp_path, weights):
+    import gc
+    import weakref
+
+    model, X = fit(tmp_path, "lifetime", "binary", n_estimators=1, cache_context=False)
+    assert "_uncached_context" not in vars(model)
+    context = model.model._tabarena_uncached_context
+    payload = weakref.ref(context[0])
+    expected = model.predict_proba(X.iloc[:4])
+    restored = LightPFNModel.load(model.save())
+    np.testing.assert_array_equal(expected, restored.predict_proba(X.iloc[:4]))
+    del context
+    model.model = None  # AutoGluon drops fold estimators while retaining wrappers.
+    gc.collect()
+    assert payload() is None
+
+
+def test_explicit_cuda_requires_allocation(tmp_path, weights, monkeypatch):
+    monkeypatch.setattr("lightpfn.device.resolve_device", lambda device: "cuda:0")
+    with pytest.raises(ValueError, match="num_gpus"):
+        fit(tmp_path, "no_gpu", "binary", device="cuda")
+
+
+@pytest.mark.parametrize("shared", [False, True])
+def test_regressor_move_repairs_150_fit_device(tmp_path, weights, shared):
+    model, X = fit(tmp_path, "stale", "regression", ag_args_fit={"share_pretrained_weights": shared})
+    expected = model.predict_proba(X.iloc[:4])
+    model.model.regressor_.fit_device_ = "cuda:0"
+    model.set_device("cpu")
+    assert model.model.regressor_.fit_device_ == "cpu"
+    np.testing.assert_array_equal(expected, model.predict_proba(X.iloc[:4]))
+
+
+def test_default_classifier_rejects_legacy_cache():
+    from types import SimpleNamespace
+
+    from tabarena.models.lightpfn.model import _check_released_classifier
+
+    estimator = SimpleNamespace(net_=SimpleNamespace(cfg=SimpleNamespace(cat_adapter=False)))
+    with pytest.raises(ValueError, match="cat_adapter"):
+        _check_released_classifier(estimator, {})
+    # Historical revisions and user networks remain an explicit, supported choice.
+    _check_released_classifier(estimator, {"revision": "v1.1.0"})
+    _check_released_classifier(estimator, {"checkpoint": "custom_weights"})
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA/ROCm unavailable")
+@pytest.mark.parametrize("problem_type", ["binary", "regression"])
+def test_small_gpu_warmup_prepares_shared_half_view(tmp_path, weights, problem_type):
+    from lightpfn.precision import _FP16_VIEWS
+
+    X, y = data(problem_type)
+    model = LightPFNModel(
+        path=str(tmp_path), name="warm_gpu", problem_type=problem_type, hyperparameters={"n_estimators": 1}
+    )
+    model.fit(X=X, y=y, num_cpus=1, num_gpus=1)
+    engine = getattr(model.model, "regressor_", model.model)
+    net = engine.model if problem_type == "regression" else engine.fit_net_
+    assert engine.precision_ == "fp32"  # below 2048 cells, just like the dummy fit
+    assert net in _FP16_VIEWS
+
+
+def test_load_legacy_wrapper_context_sidecar(tmp_path, weights):
+    model, X = fit(tmp_path, "legacy", "binary", n_estimators=1, cache_context=False)
+    expected = model.predict_proba(X.iloc[:4])
+    model._uncached_context = model.model.__dict__.pop("_tabarena_uncached_context")
+    restored = LightPFNModel.load(model.save())
+    np.testing.assert_array_equal(expected, restored.predict_proba(X.iloc[:4]))
+    assert "_uncached_context" not in vars(restored)
+    assert restored.model._tabarena_uncached_context is not None

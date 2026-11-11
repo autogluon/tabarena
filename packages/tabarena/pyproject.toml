@@ -197,7 +197,7 @@ kumo_tabular = [
 seldon = ["neuralk-oss==0.3.0"]
 # LightPFN: ~4.8M-parameter in-context classifier and regressor; keep in sync with `pip_extra` in models/lightpfn/info.py.
 lightpfn = [
-  "lightpfn==1.5.0",
+  "lightpfn==1.5.1",
   "tabpfn-extensions[many_class]>=0.6.1",  # the output coding of datasets with more than ten classes
 ]
 # FTFM is not published on PyPI; pinned to a commit so the benchmarked code is fixed (empty extra on

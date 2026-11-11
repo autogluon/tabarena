@@ -30,6 +30,13 @@ def _context_storage(value, *, tensors: bool):
     return value
 
 
+def _check_released_classifier(estimator, params):
+    """Fail rather than silently benchmarking root-level legacy weights from a partial cache."""
+    if all(params.get(name) is None for name in ("model", "checkpoint", "repo_id", "revision")):
+        if not estimator.net_.cfg.cat_adapter:
+            raise ValueError("LightPFN 1.5 classifier weights require cat_adapter=True; check the HF cache.")
+
+
 class _LightPFNOutputCodeEstimator:
     """The base estimator of the ``ManyClassClassifier`` output coding: one ``LightPFNClassifier`` per code row.
 
@@ -53,6 +60,7 @@ class _LightPFNOutputCodeEstimator:
         from lightpfn import LightPFNClassifier
 
         self._estimator = LightPFNClassifier(**self._params).fit(self._frame(X), np.asarray(y))
+        _check_released_classifier(self._estimator, self._params)
         self.classes_ = self._estimator.classes_
         return self
 
@@ -75,15 +83,16 @@ class LightPFNModel(AbstractTorchModel):
 
     Classification uses four members, regression two (the second on log(y) for skewed positive targets, otherwise
     on -y) and predicts the mean of a 999-level quantile curve. The library reads the category dtype of the columns
-    and handles unseen and missing levels. On CUDA/ROCm, precision="auto" runs fp16 and silently retries non-finite
-    blocks in fp32; the CPU runs fp32.
+    and handles unseen and missing levels. On supported CUDA/ROCm GPUs, precision="auto" uses fp16 from 2048 context cells
+    per member and silently retries non-finite blocks in fp32; the CPU runs fp32.
 
     There is no training loop, internal validation split or tuning, so ``X_val``, ``y_val`` and ``time_limit`` are
     not used, as for the other in-context models. Thread counts and the CPU torch RNG state are restored after fit.
     The allocated ``num_gpus`` selects the device unless an explicit estimator ``device`` is given; an unavailable
-    device raises. Classification encodes the context only for the refit model by default; regression always
-    encodes it in fit. Contexts and uncached fold inputs are torch tensors, which AutoGluon saves beside
-    ``model.pkl``.
+    device raises. Explicit CUDA requires an allocated GPU. Both tasks encode the context only for the refit model by
+    default: a fold model keeps its inputs and, on a GPU, encodes and predicts its out-of-fold rows in one pass.
+    Contexts and uncached fold inputs are torch tensors, which AutoGluon saves beside ``model.pkl``. Output coding
+    keeps its NumPy training arrays in ``model.pkl``.
 
     The checkpoint's classification head is ten classes wide. Above ``many_class_threshold`` (an
     ``ag_args_fit`` parameter, ten by default) the fit wraps a :class:`_LightPFNOutputCodeEstimator` in the
@@ -128,6 +137,15 @@ class LightPFNModel(AbstractTorchModel):
     cheap_hyperparameters: ClassVar[dict] = {"n_estimators": 1}
     _use_many_class: bool = False
 
+    def fit(self, **kwargs):
+        # AutoGluon's resource preprocessing can replace an explicit zero with
+        # this class's GPU preference. Keep CPU requests authoritative.
+        self._fit_num_gpus_requested = kwargs.get("num_gpus")
+        try:
+            return super().fit(**kwargs)
+        finally:
+            self.__dict__.pop("_fit_num_gpus_requested", None)
+
     def _fit(
         self,
         X: pd.DataFrame,
@@ -143,6 +161,9 @@ class LightPFNModel(AbstractTorchModel):
         from lightpfn import LightPFNClassifier, LightPFNRegressor
         from lightpfn.device import resolve_device
 
+        if getattr(self, "_fit_num_gpus_requested", None) == 0:
+            num_gpus = 0
+        self.__dict__.pop("_uncached_context", None)  # legacy saved wrappers
         params = self._get_model_params()
         self.__dict__.pop("_cuda_precision", None)
         local = os.environ.get("LIGHTPFN_WEIGHTS_DIR")
@@ -156,6 +177,8 @@ class LightPFNModel(AbstractTorchModel):
             if requested not in (None, "auto")
             else self._resolve_fit_device(num_gpus=num_gpus)
         )
+        if str(device).startswith("cuda") and num_gpus <= 0:
+            raise ValueError("An explicit CUDA device requires num_gpus > 0.")
         self.device = device
         self._inference_threads = num_cpus
         previous_threads = torch.get_num_threads()
@@ -164,7 +187,6 @@ class LightPFNModel(AbstractTorchModel):
             # the library's n_threads would set the process-wide thread count; set it here and restore it
             torch.set_num_threads(num_cpus)
             params.update(device=device, n_threads=None)
-            self._uncached_context = None
             X = self.preprocess(X)
             many_class_threshold = self.params_aux.get("many_class_threshold", 10)
             self._use_many_class = (
@@ -173,8 +195,10 @@ class LightPFNModel(AbstractTorchModel):
                 and self.num_classes > many_class_threshold
             )
             if self.problem_type == REGRESSION:
-                params.pop("cache_context", None)  # the regression API always caches its encoded context
                 self.model = LightPFNRegressor(**params).fit(X, y)
+                engine = self.model.regressor_
+                self.model._tabarena_uncached_context = _context_storage(engine._uncached_data, tensors=True)
+                engine._uncached_data = None
             elif self._use_many_class:
                 ManyClassClassifier = import_many_class_classifier()
 
@@ -190,8 +214,20 @@ class LightPFNModel(AbstractTorchModel):
             else:
                 self.model = LightPFNClassifier(**params)
                 self.model.fit(X, y)
-                self._uncached_context = _context_storage(self.model._uncached_data, tensors=True)
+                _check_released_classifier(self.model, params)
+                self.model._tabarena_uncached_context = _context_storage(self.model._uncached_data, tensors=True)
                 self.model._uncached_data = None
+            if not self._use_many_class and str(device).startswith("cuda"):
+                from lightpfn.precision import _FP16_VIEWS, shared_fp16_view
+                from lightpfn.sklearn import _fast_fp16
+
+                # The dummy warm-up fit is smaller than the fp16 threshold. Prepare the
+                # shared projection view there, before the first real fold is timed.
+                engine = getattr(self.model, "regressor_", self.model)
+                if params.get("precision", "auto") != "fp32" and _fast_fp16(device):
+                    net = engine.model if self.problem_type == REGRESSION else engine.fit_net_
+                    if engine.precision_ == "fp32" and net not in _FP16_VIEWS:
+                        shared_fp16_view(net)
         finally:
             torch.random.set_rng_state(previous_rng)
             torch.set_num_threads(previous_threads)
@@ -202,9 +238,15 @@ class LightPFNModel(AbstractTorchModel):
         previous_threads = torch.get_num_threads()
         try:
             torch.set_num_threads(self._inference_threads)
-            context = getattr(self, "_uncached_context", None)
+            # Tensor sidecars of old saved wrappers use the wrapper attribute's
+            # path. Migrate after loading has restored those paths, on first use.
+            legacy = self.__dict__.pop("_uncached_context", None)
+            if legacy is not None and getattr(self.model, "_tabarena_uncached_context", None) is None:
+                self.model._tabarena_uncached_context = legacy
+            context = getattr(self.model, "_tabarena_uncached_context", None)
+            engine = getattr(self.model, "regressor_", self.model)
             if context is not None:
-                self.model._uncached_data = _context_storage(context, tensors=False)
+                engine._uncached_data = _context_storage(context, tensors=False)
             if self.problem_type != REGRESSION:
                 proba = self.model.predict_proba(self.preprocess(X, **kwargs))
                 ordered = np.zeros((len(X), self.num_classes), dtype=proba.dtype)
@@ -212,8 +254,8 @@ class LightPFNModel(AbstractTorchModel):
                 return self._convert_proba_to_unified_form(ordered)
             return super()._predict_proba(X, **kwargs)
         finally:
-            if getattr(self, "_uncached_context", None) is not None:
-                self.model._uncached_data = None
+            if getattr(self.model, "_tabarena_uncached_context", None) is not None:
+                getattr(self.model, "regressor_", self.model)._uncached_data = None
             torch.set_num_threads(previous_threads)
 
     def _clear_fp16_views(self):

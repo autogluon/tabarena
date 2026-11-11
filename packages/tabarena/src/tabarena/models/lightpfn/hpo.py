@@ -7,7 +7,7 @@ from tabarena.utils.config_utils import ConfigGenerator
 # One released checkpoint per task and no tunable training: the default configuration only (four classification or
 # two regression members).
 def default_config() -> dict:
-    """Keep encoded classification contexts only in the refit model; regression always encodes its context in fit."""
+    """Keep encoded contexts only in the refit model; fold models encode at their single out-of-fold prediction."""
     return {"cache_context": False, "ag.refit_hyperparameters": {"cache_context": True}}
 
 
