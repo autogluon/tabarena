@@ -117,3 +117,16 @@ def test_collapse_tuning_variants_keeps_lone_tuned():
     assert "TabPFN-3 (T+E)" in collapsed.index
     assert "TabPFN-3 (default)" not in collapsed.index
     assert "TabPFN-3 (tuned)" not in collapsed.index
+
+
+def test_generate_composite_leaderboard_writes_its_explorer(tmp_path):
+    generate_composite_leaderboard(
+        {"all": _leaderboard(2), "binary": _leaderboard(3)}, output_dir=tmp_path, save_png=False
+    )
+    page = tmp_path / "composite_leaderboard_explorer.html"
+    assert page.is_file()
+    assert '"subsets": ["all", "binary"]' in page.read_text(encoding="utf-8")
+    generate_composite_leaderboard(
+        {"all": _leaderboard(2)}, output_dir=tmp_path / "off", save_png=False, save_explorer=False
+    )
+    assert not (tmp_path / "off" / "composite_leaderboard_explorer.html").exists()
