@@ -326,6 +326,31 @@ def test_model_under_audit_returns_class_columns():
     assert set(map(str, pred.columns)) == {str(v) for v in multiclass.y_train}
 
 
+class _NoStringsModel(_HonestModel):
+    """Rejects object columns, as a wrapper that relies on AutoGluon's category dtype does (TabDPT)."""
+
+    ag_key = "_AUDIT_NO_STRINGS"
+    ag_name = "_AuditNoStrings"
+
+    def _fit(self, X, y, **kwargs):
+        assert not any(pd.api.types.is_object_dtype(X[c]) for c in X.columns), "object column reached the model"
+        super()._fit(X, y, **kwargs)
+
+
+def test_string_columns_reach_the_model_as_categories():
+    data = _synthetic("s", "binary", 1, n_samples=300)
+    data.X_train = data.X_train.assign(cat=data.X_train["cat"].astype(str))
+    data.X_test = data.X_test.assign(cat=data.X_test["cat"].astype(str))
+    X_test = data.X_test.copy()
+    X_test.loc[X_test.index[0], "cat"] = "never-seen"
+    mua = ModelUnderAudit(_NoStringsModel, num_gpus=0)
+    fitted, pred = mua.fit_predict(data, data.X_train, data.y_train, X_test, probe="base")
+    assert list(fitted.categories) == ["cat"]
+    assert len(pred) == len(X_test)
+    assert error_of(data, pred) < 0.3
+    fitted.cleanup()
+
+
 def test_honest_model_passes_every_dataset():
     results = audit_contamination(_HonestModel, datasets=_five_datasets(), checks=("order",), num_gpus=0, seed=3)
     order = _by_check(results, "order")

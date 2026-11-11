@@ -200,11 +200,14 @@ VERSIONED_PACKAGES = (
 # --------------------------------------------------------------------------------------------------
 @dataclass
 class FittedModel:
-    """A fitted AutoGluon model with the label cleaner that maps its probabilities back to the classes."""
+    """A fitted AutoGluon model with the label cleaner that maps its probabilities back to the classes and the
+    categories its string columns were cast to.
+    """
 
     model: Any
     label_cleaner: Any
     workdir: str
+    categories: dict = field(default_factory=dict)
 
     def cleanup(self) -> None:
         """Drop the model and its directory, and give the GPU memory back (a second call is a no-op)."""
@@ -255,6 +258,7 @@ class ModelUnderAudit:
         from autogluon.core.data.label_cleaner import LabelCleaner
         from autogluon.core.metrics import get_metric
 
+        X_train, categories = categorical_frame(X_train)
         cleaner = None
         if data.problem_type == "regression":
             y_fit = y_train.astype(float)
@@ -287,15 +291,16 @@ class ModelUnderAudit:
             )
             raise
         self.calls.append({**entry, "wall_s": time.monotonic() - start})
-        fitted = FittedModel(model=model, label_cleaner=cleaner, workdir=workdir)
+        fitted = FittedModel(model=model, label_cleaner=cleaner, workdir=workdir, categories=categories)
         self.fitted.append(fitted)
         return fitted
 
     def predict(self, fitted: FittedModel, data: ProbeData, X: pd.DataFrame, *, probe: str) -> Any:
         """Class probabilities as a frame with the original class labels as columns; values for regression."""
+        X, _ = categorical_frame(X, fitted.categories)
         if data.problem_type == "regression":
-            return np.asarray(fitted.model.predict(X.copy()), dtype=float).reshape(-1)
-        proba = np.asarray(fitted.model.predict_proba(X.copy()), dtype=float)
+            return np.asarray(fitted.model.predict(X), dtype=float).reshape(-1)
+        proba = np.asarray(fitted.model.predict_proba(X), dtype=float)
         cleaner = fitted.label_cleaner
         if data.problem_type == "binary":
             negative, positive = cleaner.ordered_class_labels
@@ -308,6 +313,23 @@ class ModelUnderAudit:
         """Fit and predict, returning ``(fitted_model, test_prediction)`` like ``SystemUnderAudit``."""
         fitted = self.fit(data, X_train, y_train, probe=probe)
         return fitted, self.predict(fitted, data, X_test, probe=probe)
+
+
+def categorical_frame(X: pd.DataFrame, categories: dict | None = None) -> tuple[pd.DataFrame, dict]:
+    """``X`` with its object and string columns as ``category`` (the dtype AutoGluon's feature generator hands a
+    model in a benchmark run), on ``categories`` when given (the training categories; unseen values become
+    missing), else on the column's own values. The column order is untouched.
+    """
+    X = X.copy()
+    out: dict = {}
+    for col in X.columns:
+        if categories is not None and col in categories:
+            X[col] = pd.Categorical(X[col], categories=categories[col])
+            out[col] = categories[col]
+        elif categories is None and (pd.api.types.is_object_dtype(X[col]) or pd.api.types.is_string_dtype(X[col])):
+            X[col] = X[col].astype("category")
+            out[col] = X[col].cat.categories
+    return X, out
 
 
 def resolve_model(method: str):
