@@ -236,13 +236,14 @@ class LimiX2Model(AbstractTorchModel):
     The inference package is not on PyPI and pins ``torch==2.9.1``, so install it without its
     dependency tree next to the torch already present (it needs ``nvtx`` on top)::
 
-        pip install --no-deps "LimiX @ git+https://github.com/limix-ldm-ai/LimiX.git@774aa3e1a994cbe38f33758e3d663e9951855554"
+        pip install --no-deps "LimiX @ git+https://github.com/limix-ldm-ai/LimiX.git@8f038782508bda6bf507cca3dc328c09a4c5a1b2"
         pip install nvtx
 
     Hyperparameters: ``n_estimators`` keeps the first members of the packaged config (``None``, the
     default, keeps all), ``inference_config`` replaces the packaged config with a dict of the same
     shape, ``model_path`` points at another checkpoint, and every other key is forwarded to
     ``LimiXPredictor`` (``seed``, ``softmax_temperature``, ``test_batch_size``, ``deterministic``, ...).
+    ``softmax_temperature`` defaults to 1.0 on regression and 0.9 otherwise.
 
     The checkpoint's classification head is fixed-width (``many_class_threshold``, 10 classes); above
     that, ``_fit`` wraps a :class:`_LimiX2SklearnWrapper` in
@@ -332,6 +333,9 @@ class LimiX2Model(AbstractTorchModel):
         n_estimators = hps.pop("n_estimators", None)
         if n_estimators is not None:
             inference_config = {**inference_config, "pipelines": inference_config["pipelines"][:n_estimators]}
+        # Default softmax temperature to 1.0 on regression and 0.9 (default for classification) otherwise.
+        if self.problem_type == "regression":
+            hps.setdefault("softmax_temperature", 1.0)
 
         self._X_train = self.preprocess(X)
         self._y_train = y.to_numpy()

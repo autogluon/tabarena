@@ -45,7 +45,7 @@ limix_2_info = ModelInfo(
     # Keep in sync with the `limix_2` extra in pyproject.toml, which is installed with `--no-deps`
     # (the package pins torch==2.9.1); see the wrapper docstring.
     pip_extra=(
-        "LimiX @ git+https://github.com/limix-ldm-ai/LimiX.git@774aa3e1a994cbe38f33758e3d663e9951855554",
+        "LimiX @ git+https://github.com/limix-ldm-ai/LimiX.git@8f038782508bda6bf507cca3dc328c09a4c5a1b2",
         "nvtx",
     ),
     prefetch_weights=LimiX2Model.prefetch_weights,
