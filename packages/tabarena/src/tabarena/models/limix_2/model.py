@@ -24,11 +24,12 @@ from tabarena.utils.wrapper_utils import (
 
 logger = logging.getLogger(__name__)
 
-_HF_REPO = "stable-ai/LimiX-2"
-_HF_FILENAME = "LimiX-2.ckpt"
+_HF_REPO = "stable-ai/LimiX-2-1016"
+_HF_FILENAME = "LimiX-2-1016.ckpt"
 #: Commit pinned so the checkpoint fetched here never silently changes if the repo's default branch
 #: moves. Bump deliberately (with a note on what changed) when picking up a newer checkpoint.
-_HF_REVISION = "20c07a07801973a0aec57c31062bdb2ea1cda2b2"
+#: LimiX-2-1016.ckpt on stable-ai/LimiX-2-1016, commit "Upload 2 files" (2026-11-11).
+_HF_REVISION = "bbbf26c5316c6f2f7a994063447ab3deaedc8ec5"
 #: The release's no-retrieval inference configs, one per task type, packaged in the LimiX
 #: distribution's top-level ``config`` package.
 _DEFAULT_CONFIGS = {
@@ -231,7 +232,8 @@ class LimiX2Model(AbstractTorchModel):
     Paper: LimiX-2: A Large Foundation Model for Structured Data (LimiX Team, Stable AI, 2026),
     https://arxiv.org/abs/2609.17488
     Codebase: https://github.com/limix-ldm-ai/LimiX (Stable AI Technology Co., Ltd. License, Version 1.0)
-    Weights: https://huggingface.co/stable-ai/LimiX-2 (StableAI LimiX Non-Commercial License v1.0)
+    Weights: https://huggingface.co/stable-ai/LimiX-2-1016 (LimiX-2-1016.ckpt,
+    StableAI LimiX Non-Commercial License v1.0)
 
     The inference package is not on PyPI and pins ``torch==2.9.1``, so install it without its
     dependency tree next to the torch already present (it needs ``nvtx`` on top)::
@@ -471,7 +473,7 @@ class LimiX2Model(AbstractTorchModel):
 
     @classmethod
     def prefetch_weights(cls) -> str:
-        """Resolve the pinned ``LimiX-2.ckpt`` to a local path: the Hugging Face cache first (no
+        """Resolve the pinned ``LimiX-2-1016.ckpt`` to a local path: the Hugging Face cache first (no
         network round trip on an offline node), a download otherwise.
         """
         from huggingface_hub import hf_hub_download
