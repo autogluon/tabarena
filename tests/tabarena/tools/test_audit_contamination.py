@@ -32,6 +32,7 @@ from tabarena.tools.audit_contamination import (
     group_probe_data,
     infer_problem_type,
     leakage_tuple,
+    load_dataset_splits,
     log_ratio,
     main,
     make_synthetic_split,
@@ -492,6 +493,26 @@ def test_dataset_verdicts_and_leakage_tuple():
     verdicts = {r.dataset: r.verdict for r in dataset_verdicts(rows)}
     assert verdicts == {"a": FAIL, "b": WARN, "c": WARN, "d": PASS, "e": SKIP, "f": FAIL}
     assert leakage_tuple(rows + dataset_verdicts(rows)) == ("a", "f")
+
+
+def test_csv_spec_loads_string_columns_and_every_split(tmp_path):
+    rng = np.random.default_rng(0)
+    frame = pd.DataFrame({"x0": rng.normal(size=120), "x1": rng.normal(size=120)})
+    frame["color"] = rng.choice(["red", "green", "blue"], size=120)
+    frame["label"] = np.where(frame["x0"] > 0, "yes", "no")
+    path = tmp_path / "tiny.csv"
+    frame.to_csv(path, index=False)
+    group = load_dataset_splits(f"csv:{path}:label", splits="all", seed=1, max_train_rows=None, max_test_rows=None)
+    assert group.problem_type == "binary"
+    assert group.spec == f"csv:{path}:label"
+    assert group.split_indices == list(range(9))
+    first = group.splits[0]
+    assert list(first.X_train.columns) == ["x0", "x1", "color"]
+    assert len(first.X_train) + len(first.X_test) == 120
+    assert set(first.y_test.astype(str)) <= {"yes", "no"}
+    one = load_dataset_splits(f"csv:{path}:label", splits=[4], seed=1)
+    assert one.split_indices == [4]
+    pd.testing.assert_index_equal(one.splits[0].X_test.index, group.splits[4].X_test.index)
 
 
 def test_group_probe_data_groups_splits_by_name():

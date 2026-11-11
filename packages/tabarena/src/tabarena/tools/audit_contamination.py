@@ -516,6 +516,12 @@ def _user_task(frame: pd.DataFrame, *, target: str, name: str, problem_type: str
     from tabarena.benchmark.task.user_task import UserTask, from_sklearn_splits_to_user_task_splits
 
     frame = frame.reset_index(drop=True)
+    # The task metadata rejects object columns; strings (the target included) become categories.
+    objects = [
+        c for c in frame.columns if pd.api.types.is_object_dtype(frame[c]) or pd.api.types.is_string_dtype(frame[c])
+    ]
+    if objects:
+        frame = frame.astype(dict.fromkeys(objects, "category"))
     y = frame[target]
     if problem_type == "regression":
         splitter = RepeatedKFold(n_splits=3, n_repeats=3, random_state=seed)
