@@ -459,7 +459,9 @@ __BASE_JS__
   // The two boards that leave A and B out of each other's: A with the field without B, B with the field without A,
   // and each dataset's win totals on both (the field's, less the wins against the left-out method). Shown beside the
   // leaderboard's gap only: when A and B are often first and second, leaving the other out makes both first and
-  // drops exactly the games that separate them.
+  // drops exactly the games that separate them. The two boards are compared on the fits' own scale, before any
+  // centring or calibration shift: the calibration method's place differs between a board with A and one with B,
+  // so pinning both to it at 1000 would move the gap by how differently A and B do against it.
   function boardsFor(datasets, ma = state.a, mb = state.b) {
     const a = ELO_POS.get(ma), b = ELO_POS.get(mb);
     if (a === undefined || b === undefined || a === b) return null;
@@ -469,26 +471,11 @@ __BASE_JS__
       const full = ELO_WINS[d], vsA = winsAgainst(d, a), vsB = winsAgainst(d, b);
       return { a: boardA.map(k => full[k] - vsB[k]), b: boardB.map(k => full[k] - vsA[k]) };
     });
-    // The methods on both boards, by their place on each, and the anchor's place on each (-1 if missing).
-    const shared = [...Array(n).keys()].filter(k => k !== a && k !== b);
-    const anchor = ELO.calibration != null ? ELO_POS.get(ELO.calibration) : undefined;
-    return {
-      a: a, b: b, n: n, boardA: boardA, boardB: boardB, perDataset: perDataset,
-      sharedA: shared.map(k => boardA.indexOf(k)), sharedB: shared.map(k => boardB.indexOf(k)),
-      anchorA: anchor === undefined ? -1 : boardA.indexOf(anchor), anchorB: anchor === undefined ? -1 : boardB.indexOf(anchor),
-    };
+    return { a: a, b: b, n: n, boardA: boardA, boardB: boardB, perDataset: perDataset };
   }
-  // Put both boards on one scale. With the anchor on both, each is already pinned to it, as on the leaderboard. When
-  // the anchor is A or B itself, the board without it is shifted so that both boards give the methods they share the
-  // same average rating (without an anchor, A's board is shifted to agree with B's).
-  function alignBoards(bd, ra, rb) {
-    if (bd.anchorA >= 0 && bd.anchorB >= 0) return;
-    const mean = (r, idx) => idx.reduce((sum, i) => sum + r[i], 0) / (idx.length || 1);
-    const gap = mean(ra, bd.sharedA) - mean(rb, bd.sharedB);
-    if (bd.anchorA >= 0) { for (let i = 0; i < rb.length; i++) rb[i] += gap; }
-    else { for (let i = 0; i < ra.length; i++) ra[i] -= gap; }
-  }
-  // Both boards fitted with each dataset counted `counts[i]` times (once each without counts).
+  // Both boards fitted with each dataset counted `counts[i]` times (once each without counts). A's and B's ratings
+  // are the raw log-strengths on the Elo scale (400 / ln 10 per unit, around 1000): each board's ridge-penalised fit
+  // has strengths summing to zero, and neither is centred again nor shifted to the calibration method.
   function fitBoards(bd, counts, initA, initB) {
     const m = bd.n - 1;
     const wa = new Float64Array(m), wb = new Float64Array(m);
@@ -500,9 +487,8 @@ __BASE_JS__
       for (let k = 0; k < m; k++) { wa[k] += c * w.a[k]; wb[k] += c * w.b[k]; }
     });
     const ta = bradleyTerry(wa, tasks, initA), tb = bradleyTerry(wb, tasks, initB);
-    const ra = ratings(ta, bd.boardA), rb = ratings(tb, bd.boardB);
-    alignBoards(bd, ra, rb);
-    return { ta: ta, tb: tb, eloA: ra[bd.boardA.indexOf(bd.a)], eloB: rb[bd.boardB.indexOf(bd.b)] };
+    const raw = v => 1000 + 400 * v / Math.LN10;
+    return { ta: ta, tb: tb, eloA: raw(ta[bd.boardA.indexOf(bd.a)]), eloB: raw(tb[bd.boardB.indexOf(bd.b)]) };
   }
   function gapSummary(point, gaps, datasets) {
     gaps.sort();
@@ -907,7 +893,8 @@ __BASE_JS__
         "board, so A's rating is the same whoever B is (imputed results included, as on the leaderboard). " +
         `The interval is the gap's 2.5th to 97.5th percentile over ${ELO ? ELO.resamples : 0} ` +
         "resamples of the datasets. \"Excl. each other\" fits A against the field without B and B against the field " +
-        "without A on the same resamples, which leaves out their games against each other.";
+        "without A on the same resamples, which leaves out their games against each other, and compares the two fits " +
+        "before any centring or calibration shift.";
       if (!res) {
         el.querySelector(".hh-tvalue").textContent = "\u2014";
         el.querySelector(".hh-tsub").textContent = !ELO ? "no Elo field in this page" :
@@ -921,8 +908,7 @@ __BASE_JS__
         `95% [${fmtSigned(res.lo, 1)}, ${fmtSigned(res.hi, 1)}] \u00b7 A ${res.eloA.toFixed(1)}, B ${res.eloB.toFixed(1)}`;
       document.getElementById("elo-excl").textContent = ex ? `Excl. each other: ${fmtSigned(ex.gap, 1)}` : "";
       el.title += `\n\nA above B in ${(res.above * 100).toFixed(1)}% of the resamples, over ${res.datasets} datasets.` +
-        (ex ? ` Excluding each other: ${fmtSigned(ex.gap, 1)}, 95% [${fmtSigned(ex.lo, 1)}, ${fmtSigned(ex.hi, 1)}]; ` +
-          `A ${ex.eloA.toFixed(1)} without B, B ${ex.eloB.toFixed(1)} without A.` : "");
+        (ex ? ` Excluding each other: ${fmtSigned(ex.gap, 1)}, 95% [${fmtSigned(ex.lo, 1)}, ${fmtSigned(ex.hi, 1)}].` : "");
       postHeight();
       // Then each dataset's pull on that gap, for the list's column and the selected dataset.
       setTimeout(() => {

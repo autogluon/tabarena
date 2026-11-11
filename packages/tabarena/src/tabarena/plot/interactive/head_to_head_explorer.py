@@ -11,7 +11,8 @@ errors embedded here: the per-dataset significance (a two-sided Wilcoxon signed-
 dataset's paired splits, exact for up to 50 non-zero differences), and the leaderboard's Elo over
 the datasets in view, both on one board with the whole field as on the leaderboard (:func:`elo_grid`),
 as a gap with a dataset-bootstrap interval and each dataset's pull on it. Beside it the page shows the
-gap with A and B left out of each other's boards, which drops their games against each other.
+gap with A and B left out of each other's boards, which drops their games against each other; those two
+fits are compared before any centring or calibration shift.
 The page also has the gap for every subset of the datasets, A against every other method, and the
 dataset's task metadata. Built from the per-split results the compare pass already wrote, like the
 per-dataset browser, with every error rounded at its dataset's scale
