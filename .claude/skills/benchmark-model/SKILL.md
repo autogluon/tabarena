@@ -175,6 +175,27 @@ single 20% hold-out split"), but read the code, because a library can do it with
 so. Early stopping on `X_val` is fine, and so is an in-context model that ignores `X_val`.
 EXAONE-Tabular's regression hold-out was accepted by oversight and is no precedent.
 
+The second check is transductive prediction. A test row's prediction may depend only on the training
+data and that row, so read the library's predict path for test rows that attend to each other,
+statistics or transforms fit on the rows being predicted, and test-time training on the unlabeled
+test rows (add-model's `references/model_patterns.md` → "The `_fit` contract", item 6, which also
+gives the reasons and the quieter forms inside the network). Run
+`python -P -m tabarena.tools.audit_transduction --model <Method>` in the run venv on the CPU next to
+the reviewers: it predicts probe rows alone, in batches of other sizes, next to decoy rows and after a
+duplicate of themselves, and a `FAIL` names the kind of cause. A library with a transductive mode is
+wrapped in its inductive one; one without an inductive mode stops the run until its authors add one
+(autogluon/tabarena#720). A pin bump that claims a fix gets the same tool and the full review again:
+LimiX `977c3de` fixed its preprocessing and still failed three probes through paths outside the diff.
+
+For a checkpoint whose training data is not purely synthetic, or one that replaces a checkpoint
+with a `leakage_evidence` entry, run `python -P -m tabarena.tools.audit_contamination --model <Method>`
+(autogluon/tabarena#723) before the run: its verdict decides whether the new entry keeps the
+leakage warning. The full sweep fits every TabArena dataset in several column orders; on a GPU model,
+spread it over a few workers of a small SkyPilot pool built from the run's staged environment (a copy
+of the run's pool YAML with its own name and `workers: 4`, one job per shard, the tool's data written
+to the bucket first because the workers have no OpenML access), with a watcher that takes the pool
+down when the jobs end.
+
 ## Step 2: Resolve the run venv and install the model's extra
 
 The jobs import the code checked out **here**, so `PYTHON_PATH` must be a venv whose `tabarena`

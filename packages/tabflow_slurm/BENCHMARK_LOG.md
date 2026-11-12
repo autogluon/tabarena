@@ -34,6 +34,143 @@ run against `main`. To reproduce an entry, check out its recorded **git SHA**.
 
 ---
 
+## 2026-11-11 — lightpfn151_11112026
+
+- **Model(s):** LightPFN 1.5.1 (default config only) on all 816 TabArena-v0.1 splits, 816 items
+- **Git SHA:** `a90db4b0` on `pr-719-lightpfn-1.5`: the PR head `ae3c4594` (lightpfn 1.5.1, by the author) plus
+  `d4ed3867` (drops the 1.5.0 run from the collection) and `a90db4b0` (comments and docstring only), clean. AutoGluon
+  1.6.4b20261110 from PyPI.
+- **Validation protocol:** `8x1`
+- **Purpose:** Rerun after the author's lightpfn 1.5.1 release with the review fixes, which replaces the 1.5.0 run
+  `lightpfn15t214_10112026`:
+  - one-pass out-of-fold encode-and-predict for fold models, now also for regression;
+  - the attention-scale MLP as 2D GEMMs on the GPU;
+  - no silent fallback to the root 1.1 weights;
+  - `LightPFNRegressor.to()` updates the fit device;
+  - the fold inputs moved onto the estimator.
+- **Notes:** SkyPilot pool `lightpfn151-1111` (32 spot RTX PRO 6000 workers, `g4-standard-48`, env `27a415f11462`),
+  one item per bundle, `fake_memory_for_estimates=96`. Venv `~/.venvs/tabarena_lightpfn151_11112026`: lightpfn 1.5.1,
+  tabpfn-extensions 0.6.3 and PyPI torch 2.14.1 (CUDA 13.0 build), as for the 1.5.0 run.
+  - Review of the 1.5.0-to-1.5.1 diff (three lenses) before the launch: no blocker. The one-pass path reads only the
+    training rows for the column statistics, the categorical tables, the inducing points and the ICL keys and values.
+    A CPU check that forced it matched the cached path exactly, and the other out-of-fold rows had no effect.
+  - Model tests passed (25, 2 GPU-only skipped). `audit_pickle` and `audit_warmup` were clean for all three problem
+    types.
+  - Workers READY by 09:04 UTC, last item 09:16. 816 of 816 items, no failures, no recoveries. `audit_warmup
+    --results` reports warm-up ok on all 816 items and no packages imported inside the timed fit or predict.
+  - Against the 1.5.0 run on the same splits, the errors moved by fp16 rounding only (median relative change 2e-5,
+    largest 1.5e-3). The median per-split train time is 0.77x that of 1.5.0 (0.76x for classification, 0.86x for
+    regression). Inference is unchanged overall; regression inference is 1.17x at the median.
+- **Result:**
+  - Full: #36 of 117, Elo 1426 (+48/-56), nothing imputed.
+  - Binary: #35 of 115, Elo 1443.
+  - Multiclass: #29 of 115, Elo 1550.
+  - Regression: #53 of 112, Elo 1417.
+  - Median 0.235 s train and 0.019 s inference per 1K rows. LightPFN 1.5.1 is on both full-set Pareto fronts and on
+    the regression Elo-against-inference front.
+- **Upload:** processed and uploaded as suite `tabarena-2026-11-11` (`lightpfn_method_metadata` in
+  `models/lightpfn/info.py`), `verified=True` after the maintainer's sign-off (the hosted `metadata.yaml`
+  re-uploaded alone; the results tables are unchanged). The 1.0.0 run stays hosted as
+  `lightpfn_1p0_method_metadata` (suite `tabarena-2026-10-09`) in `methods_superseded`.
+
+```python
+TabArenaV0pt1BenchmarkPlan(
+    benchmark_name="lightpfn151_11112026",
+    model_jobs=[
+        ModelJob(
+            models=("LightPFN", 0),
+            name="gpu",
+            resources={"num_gpus": 1, "fake_memory_for_estimates": 96},
+        ),
+    ],
+    task_subset=TaskSubset(),
+    path_setup=PathSetup(
+        workspace="/home/lennart_priorlabs_ai/workspace/benchmarking/tabarena_workspace",
+        python_path="/home/lennart_priorlabs_ai/.venvs/tabarena_lightpfn151_11112026/bin/python",
+    ),
+    experiment_bundle=TabArenaV0pt1ExperimentBundle(model_verbosity=2),
+    resources_setup=TabArenaV0pt1ResourcesSetup(num_cpus=None, memory_limit=None),
+    scheduler_setup=SkyPilotSetup(bundle_size=1, workers=32, use_pool=True, pool_name="lightpfn151-1111"),
+).setup_jobs()
+```
+
+---
+
+## 2026-11-10 — lightpfn15t214_10112026
+
+- **Model(s):** LightPFN 1.5 (default config only) on all 816 TabArena-v0.1 splits (38 classification and 13
+  regression datasets), 816 items
+- **Git SHA:** `c82b4dad` (PR #719 head, `update-lightpfn-1.5`, checked out as `pr-719-lightpfn-1.5`), clean; archive
+  `tabarena-edit-copy-c82b4dad`. AutoGluon 1.6.4b20261110 from PyPI.
+- **Validation protocol:** `8x1`
+- **Purpose:** Stage-2 maintainer run of the PR #719 update (`lightpfn==1.5.0`, weights `ueuegio/LightPFN@00a2536c`:
+  a new classifier with a categorical adapter and a new quantile regressor), so it replaces the classification-only
+  1.0.0 entry (`lightpfn_09102026`).
+- **Notes:** SkyPilot pool `lightpfn15b-1011` (32 spot RTX PRO 6000 workers, `g4-standard-48`, env `62d7e11b6ef8`),
+  one item per bundle, `fake_memory_for_estimates=96`. Venv `~/.venvs/tabarena_lightpfn15_t214_10112026`: lightpfn
+  1.5.0, tabpfn-extensions 0.6.3 and PyPI torch 2.14.1 (the CUDA 13.0 build, cuBLAS 13.1.1.3), pinned on purpose:
+  - A first launch, `lightpfn15_10112026` (venv `~/.venvs/tabarena_lightpfn_10112026`, torch 2.15.0+cu132 with
+    cuBLAS 13.4.1.3, env `a68d7393baf7`, pool `lightpfn15-1011`, 11:24-11:36 UTC), finished 803 of 816 items. The
+    other 13 were anneal splits (13 of its 30), each with `CUBLAS_STATUS_INTERNAL_ERROR` in an fp16
+    `cublasGemmStridedBatchedEx` and then a CUDA illegal memory access. The failing GEMM is the `nn.Linear` of
+    LightPFN's attention scaling (`self.mod(q)`, `lightpfn/model/layers.py:129`), reached on the fold models' first
+    OOF predict.
+  - A debug job on a one-worker pool (`CUDA_LAUNCH_BLOCKING=1` for the trace) settled the cause. Per failing split,
+    fp16 on torch 2.15.0+cu132 failed every time (10 of 10), and `precision="fp32"` passed. Torch 2.14.1+cu130, the
+    torch of the 1.0.0 run, passed fp16 on the same splits (10 of 10). The workers' driver is 580.178 (CUDA 13.0).
+  - The maintainer chose a full rerun on torch 2.14.1 under a new benchmark name. The rerun keeps one environment
+    for every result and leaves nothing that a failed cuBLAS call could have corrupted.
+  - Rerun: workers READY by 14:04 UTC, last item 14:16. 816 of 816 items, no failures, no recoveries.
+    `audit_warmup --results` reports warm-up ok on all 816 items and no packages imported inside the timed fit or
+    predict.
+  - The first launch's 803 results stay in its own bucket prefix and are not hosted.
+  - Side finding: `sky_worker` runs `python -m ray stop --force` after a failed item. On a SkyPilot worker that can
+    also stop the Ray that SkyPilot runs the job on: three of the first launch's 32 worker jobs were recovered once,
+    and a debug script that did the same restarted on every failure.
+- **Review:** Three-lens review before the launch (leakage, protocol, data path) found no blocker. Findings for the
+  PR:
+  - the fold inputs stay on the wrapper (host RAM during the refit);
+  - `LightPFNRegressor.to()` does not update `fit_device_`;
+  - a silent fallback to the root 1.1 classifier;
+  - the paper's use of TabArena split 0 in development.
+  On split 0, LightPFN 1.5's percentile rank differs from its other splits by +0.003 overall and +0.011 on
+  regression, inside the spread of the controls (-0.013 to +0.014), so there is no selection effect.
+  `audit_pickle` and `audit_warmup` were clean for all three problem types.
+- **Result:**
+  - Full: #36 of 117, Elo 1426 (+49/-56), nothing imputed. The hosted 1.0.0 entry is #59 (1329, 25.5% imputed).
+  - Binary: #35 of 115, Elo 1443 (1.0.0: 1415).
+  - Multiclass: #29 of 115, Elo 1550 (1.0.0: 1541).
+  - Regression: #53 of 112, Elo 1417.
+  - Median 0.29 s train and 0.019 s inference per 1K rows. LightPFN 1.5 is on both full-set Pareto fronts and on
+    the regression Elo-against-inference front.
+- **Upload:** processed and uploaded as suite `tabarena-2026-11-10` and marked verified on 2026-11-10. On 2026-11-11
+  the author released lightpfn 1.5.1 with the review fixes, which changes the fp16 predictions and the timings, so the
+  suite was deleted from r2 and its registration removed; the 1.5.1 rerun replaces it. The collection keeps the 1.0.0
+  run (`lightpfn_1p0_method_metadata`, suite `tabarena-2026-10-09`) until then.
+
+```python
+TabArenaV0pt1BenchmarkPlan(
+    benchmark_name="lightpfn15t214_10112026",
+    model_jobs=[
+        ModelJob(
+            models=("LightPFN", 0),
+            name="gpu",
+            resources={"num_gpus": 1, "fake_memory_for_estimates": 96},
+        ),
+    ],
+    task_subset=TaskSubset(),
+    path_setup=PathSetup(
+        workspace="/home/lennart_priorlabs_ai/workspace/benchmarking/tabarena_workspace",
+        python_path="/home/lennart_priorlabs_ai/.venvs/tabarena_lightpfn15_t214_10112026/bin/python",
+    ),
+    experiment_bundle=TabArenaV0pt1ExperimentBundle(model_verbosity=2),
+    resources_setup=TabArenaV0pt1ResourcesSetup(num_cpus=None, memory_limit=None),
+    scheduler_setup=SkyPilotSetup(bundle_size=1, workers=32, use_pool=True, pool_name="lightpfn15b-1011"),
+).setup_jobs()
+```
+
+---
+
 ## 2026-11-09 — beyondarena_seldon_09112026
 
 - **Model(s):** Seldon and Seldon-Mini (default config only), the 2,000 splits of the BeyondArena `core2k` protocol at

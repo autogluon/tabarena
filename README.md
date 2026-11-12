@@ -107,6 +107,32 @@ system.
 </details>
 
 <details>
+<summary><b>🔒 Inductive predictions only</b> — why a test row may not see the other test rows</summary>
+
+TabArena evaluates inductive learning. A test row's prediction may use the training data and that
+row, and nothing else: the same row predicted alone, inside the full test set or in batches of any
+size gets the same prediction, up to floating-point rounding. Test rows that attend to each other,
+statistics or transforms fit on the rows being predicted, and test-time training on the unlabeled
+test rows are transductive and not accepted. A library with a transductive mode is integrated in its
+inductive one; the [`add-model` guide](.claude/skills/add-model/references/model_patterns.md) ("The
+`_fit` contract") lists what to look for. Why we require it:
+
+- **Fairness across methods.** A method that uses the test data at prediction time gains an advantage
+  over the methods and baselines that predict purely inductively, and the comparison no longer
+  reflects the models' quality.
+- **Representativeness.** A transductive setup here gives the model the *entire* test set at once
+  rather than a batch. Outside of Kaggle-style competitions this rarely matches real-world inference,
+  where predictions are made on smaller batches as the data arrives. Benchmarking transductive
+  learning properly needs a dedicated benchmark and a study of which test-time batch sizes are
+  realistic; in our past investigations, many of the gains vanished once batches were cut to a
+  realistic size (for example 1,000 rows).
+
+Transductive learning is an interesting direction, and we would like to support it in a separate
+benchmark in the future. TabArena-v0.2 will include tests that check for this behavior, so model
+developers can spot it early.
+</details>
+
+<details>
 <summary><b>📬 Submission process</b> — evaluate, open a PR, verification, leaderboard update</summary>
 
 We accept methods their authors have already evaluated with the official pipeline and confirm the

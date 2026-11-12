@@ -22,6 +22,7 @@ Entry points:
 
 from __future__ import annotations
 
+from collections.abc import Container
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -548,6 +549,8 @@ def generate_composite_leaderboard(
     title: str = "Leaderboard",
     save_png: bool = True,
     save_per_metric_pngs: bool = True,
+    save_explorer: bool = True,
+    system_names: Container[str] = frozenset(),
 ) -> pd.DataFrame:
     """Aggregate per-subset website-format leaderboards into one composite.
 
@@ -576,6 +579,11 @@ def generate_composite_leaderboard(
     top_n
         Keep only the top-N methods by Elo on the sort-by subset;
         ``None``/``0`` keeps every method.
+    save_explorer
+        Also write ``<stem>_explorer.html`` beside the CSV, the interactive table of the same
+        composite (see :func:`tabarena.plot.interactive.composite_explorer.build_composite_explorer_html`).
+    system_names
+        Display names of the systems, for the explorer's family colors.
     """
     leaderboards = {
         name: lb.set_index(METHOD_COL) if METHOD_COL in lb.columns else lb for name, lb in leaderboards.items()
@@ -603,6 +611,18 @@ def generate_composite_leaderboard(
     out_path = output_dir / filename
     out_path.parent.mkdir(parents=True, exist_ok=True)
     composite.to_csv(out_path)
+
+    if save_explorer:
+        from tabarena.plot.interactive.composite_explorer import build_composite_explorer_html
+
+        build_composite_explorer_html(
+            composite,
+            save_path=out_path.with_name(f"{out_path.stem}_explorer.html"),
+            higher_better={spec["display_name"]: spec["higher_better"] for spec in METRIC_DISPLAY.values()},
+            title=title,
+            page_title=title,
+            system_names=system_names,
+        )
 
     if save_png:
         png_path = out_path.with_suffix(".png")

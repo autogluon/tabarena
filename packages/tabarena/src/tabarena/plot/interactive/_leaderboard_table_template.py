@@ -56,7 +56,11 @@ __BASE_CSS__
   table.lbt thead th::after { content: "\2195"; font-size: 0.72em; opacity: 0.3; margin-left: 5px; }
   table.lbt thead th[aria-sort="ascending"]::after { content: "\25B2"; opacity: 0.85; }
   table.lbt thead th[aria-sort="descending"]::after { content: "\25BC"; opacity: 0.85; }
-  table.lbt td.name { text-align: left; white-space: nowrap; }
+  /* The name column keeps to the width of a typical name, so the table's spare width goes to the
+     number columns rather than to blank space after the names. A longer entry wraps between its
+     pieces (the name, the variant tag, the badges), each of which stays whole. */
+  table.lbt td.name { text-align: left; white-space: normal; width: 240px; min-width: 200px; }
+  table.lbt td.name :is(.nm, .variant-tag, .leak-tag, .tag-chip) { white-space: nowrap; }
   table.lbt td.pos { color: var(--muted); font-variant-numeric: tabular-nums; }
   table.lbt td.type { white-space: nowrap; width: 1%; }
   table.lbt td.num { font-weight: 600; white-space: nowrap; }
@@ -267,7 +271,7 @@ __BASE_JS__
   // ---------- cells ----------
   function nameCell(p) {
     const ink = famInk(p) || "var(--muted)";
-    let inner = escapeHtml(p.method);
+    let inner = '<span class="nm">' + escapeHtml(p.method) + "</span>";
     if (tagged(p.variant)) inner += ' <span class="variant-tag">(' + escapeHtml(variantText(p.variant)) + ")</span>";
     if (p.verified) inner += ' <span class="verified" title="Verified implementation">&#10004;&#65039;</span>';
     if (fresh.has(p.method)) inner += '<span class="new-tag" title="' + escapeHtml(fresh.get(p.method)) + '">new</span>';
