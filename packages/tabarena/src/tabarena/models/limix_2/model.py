@@ -262,7 +262,7 @@ class LimiX2Model(AbstractTorchModel):
     other model runs on (its constraints file pins ``torch==2.9.1``), so install it without its
     dependency tree next to the torch already present (it needs ``nvtx`` on top)::
 
-        pip install --no-deps "LimiX @ git+https://github.com/limix-ldm-ai/LimiX.git@977c3de75981ba5f6723744493869338633fbbe7"
+        pip install --no-deps "LimiX @ git+https://github.com/limix-ldm-ai/LimiX.git@a917fa052eb637db98318b65712def280055ec34"
         pip install nvtx
 
     Hyperparameters: ``n_estimators`` keeps the first members of the packaged config (``None``, the
