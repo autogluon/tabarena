@@ -140,10 +140,11 @@ def _build_limix2_predictor(*, device_str, model_path, inference_config, preproc
 def _drop_query_state(predictor) -> None:
     """Developer fix (LimiX ``977c3de``): forget the per-row state a ``predict`` leaves on the predictor.
 
-    Every predict refits each member's preprocessing steps on the training plus query rows, and the fitted
-    steps keep row-sized state afterwards: ``FingerprintFeatureEncoder`` one hash per row, ``FilterValidFeatures``
-    the rows of every dropped column, and the regression decoder a copy of the training table. Nothing reads
-    it before the next predict refits the steps, but ``get_info`` and ``get_memory_size`` pickle it. Swapping
+    Every predict refits each member's preprocessing steps on the training rows and transforms the training plus
+    query rows, and the fitted steps keep row-sized state afterwards: ``FingerprintFeatureEncoder`` one hash per
+    training row, ``FilterValidFeatures`` the training and query rows of every dropped column, and the regression
+    decoder a copy of the training table. Nothing reads it before the next predict refits the steps, but
+    ``get_info`` and ``get_memory_size`` pickle it. Swapping
     in a fresh copy of the pipelines as built leaves the predictions unchanged (each step is refit from the
     seeds fixed at construction); rebuilding them with ``build_preprocess_pipeline`` would reseed the global
     ``random``. Upstream should not keep the state once ``predict`` returns.
@@ -166,7 +167,9 @@ def _predict_proba_limix2(predictor, X_train, y_train, X_test, *, task_type: str
     _drop_query_state(predictor)
     if isinstance(preds, torch.Tensor):
         preds = preds.detach().float().cpu().numpy()
-    return np.asarray(preds, dtype=np.float32)
+    # The regression decoder squeezes a single query row to a 0-d array; keep one entry (or row) per query row.
+    preds = np.asarray(preds, dtype=np.float32)
+    return preds.reshape(len(X_test)) if task_type == "Regression" else preds.reshape(len(X_test), -1)
 
 
 class _LimiX2SklearnWrapper:
@@ -433,9 +436,12 @@ class LimiX2Model(AbstractTorchModel):
                 columns=list(self._X_train.columns),
                 dtypes=self._X_train.dtypes.to_dict(),
             )
-            self.model = ManyClassClassifier(estimator=base_model, alphabet_size=many_class_threshold).fit(
-                self._X_train, self._y_train
-            )
+            self.model = ManyClassClassifier(
+                estimator=base_model,
+                alphabet_size=many_class_threshold,
+                # The codebook is drawn at fit; without a seed it comes from the global numpy RNG.
+                random_state=self.random_seed if isinstance(getattr(self, "random_seed", None), int) else 0,
+            ).fit(self._X_train, self._y_train)
             self._X_train = None  # the output coding keeps its own copy of the training rows
         else:
             # The ``limix.LimiXPredictor`` factory reads the checkpoint itself and hands the dict to
@@ -483,6 +489,10 @@ class LimiX2Model(AbstractTorchModel):
         def _move(predictor) -> None:
             predictor.device = torch_device
             predictor.model.to(torch_device)
+            if torch_device.type == "cpu":
+                # LimiX turns mixed precision off for a CPU device only in its constructor; a model fit on a GPU
+                # and moved to the CPU would otherwise predict under bfloat16 autocast.
+                predictor.mix_precision = False
 
         if self._use_many_class:
             # Output coding keeps no fitted rows: `ManyClassClassifier` refits every code row at predict

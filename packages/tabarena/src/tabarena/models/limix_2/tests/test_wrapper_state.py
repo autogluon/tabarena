@@ -63,3 +63,21 @@ def test_many_class_wrapper_restores_the_frame():
     restored = wrapper._as_frame(X.to_numpy(dtype=object))
     pd.testing.assert_frame_equal(restored, X)
     assert wrapper.get_params()["dtypes"] == X.dtypes.to_dict()
+
+
+@pytest.mark.parametrize(("problem_type", "n_estimators"), [("binary", 4), ("regression", 2)])
+def test_a_row_is_predicted_inductively(problem_type, n_estimators):
+    """On the CPU a row gets the same prediction alone, in other batches, next to decoys and after a duplicate.
+
+    Regression's second member runs the SVD projection before the fingerprint hash (autogluon/tabarena#720). With
+    two members, float32 rounding between batch shapes moves a regression prediction by about 1.5e-5 of the
+    prediction std; a changed fingerprint or another row's values move it by 4e-4 or more.
+    """
+    pytest.importorskip("inference.v2_0.predictor")
+    from tabarena.models.limix_2.model import LimiX2Model
+    from tabarena.tools.audit_transduction import audit_transduction
+
+    data = audit_transduction(
+        LimiX2Model, problem_type=problem_type, hyperparameters={"n_estimators": n_estimators}, tolerance=1e-4
+    )
+    assert data["failed"] == [], data["max_abs_diff"]
