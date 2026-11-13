@@ -144,6 +144,8 @@ def test_validation_structure_from_metadata_stratify_only_is_no_structure():
 
 
 def test_split_random_state_is_data_foundry_seed():
-    # data_foundry keeps the seed as a local constant inside its split builders (curation_recommendations.py);
-    # this pins the value TabArena's resolved splits were built with.
-    assert agu.SPLIT_RANDOM_STATE == 4267
+    # The seed of Data Foundry's split builders, which grouped_splits replicates: the value TabArena's resolved
+    # splits were built with.
+    from tabarena.benchmark.exec_models.grouped_splits import SPLIT_RANDOM_STATE
+
+    assert SPLIT_RANDOM_STATE == 4267

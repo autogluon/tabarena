@@ -165,10 +165,10 @@ Foundry) and hand them to `create_task`. What to reproduce is the protocol:
   `load_curated_task_metadata()` from the same module, not just against the docstring.
 - Grouped data has no repeated splitter in scikit-learn. Loop `StratifiedGroupKFold` /
   `GroupKFold` with `shuffle=True` and a different `random_state` per repeat, then feed the flat
-  iterator to `from_sklearn_splits_to_user_task_splits`. Data Foundry's
-  `get_recommended_grouped_splits` (in `data_foundry.curation_recommendations`) is the splitter
-  TabArena itself uses for grouped inner folds, so using it for the outer splits keeps the two
-  layers consistent.
+  iterator to `from_sklearn_splits_to_user_task_splits`. `get_recommended_grouped_splits` in
+  `tabarena/benchmark/exec_models/grouped_splits.py` (a copy of Data Foundry's splitter, which later
+  Data Foundry releases dropped) is the splitter TabArena itself uses for grouped inner folds, so
+  using it for the outer splits keeps the two layers consistent.
 - Temporal data needs forward-in-time outer splits (train strictly before test). TabArena's inner
   helper `split_time_index_into_intervals` in `tabarena/benchmark/exec_models/autogluon_utils.py`
   bins a time column into row-balanced contiguous intervals; reuse it to define the outer test

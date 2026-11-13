@@ -13,7 +13,6 @@ from autogluon.core.utils import get_pred_from_proba
 from loguru import logger
 
 from tabarena.benchmark.exec_models.autogluon_utils import (
-    SPLIT_RANDOM_STATE,
     get_num_group_instances,
     resolve_holdout_split,
     resolve_model_cls,
@@ -21,6 +20,7 @@ from tabarena.benchmark.exec_models.autogluon_utils import (
     validation_structure_from_metadata,
 )
 from tabarena.benchmark.exec_models.base import AbstractExecModel
+from tabarena.benchmark.exec_models.grouped_splits import SPLIT_RANDOM_STATE
 from tabarena.benchmark.exec_models.persist_inference import (
     InferencePersistence,
     dispatch_prepare_for_inference,
@@ -90,8 +90,8 @@ class AGWrapper(AbstractExecModel):
         no effect on a task without ``time_on``; cannot be combined with stacking (AutoGluon raises).
     split_random_state:
         Full predictor only. Seed for AutoGluon's structure-aware splitting, injected as the
-        learner's ``random_state`` when a structure is declared. Defaults to ``data_foundry``'s
-        seed (:data:`~tabarena.benchmark.exec_models.autogluon_utils.SPLIT_RANDOM_STATE`) so the
+        learner's ``random_state`` when a structure is declared. Defaults to the split seed
+        (:data:`~tabarena.benchmark.exec_models.grouped_splits.SPLIT_RANDOM_STATE`) so the
         folds match TabArena's resolved ones; an explicit ``init_kwargs["learner_kwargs"]["random_state"]``
         wins.
     persist:
