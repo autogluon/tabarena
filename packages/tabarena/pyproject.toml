@@ -159,6 +159,10 @@ limix_2 = [
 ]
 tabpfnwide = ["tabpfnwide>=0.3.0"]
 iltm = ["iltm>=0.1.1"]
+# The `[triton]` extra enables the fused CUDA kernels used in the run.
+inpriora = [
+  "inpriora[triton] @ git+https://github.com/ai-for-data/inpriora.git@dde547d0559ee825a5e3830825c2bfff9badc6ab",
+]
 chimeraboost = ["chimeraboost>=0.30.0"]
 ctboost = ["ctboost==0.1.61"]
 prismboost = ["prismboost>=0.5.1"]
@@ -242,6 +246,7 @@ extended = [
   "tabarena[limix]",
   "tabarena[tabpfnwide]",
   "tabarena[iltm]",
+  "tabarena[inpriora]",
   "tabarena[chimeraboost]",
   "tabarena[ctboost]",
   "tabarena[prismboost]",
