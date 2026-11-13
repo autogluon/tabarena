@@ -62,7 +62,8 @@ run against `main`. To reproduce an entry, check out its recorded **git SHA**.
     predicts about 6x slower than LimiX-2; classification drops the SVD views and takes about 0.6x its time. Figures
     for 15 slices under `tmp_scripts/eval_output/beyondarena_limix21016_12112026/`.
 - **Upload:** processed and uploaded as suite `beyondarena-2026-11-12` (`beyond_limix2_1016_metadata` in
-  `contexts/beyondarena/methods.py`, 1,962 splits, raw included, `verified=False`). LimiX-2
+  `contexts/beyondarena/methods.py`, 1,962 splits, raw included), `verified=True` after the maintainer's sign-off
+  (the hosted `metadata.yaml` re-uploaded alone; the results tables are unchanged). LimiX-2
   (`beyond_limix2_metadata`, suite `beyondarena-2026-09-22`) moved to `beyond_methods_superseded` with its leakage
   warning.
 
@@ -132,7 +133,8 @@ TabArenaBenchmarkPlan(
   - Test 1-AUC on diabetes 0.1550 (LimiX-2 0.1249, best other method 0.1556) and on blood-transfusion 0.2467
     (LimiX-2 0.2333, best other 0.2410).
 - **Upload:** processed and uploaded as suite `tabarena-2026-11-12` (`limix_2_1016_method_metadata` in
-  `models/limix_2/info.py`, raw included, `verified=False`), which the registry now names `LimiX-2-1016`. LimiX-2
+  `models/limix_2/info.py`, raw included), which the registry now names `LimiX-2-1016`; `verified=True` after the
+  maintainer's sign-off (the hosted `metadata.yaml` re-uploaded alone; the results tables are unchanged). LimiX-2
   (`limix_2_method_metadata`, suite `tabarena-2026-09-17`) moved to `methods_superseded` with its leakage warning.
 
 ```python

@@ -286,7 +286,7 @@ beyond_limix2_1016_metadata = limix_2_1016_descriptor.method_metadata(
     method="TA-LimiX-2-1016",
     ag_key="TA-LIMIX-2",
     config_default="TA-LimiX-2-1016_c1_BAG_L1",
-    **{**_common_fm_kwargs, "suite": "beyondarena-2026-11-12", "date": "2026-11-12", "verified": False},
+    **{**_common_fm_kwargs, "suite": "beyondarena-2026-11-12", "date": "2026-11-12", "verified": True},
 )
 
 beyond_method_metadata_lst: list[MethodMetadata] = [
