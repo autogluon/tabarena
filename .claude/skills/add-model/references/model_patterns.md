@@ -689,10 +689,10 @@ Shapes seen so far, each with its in-tree reference:
 
 | The library... | The fix | Reference |
 |---|---|---|
-| sets a global torch flag when imported (`allow_tf32`), or cuDNN flags and the root logger when it fits | pin the flag in `_fit` right after the import, so every fit computes the same way whichever fit imported the library first; save and restore the rest around the fit in a context manager | `iltm/model.py`: `torch.backends.cuda.matmul.allow_tf32 = False` after `from iltm import ...`, `_isolate_iltm_global_state` |
+| sets a global torch flag when imported (TF32, float32 matmul precision), or cuDNN flags, RNG environment variables or the root logger when it fits | a context manager that imports the library, pins the flag right after the import (so every fit computes the same way whichever code imported the library first) and restores the caller's state on exit; fit, predict and the warm-up's import all run inside it | `iltm/model.py`: `_isolate_iltm_global_state` (`torch.set_float32_matmul_precision("highest")` after `import iltm`), the `warmup` classmethod |
 | builds its network at the first predict, not in `fit` | call the build at the end of `_fit` (the load is then shared and the timed predict starts warm) | `nori/model.py`: `self.model._get_predictor()` |
 | loads the checkpoint inside `__init__` | `load_network(...)` in `<model>/_estimators.py`, the loading half of the constructor, declared as the `shared_weights` loader; a constructor replica when the constructor cannot take a prebuilt network, guarded by a signature check | `exaone_tabular/_estimators.py` |
-| a bug on the fit or predict path (a module-level `logger` that only `__init__` defines, so an unpickled child crashes) | the narrowest idempotent patch, applied where the code path enters the library | `iltm/model.py`: `_ensure_iltm_logger_patched` |
+| a bug on the fit or predict path (a module-level `logger` that only `__init__` defines, so an unpickled child crashes) | the narrowest idempotent patch, applied where the code path enters the library | none in tree at the moment |
 
 Before writing one: ask the maintainers for the seam (an import without side effects, a
 `_load_model` the estimator's `fit` calls, a `network=` argument, an eager build), file the issue or
