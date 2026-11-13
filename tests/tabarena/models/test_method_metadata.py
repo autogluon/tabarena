@@ -390,3 +390,28 @@ def test_limix_2_carries_the_leakage_warning_in_both_arenas():
     for mm in (limix_2_method_metadata, beyond_limix2_metadata):
         assert mm.leakage_evidence.endswith("/issues/648")
         assert set(mm.leakage_datasets) == {"diabetes", "blood-transfusion-service-center"}
+
+
+def test_limix_2_1016_replaces_limix_2_without_the_warning():
+    """The retrained checkpoint carries no warning; the first one stays reachable, superseded, with its warning."""
+    from tabarena.contexts.beyondarena.methods import (
+        beyond_limix2_1016_metadata,
+        beyond_limix2_metadata,
+        beyond_method_metadata_lst,
+        beyond_methods_superseded,
+    )
+    from tabarena.contexts.tabarena.methods import methods_superseded, tabarena_method_metadata_collection
+    from tabarena.models.limix_2.info import limix_2_1016_method_metadata, limix_2_info, limix_2_method_metadata
+
+    assert limix_2_info.method_metadata is limix_2_1016_method_metadata
+    for new, old, roster, superseded in (
+        (
+            limix_2_1016_method_metadata,
+            limix_2_method_metadata,
+            tabarena_method_metadata_collection.method_metadata_lst,
+            methods_superseded,
+        ),
+        (beyond_limix2_1016_metadata, beyond_limix2_metadata, beyond_method_metadata_lst, beyond_methods_superseded),
+    ):
+        assert new.leakage_evidence is None and new.leakage_datasets == ()
+        assert new in roster and old not in roster and old in superseded

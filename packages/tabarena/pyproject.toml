@@ -149,12 +149,13 @@ limix = [
   "kditransform",
 ]
 # LimiX-2's inference package is not on PyPI (pinned to a commit; keep in sync with `pip_extra` in
-# models/limix_2/info.py; empty extra on PyPI, see the note at the top of this table) and pins
-# torch==2.9.1, which would replace the torch every other model runs on. The extra is therefore left
-# out of `extended` and `all`; install it without its dependency tree next to the existing torch:
-#   uv pip install --no-deps "LimiX @ git+https://github.com/limix-ldm-ai/LimiX.git@774aa3e1a994cbe38f33758e3d663e9951855554" nvtx
+# models/limix_2/info.py; empty extra on PyPI, see the note at the top of this table), and its requirements
+# would be resolved against the torch every other model runs on (its constraints file pins torch==2.9.1). The
+# extra is therefore left out of `extended` and `all`; install it without its dependency tree next to the
+# existing torch:
+#   uv pip install --no-deps "LimiX @ git+https://github.com/limix-ldm-ai/LimiX.git@a917fa052eb637db98318b65712def280055ec34" nvtx
 limix_2 = [
-  "LimiX @ git+https://github.com/limix-ldm-ai/LimiX.git@774aa3e1a994cbe38f33758e3d663e9951855554",
+  "LimiX @ git+https://github.com/limix-ldm-ai/LimiX.git@a917fa052eb637db98318b65712def280055ec34",
   "nvtx",
 ]
 tabpfnwide = ["tabpfnwide>=0.3.0"]

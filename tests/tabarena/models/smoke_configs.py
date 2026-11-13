@@ -79,11 +79,13 @@ SMOKE_OVERRIDES: dict[str, ModelSmokeTest] = {
     # than batch-dependent preprocessing. Verified by running `FitHelper.verify_model` with
     # CUDA_VISIBLE_DEVICES="" — it passes with the check on.
     "TabSwift": ModelSmokeTest({"n_estimators": 1}, verify_single_prediction_equivalent_to_multi=False),
-    # LimiX-2 attends over the training context, so a row predicted alone and inside a batch drift
-    # ~2.6e-3 on CUDA (the tolerance is 1e-5), the GPU non-determinism TabSwift shows too. 17 members
-    # (over the class's cheap single member) reach the first `power` member of the classification
-    # config (the fifth of the regression config), whose lambdas the wrapper's pickle has to survive.
-    "LimiX-2": ModelSmokeTest({"n_estimators": 17}, verify_single_prediction_equivalent_to_multi=False),
+    # Since LimiX a917fa0 a row gets the same prediction alone and inside a batch on the CPU, which the model's own
+    # tests check with the transduction audit (models/limix_2/tests). The check stays off here because this test
+    # also runs on CUDA, where bfloat16 autocast lets a row's prediction drift between batch sizes by up to ~8e-4 on
+    # an RTX PRO 6000 (the tolerance is 1e-5); with `mix_precision=False` the same audit stays below 1e-5 on CUDA.
+    # 17 members reach the first `power` member of the classification config and the members of the regression
+    # config that project with SVD before the fingerprint hash.
+    "LimiX-2-1016": ModelSmokeTest({"n_estimators": 17}, verify_single_prediction_equivalent_to_multi=False),
     # Kumo Tabular predicts under float16 autocast on CUDA, so a row predicted alone vs. inside a batch
     # drifts up to ~4e-4 on toy classification data (the tolerance is 1e-5). The drift is numerical: with
     # the autocast off it is ~1e-6, and `FitHelper.verify_model` passes with the check on under

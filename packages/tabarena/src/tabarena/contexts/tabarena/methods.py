@@ -74,7 +74,7 @@ from tabarena.models.kumo_tabular.info import (
 from tabarena.models.lightgbm.info import lightgbm_method_metadata
 from tabarena.models.lightpfn.info import lightpfn_1p0_method_metadata, lightpfn_method_metadata
 from tabarena.models.limix.info import limix_method_metadata as limix_metadata
-from tabarena.models.limix_2.info import limix_2_method_metadata
+from tabarena.models.limix_2.info import limix_2_1016_method_metadata, limix_2_method_metadata
 from tabarena.models.lr.info import (
     lr_2026_09_method_metadata,
     lr_method_metadata as lr_metadata,
@@ -259,7 +259,7 @@ tabarena_method_metadata_collection = MethodMetadataCollection(
         tabldm_new_method_metadata,
         tabpfn_3_5_method_metadata,
         tabpfn_3_5_fast_method_metadata,
-        limix_2_method_metadata,
+        limix_2_1016_method_metadata,
         tabdpt_v13_method_metadata,
         kumo_tabular_method_metadata,
         kumo_tabular_medium_method_metadata,
@@ -297,6 +297,7 @@ methods_superseded: list[MethodMetadata] = [
     seldon_classification_method_metadata,  # classification only; tabarena-2026-11-08 adds regression
     seldon_mini_classification_method_metadata,  # classification only; tabarena-2026-11-08 adds regression
     lightpfn_1p0_method_metadata,  # lightpfn 1.0.0, classification only; 1.5.1 (tabarena-2026-11-11) replaced it
+    limix_2_method_metadata,  # the #648 checkpoint, with its leakage warning; LimiX-2-1016 replaced it
 ]
 
 # All historical results for each method = the latest collection + every superseded variant: the
