@@ -34,6 +34,167 @@ run against `main`. To reproduce an entry, check out its recorded **git SHA**.
 
 ---
 
+## 2026-11-12 — beyondarena_limix21016_12112026
+
+- **Model(s):** LimiX-2-1016 (registry `LimiX-2` at launch; default config only) on the 1,962 BeyondArena `core2k`
+  splits up to 100k training rows, the scope of the LimiX-2 run, 1,962 items
+- **Git SHA:** `f1b37ba9` on `limix2-1016-a917fa0-fixes`, the head of autogluon/tabarena#720 (`890255f5`, LimiX
+  `a917fa0` and checkpoint `stable-ai/LimiX-2-1016@bbbf26c5`, by the authors) plus the maintainer's wrapper fixes,
+  clean. The 8-item tail ran at `6bb73bf2` (a smoke-config comment on top; model code identical). AutoGluon
+  1.6.4b20261111 from PyPI.
+- **Validation protocol:** BeyondArena `8x1+tiny5x5<=500+task-specific+adapt-classes`
+- **Purpose:** BeyondArena run of LimiX-2-1016, the checkpoint retrained without the tables of #648, with LimiX
+  `a917fa0`'s inductive predictions; it replaces LimiX-2 (`beyondarena_tfms_22092026`) in the roster.
+- **Notes:** SkyPilot pool `limix2-ba-1211` (64 spot RTX PRO 6000 workers, env `9fb06dfcceae`), one item per bundle,
+  `fake_memory_for_estimates=96`, the time-limit split of the TFM runs: launch `..._gpu_16h-20261112-094226-b10c`
+  (146 items, the medium tables, 16 h) and `..._gpu-20261112-094331-2bb8` (1,816 items, tiny and small, the 4 h
+  default). Run venv `~/.venvs/tabarena_limix21016_11112026` (LimiX installed with `--no-deps`, torch 2.13.0), shared
+  with the TabArena run below.
+  - With the 4 h group done, the last 8 items of the 16 h group were moved to a small pool at about 15:47 UTC: their
+    8 jobs cancelled, `limix2-ba-1211` taken down, the setup rerun (it enumerated exactly those 8) and launched as
+    `..._gpu_16h-20261112-154706-8fb4` on `limix2-ba-tail-1211` (8 workers, env `ec92f2c93c20`). The SkyPilot API
+    server was unreachable from 16:15 to 16:49 UTC; the claim queue kept progressing. The last item,
+    `pva_revenue_prediction_kddcup98` fold 0, finished at 23:24 UTC. 1,962 of 1,962 items, 0 failed.
+  - Eval (`BeyondArenaContext(only_valid_tasks=True)`, the 120 covered tasks, 43 methods, 0% imputed): on `core2k`
+    #2, Elo 1480 (+64/-50), behind Kumo-Tabular (1511); LimiX-2 #6 (1422). Binary #2, multiclass #4, regression #2;
+    #1 on `small` (1627) and `temporal` (1282). Median per 1K rows 105.8 s train and 17.3 s inference (LimiX-2: 66.1 s
+    and 16.2 s). LimiX `a917fa0`'s default regression ensemble has 32 members instead of 8, so regression fits and
+    predicts about 6x slower than LimiX-2; classification drops the SVD views and takes about 0.6x its time. Figures
+    for 15 slices under `tmp_scripts/eval_output/beyondarena_limix21016_12112026/`.
+- **Upload:** processed and uploaded as suite `beyondarena-2026-11-12` (`beyond_limix2_1016_metadata` in
+  `contexts/beyondarena/methods.py`, 1,962 splits, raw included, `verified=False`). LimiX-2
+  (`beyond_limix2_metadata`, suite `beyondarena-2026-09-22`) moved to `beyond_methods_superseded` with its leakage
+  warning.
+
+```python
+TabArenaBenchmarkPlan(
+    benchmark_name="beyondarena_limix21016_12112026",
+    model_jobs=[
+        ModelJob(
+            models=("LimiX-2", 0),
+            name="gpu_16h",
+            resources={"num_gpus": 1, "fake_memory_for_estimates": 96, "time_limit": 16 * 3600},
+            tasks=TaskSubset(subset=["core2k", "medium"]),
+        ),
+        ModelJob(
+            models=("LimiX-2", 0),
+            name="gpu",
+            resources={"num_gpus": 1, "fake_memory_for_estimates": 96, "time_limit": 4 * 3600},
+            tasks=TaskSubset(subset=["core2k", "!medium", "!large"]),
+        ),
+    ],
+    task_subset=TaskSubset(subset=["core2k"]),
+    context=BeyondArenaContext(),
+    experiment_bundle=BeyondArenaExperimentBundle(model_verbosity=2),
+    path_setup=PathSetup(
+        workspace="/home/lennart_priorlabs_ai/workspace/benchmarking/tabarena_workspace",
+        python_path="/home/lennart_priorlabs_ai/.venvs/tabarena_limix21016_11112026/bin/python",
+    ),
+    resources_setup=BeyondArenaResourcesSetup(),
+    scheduler_setup=SkyPilotSetup(bundle_size=1, workers=64, use_pool=True, pool_name="limix2-ba-1211"),
+).setup_jobs()
+# The tail: the same plan with SkyPilotSetup(bundle_size=1, workers=8, use_pool=True, pool_name="limix2-ba-tail-1211").
+```
+
+---
+
+## 2026-11-12 — limix21016_12112026
+
+- **Model(s):** LimiX-2-1016 (registry `LimiX-2` at launch; default config only) on all 816 TabArena-v0.1 splits,
+  816 items
+- **Git SHA:** `f1b37ba9` on `limix2-1016-a917fa0-fixes`, the head of autogluon/tabarena#720 (`890255f5`, LimiX
+  `a917fa0` and checkpoint `stable-ai/LimiX-2-1016@bbbf26c5`, by the authors) plus the maintainer's wrapper fixes
+  (one prediction per query row, a seeded ECOC codebook, mixed precision off on the CPU, an inductive test), clean.
+  AutoGluon 1.6.4b20261111 from PyPI.
+- **Validation protocol:** `8x1`
+- **Purpose:** Round 3 of #720: LimiX-2-1016, the checkpoint retrained without the tables that #648 found in LimiX-2's
+  training data, with LimiX `a917fa0`, whose predictions no longer depend on the other query rows (rounds 1 and 2
+  held the PR on transductive preprocessing). It replaces LimiX-2 (`limix2_17092026`) on the leaderboard.
+- **Notes:** SkyPilot pool `limix2-ta-1211` (32 spot RTX PRO 6000 workers, env `9fb06dfcceae`), one item per bundle,
+  `fake_memory_for_estimates=96`. The time limits of the LimiX-2 run, a recorded protocol deviation from the 1 h
+  default: 2 h, and 8 h on its nine large or wide tables (launch `..._gpu_8h-20261112-093906-62c3`, 81 items; the
+  other 735 in `..._gpu-20261112-094013-2f8b`). Two launches staged at 08:2x UTC from `890255f5` were never started;
+  their queues stay in the bucket.
+  - Before the launch: `audit_transduction` on the CPU passed for binary, multiclass and regression (largest
+    difference 8e-7), and on the GPU in fp32 (within 1e-5); the benchmark's bf16 autocast drifts by up to 8e-4 on the
+    GPU, so `verify_single_prediction_equivalent_to_multi` stays off in the smoke config. A column-order sweep over
+    all 51 datasets (published against reversed order, an order-keeping stripped config) found no ratio above 1.03x,
+    where LimiX-2 shows 16.6x on diabetes. Three reviewer lenses on LimiX `a917fa0`: no blocker.
+  - 816 of 816 items, 0 failed, done before the final eval at 13:59 UTC.
+- **Result:**
+  - Full: #1 of 117, Elo 2011 (+136/-82), nothing imputed; LimiX-2 #3 (1966).
+  - Binary: #1 of 115, Elo 1958.
+  - Multiclass: #2 of 115, Elo 2060, behind Kumo-Tabular (2091).
+  - Regression: #2 of 113, Elo 2415, behind Kumo-Tabular (2451).
+  - Median 31.2 s train and 8.4 s inference per 1K rows (LimiX-2: 30.9 s and 9.0 s). Per split, regression takes about
+    6x LimiX-2's time (LimiX `a917fa0`'s default regression ensemble has 32 members instead of 8) and
+    classification about 0.6x (no SVD views).
+  - Test 1-AUC on diabetes 0.1550 (LimiX-2 0.1249, best other method 0.1556) and on blood-transfusion 0.2467
+    (LimiX-2 0.2333, best other 0.2410).
+- **Upload:** processed and uploaded as suite `tabarena-2026-11-12` (`limix_2_1016_method_metadata` in
+  `models/limix_2/info.py`, raw included, `verified=False`), which the registry now names `LimiX-2-1016`. LimiX-2
+  (`limix_2_method_metadata`, suite `tabarena-2026-09-17`) moved to `methods_superseded` with its leakage warning.
+
+```python
+TabArenaV0pt1BenchmarkPlan(
+    benchmark_name="limix21016_12112026",
+    model_jobs=[
+        ModelJob(
+            models=("LimiX-2", 0),
+            name="gpu_8h",
+            resources={"num_gpus": 1, "fake_memory_for_estimates": 96, "time_limit": 8 * 60 * 60},
+            tasks=TaskSubset(
+                dataset_names=[
+                    "APSFailure",
+                    "Bioresponse",
+                    "customer_satisfaction_in_airline",
+                    "Diabetes130US",
+                    "GiveMeSomeCredit",
+                    "hiva_agnostic",
+                    "kddcup09_appetency",
+                    "QSAR-TID-11",
+                    "SDSS17",
+                ]
+            ),
+        ),
+        ModelJob(
+            models=("LimiX-2", 0),
+            name="gpu",
+            resources={"num_gpus": 1, "fake_memory_for_estimates": 96, "time_limit": 2 * 60 * 60},
+            # every other TabArena dataset
+            tasks=TaskSubset(
+                dataset_names=[
+                    n
+                    for n in TabArenaContext().task_metadata["dataset_name"]
+                    if n
+                    not in {
+                        "APSFailure",
+                        "Bioresponse",
+                        "customer_satisfaction_in_airline",
+                        "Diabetes130US",
+                        "GiveMeSomeCredit",
+                        "hiva_agnostic",
+                        "kddcup09_appetency",
+                        "QSAR-TID-11",
+                        "SDSS17",
+                    }
+                ]
+            ),
+        ),
+    ],
+    task_subset=TaskSubset(),
+    path_setup=PathSetup(
+        workspace="/home/lennart_priorlabs_ai/workspace/benchmarking/tabarena_workspace",
+        python_path="/home/lennart_priorlabs_ai/.venvs/tabarena_limix21016_11112026/bin/python",
+    ),
+    experiment_bundle=TabArenaV0pt1ExperimentBundle(model_verbosity=2),
+    resources_setup=TabArenaV0pt1ResourcesSetup(num_cpus=None, memory_limit=None),
+    scheduler_setup=SkyPilotSetup(bundle_size=1, workers=32, use_pool=True, pool_name="limix2-ta-1211"),
+).setup_jobs()
+```
+
+---
+
 ## 2026-11-11 — lightpfn151_11112026
 
 - **Model(s):** LightPFN 1.5.1 (default config only) on all 816 TabArena-v0.1 splits, 816 items
