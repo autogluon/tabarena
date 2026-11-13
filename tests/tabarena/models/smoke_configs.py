@@ -85,7 +85,7 @@ SMOKE_OVERRIDES: dict[str, ModelSmokeTest] = {
     # an RTX PRO 6000 (the tolerance is 1e-5); with `mix_precision=False` the same audit stays below 1e-5 on CUDA.
     # 17 members reach the first `power` member of the classification config and the members of the regression
     # config that project with SVD before the fingerprint hash.
-    "LimiX-2": ModelSmokeTest({"n_estimators": 17}, verify_single_prediction_equivalent_to_multi=False),
+    "LimiX-2-1016": ModelSmokeTest({"n_estimators": 17}, verify_single_prediction_equivalent_to_multi=False),
     # Kumo Tabular predicts under float16 autocast on CUDA, so a row predicted alone vs. inside a batch
     # drifts up to ~4e-4 on toy classification data (the tolerance is 1e-5). The drift is numerical: with
     # the autocast off it is ~1e-6, and `FitHelper.verify_model` passes with the check on under

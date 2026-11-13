@@ -29,7 +29,7 @@ from tabarena.models.kumo_tabular.info import (
     kumo_tabular_small_descriptor,
 )
 from tabarena.models.lightgbm.info import lightgbm_descriptor
-from tabarena.models.limix_2.info import limix_2_descriptor
+from tabarena.models.limix_2.info import limix_2_1016_descriptor, limix_2_descriptor
 from tabarena.models.lr.info import lr_descriptor
 from tabarena.models.random_forest.info import random_forest_descriptor
 from tabarena.models.realmlp.info import realmlp_descriptor
@@ -279,6 +279,16 @@ beyond_seldon_mini_metadata = seldon_mini_descriptor.method_metadata(
     **_seldon_run_kwargs,
 )
 
+# -- LimiX-2-1016, run 2026-11-12 (`beyondarena_limix21016_12112026` in BENCHMARK_LOG.md) -----------------------
+# The official protocol on the core2k splits up to 100k training rows, the scope of the LimiX-2 run, with fit time
+# limits of 16 h on the tables above 10k training rows and the 4 h default on the others.
+beyond_limix2_1016_metadata = limix_2_1016_descriptor.method_metadata(
+    method="TA-LimiX-2-1016",
+    ag_key="TA-LIMIX-2",
+    config_default="TA-LimiX-2-1016_c1_BAG_L1",
+    **{**_common_fm_kwargs, "suite": "beyondarena-2026-11-12", "date": "2026-11-12", "verified": False},
+)
+
 beyond_method_metadata_lst: list[MethodMetadata] = [
     beyond_linear_2026_09_metadata,
     beyond_random_forest_metadata,
@@ -295,7 +305,7 @@ beyond_method_metadata_lst: list[MethodMetadata] = [
     beyond_tabpfn35_metadata,
     beyond_tabpfn35_fast_metadata,
     beyond_causilo_metadata,
-    beyond_limix2_metadata,
+    beyond_limix2_1016_metadata,
     beyond_tabfm_metadata,
     beyond_exaone_tabular_metadata,
     beyond_realtabpfnv25_metadata,
@@ -318,6 +328,7 @@ beyond_methods_superseded: list[MethodMetadata] = [
     beyond_linear_metadata,  # rerun beyondarena-2026-09-24 replaced it
     beyond_tabm_metadata,  # the merged suite beyondarena-2026-10-28 replaced it
     beyond_tabm_2026_10_rerun_metadata,  # the rerun alone (14 datasets, with raw), merged into beyondarena-2026-10-28
+    beyond_limix2_metadata,  # the #648 checkpoint, with its leakage warning; LimiX-2-1016 replaced it
 ]
 
 # The roster plus every superseded variant: all hosted BeyondArena results.
