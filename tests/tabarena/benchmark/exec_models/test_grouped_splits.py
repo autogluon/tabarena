@@ -32,8 +32,9 @@ def _digest(splits: dict) -> str:
 
 
 # Digests of the splits that data-foundry 0.0.6.dev20261112094419's `curation_recommendations` builds for these
-# inputs. A mismatch means the inner validation folds of grouped and temporal tasks changed (in this module or in
-# scikit-learn's splitters), so runs before and after the change are no longer on the same folds.
+# inputs, the BeyondArena split logic that `grouped_splits` keeps independent of Data Foundry. A mismatch means the
+# folds of grouped and temporal tasks changed (in this module or in scikit-learn's splitters), so runs before and
+# after the change are no longer on the same folds.
 @pytest.mark.parametrize(
     ("group_labels", "stratify_on", "n_repeats", "n_splits", "test_size", "expected"),
     [

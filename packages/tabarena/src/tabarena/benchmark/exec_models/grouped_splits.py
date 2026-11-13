@@ -1,10 +1,12 @@
-"""Grouped and IID train/validation splits for the task-specific inner validation protocol.
+"""BeyondArena's split logic, kept in TabArena independent of Data Foundry.
 
-The split builders of Data Foundry's ``curation_recommendations`` module (data-foundry
-``0.0.6.dev20261112094419``, Apache-2.0), which the inner validation of grouped and temporal tasks resolves its
-folds with. Data Foundry dropped the module in ``0.0.6.dev20261112143209``. The split logic here is kept as it
-was, so the folds stay those that every run since 2026-09-29 used; only the progress prints and the split-display
-helper are left out.
+These are the grouped and IID split builders BeyondArena was built with: Data Foundry curated the outer splits of
+its grouped tasks with them, and TabArena's task-specific inner validation protocol resolves the folds of grouped and
+temporal tasks with them. They come from Data Foundry's ``curation_recommendations`` module (data-foundry
+``0.0.6.dev20261112094419``, the last release with it, Apache-2.0); Data Foundry has since moved to a new split API.
+TabArena keeps this legacy code as its own so that BeyondArena's folds do not change with Data Foundry's releases:
+the split logic is unchanged, and the folds are those of every run since 2026-09-29. Only the progress prints and the
+split-display helper are left out. ``tests/tabarena/benchmark/exec_models/test_grouped_splits.py`` pins the folds.
 """
 
 from __future__ import annotations
