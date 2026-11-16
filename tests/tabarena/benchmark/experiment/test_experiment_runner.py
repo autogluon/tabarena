@@ -2,7 +2,8 @@
 
 The runners are instantiated via ``object.__new__`` to bypass the heavy ``__init__`` (which
 loads real task data); only the attributes each method touches are set. Covered: the
-post-evaluate hooks, the timed predictions reaching ``bag_artifact``, cleanup on failure, the
+post-evaluate hooks, the timed predictions reaching ``bag_artifact``, the pooled validation predictions
+left out next to per-child ones that reproduce them, cleanup on failure, the
 memoized post-fit reload of a lazy task, the timing audit in the experiment metadata,
 ``Experiment.uses_ray`` and the shared-weights release between in-process sweep items.
 """
@@ -198,8 +199,9 @@ def test_oof_post_evaluate_optimizes_artifact_memory():
 class _BagModel(_FakeModel):
     """Exec model exposing per-child artifacts; records the ``bag_artifact`` call."""
 
-    def __init__(self, *, oof: dict, source: str = "timed_prediction"):
+    def __init__(self, *, oof: dict, source: str = "timed_prediction", bag_info: dict | None = None):
         super().__init__(can_get_oof=True, oof=oof)
+        self._bag_info = bag_info or {"pred_proba_test_per_child": [], "val_idx_per_child": []}
         self.can_get_per_child_oof = True
         self.can_get_per_child_val_idx = True
         self.per_child_test_source = None
@@ -212,7 +214,7 @@ class _BagModel(_FakeModel):
     def bag_artifact(self, X_test, *, y_pred=None, y_pred_proba=None) -> dict:
         self.bag_calls.append({"X_test": X_test, "y_pred": y_pred, "y_pred_proba": y_pred_proba})
         self.per_child_test_source = self._source
-        return {"pred_proba_test_per_child": [], "val_idx_per_child": []}
+        return dict(self._bag_info)
 
 
 def test_oof_post_evaluate_passes_timed_predictions_to_bag_artifact():
@@ -263,6 +265,81 @@ def test_oof_post_evaluate_passes_probabilities_by_identity_for_classification()
 
 
 # --- run: cleanup on failure ---------------------------------------------------------------
+
+
+def _two_repeat_bag_info(pred_val_per_child: list[np.ndarray]) -> dict:
+    """Four children over four rows, 2 folds x 2 repeats, with their own validation predictions."""
+    return {
+        "pred_proba_test_per_child": [],
+        "val_idx_per_child": [np.array([0, 2]), np.array([1, 3]), np.array([0, 1]), np.array([2, 3])],
+        "pred_proba_val_per_child": [np.asarray(p, dtype=np.float32) for p in pred_val_per_child],
+    }
+
+
+@pytest.mark.parametrize("optimize_memory", [True, False])
+def test_oof_post_evaluate_leaves_out_pooled_val_that_the_children_reproduce(optimize_memory):
+    # rows 0..3 are predicted by one child of each repeat; the pooled value is their mean
+    bag_info = _two_repeat_bag_info([[1.0, 3.0], [2.0, 4.0], [2.0, 3.0], [4.0, 5.0]])
+    oof = {"pred_proba_dict_val": pd.Series([1.5, 2.5, 3.5, 4.5]), "y_val": pd.Series([1.0, 2.0, 3.0, 4.0])}
+    runner = _make_runner(
+        OOFExperimentRunner,
+        problem_type="regression",
+        model=_BagModel(oof=oof, bag_info=bag_info),
+        y_test=pd.Series([1.0, 2.0]),
+        compute_bag_info=True,
+        optimize_simulation_artifacts_memory=optimize_memory,
+    )
+    runner.X_test = pd.DataFrame({"a": [0.0, 1.0]})
+
+    art = runner.post_evaluate({"predictions": pd.Series([1.5, 2.5]), "probabilities": None})["simulation_artifacts"]
+
+    assert "pred_proba_dict_val" not in art
+    assert len(art["bag_info"]["pred_proba_val_per_child"]) == 4
+    assert set(art["pred_proba_dict_test"]) == {"MyMethod"}
+    assert len(art["y_val"]) == 4  # the rows the children's indices point into
+
+
+def test_oof_post_evaluate_keeps_pooled_val_that_the_children_do_not_reproduce():
+    # e.g. validation predictions transformed after the folds were pooled
+    bag_info = _two_repeat_bag_info([[1.0, 3.0], [2.0, 4.0], [2.0, 3.0], [4.0, 5.0]])
+    pooled = pd.Series([1.0, 2.0, 3.0, 4.0])
+    oof = {"pred_proba_dict_val": pooled, "y_val": pd.Series([1.0, 2.0, 3.0, 4.0])}
+    runner = _make_runner(
+        OOFExperimentRunner,
+        problem_type="regression",
+        model=_BagModel(oof=oof, bag_info=bag_info),
+        y_test=pd.Series([1.0, 2.0]),
+        compute_bag_info=True,
+    )
+    runner.X_test = pd.DataFrame({"a": [0.0, 1.0]})
+
+    art = runner.post_evaluate({"predictions": pd.Series([1.5, 2.5]), "probabilities": None})["simulation_artifacts"]
+
+    assert art["pred_proba_dict_val"]["MyMethod"] is pooled
+    assert len(art["bag_info"]["pred_proba_val_per_child"]) == 4
+
+
+def test_oof_post_evaluate_keeps_pooled_val_when_a_row_has_no_child():
+    bag_info = _two_repeat_bag_info([[1.0, 3.0], [2.0, 4.0], [2.0, 3.0], [4.0, 5.0]])
+    bag_info["val_idx_per_child"] = [
+        np.array([0, 2]),
+        np.array([1, 2]),
+        np.array([0, 1]),
+        np.array([2, 1]),
+    ]  # not row 3
+    oof = {"pred_proba_dict_val": pd.Series([1.5, 2.5, 3.5, 0.0]), "y_val": pd.Series([1.0, 2.0, 3.0, 4.0])}
+    runner = _make_runner(
+        OOFExperimentRunner,
+        problem_type="regression",
+        model=_BagModel(oof=oof, bag_info=bag_info),
+        y_test=pd.Series([1.0, 2.0]),
+        compute_bag_info=True,
+    )
+    runner.X_test = pd.DataFrame({"a": [0.0, 1.0]})
+
+    art = runner.post_evaluate({"predictions": pd.Series([1.5, 2.5]), "probabilities": None})["simulation_artifacts"]
+
+    assert set(art["pred_proba_dict_val"]) == {"MyMethod"}
 
 
 class _SpyCleanupModel:
