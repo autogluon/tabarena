@@ -35,12 +35,14 @@ class InprioraModel(AbstractTorchModel):
     both selected from the task's problem type. Above the classifier's ten native classes the library
     builds a hierarchical label encoding itself, so the wrapper declares no class cap.
 
-    The context cache is built for every fit and kept as torch tensors, which AutoGluon writes beside
-    ``model.pkl`` (``model_tensors.pt``). Prediction from that cache reads only the fitted preprocessors,
-    so the raw training matrix is dropped after the fit. A many-class fit disables the cache in the
-    library; that path keeps the arrays prediction needs, and the wrapper moves them to torch tensors
-    when the model is pickled, which keeps them out of ``model.pkl`` as well. The library halves its
-    ensemble batch on an out-of-memory error during a fit or a prediction.
+    With ``cache=True`` (the refit model of the default config) the fit builds the context cache and keeps
+    it as torch tensors, which AutoGluon writes beside ``model.pkl`` (``model_tensors.pt``). Prediction
+    from that cache reads the fitted preprocessors and the rank reference (a sorted copy of each training
+    column), so the raw training matrix is dropped after the fit. The fold models (``cache=False``) and a
+    many-class fit, where the library disables the cache, predict from the training arrays; the wrapper
+    moves those to torch tensors when the model is pickled, which keeps them out of ``model.pkl`` as well.
+    The library halves its ensemble batch on an out-of-memory error during a fit or a prediction, and a
+    ``kv`` cache that still does not fit at batch size one falls back to the smaller ``repr`` cache.
 
     Tables above 150,000 context rows or 15,000,000 cells are subsampled, stratified for
     classification; TabArena-v0.1 stays below both. The fit encodes every training row, and the
@@ -74,7 +76,8 @@ class InprioraModel(AbstractTorchModel):
     }
     _default_ag_args_ensemble_extra = {"fold_fitting_strategy": "sequential_local", "refit_folds": True}
     #: A frozen network is built once per process and reused by the bagged children and the refit child.
-    #: A user-supplied estimator (``model_path``) is private to its fit.
+    #: Fits that load the same checkpoint (``model_path``, or ``repo_id`` and ``revision``) share it; the
+    #: context cache lives on each estimator, never on the network.
     shared_weights: ClassVar[SharedWeights] = SharedWeights(
         loader=(
             "inpriora.estimators.classifier:InprioraClassifier._load_model",
@@ -136,7 +139,9 @@ class InprioraModel(AbstractTorchModel):
         threads_og = torch.get_num_threads()
         torch.set_num_threads(num_cpus)
         try:
-            raw_rows = min(MAX_CONTEXT_ROWS, MAX_CONTEXT_CELLS // max(X.shape[1], 1))
+            # Budget the first cut by the columns preprocessing keeps, so a dropped column costs no rows.
+            n_columns = len(self.features) if self.features is not None else X.shape[1]
+            raw_rows = min(MAX_CONTEXT_ROWS, MAX_CONTEXT_CELLS // max(n_columns, 1))
             X, y = self._subsample_context(X, y, max(1, raw_rows))
             X = self.preprocess(X)
             max_rows = min(MAX_CONTEXT_ROWS, MAX_CONTEXT_CELLS // max(X.shape[1], 1))
@@ -220,6 +225,15 @@ class InprioraModel(AbstractTorchModel):
         import torch
 
         target = self.to_torch_device(device)
+        # The fitted preprocessors run their power transform and ranks on the fit's GPU; a model moved to the
+        # CPU runs them there, and one moved from the CPU to a GPU uses it again.
+        ensemble = getattr(self.model, "ensemble_", None)
+        if ensemble is not None:
+            for owner in (ensemble, *getattr(ensemble, "preprocessors_", {}).values()):
+                if target.type == "cpu":
+                    owner.yeojohnson_device = None
+                elif getattr(owner, "yeojohnson_device", None) is None:
+                    owner.yeojohnson_device = str(target)
         if getattr(self.model, "model_cache_", None):
             # A cache built under CUDA autocast is float16; CPU attention needs both sides in float32.
             dtype = torch.float32 if target.type == "cpu" else None
@@ -228,6 +242,15 @@ class InprioraModel(AbstractTorchModel):
             }
         if hasattr(self.model, "runner_"):
             self.model._build_runner()
+
+    def _device_for_save(self) -> str | None:
+        """Leave a fit that owns its network where it is while it is saved.
+
+        Nothing in the pickle needs the fit's device on load (``load`` restores the tensors of a missing GPU on
+        the CPU and ``set_device_on_load`` moves the model), so the network and the float16 context cache are
+        not copied to the CPU and back, which would leave the cache in float32 on the GPU.
+        """
+        return None
 
     def _set_device(self, device: str):
         device = self.to_torch_device(device)
