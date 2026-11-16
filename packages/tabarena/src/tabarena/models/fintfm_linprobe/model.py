@@ -30,9 +30,8 @@ TRAIN_SAMPLE_SIZE = 20_000
 LEAF_MIN_SAMPLE = 2_000
 #: Keys a probe option dict accepts; see :meth:`FinTFMLinearProbeModel._validated_probe`.
 PROBE_OPTIONS = frozenset({"scale", "cv", "raw", "head", "no_rep"})
-#: Default of the ``probe_crossfit_folds`` hyperparameter. The measured TabArena-Lite entry
-#: (FinTFM-LinProbe, 932 Elo) was produced WITHOUT cross-fitting, so any figure from a run
-#: with this default is a new measurement; see :class:`FinTFMLinearProbeModel`.
+#: Cross-fit folds of the binary entry and the fallback when the hyperparameter is absent. The
+#: multiclass and regression entries use 0; see ``FinTFMLinearProbeModel._entry_crossfit_folds``.
 PROBE_CROSSFIT_FOLDS = 5
 #: Deepest tree ``fintfm.inference.large_n.PartitionedTFMClassifier`` and ``PartitionedTFMRegressor``
 #: accept (``max_depth`` is checked to lie in [1, 3]); ``partition_depth_cap`` is clipped to it.
@@ -67,7 +66,7 @@ class FinTFMLinearProbeModel(FinTFMModel):
     classifier instead of the network's own head. A separate ``ag_key`` keeps its results out
     of the cache the real entrant's Lite run already populated.
 
-    **Cross-fitting (``probe_crossfit_folds``, default 5).** The rows the readout trains on
+    **Cross-fitting (``probe_crossfit_folds``, entry default 5 for binary, 0 for multiclass and regression).** The rows the readout trains on
     are also rows of the stored in-context set, so a plain ``transform_representation`` call
     lets a context row attend to its own labelled copy, which a test row never can. With
     ``probe_crossfit_folds`` of K >= 2, the context rows among the readout's training rows are
@@ -76,9 +75,9 @@ class FinTFMLinearProbeModel(FinTFMModel):
     not in the context are represented under the full context, as test rows are. The probe
     rows' categorical encoding is then the out-of-fold encoding the classifier was fitted on,
     not the full-statistics encoding applied in-sample. ``0`` or ``1`` disables both and
-    reproduces the earlier readout exactly. **The measured 932 Elo entry was produced without
-    cross-fitting. The default here is on because that is the methodologically correct
-    setting, and the change must be re-measured before any claim is made about it.**
+    reproduces the earlier readout exactly. **The entry cross-fits for binary only (§254) and
+    does not for multiclass and regression (§255); see ``_entry_crossfit_folds``. An explicit
+    ``probe_crossfit_folds`` always wins.**
     Test rows are still represented under the full context, so the readout's training rows
     come from contexts (K - 1)/K the size of the one it is applied under. The ``head`` probe
     option is not cross-fitted and is refused while cross-fitting is on; threshold regression
@@ -99,7 +98,7 @@ class FinTFMLinearProbeModel(FinTFMModel):
       partition dict are the caller's. Has no effect without a partition for the problem type.
       Cost: each extra depth level doubles the leaf contexts, so up to 2x the leaf classifiers
       (each a context of ``max_context`` rows) and 2x as many leaf probes per bag.
-    - ``probe_budget`` (int or ``"all"``, default 20,000 = ``TRAIN_SAMPLE_SIZE``): the readout's
+    - ``probe_budget`` (int or ``"all"``, class default 20,000 = ``TRAIN_SAMPLE_SIZE``; the binary entry sets 50,000): the readout's
       training-row budget, in total and split across leaves in proportion to their rows (at
       least ``LEAF_MIN_SAMPLE`` per leaf). ``"all"`` uses every training row. Cost: the
       representation pass over the readout rows is linear in the budget, one pass per leaf
@@ -120,14 +119,18 @@ class FinTFMLinearProbeModel(FinTFMModel):
     #: The measured TabArena-Lite entry (fintfm ``docs/results/FINDINGS.md`` §232, §235, §237).
     #: The default config reproduces it with no environment variable set:
     #:
-    #: - binary, run ``fintfm_lp_bin_scalecvraw_1114``: the published checkpoint, partition ``{}``
-    #:   (the class defaults), probe ``scale`` + ``cv`` + ``raw``;
-    #: - multiclass, run ``fintfm_lp_mc_scr_bag8_1113``: partition ``n_bags`` 8, the same probe, plus the
-    #:   probability floor ``probe_prob_floor="cv"`` (``_entry_prob_floor``);
+    #: - binary, run ``fintfm_lp_bin_both_kaggle`` (§257): the published checkpoint, partition ``{}``
+    #:   with depth scaling (``partition_scale_with_n``), probe ``scale`` + ``cv`` + ``raw``,
+    #:   ``probe_budget`` 50,000, ``probe_crossfit_folds`` 5 (``_entry_scale_with_n``,
+    #:   ``_entry_probe_budget``, ``_entry_crossfit_folds``);
+    #: - multiclass, runs ``fintfm_lp_mc_floor_cpu`` and ``fintfm_lp_mc_floor_sdss17_mac`` (§265, §269):
+    #:   partition ``n_bags`` 8, the same probe, the probability floor ``probe_prob_floor="cv"``
+    #:   (``_entry_prob_floor``), no cross-fitting;
     #: - regression, run ``fintfm_lp_reg_rawpart4_pure_1114``: partition ``n_bags`` 4, probe ``raw``,
-    #:   10 bins.
+    #:   10 bins, no cross-fitting.
     #:
-    #: All three use ``feature_transform`` ``squash`` and ``max_features_strategy`` ``select``.
+    #: The checkpoints of multiclass and regression are unpublished placeholders, and a fit needs
+    #: ``FINTFM_ALLOW_MULTICLASS`` / ``FINTFM_ALLOW_REGRESSION`` and a local checkpoint. All three use ``feature_transform`` ``squash`` and ``max_features_strategy`` ``select``.
     _entry_params: ClassVar[dict] = {"feature_transform": "squash", "max_features_strategy": "select"}
     _entry_checkpoint: ClassVar[dict] = {
         "binary": BINARY_CHECKPOINT,
@@ -148,6 +151,19 @@ class FinTFMLinearProbeModel(FinTFMModel):
     #: (fintfm FINDINGS §265, §269): 4 of 8 tables better, 3 worse, 1 tied, a configuration choice
     #: on one fold, not a measured improvement. ``FINTFM_PROB_FLOOR`` overrides it (``none`` turns it off).
     _entry_prob_floor: ClassVar[dict] = {"binary": None, "multiclass": "cv", "regression": None}
+    #: Binary depth scaling and probe budget, adopted together for binary only (§257, run
+    #: ``fintfm_lp_bin_both_kaggle``, 30 datasets, T4; the single-lever arms ran on airline only).
+    #: The recorded run has ``partition_scale_with_n`` True and ``probe_budget`` 50000.
+    _entry_scale_with_n: ClassVar[dict] = {"binary": True, "multiclass": False, "regression": False}
+    _entry_probe_budget: ClassVar[dict] = {
+        "binary": 50_000,
+        "multiclass": TRAIN_SAMPLE_SIZE,
+        "regression": TRAIN_SAMPLE_SIZE,
+    }
+    #: Cross-fit folds of the entry. Binary cross-fits (§254, run ``fintfm_lp_bin_both_kaggle`` records
+    #: ``probe_crossfit_folds: 5``). Multiclass and regression do not (§255: no gain; the multiclass
+    #: runs record ``probe_crossfit_folds: 0``, and ``fintfm_lp_reg_rawpart4_pure_1114`` predates the option).
+    _entry_crossfit_folds: ClassVar[dict] = {"binary": PROBE_CROSSFIT_FOLDS, "multiclass": 0, "regression": 0}
 
     #: The probe options of the current fit, set by ``_fit``.
     _probe_opts: dict = {}
@@ -193,14 +209,14 @@ class FinTFMLinearProbeModel(FinTFMModel):
 
     def _set_default_params(self):
         super()._set_default_params()
-        self._set_default_param_value("probe_crossfit_folds", PROBE_CROSSFIT_FOLDS)
+        self._set_default_param_value("probe_crossfit_folds", self._entry_crossfit_folds[self.problem_type])
         self._set_default_param_value("reg_target_transform", "none")
         self._set_default_param_value("reg_readout_blend", None)
         self._set_default_param_value("reg_ridge_alphas", None)
-        self._set_default_param_value("partition_scale_with_n", False)
+        self._set_default_param_value("partition_scale_with_n", self._entry_scale_with_n[self.problem_type])
         self._set_default_param_value("partition_scale_k", PARTITION_SCALE_K)
         self._set_default_param_value("partition_depth_cap", PARTITION_DEPTH_CAP)
-        self._set_default_param_value("probe_budget", TRAIN_SAMPLE_SIZE)
+        self._set_default_param_value("probe_budget", self._entry_probe_budget[self.problem_type])
         self._set_default_param_value("probe_prob_floor", self._entry_prob_floor.get(self.problem_type))
 
     @classmethod

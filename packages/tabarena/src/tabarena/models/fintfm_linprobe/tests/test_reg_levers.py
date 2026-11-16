@@ -137,7 +137,8 @@ def test_model_inverts_the_readout_output(name, tmp_path, checkpoint, monkeypatc
 )
 def test_each_lever_runs_end_to_end(hp, partitioned, tmp_path, checkpoint):
     X, y, X_test = skewed()
-    model = make(tmp_path, checkpoint, partitioned=partitioned, **hp)
+    # The regression entry does not cross-fit; the cv blend needs the out-of-fold head predictions.
+    model = make(tmp_path, checkpoint, partitioned=partitioned, probe_crossfit_folds=5, **hp)
     model.fit(X=X, y=y)
     pred = model.predict(X_test)
     assert pred.shape == (N_TEST,)
@@ -162,7 +163,7 @@ def test_cv_blend_weight_is_in_unit_interval_and_chosen_on_training_rows(tmp_pat
     monkeypatch.setattr(
         FinTFMLinearProbeModel, "_predict_ridge", lambda self, Xp: predicted.append(len(Xp)) or orig_predict(self, Xp)
     )
-    model = make(tmp_path, checkpoint, reg_readout_blend="cv")
+    model = make(tmp_path, checkpoint, reg_readout_blend="cv", probe_crossfit_folds=5)
     model.fit(X=X, y=y)
     assert not predicted, "the weight was chosen with predict-time code running"
     assert len(seen) == 1

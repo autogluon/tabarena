@@ -23,6 +23,9 @@ ENV_VARS = (
     "FINTFM_CHECKPOINT",
     "FINTFM_CHECKPOINT_MULTICLASS",
     "FINTFM_CHECKPOINT_REGRESSION",
+    "FINTFM_PARTITION_SCALE_N",
+    "FINTFM_PROBE_BUDGET",
+    "FINTFM_PROB_FLOOR",
 )
 
 #: The measured entry per problem type (fintfm FINDINGS §232, §235, §237).
@@ -239,3 +242,75 @@ def test_search_space_keys_are_read_and_its_first_values_are_the_entry(tmp_path)
     assert set(proposed_search_space_additions) == {"probe_crossfit_folds"}
     assert set(proposed_search_space_additions).isdisjoint(search_space)
     assert set(proposed_search_space_additions) <= set(params)
+
+
+#: The measured entry's levers per problem type: binary ``fintfm_lp_bin_both_kaggle`` (§254, §257),
+#: multiclass ``fintfm_lp_mc_floor_cpu`` and ``fintfm_lp_mc_floor_sdss17_mac`` (§255, §265, §269),
+#: regression ``fintfm_lp_reg_rawpart4_pure_1114`` (§255). Each run's recorded hyperparameters give these.
+MEASURED = {
+    "binary": {"scale_with_n": True, "budget": 50_000, "crossfit": 5, "floor": None},
+    "multiclass": {"scale_with_n": False, "budget": 20_000, "crossfit": 0, "floor": "cv"},
+    "regression": {"scale_with_n": False, "budget": 20_000, "crossfit": 0, "floor": None},
+}
+
+
+def levers(model: FinTFMLinearProbeModel) -> dict:
+    return {
+        "scale_with_n": model._scale_with_n,
+        "budget": model._probe_budget_setting,
+        "crossfit": model._crossfit_folds,
+        "floor": model._prob_floor_setting,
+    }
+
+
+@pytest.mark.parametrize("problem_type", sorted(ENTRY))
+def test_resolved_entry_equals_the_measured_entry(problem_type, tmp_path):
+    model = make(problem_type, tmp_path)
+    entry, _ = resolve(model)
+    assert entry == ENTRY[problem_type]
+    assert levers(model) == MEASURED[problem_type]
+
+
+@pytest.mark.parametrize(
+    ("problem_type", "hyperparameters", "expected"),
+    [
+        ("binary", {"partition_scale_with_n": False}, {"scale_with_n": False}),
+        ("binary", {"probe_budget": 20_000}, {"budget": 20_000}),
+        ("binary", {"probe_crossfit_folds": 0}, {"crossfit": 0}),
+        ("binary", {"probe_prob_floor": "cv"}, {"floor": "cv"}),
+        ("multiclass", {"probe_crossfit_folds": 5}, {"crossfit": 5}),
+        ("multiclass", {"probe_prob_floor": None}, {"floor": None}),
+        (
+            "multiclass",
+            {"partition_scale_with_n": True, "probe_budget": 50_000},
+            {"scale_with_n": True, "budget": 50_000},
+        ),
+        ("regression", {"probe_crossfit_folds": 5}, {"crossfit": 5}),
+        (
+            "regression",
+            {"partition_scale_with_n": True, "probe_budget": "all"},
+            {"scale_with_n": True, "budget": "all"},
+        ),
+    ],
+)
+def test_explicit_hyperparameters_override_the_entry_levers(problem_type, hyperparameters, expected, tmp_path):
+    model = make(problem_type, tmp_path, **hyperparameters)
+    resolve(model)
+    assert levers(model) == {**MEASURED[problem_type], **expected}
+
+
+@pytest.mark.parametrize(
+    ("variable", "value", "problem_type", "expected"),
+    [
+        ("FINTFM_PARTITION_SCALE_N", "off", "binary", {"scale_with_n": False}),
+        ("FINTFM_PARTITION_SCALE_N", "on", "regression", {"scale_with_n": True}),
+        ("FINTFM_PROBE_BUDGET", "30000", "binary", {"budget": 30_000}),
+        ("FINTFM_PROBE_BUDGET", "30000", "multiclass", {"budget": 30_000}),
+        ("FINTFM_PROB_FLOOR", "off", "multiclass", {"floor": None}),
+    ],
+)
+def test_environment_overrides_the_entry_levers(monkeypatch, variable, value, problem_type, expected, tmp_path):
+    monkeypatch.setenv(variable, value)
+    model = make(problem_type, tmp_path)
+    resolve(model)
+    assert levers(model) == {**MEASURED[problem_type], **expected}

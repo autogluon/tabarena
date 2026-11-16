@@ -43,10 +43,15 @@ def depth_for(tmp_path, checkpoint, n, problem_type="binary", partition=None, **
 
 
 @pytest.mark.parametrize("problem_type", PROBLEMS)
-def test_off_by_default_and_byte_identical(problem_type, tmp_path, checkpoint):
+def test_off_switch_and_byte_identical(problem_type, tmp_path, checkpoint):
+    """With the levers off, whether by default (multiclass, regression) or explicitly, nothing changes.
+
+    The binary entry turns both on (§257), so its baseline names them off.
+    """
     X, y, X_test = data(problem_type)
     part = {f"partition_{problem_type}": dict(PARTITION)}
-    base = make(problem_type, tmp_path / "a", checkpoint, **part)
+    off = {"partition_scale_with_n": False, "probe_budget": TRAIN_SAMPLE_SIZE}
+    base = make(problem_type, tmp_path / "a", checkpoint, **off, **part)
     explicit = make(
         problem_type,
         tmp_path / "b",
@@ -59,7 +64,15 @@ def test_off_by_default_and_byte_identical(problem_type, tmp_path, checkpoint):
     assert params["partition_scale_with_n"] is False
     assert params["probe_budget"] == TRAIN_SAMPLE_SIZE
     # Even with k and cap given, nothing changes while the switch is off.
-    third = make(problem_type, tmp_path / "c", checkpoint, partition_scale_k=0.01, partition_depth_cap=3, **part)
+    third = make(
+        problem_type,
+        tmp_path / "c",
+        checkpoint,
+        partition_scale_with_n=False,
+        partition_scale_k=0.01,
+        partition_depth_cap=3,
+        **part,
+    )
     for m in (base, explicit, third):
         m.fit(X=X, y=y)
         assert m.model.max_depth == PARTITION["max_depth"]
@@ -162,7 +175,7 @@ def test_probe_budget_is_honoured_in_the_plain_probe(tmp_path, checkpoint, monke
     assert seen == [N_TRAIN]
     seen.clear()
     make("binary", tmp_path / "d", checkpoint, partition_binary=None).fit(X=X, y=y)
-    assert seen == [TRAIN_SAMPLE_SIZE]
+    assert seen == [FinTFMLinearProbeModel._entry_probe_budget["binary"]]
 
 
 @pytest.mark.parametrize("budget", [50_000, "all", 150])
