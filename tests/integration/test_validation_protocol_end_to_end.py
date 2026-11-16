@@ -11,14 +11,17 @@ what a user of the official pipeline gets:
 * ``official_validation_protocol=False`` runs it and records ``3x1`` as a custom protocol;
 * outer fits run without a flag and register as ``outer``;
 * a rerun of the same ``expname`` under another protocol is refused by the cache guard;
-* a bagged experiment without a protocol and without a context is refused at fit time.
+* a bagged experiment without a protocol and without a context is refused at fit time;
+* a bag fit with AutoGluon's ``oof_per_fold`` stores each fold model's validation predictions without
+  the pooled ones, and its result reads back with the pooled predictions of the same run without it.
 """
 
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
 import pytest
-from autogluon.core.models import DummyModel
+from autogluon.core.models import BaggedEnsembleModel, DummyModel
 from sklearn.datasets import make_classification, make_regression
 from sklearn.model_selection import StratifiedKFold, train_test_split
 
@@ -32,6 +35,7 @@ from tabarena.benchmark.experiment import (
     ValidationProtocolError,
     build_jobs,
 )
+from tabarena.benchmark.result import AGBagResult, BaselineResult
 from tabarena.benchmark.task import UserTask
 from tabarena.benchmark.task.metadata import TabArenaTaskMetadata, TaskMetadataCollection
 from tabarena.benchmark.task.user_task import from_sklearn_splits_to_user_task_splits
@@ -265,3 +269,36 @@ def test_a_bagged_experiment_without_protocol_and_context_is_refused_at_fit(toy,
     )
     with pytest.raises(ValidationProtocolError, match="arena context"):
         runner.run_jobs(build_jobs(experiments, collection))
+
+
+def test_per_fold_val_predictions_are_stored_without_the_pooled_ones(toy, tmp_path):
+    if not hasattr(BaggedEnsembleModel, "predict_proba_oof_per_fold"):
+        pytest.skip("the installed AutoGluon has no `oof_per_fold`")
+
+    def run(name: str, config: dict) -> list[dict]:
+        generator = ConfigGenerator(search_space={}, model_cls=DummyModel, manual_configs=[config])
+        context = _context(toy, validation_protocol=BEYONDARENA_VALIDATION_PROTOCOL)  # 5 x 5 on these tiny tasks
+        experiments = BeyondArenaExperimentBundle(models=[(generator, 0)]).build_experiments()
+        return _run(context, experiments, toy=toy, expname=tmp_path / name)
+
+    pooled_results = run("pooled", {})
+    per_fold_results = run("per_fold", {"ag_args_ensemble": {"oof_per_fold": True}})
+
+    assert len(per_fold_results) == len(pooled_results) == 2
+    for pooled, per_fold in zip(pooled_results, per_fold_results, strict=True):
+        assert pooled["task_metadata"]["name"] == per_fold["task_metadata"]["name"]
+        artifact = per_fold["simulation_artifacts"]
+        assert "pred_proba_dict_val" not in artifact
+        assert len(artifact["bag_info"]["pred_proba_val_per_child"]) == 25
+        assert "pred_proba_val_per_child" not in pooled["simulation_artifacts"]["bag_info"]
+        assert "pred_proba_dict_val" in pooled["simulation_artifacts"]
+        assert per_fold["metric_error_val"] == pytest.approx(pooled["metric_error_val"])
+
+        read_back = BaselineResult.from_dict(per_fold)
+        assert isinstance(read_back, AGBagResult)
+        np.testing.assert_allclose(
+            read_back.simulation_artifacts["pred_val"],
+            BaselineResult.from_dict(pooled).simulation_artifacts["pred_val"],
+            rtol=1e-6,
+            atol=1e-7,
+        )
