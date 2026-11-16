@@ -34,6 +34,63 @@ run against `main`. To reproduce an entry, check out its recorded **git SHA**.
 
 ---
 
+## 2026-11-16 — inpriora_16112026
+
+- **Model(s):** Inpriora (default config only, no search space) on all 816 TabArena-v0.1 splits, 816 items
+- **Git SHA:** `f06ed3f1` on `add-inpriora`, the head of autogluon/tabarena#730: the author's commit `972ef2a5` from
+  #729 (Inpriora `dde547d0`, checkpoint `ai-for-data/inpriora@f8638e83`), merged with main `bfa8c50c`, plus the
+  maintainer's wrapper fixes (the network left in place on save, preprocessing moved with the model to the CPU, the
+  context budget counted over the kept columns, a test of the cache paths), clean. AutoGluon 1.6.4b20261115 from PyPI.
+- **Validation protocol:** `8x1`
+- **Purpose:** First maintainer run of Inpriora, Ant Group's in-context tabular foundation model trained on synthetic
+  data, submitted in #729 (closed for #730, which keeps the author's commit).
+- **Notes:** SkyPilot pool `inpriora-1611` (spot RTX PRO 6000 workers, env `295bd71551e3`), one item per bundle,
+  `fake_memory_for_estimates=96`, the 1 h default time limit. Run venv `~/.venvs/tabarena_inpriora_16112026` (PyPI
+  torch 2.13.0, triton 3.7.1). The admin policy now rejects fixed-size pools, so the generated pool YAML (`workers:
+  32`) was edited by hand to `min_workers: 0`, `max_workers: 32`, `downscale_delay_seconds: 120` before the apply;
+  one job was launched first and checked, then the other 31 under the same launch
+  (`inpriora_16112026_gpu-20261116-091949-2f72`).
+  - Before the launch: three reviewer lenses on the wrapper and Inpriora `dde547d0`, no blocker. On the CPU,
+    `audit_transduction` passed with `cache=False` (the fold models) and `cache=True` (the refit) for binary,
+    multiclass and regression, 12-class probes (the many-class path) differed by at most 8e-7, cached, uncached and
+    `repr` predictions agreed, and `audit_pickle` and the smoke fit passed. The training data is claimed synthetic;
+    no contamination audit was run.
+  - 816 of 816 items, 0 failed, from 09:24 to 10:01 UTC. The warm-up audit found no import or CUDA initialization
+    inside a timed fit or predict. The slowest fit, GiveMeSomeCredit, took about 150 s.
+- **Result:**
+  - Full: #9 of 117, Elo 1839 (+94/-65), nothing imputed, between TabFM+ (1841) and Seldon-Mini (1818).
+  - Binary: #10 of 115, Elo 1808. Multiclass: #13 of 115, Elo 1807 (+375/-182). Regression: #6 of 113, Elo 2221.
+  - Median 1.07 s train and 0.063 s inference per 1K rows, on the Pareto front of Elo against inference time.
+  - The authors' run in #729 reported Elo 1824 (full), 1795 (binary), 1787 (multiclass) and 2209 (regression).
+- **Upload:** processed and uploaded as suite `tabarena-2026-11-16` (`inpriora_method_metadata` in
+  `models/inpriora/info.py`, 816 splits, raw included), `verified=True` on the maintainer's sign-off.
+
+```python
+TabArenaV0pt1BenchmarkPlan(
+    benchmark_name="inpriora_16112026",
+    model_jobs=[
+        ModelJob(
+            models=("Inpriora", 0),
+            name="gpu",
+            # REQUIRED for every GPU model: AutoGluon budgets parallel bagging folds against this memory figure.
+            resources={"num_gpus": 1, "fake_memory_for_estimates": 96},
+        ),
+    ],
+    task_subset=TaskSubset(),  # the full task set, all splits
+    path_setup=PathSetup(
+        workspace="/home/lennart_priorlabs_ai/workspace/benchmarking/tabarena_workspace",
+        python_path="/home/lennart_priorlabs_ai/.venvs/tabarena_inpriora_16112026/bin/python",
+    ),
+    experiment_bundle=TabArenaV0pt1ExperimentBundle(model_verbosity=2),
+    resources_setup=TabArenaV0pt1ResourcesSetup(num_cpus=None, memory_limit=None),  # auto-detect on the node
+    scheduler_setup=SkyPilotSetup(bundle_size=1, workers=32, use_pool=True, pool_name="inpriora-1611"),
+).setup_jobs()
+# The generated pool YAML then edited to pool: {min_workers: 0, max_workers: 32, upscale_delay_seconds: 30,
+# downscale_delay_seconds: 120} for the admin policy.
+```
+
+---
+
 ## 2026-11-12 — beyondarena_limix21016_12112026
 
 - **Model(s):** LimiX-2-1016 (registry `LimiX-2` at launch; default config only) on the 1,962 BeyondArena `core2k`

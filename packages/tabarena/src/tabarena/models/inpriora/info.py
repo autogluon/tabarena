@@ -26,11 +26,14 @@ inpriora_method_metadata = inpriora_descriptor.method_metadata(
     method="Inpriora",
     ag_key="TA-INPRIORA",
     model_key="INPRIORA",
+    config_default="Inpriora_c1_default_BAG_L1",
     can_hpo=False,
+    date="2026-11-16",
+    verified=True,
+    cache_type="r2",
     validation_protocol="8x1",
-    suite="tabarena-2026-11-12",
-    date="2026-11-12",
-    verified=False,
+    suite="tabarena-2026-11-16",
+    cache_kwargs={"bucket": "tabarena", "prefix": "cache"},
 )
 
 inpriora_info = ModelInfo(
