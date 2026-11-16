@@ -42,6 +42,10 @@ PARTITION_SCALE_K = 4.0
 PARTITION_DEPTH_CAP = 5
 #: The alpha grid ``reg_ridge_alphas="wide"`` names.
 WIDE_RIDGE_ALPHAS = (-3.0, 7.0, 21)
+#: Candidate floors ``e`` of the ``probe_prob_floor="cv"`` selection; 0 (no floor) is the first.
+PROB_FLOOR_GRID = (0.0, 1e-4, 1e-3, 3e-3, 1e-2, 3e-2)
+#: Most rows of one probe's held-out predictions kept for the floor selection.
+PROB_FLOOR_MAX_ROWS = 5_000
 
 
 class FinTFMLinearProbeModel(FinTFMModel):
@@ -118,7 +122,8 @@ class FinTFMLinearProbeModel(FinTFMModel):
     #:
     #: - binary, run ``fintfm_lp_bin_scalecvraw_1114``: the published checkpoint, partition ``{}``
     #:   (the class defaults), probe ``scale`` + ``cv`` + ``raw``;
-    #: - multiclass, run ``fintfm_lp_mc_scr_bag8_1113``: partition ``n_bags`` 8, the same probe;
+    #: - multiclass, run ``fintfm_lp_mc_scr_bag8_1113``: partition ``n_bags`` 8, the same probe, plus the
+    #:   probability floor ``probe_prob_floor="cv"`` (``_entry_prob_floor``);
     #: - regression, run ``fintfm_lp_reg_rawpart4_pure_1114``: partition ``n_bags`` 4, probe ``raw``,
     #:   10 bins.
     #:
@@ -136,6 +141,13 @@ class FinTFMLinearProbeModel(FinTFMModel):
         "regression": {"raw": True},
     }
     _per_problem_options: ClassVar[tuple[str, ...]] = ("checkpoint", "partition", "probe")
+    #: Multiclass probability floor ``probe_prob_floor`` of the entry. ``"cv"`` picks ``e`` in
+    #: ``(1 - e) p + e / K`` by log loss on held-out readout rows (never validation or test rows).
+    #: Adopted for multiclass only, from run ``fintfm_lp_mc_floor_cpu`` (seven tables) and
+    #: ``fintfm_lp_mc_floor_sdss17_mac`` (SDSS17), merged in ``fintfm_linprobe_all51_1116f_floor8``
+    #: (fintfm FINDINGS §265, §269): 4 of 8 tables better, 3 worse, 1 tied, a configuration choice
+    #: on one fold, not a measured improvement. ``FINTFM_PROB_FLOOR`` overrides it (``none`` turns it off).
+    _entry_prob_floor: ClassVar[dict] = {"binary": None, "multiclass": "cv", "regression": None}
 
     #: The probe options of the current fit, set by ``_fit``.
     _probe_opts: dict = {}
@@ -158,6 +170,14 @@ class FinTFMLinearProbeModel(FinTFMModel):
     _scale_k: float = PARTITION_SCALE_K
     _depth_cap: int = PARTITION_DEPTH_CAP
     _probe_budget_setting: int | str = TRAIN_SAMPLE_SIZE
+    #: ``probe_prob_floor`` of the current fit: ``None`` (off), ``"cv"`` or a float in [0, 1).
+    _prob_floor_setting: float | str | None = None
+    #: Held-out ``(label index, probabilities)`` blocks gathered while the probes are fitted, for ``"cv"``.
+    _floor_oof: ClassVar[list] = []
+    #: The floor ``e`` applied at predict time; ``0.0`` is no floor.
+    prob_floor_: float = 0.0
+    #: Pooled held-out log loss per candidate floor when ``"cv"`` chose it, else ``None``.
+    prob_floor_losses_: dict | None = None
     #: What the depth scaling chose for the current fit (``None`` when off or unpartitioned).
     partition_depth_chosen_: dict | None = None
     #: The fitted target transform, or ``None`` when none is applied.
@@ -181,6 +201,7 @@ class FinTFMLinearProbeModel(FinTFMModel):
         self._set_default_param_value("partition_scale_k", PARTITION_SCALE_K)
         self._set_default_param_value("partition_depth_cap", PARTITION_DEPTH_CAP)
         self._set_default_param_value("probe_budget", TRAIN_SAMPLE_SIZE)
+        self._set_default_param_value("probe_prob_floor", self._entry_prob_floor.get(self.problem_type))
 
     @classmethod
     def _env_entry_overrides(cls) -> dict:
@@ -194,6 +215,8 @@ class FinTFMLinearProbeModel(FinTFMModel):
         - ``FINTFM_PARTITION_SCALE_N``: ``partition_scale_with_n``; ``on``/``true`` enables with the default k,
           ``off``/``false`` disables, a positive number enables and sets ``partition_scale_k``.
         - ``FINTFM_PROBE_BUDGET``: ``probe_budget``, a positive integer or ``all``.
+        - ``FINTFM_PROB_FLOOR``: ``probe_prob_floor``, ``cv`` or a number in [0, 1); ``none`` or
+          ``off`` turns off the entry's multiclass floor.
 
         Returns:
             The overrides; empty when no variable is set.
@@ -249,7 +272,35 @@ class FinTFMLinearProbeModel(FinTFMModel):
             value = budget if budget == "all" else cls._int_or_raise(budget, "FINTFM_PROBE_BUDGET")
             over["probe_budget"] = cls._check_probe_budget(value, source="FINTFM_PROBE_BUDGET")
             logger.warning("fintfm: probe budget %s (FINTFM_PROBE_BUDGET)", budget)
+        floor = os.environ.get("FINTFM_PROB_FLOOR", "").strip().lower()
+        if floor:
+            if floor in ("none", "off"):
+                over["probe_prob_floor"] = None
+            else:
+                value = floor if floor == "cv" else cls._float_or_raise(floor, "FINTFM_PROB_FLOOR")
+                over["probe_prob_floor"] = cls._check_prob_floor(value, source="FINTFM_PROB_FLOOR")
+            logger.warning("fintfm: probability floor %s (FINTFM_PROB_FLOOR)", floor)
         return over
+
+    @staticmethod
+    def _check_prob_floor(value, *, source: str):
+        """Validate a ``probe_prob_floor`` value.
+
+        Args:
+            value: ``None``, ``"cv"`` or a number in [0, 1).
+            source: Where the value came from, for the error message.
+
+        Returns:
+            ``None``, ``"cv"`` or the number as a float.
+
+        Raises:
+            ValueError: the value is none of those.
+        """
+        if value is None or (isinstance(value, str) and value == "cv"):
+            return value
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not 0.0 <= value < 1.0:
+            raise ValueError(f"{source} must be None, 'cv' or a number in [0, 1), got {value!r}")
+        return float(value)
 
     @staticmethod
     def _int_or_raise(text: str, name: str) -> int:
@@ -461,6 +512,9 @@ class FinTFMLinearProbeModel(FinTFMModel):
         self._crossfit_on = crossfit
         y_arr = np.asarray(y)
         self._ridge_probe = None
+        self._floor_oof = []
+        self.prob_floor_losses_ = None
+        self.prob_floor_ = 0.0
         if self.problem_type == "regression":
             self._leaf_probes = None
             self._linear_probe = None
@@ -479,6 +533,7 @@ class FinTFMLinearProbeModel(FinTFMModel):
         if hasattr(self.model, "trees_"):
             # The partition setting wrapped the classifier: one probe per leaf context.
             self._fit_leaf_probes(np.asarray(Xp, dtype=np.float32), y_arr)
+            self._finish_prob_floor()
             self._log_crossfit()
             return
         self._leaf_probes = None
@@ -502,9 +557,10 @@ class FinTFMLinearProbeModel(FinTFMModel):
         self._fit_raw_conditioner(Xp)
         # The classifier was fitted on every row, so a row's position in its fit rows is its index.
         fit_idx = sub if crossfit else None
-        self._linear_probe = self._new_classifier_probe(y_sub).fit(
-            self._probe_input(self.model, Xp[sub], fit_idx), y_sub
-        )
+        rep = self._probe_input(self.model, Xp[sub], fit_idx)
+        self._linear_probe = self._new_classifier_probe(y_sub).fit(rep, y_sub)
+        self._collect_floor_oof(self._linear_probe, rep, y_sub)
+        self._finish_prob_floor()
         self._log_crossfit()
 
     def _resolve_entry(self, params: dict) -> dict:
@@ -514,10 +570,14 @@ class FinTFMLinearProbeModel(FinTFMModel):
 
         Raises:
             ValueError: ``probe_crossfit_folds`` is not a non-negative integer, or is 2 or more
-                with the ``head`` probe option, which is not cross-fitted.
+                with the ``head`` probe option, which is not cross-fitted; or ``probe_prob_floor``
+                is not ``None``, ``"cv"`` or a number in [0, 1).
         """
         self._parse_reg_levers(params, pop=True)
         self._parse_scale_levers(params)
+        self._prob_floor_setting = self._check_prob_floor(
+            params.pop("probe_prob_floor", None), source="probe_prob_floor"
+        )
         folds = params.pop("probe_crossfit_folds", PROBE_CROSSFIT_FOLDS)
         if isinstance(folds, bool) or not isinstance(folds, int) or folds < 0:
             raise ValueError(f"probe_crossfit_folds must be a non-negative integer, got {folds!r}")
@@ -938,7 +998,10 @@ class FinTFMLinearProbeModel(FinTFMModel):
         if len(np.unique(y_sub)) < len(np.unique(y_arr[members])):
             return None
         fit_idx = None if fit_rows is None else _positions_in(fit_rows, sub)
-        return self._new_classifier_probe(y_sub).fit(self._probe_input(est, Xp[sub], fit_idx), y_sub)
+        rep = self._probe_input(est, Xp[sub], fit_idx)
+        probe = self._new_classifier_probe(y_sub).fit(rep, y_sub)
+        self._collect_floor_oof(probe, rep, y_sub)
+        return probe
 
     def _all_rows(self, n: int) -> np.ndarray | None:
         """Fit rows of an estimator fitted on all ``n`` rows when cross-fitting, else ``None``."""
@@ -1206,6 +1269,100 @@ class FinTFMLinearProbeModel(FinTFMModel):
                 blocks.append(np.log(np.clip(np.asarray(est.predict_proba(X), dtype=np.float64), 1e-6, 1.0)))
         return blocks[0] if len(blocks) == 1 else np.hstack(blocks)
 
+    def _collect_floor_oof(self, probe, rep: np.ndarray, y_sub: np.ndarray) -> None:
+        """Keep held-out probabilities of a fitted probe for the ``"cv"`` floor selection.
+
+        Only when ``probe_prob_floor="cv"``. The probe's pipeline is refitted on stratified
+        folds of its own training rows (``rep``, ``y_sub``), so only rows of the fold the model
+        sees are used, never validation or test rows. When the probe is a
+        ``LogisticRegressionCV``, the refits use the ``C`` it selected, so ``C`` is not
+        re-selected inside each fold (a mild optimism, the same for every candidate floor).
+        At most ``PROB_FLOOR_MAX_ROWS`` rows, drawn with the model seed, are used.
+
+        Args:
+            probe: The fitted readout (a pipeline or a classifier).
+            rep: The readout's input for its training rows.
+            y_sub: Its training labels.
+        """
+        if self._prob_floor_setting != "cv":
+            return
+        import numpy as np
+        from sklearn.base import clone
+        from sklearn.linear_model import LogisticRegression
+        from sklearn.model_selection import StratifiedKFold, cross_val_predict
+        from sklearn.pipeline import Pipeline
+
+        if len(np.unique(y_sub)) < 2:
+            return
+        if len(y_sub) > PROB_FLOOR_MAX_ROWS:
+            rows = np.sort(
+                np.random.default_rng(int(self.random_seed) + 104729).choice(
+                    len(y_sub), PROB_FLOOR_MAX_ROWS, replace=False
+                )
+            )
+            rep, y_sub = rep[rows], y_sub[rows]
+        classes, counts = np.unique(y_sub, return_counts=True)
+        folds = min(3, int(counts.min()))
+        if folds < 2 or len(classes) < 2:
+            return
+        est = clone(probe)
+        last_name, last = probe.steps[-1] if isinstance(probe, Pipeline) else (None, probe)
+        if hasattr(last, "C_"):
+            # A fitted LogisticRegressionCV: refit with the C it chose, fixed.
+            plain = LogisticRegression(C=float(np.mean(last.C_)), max_iter=1000)
+            est = est.set_params(**{last_name: plain}) if last_name else plain
+        cv = StratifiedKFold(n_splits=folds, shuffle=True, random_state=int(self.random_seed))
+        held = cross_val_predict(est, rep, y_sub, cv=cv, method="predict_proba")
+        self._floor_oof.append((np.searchsorted(classes, y_sub), np.asarray(held, dtype=np.float64)))
+
+    def _finish_prob_floor(self) -> None:
+        """Set :attr:`prob_floor_` from the setting, choosing it on the held-out blocks for ``"cv"``.
+
+        The choice minimises the pooled held-out log loss of ``(1 - e) p + e / K`` over
+        :data:`PROB_FLOOR_GRID`; ties go to the smaller ``e``. With no held-out block the floor is 0.
+        """
+        import numpy as np
+
+        setting = self._prob_floor_setting
+        self.prob_floor_losses_ = None
+        if setting is None:
+            self.prob_floor_ = 0.0
+        elif setting != "cv":
+            self.prob_floor_ = float(setting)
+        elif not self._floor_oof:
+            self.prob_floor_ = 0.0
+            logger.warning("FinTFM-LinProbe: probe_prob_floor='cv' found no held-out rows, no floor applied.")
+        else:
+            losses = {}
+            for e in PROB_FLOOR_GRID:
+                total, count = 0.0, 0
+                for idx, proba in self._floor_oof:
+                    p = (1.0 - e) * proba[np.arange(len(idx)), idx] + e / proba.shape[1]
+                    total += float(-np.log(np.clip(p, 1e-15, 1.0)).sum())
+                    count += len(idx)
+                losses[e] = total / count
+            self.prob_floor_ = min(PROB_FLOOR_GRID, key=lambda e: (losses[e], e))
+            self.prob_floor_losses_ = losses
+            logger.warning("FinTFM-LinProbe: probability floor %g chosen on held-out probe rows.", self.prob_floor_)
+        self._floor_oof = []
+
+    def _apply_prob_floor(self, proba: np.ndarray) -> np.ndarray:
+        """``(1 - e) p + e / K`` with ``e = prob_floor_``; ``proba`` itself when ``e`` is 0.
+
+        Args:
+            proba: Class probabilities, ``(n, K)``, or the positive-class column ``(n,)`` of a
+                binary problem.
+
+        Returns:
+            The floored probabilities, same shape; rows still sum to 1.
+        """
+        e = getattr(self, "prob_floor_", 0.0)
+        if not e:
+            return proba
+        if proba.ndim == 1:
+            return (1.0 - e) * proba + e / 2.0
+        return (1.0 - e) * proba + e / proba.shape[1]
+
     def _predict_proba(self, X: pd.DataFrame, **kwargs) -> np.ndarray:
         import numpy as np
 
@@ -1238,7 +1395,7 @@ class FinTFMLinearProbeModel(FinTFMModel):
                         glob = self._score(part.global_estimator_, self._linear_probe, Xp[rows])
                         proba = part.combine_with_global(proba, classes, glob)
                     out[rows] += proba
-            return self._convert_proba_to_unified_form(out / len(part.leaf_estimators_))
+            return self._apply_prob_floor(self._convert_proba_to_unified_form(out / len(part.leaf_estimators_)))
         if self._linear_probe is None:
             # Fell back to the network's own head at fit time; delegate to it on the raw
             # frame, since super()._predict_proba does its own preprocess call and would
@@ -1246,7 +1403,7 @@ class FinTFMLinearProbeModel(FinTFMModel):
             return super()._predict_proba(X, **kwargs)
         X = np.asarray(self.preprocess(X, **kwargs), dtype=np.float32)
         proba = self._linear_probe.predict_proba(self._probe_input(self.model, X))
-        return self._convert_proba_to_unified_form(proba)
+        return self._apply_prob_floor(self._convert_proba_to_unified_form(proba))
 
     def _predict_ridge(self, Xp: np.ndarray) -> np.ndarray:
         """The ridge readout's prediction for preprocessed rows, in the transformed target space."""
