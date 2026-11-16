@@ -18,7 +18,7 @@ inpriora_descriptor = ModelDescriptor(
     reference_url="https://github.com/ai-for-data/inpriora",
     license="Apache-2.0",
     commercial_use=True,
-    organization="aifordata",
+    organization="Ant Group",
     date_introduced="2026-11",
 )
 
