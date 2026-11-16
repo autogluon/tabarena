@@ -229,7 +229,9 @@ def _build_parser() -> argparse.ArgumentParser:
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument("--model", required=True, help="Registry method name (MethodMetadata.method), e.g. LimiX-2.")
+    parser.add_argument(
+        "--model", required=True, help="Registry method name (MethodMetadata.method), e.g. LimiX-2-1016."
+    )
     parser.add_argument(
         "--problem-type",
         action="append",

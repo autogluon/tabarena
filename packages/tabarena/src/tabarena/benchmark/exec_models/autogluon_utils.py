@@ -27,6 +27,7 @@ import pandas as pd
 from autogluon.common.utils.validation_structure import ValidationStructure
 from loguru import logger
 
+from tabarena.benchmark.exec_models.grouped_splits import get_recommended_grouped_splits
 from tabarena.benchmark.task.metadata import GroupLabelTypes
 
 if TYPE_CHECKING:
@@ -149,13 +150,6 @@ def preset_uses_bagging(fit_kwargs: dict | None) -> bool:
 
 
 # --- Validation splits ------------------------------------------------------------------
-
-
-#: ``data_foundry``'s split seed (its ``SPLIT_RANDOM_STATE``, a local constant of its split builders), which TabArena's
-#: resolved splits use. AutoGluon's
-#: learner seeds its structure-aware splits from its own ``random_state`` (default 0), so a fit that lets
-#: AutoGluon build the splits reproduces TabArena's folds only with this seed.
-SPLIT_RANDOM_STATE = 4267
 
 
 def validation_structure_from_metadata(
@@ -342,7 +336,7 @@ def resolve_holdout_split(
     still respects the task's structure:
 
     - ``group_on``: a group-disjoint split (no group spans train and validation), optionally
-      stratified, via ``data_foundry``'s single grouped split.
+      stratified, via :func:`get_recommended_grouped_splits`'s single split.
     - ``time_on``: a *forward* holdout: the latest contiguous block of time (about one fold's worth)
       is held out for validation and everything earlier is used for training. This mirrors the
       benchmark's temporal gap between train and test (the test set is the latest time horizon); a
@@ -426,12 +420,10 @@ def _resolve_group_holdout_split(
 ) -> tuple[np.ndarray, np.ndarray]:
     """Single group-disjoint holdout split (optionally stratified) for the ``group_on`` column(s).
 
-    The single-split analogue of :func:`_resolve_group_splits`: ``data_foundry``'s
-    ``get_recommended_grouped_splits`` is asked for one train/test split of approximately
+    The single-split analogue of :func:`_resolve_group_splits`:
+    :func:`get_recommended_grouped_splits` is asked for one train/test split of approximately
     ``val_size`` validation rows, honoring ``group_labels`` and any stratification column.
     """
-    from data_foundry.curation_recommendations import get_recommended_grouped_splits
-
     groups_data = group_on_to_groups_data(X=X, group_on=metadata.group_on)
     assert not groups_data.isna().any(), (
         "Group column(s) contain NaN values, which is not allowed for group-wise splitting!"
@@ -546,8 +538,6 @@ def _resolve_group_splits(
         - We dynamically adjust the number of splits to be the minimum of
             and the number of unique groups in the data.
     """
-    from data_foundry.curation_recommendations import get_recommended_grouped_splits
-
     assert not groups_data.isna().any(), (
         "Group column(s) contain NaN values, which is not allowed for group-wise splitting!"
     )

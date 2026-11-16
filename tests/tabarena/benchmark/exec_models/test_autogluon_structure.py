@@ -8,7 +8,7 @@ import pytest
 from autogluon.common.utils.validation_structure import ValidationStructure
 
 from tabarena.benchmark.exec_models.autogluon import AGSingleBagWrapper, AGSingleWrapper, AGWrapper
-from tabarena.benchmark.exec_models.autogluon_utils import SPLIT_RANDOM_STATE
+from tabarena.benchmark.exec_models.grouped_splits import SPLIT_RANDOM_STATE
 from tabarena.benchmark.task.metadata import GroupLabelTypes
 from tabarena.benchmark.validation_protocol import BEYONDARENA_VALIDATION_PROTOCOL, TABARENA_V0PT1_VALIDATION_PROTOCOL
 

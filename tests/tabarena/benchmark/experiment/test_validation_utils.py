@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import importlib.util
-
 import numpy as np
 import pandas as pd
 import pytest
@@ -23,8 +21,6 @@ from tabarena.benchmark.validation_protocol import (
     ValidationProtocol,
     ValidationProtocolError,
 )
-
-_DATA_FOUNDRY_AVAILABLE = importlib.util.find_spec("data_foundry") is not None
 
 # ---------------------------------------------------------------------------
 # split_time_index_into_intervals
@@ -235,7 +231,6 @@ def test_get_num_group_instances_no_group():
     assert get_num_group_instances(metadata, X) == 7
 
 
-@pytest.mark.skipif(not _DATA_FOUNDRY_AVAILABLE, reason="data_foundry not installed")
 def test_resolve_validation_splits_group_on_builds_splits_with_the_protocol_counts():
     """Grouped data with enough groups keeps the protocol's counts and returns explicit splits."""
     n = 600  # > 500 so the default regime applies
@@ -644,14 +639,13 @@ def test_get_num_group_instances_per_sample_label_returns_len():
 # ===========================================================================
 # resolve_validation_splits — group_on and time_on settings
 # ===========================================================================
-# data_foundry (used inside _resolve_group_splits) is not installed in the test
-# environment, so we monkeypatch _resolve_group_splits to return a trivial split
-# and focus on the surrounding logic in resolve_validation_splits.
+# _resolve_group_splits runs for real (its splitter is tabarena's grouped_splits); the
+# tests wrap it to capture the arguments resolve_validation_splits passes.
 # ===========================================================================
 
 
 def _dummy_splits(n: int) -> list[tuple[np.ndarray, np.ndarray]]:
-    """Simple 50/50 split covering all n rows, used as mock return value."""
+    """Simple 50/50 split covering all n rows, for a test that replaces the splitter."""
     half = n // 2
     return [(np.arange(half), np.arange(half, n))]
 
@@ -661,27 +655,15 @@ def _patch_group_splits(
     n: int,
     captured: dict | None = None,
 ) -> None:
-    """Conditionally patch the module-level ``_resolve_group_splits``.
-
-    * When ``data_foundry`` is **not** installed the function is replaced with a
-      dummy that returns a trivial 50/50 split.
-    * When ``data_foundry`` **is** installed the real function is wrapped so that
-      its keyword arguments are still captured (when *captured* is given) while
-      the genuine implementation runs.
+    """Wrap the module-level ``_resolve_group_splits`` so that its keyword arguments are captured (when
+    *captured* is given) while the real implementation runs; ``n`` is unused.
     """
-    if _DATA_FOUNDRY_AVAILABLE:
-        original = autogluon_utils._resolve_group_splits
+    original = autogluon_utils._resolve_group_splits
 
-        def _wrapper(**kw):
-            if captured is not None:
-                captured.update(kw)
-            return original(**kw)
-    else:
-
-        def _wrapper(**kw):
-            if captured is not None:
-                captured.update(kw)
-            return _dummy_splits(n)
+    def _wrapper(**kw):
+        if captured is not None:
+            captured.update(kw)
+        return original(**kw)
 
     monkeypatch.setattr(autogluon_utils, "_resolve_group_splits", _wrapper)
 
@@ -995,7 +977,6 @@ def test_resolve_holdout_split_tiny_regime_holds_out_a_fifth():
     assert len(val_tiny) > len(val_default)
 
 
-@pytest.mark.skipif(not _DATA_FOUNDRY_AVAILABLE, reason="data_foundry not installed")
 def test_resolve_holdout_split_grouped_per_sample_is_group_disjoint():
     """group_on (PER_SAMPLE) → no group spans train and validation; all rows are covered."""
     n = 600
@@ -1015,7 +996,6 @@ def test_resolve_holdout_split_grouped_per_sample_is_group_disjoint():
     assert train_groups.union(val_groups) == set(group_values)
 
 
-@pytest.mark.skipif(not _DATA_FOUNDRY_AVAILABLE, reason="data_foundry not installed")
 def test_resolve_holdout_split_grouped_per_group_is_group_disjoint():
     """group_on (PER_GROUP) → group-disjoint single split via the index-based grouped splitter."""
     n = 600
@@ -1029,7 +1009,6 @@ def test_resolve_holdout_split_grouped_per_group_is_group_disjoint():
     assert set(groups[train_idx]).isdisjoint(set(groups[val_idx]))
 
 
-@pytest.mark.skipif(not _DATA_FOUNDRY_AVAILABLE, reason="data_foundry not installed")
 def test_resolve_holdout_split_grouped_stratified_keeps_all_train_classes():
     """group_on + stratify_on (binary) → group-disjoint split with all classes present in train.
 
@@ -1085,7 +1064,6 @@ def _make_holdout_wrapper(
     )
 
 
-@pytest.mark.skipif(not _DATA_FOUNDRY_AVAILABLE, reason="data_foundry not installed")
 def test_apply_task_specific_holdout_grouped_produces_disjoint_val():
     """Non-bagged grouped holdout → explicit X_val that is group-disjoint from X_train."""
     n = 600
@@ -1148,7 +1126,6 @@ def test_apply_task_specific_holdout_preserves_original_index():
     assert set(X_train.index).isdisjoint(set(X_val.index))
 
 
-@pytest.mark.skipif(not _DATA_FOUNDRY_AVAILABLE, reason="data_foundry not installed")
 def test_build_predictor_args_sets_tuning_data_for_grouped_holdout():
     """End to end: a grouped holdout fit routes the task-aware split into fit_kwargs['tuning_data']."""
     n = 600
@@ -1191,7 +1168,6 @@ def _make_single_bag_wrapper(validation_metadata: dict | None):
     )
 
 
-@pytest.mark.skipif(not _DATA_FOUNDRY_AVAILABLE, reason="data_foundry not installed")
 def test_build_predictor_args_grouped_bagging_uses_custom_splits_not_tuning_data():
     """Bagged grouped fit -> group-disjoint custom_splits folds, and NOT a tuning_data holdout."""
     n = 600
@@ -1211,7 +1187,6 @@ def test_build_predictor_args_grouped_bagging_uses_custom_splits_not_tuning_data
         assert set(groups[train_idx]).isdisjoint(set(groups[val_idx])), "a group spans a bagged fold"
 
 
-@pytest.mark.skipif(not _DATA_FOUNDRY_AVAILABLE, reason="data_foundry not installed")
 def test_build_predictor_args_temporal_bagging_uses_custom_splits_not_tuning_data():
     """Bagged temporal fit -> non-empty time-based custom_splits folds, and no tuning_data."""
     n = 600
@@ -1341,7 +1316,6 @@ def test_bag_wrapper_tiny_regime_is_decided_on_the_training_data():
     assert (record["num_bag_folds_nominal"], record["num_bag_sets_nominal"]) == (5, 5)
 
 
-@pytest.mark.skipif(not _DATA_FOUNDRY_AVAILABLE, reason="data_foundry not installed")
 def test_bag_wrapper_task_specific_protocol_builds_grouped_custom_splits():
     """BeyondArena on grouped data: the protocol's 8x1 as explicit group-disjoint custom splits."""
     wrapper = _make_bag_wrapper(
