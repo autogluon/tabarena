@@ -57,7 +57,7 @@ class SystemCategory:
 
 
 #: The selectable groups, in toggle order. A system with several tags belongs to several
-#: categories and needs all of them selected, so TabPFN-Thinking (LLM behind a closed API)
+#: categories and needs all of them selected, so a system with an LLM behind a closed API
 #: appears only when both `llm` and `api` are on.
 SYSTEM_CATEGORIES: list[SystemCategory] = [
     SystemCategory(
