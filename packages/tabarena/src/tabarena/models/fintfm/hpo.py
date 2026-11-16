@@ -10,7 +10,7 @@ from tabarena.utils.config_utils import ConfigGenerator
 #: other option the classifier lacks. None of these levers has been measured on TabArena yet,
 #: and the per-member ones (``ensemble_transforms``, ``ensemble_svd_components``,
 #: ``ensemble_class_shift``, ``max_features_strategy``) need fintfm 0.8.0 or later; the pinned
-#: ``fintfm==0.10.1`` extra has all of them, and the partitioned contexts and probe per leaf
+#: ``fintfm==0.11.0`` extra has all of them, and the partitioned contexts and probe per leaf
 #: (fintfm FINDINGS §215) too. The default config (``manual_configs=[{}]``) uses none of them.
 #:
 #: Cost scales linearly with ``n_ensemble`` (doubled again by ``ensemble_label_swap``) and with

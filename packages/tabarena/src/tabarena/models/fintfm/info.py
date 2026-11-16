@@ -32,7 +32,7 @@ fintfm_info = ModelInfo(
     model_cls=FinTFMModel,
     search_space=gen_fintfm,
     method_metadata=fintfm_method_metadata,
-    pip_extra=("fintfm==0.10.1",),
+    pip_extra=("fintfm==0.11.0",),
     #: The binary checkpoint is public, ungated and Apache-2.0, pinned to a commit so the
     #: weights behind a recorded leaderboard number cannot change. Staged before a run rather
     #: than downloaded inside the first fit, where the transfer would be charged to that fit's
