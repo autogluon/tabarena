@@ -125,6 +125,11 @@ class FinTFMLinearProbeModel(FinTFMModel):
       partition dict are the caller's. Has no effect without a partition for the problem type.
       Cost: each extra depth level doubles the leaf contexts, so up to 2x the leaf classifiers
       (each a context of ``max_context`` rows) and 2x as many leaf probes per bag.
+    - ``partition_bags_max_rows`` (int >= 1 or ``None``, default ``None``): a fit with more training
+      rows than this builds its partition with one bag, exactly as if ``n_bags`` were absent; a
+      fit at or below it keeps the requested ``n_bags``. Decided once per fit from the fit's row
+      count (``len(X)`` in ``_fit``, so a bagged child counts its own rows). ``None`` never gates.
+      Applies to whichever problem type has a partition with ``n_bags`` set.
     - ``probe_budget`` (int or ``"all"``, class default 20,000 = ``TRAIN_SAMPLE_SIZE``; the binary entry sets 50,000): the readout's
       training-row budget, in total and split across leaves in proportion to their rows (at
       least ``LEAF_MIN_SAMPLE`` per leaf). ``"all"`` uses every training row. Cost: the
@@ -146,7 +151,7 @@ class FinTFMLinearProbeModel(FinTFMModel):
     #: The measured TabArena-Lite entry (fintfm ``docs/results/FINDINGS.md`` §232, §235, §237).
     #: The default config reproduces it with no environment variable set:
     #:
-    #: - binary, run ``fintfm_lp_bin_both_kaggle`` (§257): the published checkpoint, partition ``{}``
+    #: - binary, run ``fintfm_lp_bin_both_kaggle`` (§257): the published checkpoint, partition ``n_bags`` 4 up to 5,000 fit rows (``_entry_bags_max_rows``) and ``{}`` above,
     #:   with depth scaling (``partition_scale_with_n``), probe ``scale`` + ``cv`` + ``raw``,
     #:   ``probe_budget`` 50,000, ``probe_crossfit_folds`` 5 (``_entry_scale_with_n``,
     #:   ``_entry_probe_budget``, ``_entry_crossfit_folds``);
@@ -168,7 +173,15 @@ class FinTFMLinearProbeModel(FinTFMModel):
         "multiclass": MULTICLASS_CHECKPOINT_UNPUBLISHED,
         "regression": REGRESSION_CHECKPOINT_UNPUBLISHED,
     }
-    _entry_partition: ClassVar[dict] = {"binary": {}, "multiclass": {"n_bags": 8}, "regression": {"n_bags": 4}}
+    _entry_partition: ClassVar[dict] = {
+        "binary": {"n_bags": 4},
+        "multiclass": {"n_bags": 8},
+        "regression": {"n_bags": 4},
+    }
+    #: ``partition_bags_max_rows`` per problem type: the binary entry's four bags apply only to fits of at most
+    #: 5,000 training rows (FINDINGS §286); larger binary fits use the single partition. Multiclass and
+    #: regression are not gated.
+    _entry_bags_max_rows: ClassVar[dict] = {"binary": 5_000, "multiclass": None, "regression": None}
     _entry_probe: ClassVar[dict] = {
         "binary": {"scale": True, "cv": True, "raw": True},
         "multiclass": {"scale": True, "cv": True, "raw": True},
@@ -230,6 +243,9 @@ class FinTFMLinearProbeModel(FinTFMModel):
     _reg_readout_eff: str = "ridge"
     #: Training rows of the current fit, read by :meth:`_resolve_entry` for the depth scaling.
     _n_fit_rows: int | None = None
+    #: ``partition_bags_max_rows`` of the current fit: ``None`` (no gate) or the most training rows at
+    #: which the partition keeps its requested ``n_bags``.
+    _bags_max_rows: int | None = None
     #: Large-table levers of the current fit, set by :meth:`_resolve_entry`.
     _scale_with_n: bool = False
     _scale_k: float = PARTITION_SCALE_K
@@ -269,6 +285,7 @@ class FinTFMLinearProbeModel(FinTFMModel):
         self._set_default_param_value("reg_ridge_alphas", None)
         self._set_default_param_value("reg_readout", self._entry_reg_readout[self.problem_type])
         self._set_default_param_value("reg_rff_max_rows", self._entry_reg_rff_max_rows[self.problem_type])
+        self._set_default_param_value("partition_bags_max_rows", self._entry_bags_max_rows[self.problem_type])
         self._set_default_param_value("partition_scale_with_n", self._entry_scale_with_n[self.problem_type])
         self._set_default_param_value("partition_scale_k", PARTITION_SCALE_K)
         self._set_default_param_value("partition_depth_cap", PARTITION_DEPTH_CAP)
@@ -298,6 +315,9 @@ class FinTFMLinearProbeModel(FinTFMModel):
           ``{"min_count": int, "max_columns": int, "max_levels": int}`` (``max_levels`` >= 2: a
           categorical column with more distinct levels than this in the training rows gets no
           indicator columns; omitted, no cap). Multiclass only; see :meth:`_check_onehot`.
+        - ``FINTFM_PARTITION_BAGS_MAX_ROWS``: ``partition_bags_max_rows``, an integer >= 1, or ``off`` /
+          ``none`` for no gate. A fit with more training rows than this uses one partition bag; see
+          :meth:`_gate_partition_bags`. Unset or empty means no gate.
         - ``FINTFM_PARTITION_SCALE_N``: ``partition_scale_with_n``; ``on``/``true`` enables with the default k,
           ``off``/``false`` disables, a positive number enables and sets ``partition_scale_k``.
         - ``FINTFM_PROBE_BUDGET``: ``probe_budget``, a positive integer or ``all``.
@@ -363,6 +383,21 @@ class FinTFMLinearProbeModel(FinTFMModel):
                 cls._check_onehot(value, source="FINTFM_PROBE_ONEHOT")
                 over["probe_onehot"] = value
             logger.warning("fintfm: one-hot categorical indicators in the readout %s (FINTFM_PROBE_ONEHOT)", onehot)
+        bags_rows = os.environ.get("FINTFM_PARTITION_BAGS_MAX_ROWS", "").strip().lower()
+        if bags_rows:
+            if bags_rows in ("off", "none"):
+                over["partition_bags_max_rows"] = None
+            else:
+                try:
+                    parsed = int(bags_rows)
+                except ValueError:
+                    raise ValueError(
+                        f"FINTFM_PARTITION_BAGS_MAX_ROWS must be an integer >= 1, off or none, got {bags_rows!r}"
+                    ) from None
+                over["partition_bags_max_rows"] = cls._check_bags_max_rows(
+                    parsed, source="FINTFM_PARTITION_BAGS_MAX_ROWS"
+                )
+            logger.warning("fintfm: partition bags row gate %s (FINTFM_PARTITION_BAGS_MAX_ROWS)", bags_rows)
         scale = os.environ.get("FINTFM_PARTITION_SCALE_N", "").strip().lower()
         if scale:
             if scale in ("on", "true", "yes"):
@@ -598,6 +633,59 @@ class FinTFMLinearProbeModel(FinTFMModel):
         return value
 
     @staticmethod
+    def _check_bags_max_rows(value, *, source: str) -> int | None:
+        """Validate a ``partition_bags_max_rows`` value.
+
+        Args:
+            value: ``None`` (no gate) or an int >= 1.
+            source: Where the value came from, for the error message.
+
+        Returns:
+            ``None`` or the int.
+
+        Raises:
+            ValueError: the value is not ``None`` and not an integer >= 1.
+        """
+        if value is None:
+            return None
+        if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+            raise ValueError(f"{source} must be None or an integer >= 1, got {value!r}")
+        return value
+
+    def _gate_partition_bags(self, partition: dict | None) -> dict | None:
+        """``partition`` without ``n_bags`` when this fit has more rows than ``partition_bags_max_rows``.
+
+        Decided once per fit, before the classifier is built, and logged once. Predict uses the
+        fitted model, so it follows the same choice.
+
+        Args:
+            partition: The validated partition dict, or ``None``.
+
+        Returns:
+            A copy with ``n_bags`` removed (one bag, the class default) when the gate fires,
+            otherwise ``partition`` itself. Unchanged when there is no gate, no partition, no
+            ``n_bags`` above 1, or the row count is unknown.
+        """
+        cap, n = self._bags_max_rows, self._n_fit_rows
+        if cap is None or partition is None or n is None or int(partition.get("n_bags", 1)) <= 1:
+            return partition
+        if n > cap:
+            logger.warning(
+                "fintfm: partition n_bags=%d -> 1: %d training rows exceed partition_bags_max_rows=%d",
+                int(partition["n_bags"]),
+                n,
+                cap,
+            )
+            return {k: v for k, v in partition.items() if k != "n_bags"}
+        logger.warning(
+            "fintfm: partition n_bags=%d kept: %d training rows within partition_bags_max_rows=%d",
+            int(partition["n_bags"]),
+            n,
+            cap,
+        )
+        return partition
+
+    @staticmethod
     def _check_reg_alphas(value, *, source: str):
         if value is None or value == "wide":
             return value
@@ -793,6 +881,9 @@ class FinTFMLinearProbeModel(FinTFMModel):
         """
         self._parse_reg_levers(params, pop=True)
         self._parse_scale_levers(params)
+        self._bags_max_rows = self._check_bags_max_rows(
+            params.pop("partition_bags_max_rows", None), source="partition_bags_max_rows"
+        )
         self._prob_floor_setting = self._check_prob_floor(
             params.pop("probe_prob_floor", None), source="probe_prob_floor"
         )
@@ -801,7 +892,7 @@ class FinTFMLinearProbeModel(FinTFMModel):
             raise ValueError(f"probe_crossfit_folds must be a non-negative integer, got {folds!r}")
         onehot = params.pop("probe_onehot", None)
         entry = super()._resolve_entry(params)
-        entry["partition"] = self._scaled_partition(entry["partition"])
+        entry["partition"] = self._scaled_partition(self._gate_partition_bags(entry["partition"]))
         self._probe_opts = entry["probe"] = self._validated_probe(entry["probe"], source=f"probe_{self.problem_type}")
         if folds >= 2 and self._probe_opts.get("head"):
             raise ValueError(

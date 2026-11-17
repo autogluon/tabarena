@@ -16,8 +16,9 @@ from tabarena.utils.config_utils import ConfigGenerator
 #:   The candidates are the entry and its ablations (without ``raw``; plain). The regression
 #:   readout is a ridge and reads only ``raw``. ``head`` is left out: it is refused while
 #:   ``probe_crossfit_folds`` is 2 or more, which is the default.
-#: - ``partition_binary``, ``partition_multiclass``: the tree partition's arguments. ``{}`` is
-#:   one bag at the class defaults (the binary entry), ``{"n_bags": 8}`` the multiclass entry.
+#: - ``partition_binary``, ``partition_multiclass``: the tree partition's arguments. ``{"n_bags": 4}``
+#:   is the binary entry (gated to fits of at most 5,000 rows by ``partition_bags_max_rows``; ``{}`` is one
+#:   bag at the class defaults), ``{"n_bags": 8}`` the multiclass entry.
 #:   The other bag counts are candidates that have not been measured on TabArena. Regression is
 #:   not sampled: ``partition_regression`` stays at the entry's 4 bags.
 #:
@@ -41,7 +42,7 @@ search_space = {
         {},
     ),
     "probe_regression": Categorical({"raw": True}, {}),
-    "partition_binary": Categorical({}, {"n_bags": 4}),
+    "partition_binary": Categorical({"n_bags": 4}, {}),
     "partition_multiclass": Categorical({"n_bags": 8}, {"n_bags": 4}, {}),
 }
 

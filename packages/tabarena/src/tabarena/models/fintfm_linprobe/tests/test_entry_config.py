@@ -28,6 +28,7 @@ ENV_VARS = (
     "FINTFM_PROB_FLOOR",
     "FINTFM_REG_READOUT",
     "FINTFM_REG_RFF_MAX_ROWS",
+    "FINTFM_PARTITION_BAGS_MAX_ROWS",
     "FINTFM_PROBE_ONEHOT",
 )
 
@@ -35,7 +36,7 @@ ENV_VARS = (
 ENTRY = {
     "binary": {
         "checkpoint": BINARY_CHECKPOINT,
-        "partition": {},
+        "partition": {"n_bags": 4},
         "probe": {"scale": True, "cv": True, "raw": True},
         "n_bins": 10,
     },
@@ -97,7 +98,8 @@ def test_supports_all_three_problem_types():
 
 def test_default_hyperparameter_names_and_values(tmp_path):
     params = make("binary", tmp_path)._get_model_params()
-    assert params["partition_binary"] == {}
+    assert params["partition_binary"] == {"n_bags": 4}
+    assert params["partition_bags_max_rows"] == 5_000
     assert params["partition_multiclass"] == {"n_bags": 8}
     assert params["partition_regression"] == {"n_bags": 4}
     assert params["probe_regression"] == {"raw": True}
@@ -171,7 +173,7 @@ def test_explicit_model_path_beats_checkpoint_settings(monkeypatch, tmp_path):
 def test_thresholds_env_drops_the_default_regression_partition(monkeypatch, tmp_path):
     monkeypatch.setenv("FINTFM_REG_THRESHOLDS", "15")
     assert resolve(make("regression", tmp_path))[0]["partition"] is None
-    assert resolve(make("binary", tmp_path))[0]["partition"] == {}
+    assert resolve(make("binary", tmp_path))[0]["partition"] == {"n_bags": 4}
 
 
 @pytest.mark.parametrize(
@@ -387,3 +389,53 @@ def test_explicit_hyperparameter_beats_the_gated_environment(monkeypatch, tmp_pa
     reg = make("regression", tmp_path, reg_readout="rff")
     resolve(reg)
     assert gated(reg)["readout"] == "rff"
+
+
+#: The §286 gate: the binary entry's four bags apply to fits of at most 5,000 training rows.
+BAGS_GATE = {"binary": 5_000, "multiclass": None, "regression": None}
+
+
+def partition_for(problem_type: str, tmp_path, n_rows: int, **hyperparameters) -> dict | None:
+    """The partition a fit of ``n_rows`` training rows is built with."""
+    model = make(problem_type, tmp_path, **hyperparameters)
+    model._n_fit_rows = n_rows  # set by _fit before the entry is resolved
+    partition = resolve(model)[0]["partition"]
+    # The binary entry scales the depth with the row count; that is not what these tests are about.
+    return None if partition is None else {k: v for k, v in partition.items() if k != "max_depth"}
+
+
+@pytest.mark.parametrize("problem_type", sorted(ENTRY))
+def test_bags_gate_defaults_to_the_entry_per_problem_type(problem_type, tmp_path):
+    params = make(problem_type, tmp_path)._get_model_params()
+    assert params["partition_bags_max_rows"] == BAGS_GATE[problem_type]
+
+
+def test_binary_entry_bags_follow_the_row_count(tmp_path):
+    assert partition_for("binary", tmp_path, 5_000) == {"n_bags": 4}
+    assert partition_for("binary", tmp_path, 5_001) == {}
+    assert partition_for("binary", tmp_path, 100) == {"n_bags": 4}
+
+
+@pytest.mark.parametrize(("problem_type", "bags"), [("multiclass", 8), ("regression", 4)])
+def test_multiclass_and_regression_bags_are_never_gated(problem_type, bags, tmp_path):
+    assert partition_for(problem_type, tmp_path, 1_000_000) == {"n_bags": bags}
+
+
+def test_bags_gate_overrides_win(monkeypatch, tmp_path):
+    assert partition_for("binary", tmp_path, 8_000, partition_bags_max_rows=None) == {"n_bags": 4}
+    assert partition_for("binary", tmp_path, 8_000, partition_bags_max_rows=10_000) == {"n_bags": 4}
+    assert partition_for("binary", tmp_path, 3_000, partition_bags_max_rows=2_000) == {}
+    assert partition_for("multiclass", tmp_path, 3_000, partition_bags_max_rows=2_000) == {}
+    monkeypatch.setenv("FINTFM_PARTITION_BAGS_MAX_ROWS", "off")
+    assert partition_for("binary", tmp_path, 8_000) == {"n_bags": 4}
+    monkeypatch.setenv("FINTFM_PARTITION_BAGS_MAX_ROWS", "2000")
+    assert partition_for("binary", tmp_path, 3_000) == {}
+    # An explicit hyperparameter beats the environment variable.
+    assert partition_for("binary", tmp_path, 3_000, partition_bags_max_rows=4_000) == {"n_bags": 4}
+
+
+def test_explicit_partition_and_env_partition_still_win(monkeypatch, tmp_path):
+    assert partition_for("binary", tmp_path, 100, partition_binary={"n_bags": 3}) == {"n_bags": 3}
+    assert partition_for("binary", tmp_path, 100, partition_binary=None) is None
+    monkeypatch.setenv("FINTFM_PARTITION", '{"min_leaf_rows": 40}')
+    assert partition_for("binary", tmp_path, 100) == {"min_leaf_rows": 40}

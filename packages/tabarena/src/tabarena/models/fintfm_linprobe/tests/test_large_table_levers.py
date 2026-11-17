@@ -119,7 +119,8 @@ def test_cap_k_and_base_are_respected(tmp_path, checkpoint):
 
 def test_scaling_keeps_other_partition_arguments_and_records_the_choice(tmp_path, checkpoint):
     part = {"n_bags": 2, "max_depth": 1, "min_samples_leaf": 0.1, "min_leaf_rows": 30}
-    _, m = depth_for(tmp_path, checkpoint, 100_000, partition=part)
+    # The binary entry gates n_bags above 5,000 rows; this test is about the other arguments.
+    _, m = depth_for(tmp_path, checkpoint, 100_000, partition=part, partition_bags_max_rows=None)
     entry_part = m._resolve_entry(m._get_model_params())["partition"]
     assert {k: v for k, v in entry_part.items() if k != "max_depth"} == {
         k: v for k, v in part.items() if k != "max_depth"
