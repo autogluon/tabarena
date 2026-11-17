@@ -133,10 +133,27 @@ class FinTFMModel(AbstractTorchModel):
     )
 
     #: Not a CUDA-only model: it runs on CPU, MPS and CUDA, and the reference machine has no
-    #: CUDA at all. Requiring a GPU here would make every fit fail on that machine rather than
-    #: run slowly, so the GPU attributes of the foundation-model template are deliberately
-    #: omitted and the inherited default of zero GPUs stands.
+    #: CUDA at all. Requiring a GPU (``minimum_num_gpus``) would make every fit fail on that
+    #: machine rather than run slowly, so no minimum is set; :meth:`_get_default_resources`
+    #: asks for one GPU only when CUDA is present, as ModernNCA does.
     default_resources_physical_cores_only = True
+
+    def _get_default_resources(self) -> tuple[int, int]:
+        """CPU cores as the parent decides, plus one GPU when CUDA is available.
+
+        ``_fit`` moves the network to CUDA only when AutoGluon passes ``num_gpus`` > 0, and the
+        inherited default is zero GPUs, so without this a CUDA machine fitted on its CPU while
+        its GPU sat idle (2026-11-18: a T4 job ran three times slower than the measured T4 entry,
+        which had forced the device with ``FINTFM_DEVICE=cuda``). Machines without CUDA, MPS
+        included, are unchanged: zero GPUs, and ``_fit`` still prefers MPS, then CPU.
+
+        Returns:
+            ``(num_cpus, num_gpus)``.
+        """
+        import torch
+
+        num_cpus, _ = super()._get_default_resources()
+        return num_cpus, 1 if torch.cuda.is_available() else 0
 
     #: Foundation-model setting: an in-context model has no train loop, so after bagging a
     #: single refit on all the data is at parity with the bagged ensemble and far cheaper.

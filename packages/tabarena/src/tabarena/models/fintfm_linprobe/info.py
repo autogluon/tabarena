@@ -16,7 +16,9 @@ fintfm_linprobe_method_metadata = MethodMetadata.config(
     #: The raw results hold only the default config. ``hpo.py`` holds a proposed space that has
     #: not been run; set this to ``True`` once a run with sampled configs is registered.
     can_hpo=False,
-    compute="cpu",
+    #: The binary tables above 10,000 training rows were measured on a T4 and the wrapper asks for
+    #: a GPU when CUDA is present; the smaller tables, multiclass and regression ran on CPU.
+    compute="gpu",
     is_bag=True,
     date_introduced="2026-09",
     reference_url="https://github.com/kabartay/fintfm",
