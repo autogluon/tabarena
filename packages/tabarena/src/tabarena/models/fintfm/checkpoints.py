@@ -21,18 +21,21 @@ BINARY_CHECKPOINT: CheckpointRef = {
     "sha256": "d231b062483c9261aae4c503ad5359db295fc7206fa0183f51763e4953c518d2",
 }
 
-#: Placeholder for the multiclass entry's checkpoint (``dr74-mc-s0``, ``max_classes=10``). Not
-#: published; resolving it raises :class:`CheckpointNotPublishedError` until a published
-#: reference replaces it. The SHA-256 identifies the file the entry was measured with.
-MULTICLASS_CHECKPOINT_UNPUBLISHED: CheckpointRef = {
-    "unpublished": "fintfm-multiclass-dr74-mc-s0",
+#: The multiclass entry's checkpoint (``dr74-mc-s0``, ``max_classes=10``), Apache-2.0 and ungated
+#: since 2026-11-17, pinned to a commit like :data:`BINARY_CHECKPOINT`.
+MULTICLASS_CHECKPOINT: CheckpointRef = {
+    "repo_id": "kabartay/fintfm-multiclass",
+    "filename": "dr74-mc-s0.pt",
+    "revision": "b292efa80fbebf759802a980bafe9b5bdcc626bd",
     "sha256": "14d5b4d561fbea6e35c7a30dc2644cb8f64f437c25d62da087ee960717cc8f4d",
 }
 
-#: Placeholder for the regression entry's checkpoint (``v4-binned48_3-control``,
-#: ``max_classes=10``). Not published; see :data:`MULTICLASS_CHECKPOINT_UNPUBLISHED`.
-REGRESSION_CHECKPOINT_UNPUBLISHED: CheckpointRef = {
-    "unpublished": "fintfm-regression-v4-binned48_3-control",
+#: The regression entry's checkpoint (``v4-binned48_3-control``, ``max_classes=10``), Apache-2.0
+#: and ungated since 2026-11-17, pinned to a commit.
+REGRESSION_CHECKPOINT: CheckpointRef = {
+    "repo_id": "kabartay/fintfm-regression",
+    "filename": "v4-binned48_3-control.pt",
+    "revision": "787a3446685cdcd76eaf079637c50bc4c6fb5a04",
     "sha256": "31d5b3ef49e89bbe405fc85ab1d746a9fd6c3a1c5282e1770111902cc4af526c",
 }
 

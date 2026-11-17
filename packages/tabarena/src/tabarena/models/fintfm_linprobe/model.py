@@ -11,8 +11,8 @@ import numpy as np
 
 from tabarena.models.fintfm.checkpoints import (
     BINARY_CHECKPOINT,
-    MULTICLASS_CHECKPOINT_UNPUBLISHED,
-    REGRESSION_CHECKPOINT_UNPUBLISHED,
+    MULTICLASS_CHECKPOINT,
+    REGRESSION_CHECKPOINT,
 )
 from tabarena.models.fintfm.model import FinTFMModel, prefetch_weights  # noqa: F401 (re-exported to info.py)
 from tabarena.models.fintfm_linprobe.target_transform import TARGET_TRANSFORMS, TargetTransform, smearing_factor
@@ -143,9 +143,8 @@ class FinTFMLinearProbeModel(FinTFMModel):
     ag_priority = 65
     seed_name = "random_state"
 
-    #: All three problem types, because the entry is measured on all three. The multiclass and
-    #: regression checkpoints are not published yet, so a fit on either raises
-    #: ``CheckpointNotPublishedError`` unless a local checkpoint is supplied.
+    #: All three problem types, because the entry is measured on all three. All three checkpoints
+    #: are published on Hugging Face and pinned by commit and SHA-256 (``checkpoints.py``).
     _supported_problem_types: ClassVar[list[str]] = ["binary", "multiclass", "regression"]
 
     #: The measured TabArena-Lite entry (fintfm ``docs/results/FINDINGS.md`` §232, §235, §237).
@@ -165,13 +164,12 @@ class FinTFMLinearProbeModel(FinTFMModel):
     #: ``reg_readout`` ``rff`` capped at 5,000 rows for regression (``_entry_probe_onehot``,
     #: ``_entry_reg_readout``, ``_entry_reg_rff_max_rows``).
     #:
-    #: The checkpoints of multiclass and regression are unpublished placeholders, and a fit needs
-    #: ``FINTFM_ALLOW_MULTICLASS`` / ``FINTFM_ALLOW_REGRESSION`` and a local checkpoint. All three use ``feature_transform`` ``squash`` and ``max_features_strategy`` ``select``.
+    #: All three checkpoints are published and resolve with no environment variable set. All three use ``feature_transform`` ``squash`` and ``max_features_strategy`` ``select``.
     _entry_params: ClassVar[dict] = {"feature_transform": "squash", "max_features_strategy": "select"}
     _entry_checkpoint: ClassVar[dict] = {
         "binary": BINARY_CHECKPOINT,
-        "multiclass": MULTICLASS_CHECKPOINT_UNPUBLISHED,
-        "regression": REGRESSION_CHECKPOINT_UNPUBLISHED,
+        "multiclass": MULTICLASS_CHECKPOINT,
+        "regression": REGRESSION_CHECKPOINT,
     }
     _entry_partition: ClassVar[dict] = {
         "binary": {"n_bags": 4},

@@ -6,8 +6,8 @@ pytest.importorskip("fintfm")
 
 from tabarena.models.fintfm.checkpoints import (
     BINARY_CHECKPOINT,
-    MULTICLASS_CHECKPOINT_UNPUBLISHED,
-    REGRESSION_CHECKPOINT_UNPUBLISHED,
+    MULTICLASS_CHECKPOINT,
+    REGRESSION_CHECKPOINT,
     CheckpointNotPublishedError,
     resolve_checkpoint,
 )
@@ -41,13 +41,13 @@ ENTRY = {
         "n_bins": 10,
     },
     "multiclass": {
-        "checkpoint": MULTICLASS_CHECKPOINT_UNPUBLISHED,
+        "checkpoint": MULTICLASS_CHECKPOINT,
         "partition": {"n_bags": 8},
         "probe": {"scale": True, "cv": True, "raw": True},
         "n_bins": 10,
     },
     "regression": {
-        "checkpoint": REGRESSION_CHECKPOINT_UNPUBLISHED,
+        "checkpoint": REGRESSION_CHECKPOINT,
         "partition": {"n_bags": 4},
         "probe": {"raw": True},
         "n_bins": 10,
@@ -216,7 +216,7 @@ def test_unknown_environment_values_raise(monkeypatch, tmp_path, name, value, ma
 
 @pytest.mark.parametrize("problem_type", ["multiclass", "regression"])
 def test_unpublished_checkpoint_raises_a_precise_error(problem_type):
-    ref = ENTRY[problem_type]["checkpoint"]
+    ref = {"unpublished": f"fintfm-{problem_type}-example", "sha256": "0" * 64}
     with pytest.raises(CheckpointNotPublishedError, match=ref["unpublished"]) as err:
         resolve_checkpoint(ref, problem_type=problem_type)
     assert ref["sha256"] in str(err.value)

@@ -11,8 +11,8 @@ from autogluon.tabular.models.abstract.abstract_torch_model import AbstractTorch
 
 from tabarena.models.fintfm.checkpoints import (
     BINARY_CHECKPOINT,
-    MULTICLASS_CHECKPOINT_UNPUBLISHED,
-    REGRESSION_CHECKPOINT_UNPUBLISHED,
+    MULTICLASS_CHECKPOINT,
+    REGRESSION_CHECKPOINT,
     resolve_checkpoint,
     validate_checkpoint_ref,
 )
@@ -152,13 +152,13 @@ class FinTFMModel(AbstractTorchModel):
     #: type become the hyperparameters ``checkpoint_<type>``, ``partition_<type>`` and (in a
     #: class with a probe) ``probe_<type>``. ``None`` partitions nothing. Precedence: a
     #: hyperparameter passed explicitly, then an environment variable, then these. This class
-    #: is the zero-shot head: no partition, and only the binary checkpoint is published.
+    #: is the zero-shot head: no partition; only binary is declared without ``FINTFM_ALLOW_*``.
     _entry_params: ClassVar[dict] = {}
     _entry_n_bins: ClassVar[int] = 10
     _entry_checkpoint: ClassVar[dict] = {
         "binary": BINARY_CHECKPOINT,
-        "multiclass": MULTICLASS_CHECKPOINT_UNPUBLISHED,
-        "regression": REGRESSION_CHECKPOINT_UNPUBLISHED,
+        "multiclass": MULTICLASS_CHECKPOINT,
+        "regression": REGRESSION_CHECKPOINT,
     }
     _entry_partition: ClassVar[dict] = {"binary": None, "multiclass": None, "regression": None}
     #: Names of the per-problem-type options this class has hyperparameters for.
