@@ -26,6 +26,9 @@ ENV_VARS = (
     "FINTFM_PARTITION_SCALE_N",
     "FINTFM_PROBE_BUDGET",
     "FINTFM_PROB_FLOOR",
+    "FINTFM_REG_READOUT",
+    "FINTFM_REG_RFF_MAX_ROWS",
+    "FINTFM_PROBE_ONEHOT",
 )
 
 #: The measured entry per problem type (fintfm FINDINGS §232, §235, §237).
@@ -253,6 +256,15 @@ MEASURED = {
     "regression": {"scale_with_n": False, "budget": 20_000, "crossfit": 0, "floor": None},
 }
 
+#: The §283 levers of the entry per problem type: multiclass one-hot indicators, regression
+#: random-Fourier-feature readout capped at 5,000 training rows; binary has neither.
+ONEHOT_ENTRY = {"min_count": 3, "max_columns": 256, "max_levels": 64}
+MEASURED_GATED = {
+    "binary": {"onehot": None, "readout": "ridge", "rff_max_rows": None},
+    "multiclass": {"onehot": ONEHOT_ENTRY, "readout": "ridge", "rff_max_rows": None},
+    "regression": {"onehot": None, "readout": "rff", "rff_max_rows": 5_000},
+}
+
 
 def levers(model: FinTFMLinearProbeModel) -> dict:
     return {
@@ -261,6 +273,10 @@ def levers(model: FinTFMLinearProbeModel) -> dict:
         "crossfit": model._crossfit_folds,
         "floor": model._prob_floor_setting,
     }
+
+
+def gated(model: FinTFMLinearProbeModel) -> dict:
+    return {"onehot": model._onehot_cfg, "readout": model._reg_readout, "rff_max_rows": model._reg_rff_max_rows}
 
 
 @pytest.mark.parametrize("problem_type", sorted(ENTRY))
@@ -314,3 +330,60 @@ def test_environment_overrides_the_entry_levers(monkeypatch, variable, value, pr
     model = make(problem_type, tmp_path)
     resolve(model)
     assert levers(model) == {**MEASURED[problem_type], **expected}
+
+
+@pytest.mark.parametrize("problem_type", sorted(ENTRY))
+def test_gated_levers_default_to_the_entry_per_problem_type(problem_type, tmp_path):
+    model = make(problem_type, tmp_path)
+    resolve(model)
+    assert gated(model) == MEASURED_GATED[problem_type]
+
+
+@pytest.mark.parametrize(
+    ("problem_type", "hyperparameters", "expected"),
+    [
+        ("multiclass", {"probe_onehot": None}, {"onehot": None}),
+        ("multiclass", {"probe_onehot": True}, {"onehot": {**ONEHOT_ENTRY, "max_levels": None}}),
+        ("multiclass", {"probe_onehot": {"max_levels": 8}}, {"onehot": {**ONEHOT_ENTRY, "max_levels": 8}}),
+        ("regression", {"reg_readout": "ridge"}, {"readout": "ridge"}),
+        ("regression", {"reg_rff_max_rows": 20_000}, {"rff_max_rows": 20_000}),
+        ("regression", {"reg_rff_max_rows": None}, {"rff_max_rows": None}),
+    ],
+)
+def test_explicit_hyperparameters_override_the_gated_levers(problem_type, hyperparameters, expected, tmp_path):
+    model = make(problem_type, tmp_path, **hyperparameters)
+    resolve(model)
+    assert gated(model) == {**MEASURED_GATED[problem_type], **expected}
+
+
+@pytest.mark.parametrize(
+    ("variable", "value", "problem_type", "expected"),
+    [
+        ("FINTFM_PROBE_ONEHOT", "off", "multiclass", {"onehot": None}),
+        (
+            "FINTFM_PROBE_ONEHOT",
+            '{"min_count": 5, "max_columns": 32}',
+            "multiclass",
+            {"onehot": {"min_count": 5, "max_columns": 32, "max_levels": None}},
+        ),
+        ("FINTFM_REG_READOUT", "ridge", "regression", {"readout": "ridge"}),
+        ("FINTFM_REG_RFF_MAX_ROWS", "20000", "regression", {"rff_max_rows": 20_000}),
+        ("FINTFM_REG_RFF_MAX_ROWS", "none", "regression", {"rff_max_rows": None}),
+    ],
+)
+def test_environment_overrides_the_gated_levers(monkeypatch, variable, value, problem_type, expected, tmp_path):
+    monkeypatch.setenv(variable, value)
+    model = make(problem_type, tmp_path)
+    resolve(model)
+    assert gated(model) == {**MEASURED_GATED[problem_type], **expected}
+
+
+def test_explicit_hyperparameter_beats_the_gated_environment(monkeypatch, tmp_path):
+    monkeypatch.setenv("FINTFM_PROBE_ONEHOT", "off")
+    monkeypatch.setenv("FINTFM_REG_READOUT", "ridge")
+    mc = make("multiclass", tmp_path, probe_onehot=True)
+    resolve(mc)
+    assert gated(mc)["onehot"] is not None
+    reg = make("regression", tmp_path, reg_readout="rff")
+    resolve(reg)
+    assert gated(reg)["readout"] == "rff"
