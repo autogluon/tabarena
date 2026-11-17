@@ -38,6 +38,7 @@ Subclass `ExternalSystemModel` (`tabarena/benchmark/exec_models/external.py`) an
 
 - Everything the fit needs is **passed in**, never read off `self`: the raw frames, `target_name`, `problem_type`, `eval_metric`, `validation_metadata`, the compute budget (`num_cpus` / `num_gpus` / `memory_limit` / `time_limit`) and the per-split `random_state`.
 - `X` is yours to edit in place. There is no validation split; carve your own from `X`/`y` if the system wants one.
+- Predictions must be inductive. A system owns its pipeline on the training data only: a test row's prediction in `_predict` / `_predict_proba` may depend only on what `_fit_system` learned from `X` / `y` and on that row, so it does not change with the other test rows, their order or the batch size. No tuning, ensembling, refitting or adaptation on the test rows, no transforms fit on them, and no test rows that attend to each other; a library with a transductive mode runs in its inductive one. The README's "Inductive predictions only" block gives the reasons (autogluon/tabarena#720), and add-model's `references/model_patterns.md` ("The `_fit` contract", item 6) what to look for.
 - Add `__init__` arguments for the system's settings and forward `**kwargs` to `super().__init__`. Those arguments are what the config generator varies.
 - The compute and time budgets are **not** init knobs. They come per split from the runner, so every system is held to the same constraints.
 - Add `cleanup` to free files and memory. Only delete a directory you created; an explicitly passed `path` belongs to the caller.
@@ -67,7 +68,8 @@ only part maintainers can inspect, so it is held to this contract:
   way they do for every other entrant. An API that only offers one `fit_predict` call is accepted,
   but its whole fit is timed as inference (`time_train_s` near zero): set `fits_at_predict=True` in
   `MethodMetadata.system(...)`, so loaded results charge the prediction call to the train time too
-  and the leaderboard marks that train time with a †. Say so in the PR.
+  and the leaderboard marks that train time with a †. Say so in the PR. Such a call sees the test
+  features next to the training data, and must still predict each test row inductively (Step 1).
 - Forward `random_state` when the API takes a seed, and `time_limit` as the fit budget.
 - Bound the retries (transient errors, HTTP 429 and 5xx; never a 4xx) and give the request a
   timeout above `time_limit`, so a dead endpoint fails an item instead of hanging it.
@@ -94,6 +96,7 @@ Check the client with `python -P -m tabarena.tools.audit_system --system <System
 lists what the client sends with the network blocked (no key needed, nothing sent). With a key, the
 same command without `--offline` probes the API for transduction and label lookup (see the module
 docstring), and its `fit-split` result warns when the measured fit and `fits_at_predict` disagree.
+A transduction FAIL stops the run: like every entrant, an API must predict inductively (Step 1).
 
 ## Step 2: `hpo.py`
 

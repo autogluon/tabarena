@@ -30,12 +30,17 @@ node does not have, and a checkpoint that needs a license token the node no long
 gated versions) is still seeded from the warm cache. Whatever lands in the root is uploaded under
 ``huggingface/``, ``xdg/`` and ``torch/`` (Hugging Face repos as their ``snapshots``, ``refs`` and ``trees``,
 so no blob is stored twice), and a per-model manifest ``weights/<model>.json`` makes the next setup skip
-the prefetch. Workers pull the entries at start and, when every model's weights are present, load
-them with ``HF_HUB_OFFLINE=1``, so no token is needed on the VMs.
+the prefetch. The manifest records a fingerprint of the model's weight declaration (its pip pin and the
+source of the folder that defines its prefetcher, where the pinned checkpoint revisions live); a setup whose
+fingerprint differs seeds the model again, so a moved revision reaches the bucket next to the old one.
+Workers pull the entries at start and, when every model's weights are present, load them with
+``HF_HUB_OFFLINE=1``, so no token is needed on the VMs.
 """
 
 from __future__ import annotations
 
+import hashlib
+import inspect
 import json
 import os
 import re
@@ -476,6 +481,35 @@ def model_has_prefetcher(model_name: str) -> bool:
         return False
 
 
+def model_weights_fingerprint(model_name: str) -> str | None:
+    """A digest of what decides the weights of ``model_name``: its pip pin and its prefetcher's source folder.
+
+    Every pinned checkpoint revision is either a constant or argument in the folder that defines the model's
+    prefetcher (``models/<key>/``, subfolders included, its ``tests/`` left out) or follows from the pinned
+    library version, so moving a revision changes the digest. An unrelated edit in that folder changes it too,
+    which costs one reseed that uploads nothing new. ``None`` for a model without a registry entry or prefetcher.
+    """
+    from tabarena.models.utils import get_model_info_from_name
+
+    try:
+        info = get_model_info_from_name(model_name)
+    except ValueError:
+        return None
+    if info.prefetch_weights is None:
+        return None
+    module = inspect.getmodule(inspect.unwrap(info.prefetch_weights))
+    digest = hashlib.sha256(json.dumps(sorted(info.pip_extra or ())).encode())
+    if module is not None and getattr(module, "__file__", None):
+        folder = Path(module.__file__).parent
+        for path in sorted(folder.rglob("*.py")):
+            rel = path.relative_to(folder)
+            if "tests" in rel.parts:
+                continue
+            digest.update(rel.as_posix().encode())
+            digest.update(path.read_bytes())
+    return digest.hexdigest()[:16]
+
+
 def seed_model_weights(
     model_names: Iterable[str],
     *,
@@ -486,14 +520,18 @@ def seed_model_weights(
     scratch_dir: Path | None = None,
     prefetch: Callable[..., None] = prefetch_weights_into,
     has_prefetcher: Callable[[str], bool] = model_has_prefetcher,
+    fingerprint: Callable[[str], str | None] = model_weights_fingerprint,
 ) -> tuple[dict, CacheSeedReport]:
     """Make the weights of ``model_names`` available under ``cache_uri``; return ``(manifest, report)``.
 
-    A model whose ``weights/<model>.json`` exists remotely with entries is taken from there. Otherwise
-    (and only when ``upload``) it is prefetched into a fresh scratch root, its entries are seeded and
-    verified, and the remote manifest is written. The returned manifest is
-    ``{"weights": {"<model>": [rels]}, "offline_weights": bool}``; ``offline_weights`` is True when every
-    model that declares weights has verified entries, which lets the workers load with ``HF_HUB_OFFLINE=1``.
+    A model whose ``weights/<model>.json`` exists remotely with entries and the model's current
+    :func:`model_weights_fingerprint` is taken from there. Otherwise (and only when ``upload``) it is
+    prefetched into a fresh scratch root, its entries are seeded and verified, and the remote manifest is
+    written with the fingerprint. Seeding uploads only the files the prefix lacks, so the checkpoint of a
+    moved revision lands next to the old one, which the code that still pins it keeps reading. The returned
+    manifest is ``{"weights": {"<model>": [rels]}, "offline_weights": bool}``; ``offline_weights`` is True
+    when every model that declares weights has verified entries, which lets the workers load with
+    ``HF_HUB_OFFLINE=1``.
     """
     cache_uri = cache_uri.rstrip("/")
     report = CacheSeedReport(cache_uri=cache_uri)
@@ -502,12 +540,25 @@ def seed_model_weights(
     scratch = Path(scratch_dir) if scratch_dir is not None else Path.home() / ".cache" / "tabarena_sky_seed"
     for model in dict.fromkeys(model_names):
         remote_manifest = f"{cache_uri}/weights/{model}.json"
+        current = fingerprint(model)
         if storage.exists(remote_manifest):
-            rels = list(json.loads(storage.read_text(remote_manifest))["entries"])
-            if rels:
+            remote = json.loads(storage.read_text(remote_manifest))
+            rels = list(remote["entries"])
+            # An empty manifest records a seeding whose prefetch produced nothing; seed again.
+            if rels and remote.get("fingerprint") == current:
                 weights[model] = rels
                 continue
-            # An empty manifest records a seeding whose prefetch produced nothing; seed again.
+            if rels and upload:
+                print(
+                    f"[seed] {model}: its weight declaration changed since the cache was seeded "
+                    f"(fingerprint {remote.get('fingerprint')}, now {current}); seeding again"
+                )
+            elif rels:
+                # A read-only bucket cannot take the new checkpoint: the workers download it, as for a model
+                # without a manifest.
+                report.unverified.append(f"weights of {model} (seeded under another fingerprint)")
+                complete = False
+                continue
         if not has_prefetcher(model):
             weights[model] = []
             continue
@@ -529,7 +580,7 @@ def seed_model_weights(
             rels = seeded["datasets"].get(model, [])
             if not entries or part.unverified:
                 complete = False
-            storage.write_text(remote_manifest, json.dumps({"model": model, "entries": rels}))
+            storage.write_text(remote_manifest, json.dumps({"model": model, "entries": rels, "fingerprint": current}))
             weights[model] = rels
         finally:
             shutil.rmtree(root, ignore_errors=True)

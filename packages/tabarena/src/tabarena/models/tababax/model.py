@@ -65,6 +65,7 @@ class TabAbaxModel(AbstractTorchModel):
     commercially licensed.
 
     Authors: TabAbax, based on TabICL by Jingang Qu, David Holzmüller, Gaël Varoquaux, and Marine Le Morvan
+    Paper: https://arxiv.org/abs/2611.00562
     Codebase: https://github.com/tababax-research/TabAbax
     Upstream: https://github.com/soda-inria/tabicl
     Weights: https://huggingface.co/tababax-ai/TabAbax

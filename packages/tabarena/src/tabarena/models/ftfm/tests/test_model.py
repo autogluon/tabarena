@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import os
+
 import numpy as np
 import pandas as pd
 import pytest
+from autogluon.core.models import AbstractModel
 
 pytest.importorskip("ftfm")
 
@@ -41,17 +44,27 @@ def test_uncached_predicts_like_cached_and_keeps_no_context(tmp_path):
     np.testing.assert_allclose(uncached.predict_proba(X_test), cached.predict_proba(X_test), rtol=1e-5, atol=1e-6)
 
 
-def test_view_batched_contexts_pickle_at_their_own_size():
-    """On CUDA the library prefills views in one batch; each member's context must not carry the others."""
-    import pickle
+@pytest.mark.skipif(
+    not hasattr(AbstractModel, "model_tensors_file_name"), reason="this AutoGluon keeps a model's tensors in model.pkl"
+)
+def test_view_batched_contexts_save_at_their_own_size(tmp_path):
+    """On CUDA the library prefills views in one batch and keeps each member's context as a slice of it.
 
-    from tabarena.models.ftfm._estimators import FTFMClassifier
-
+    A pickle wrote the whole batch once per slice; AutoGluon's tensor file writes it once.
+    """
     X, y, X_test = _frames(n_rows=300)
-    kwargs = {"device": "cpu", "model_path": FTFMModel.prefetch_weights(), "n_estimators": 4}
-    estimator = FTFMClassifier(view_batch_size=4, offload_contexts=True, **kwargs).fit(X, y)
-    reference = FTFMClassifier(view_batch_size=1, **kwargs).fit(X, y)
+    saved_bytes, predictions = {}, {}
+    for view_batch_size in (4, 1):
+        model = FTFMModel(
+            path=str(tmp_path / f"views_{view_batch_size}"),
+            name="m",
+            problem_type="binary",
+            hyperparameters={"n_estimators": 4, "view_batch_size": view_batch_size, "offload_contexts": True},
+        )
+        model.fit(X=X, y=y, num_cpus=2, num_gpus=0)
+        predictions[view_batch_size] = model.predict_proba(X_test)
+        path = model.save()
+        saved_bytes[view_batch_size] = sum(os.path.getsize(os.path.join(path, name)) for name in os.listdir(path))
 
-    np.testing.assert_allclose(estimator.predict_proba(X_test), reference.predict_proba(X_test), rtol=1e-5, atol=1e-6)
-    estimator.member.model = reference.member.model = None
-    assert len(pickle.dumps(estimator)) < 1.1 * len(pickle.dumps(reference))
+    np.testing.assert_allclose(predictions[4], predictions[1], rtol=1e-5, atol=1e-6)
+    assert saved_bytes[4] < 1.1 * saved_bytes[1]

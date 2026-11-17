@@ -46,11 +46,13 @@ dependencies = [
   # `autogluon.timeseries` (torch, transformers, ...). `autogluon.tabular` transitively
   # provides `autogluon.{common,core,features}`, which is everything the code uses.
   # To use `uv`, you need to do `uv pip install --prerelease=allow .` so it recognizes pre-release AutoGluon.
-  # The shared-weights API (autogluon.core.models.abstract.SharedWeights) that the foundation-model
-  # wrappers import landed on AutoGluon's master on 2026-09-16 and ships in the nightlies from
-  # 1.6.3b20260917 on. The 1.6.3 release of 2026-09-18 was cut without it, so it is excluded; a pin
-  # that names a pre-release also lets pip consider the nightlies without `--pre`.
-  "autogluon.tabular>=1.6.3b20260917,!=1.6.3,<1.7",
+  # The floor is the first nightly that writes a model's torch tensors to `model_tensors.pt` beside
+  # `model.pkl` (autogluon/autogluon#6057). Without it, the context caches of Kumo-Tabular, Seldon
+  # and FTFM go back into the pickle, which AutoGluon writes inside the timed fit, and nothing
+  # errors. It also has the shared-weights API (autogluon.core.models.abstract.SharedWeights) the
+  # foundation-model wrappers import. A pin that names a pre-release also lets pip consider the
+  # nightlies without `--pre`.
+  "autogluon.tabular>=1.6.4b20261109,<1.7",
   # core's [ray] extra is exactly ray[default] at the range autogluon.core pins, so the
   # two cannot drift apart. (Not autogluon.tabular[ray]: that maps to core[all], which
   # additionally drags in raytune's hyperopt/stevedore/ray[tune].) autogluon.core is
@@ -131,6 +133,7 @@ tabfm = [
   "tabpfn-extensions[many_class]>=0.6.1",  # the output coding of datasets with more than ten classes
 ]
 tabstar_v1p1 = ["tabstar==1.2.0"]
+tabh2o = ["h2ofm==0.43.1"]
 # Chakra-Tab is a hosted API (systems/chakra_tab): the extra is only the HTTP client and the table encoding.
 chakra-tab = ["requests>=2.31", "pyarrow>=14"]
 perpetualboosting = ["perpetual"] # We used version 2.1.0
@@ -146,16 +149,21 @@ limix = [
   "kditransform",
 ]
 # LimiX-2's inference package is not on PyPI (pinned to a commit; keep in sync with `pip_extra` in
-# models/limix_2/info.py; empty extra on PyPI, see the note at the top of this table) and pins
-# torch==2.9.1, which would replace the torch every other model runs on. The extra is therefore left
-# out of `extended` and `all`; install it without its dependency tree next to the existing torch:
-#   uv pip install --no-deps "LimiX @ git+https://github.com/limix-ldm-ai/LimiX.git@774aa3e1a994cbe38f33758e3d663e9951855554" nvtx
+# models/limix_2/info.py; empty extra on PyPI, see the note at the top of this table), and its requirements
+# would be resolved against the torch every other model runs on (its constraints file pins torch==2.9.1). The
+# extra is therefore left out of `extended` and `all`; install it without its dependency tree next to the
+# existing torch:
+#   uv pip install --no-deps "LimiX @ git+https://github.com/limix-ldm-ai/LimiX.git@a917fa052eb637db98318b65712def280055ec34" nvtx
 limix_2 = [
-  "LimiX @ git+https://github.com/limix-ldm-ai/LimiX.git@774aa3e1a994cbe38f33758e3d663e9951855554",
+  "LimiX @ git+https://github.com/limix-ldm-ai/LimiX.git@a917fa052eb637db98318b65712def280055ec34",
   "nvtx",
 ]
 tabpfnwide = ["tabpfnwide>=0.3.0"]
 iltm = ["iltm>=0.1.1"]
+# The `[triton]` extra enables the fused CUDA kernels used in the run.
+inpriora = [
+  "inpriora[triton] @ git+https://github.com/ai-for-data/inpriora.git@dde547d0559ee825a5e3830825c2bfff9badc6ab",
+]
 chimeraboost = ["chimeraboost>=0.30.0"]
 ctboost = ["ctboost==0.1.61"]
 prismboost = ["prismboost>=0.5.1"]
@@ -191,9 +199,12 @@ kumo_tabular = [
 ]
 # Seldon / Seldon-Mini (Neuralk-AI). Keep in sync with `pip_extra` in models/seldon/info.py. Not in `extended`
 # because neuralk-oss and the `kumo_tabular` extra pin different versions of structured-data-models.
-seldon = ["neuralk-oss==0.2.3"]
-# LightPFN: a 4.6M-parameter in-context classifier; keep in sync with `pip_extra` in models/lightpfn/info.py.
-lightpfn = ["lightpfn==1.0.0"]
+seldon = ["neuralk-oss==0.3.0"]
+# LightPFN: ~4.8M-parameter in-context classifier and regressor; keep in sync with `pip_extra` in models/lightpfn/info.py.
+lightpfn = [
+  "lightpfn==1.5.1",
+  "tabpfn-extensions[many_class]>=0.6.1",  # the output coding of datasets with more than ten classes
+]
 # FTFM is not published on PyPI; pinned to a commit so the benchmarked code is fixed (empty extra on
 # PyPI). Keep in sync with `pip_extra` in models/ftfm/info.py.
 ftfm = ["ftfm @ git+https://github.com/machinelearningnuremberg/ftfm-official.git@7e5e237daa26ef20f0faec1650d000b04de5122e"]
@@ -239,6 +250,7 @@ extended = [
   "tabarena[limix]",
   "tabarena[tabpfnwide]",
   "tabarena[iltm]",
+  "tabarena[inpriora]",
   "tabarena[chimeraboost]",
   "tabarena[ctboost]",
   "tabarena[prismboost]",
@@ -256,6 +268,7 @@ extended = [
   "tabarena[tababax]",
   "tabarena[agentic_mlp]",
   "tabarena[agentic_tabm]",
+  "tabarena[tabh2o]",
 ]
 
 # Convenience: everything (core + extended + probmetrics).

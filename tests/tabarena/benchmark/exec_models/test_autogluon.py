@@ -6,9 +6,11 @@ the new inference-side keys), the fit / init kwargs that would bypass the valida
 the validation record it reports, the single-child bag-artifact reuse of the timed prediction and
 its fallbacks, the children pass of the timed predict (cleared in ``pre_predict``, its arrays taken by
 ``bag_artifact``, dropped in ``cleanup``, skipped on an older AutoGluon or under bag-level chunking),
-the lazy internal-data load of ``get_per_child_val_idx``, the artifact-root environment override and
-``uses_ray``. The ``models``-marked class at the end fits a tiny real RandomForest bag to prove that
-the children pass equals the predictor's own path and the per-child forward pass bit for bit.
+the lazy internal-data load of ``get_per_child_val_idx``, the per-fold validation predictions a bag
+kept (``get_per_child_val``), the artifact-root environment override and ``uses_ray``. The
+``models``-marked classes at the end fit a tiny real RandomForest bag to prove that the children pass
+equals the predictor's own path and the per-child forward pass bit for bit, and that the kept per-fold
+validation predictions average to the predictor's pooled ones.
 """
 
 from __future__ import annotations
@@ -781,6 +783,118 @@ class TestGetPerChildValIdx:
 
         assert wrapper.predictor.load_calls == 1
         assert [list(v) for v in val_idx] == [[0, 1], [2, 3]]
+
+
+class _FakePerFoldBag(_FakeSingleChildBag):
+    """A bag fit with AutoGluon's ``oof_per_fold``: it kept each fold model's validation predictions."""
+
+    def __init__(self, *, folds, oof_per_fold: bool = True):
+        super().__init__()
+        self.params = {"oof_per_fold": oof_per_fold}
+        self._folds = folds
+
+    def predict_proba_oof_per_fold(self):
+        return self._folds
+
+
+class TestGetPerChildVal:
+    _FOLDS = [(np.array([0, 2]), np.array([0.1, 0.3])), (np.array([1, 3]), np.array([0.2, 0.4]))]
+
+    def test_bag_artifact_carries_the_kept_predictions_in_child_order(self):
+        bag = _FakePerFoldBag(folds=self._FOLDS)
+        wrapper = _bag_wrapper("regression", LabelCleanerDummy(problem_type="regression"), bag)
+
+        artifact = wrapper.bag_artifact(_X_TEST, y_pred=pd.Series([1.0, 2.0, 3.0, 4.0]))
+
+        assert [list(v) for v in artifact["val_idx_per_child"]] == [[0, 2], [1, 3]]
+        per_child = artifact["pred_proba_val_per_child"]
+        assert [p.dtype for p in per_child] == [np.float32, np.float32]
+        assert np.array_equal(per_child[0], np.array([0.1, 0.3], dtype=np.float32))
+        assert np.array_equal(per_child[1], np.array([0.2, 0.4], dtype=np.float32))
+
+    def test_a_bag_without_the_option_adds_nothing(self):
+        bag = _FakePerFoldBag(folds=self._FOLDS, oof_per_fold=False)
+        wrapper = _bag_wrapper("regression", LabelCleanerDummy(problem_type="regression"), bag)
+        artifact = wrapper.bag_artifact(_X_TEST, y_pred=pd.Series([1.0, 2.0, 3.0, 4.0]))
+        assert "pred_proba_val_per_child" not in artifact
+
+    def test_an_autogluon_without_the_option_adds_nothing(self):
+        bag = _FakeSingleChildBag()  # no `predict_proba_oof_per_fold`, no `params`
+        assert AGSingleBagWrapper.get_per_child_val(model=bag, val_idx_per_child=bag._oof_fold_val_idx) is None
+
+    @pytest.mark.parametrize(
+        "folds",
+        [
+            [(np.array([0, 1]), np.array([0.1, 0.3])), (np.array([2, 3]), np.array([0.2, 0.4]))],  # other rows
+            [(np.array([0, 2]), np.array([0.1, 0.3]))],  # fewer folds
+        ],
+    )
+    def test_folds_other_than_the_validation_indices_are_left_out(self, folds):
+        bag = _FakePerFoldBag(folds=folds)
+        assert AGSingleBagWrapper.get_per_child_val(model=bag, val_idx_per_child=bag._oof_fold_val_idx) is None
+
+
+@pytest.mark.models
+class TestPerChildValNumerics:
+    """A real (tiny, CPU-only) RandomForest bag of 2 folds x 2 sets fit with ``oof_per_fold``: the artifact's per-fold
+    validation predictions average, per row, to the predictor's pooled out-of-fold predictions.
+    """
+
+    @pytest.mark.parametrize("problem_type", ["binary", "multiclass", "regression"])
+    @pytest.mark.parametrize("refit_folds", [True, False])
+    def test_per_fold_predictions_average_to_the_pooled_ones(self, tmp_path, problem_type, refit_folds):
+        pytest.importorskip("sklearn")
+        from autogluon.core.models import BaggedEnsembleModel
+
+        from tabarena.benchmark.experiment.experiment_runner import OOFExperimentRunner
+        from tabarena.benchmark.result.ag_bag_result import pool_per_child_val
+        from tabarena.benchmark.validation_protocol import ValidationProtocol
+        from tabarena.utils.synthetic_data import make_synthetic_frames
+
+        if not hasattr(BaggedEnsembleModel, "predict_proba_oof_per_fold"):
+            pytest.skip("the installed AutoGluon has no `oof_per_fold`")
+
+        X, y, X_test = make_synthetic_frames(problem_type, n_rows=80, n_features=4, n_categorical=1, seed=0)
+        metric = {"binary": "roc_auc", "multiclass": "log_loss", "regression": "rmse"}[problem_type]
+        wrapper = AGSingleBagWrapper(
+            model_cls="RF",
+            model_hyperparameters={
+                "n_estimators": 5,
+                "ag_args_ensemble": {
+                    "use_child_oof": False,  # a real k-fold bag, see TestBagArtifactReuseNumerics
+                    "refit_folds": refit_folds,
+                    "fold_fitting_strategy": "sequential_local",
+                    "oof_per_fold": True,
+                },
+            },
+            fit_kwargs={"num_cpus": 1, "num_gpus": 0},
+            init_kwargs={"path": str(tmp_path / "ag"), "verbosity": 0},
+            problem_type=problem_type,
+            eval_metric=get_metric(metric, problem_type=problem_type),
+            validation_protocol=ValidationProtocol.custom(num_bag_folds=2, num_bag_sets=2),
+        )
+        try:
+            out = wrapper.fit_custom(X, y, X_test)
+            simulation_artifact = wrapper.get_oof()
+            artifact = wrapper.bag_artifact(X_test, y_pred=out["predictions"], y_pred_proba=out["probabilities"])
+        finally:
+            wrapper.cleanup()
+
+        pooled = np.asarray(simulation_artifact["pred_proba_dict_val"])
+        per_child = artifact["pred_proba_val_per_child"]
+        assert len(per_child) == len(artifact["val_idx_per_child"]) == 4
+        for pred, val_idx in zip(per_child, artifact["val_idx_per_child"], strict=True):
+            assert pred.dtype == np.float32
+            assert len(pred) == len(val_idx)
+        assert np.array_equal(np.bincount(np.concatenate(artifact["val_idx_per_child"])), np.full(len(X), 2))
+        from_children = pool_per_child_val(artifact["val_idx_per_child"], per_child, num_rows=len(X))
+        assert from_children.shape == pooled.shape
+        np.testing.assert_allclose(from_children, pooled, rtol=1e-6, atol=1e-7)
+        # The two repeats differ, so no slice of the pooled array is a fold model's own prediction.
+        first_fold = per_child[0]
+        assert not np.allclose(first_fold, pooled[artifact["val_idx_per_child"][0]])
+        # So the runner stores the per-fold predictions without the pooled array.
+        assert OOFExperimentRunner._per_child_val_reproduces_pooled({**simulation_artifact, "bag_info": artifact})
 
 
 @pytest.mark.models

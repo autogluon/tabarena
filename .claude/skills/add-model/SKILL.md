@@ -112,6 +112,15 @@ run the step on the passed `X_val` / `y_val`, the way a fine-tuning API takes an
 ignores `X_val`. EXAONE-Tabular's regression hold-out (a fifth of the support rows, used for the
 member weights) was accepted by oversight and is no precedent.
 
+Check as well that the library predicts inductively: a test row's prediction may depend only on the
+training data and that row, so it must not change when the other test rows, their order or the batch
+size change. Test rows that attend to each other, statistics or transforms fit on the rows being
+predicted, and test-time training on the unlabeled test rows are transductive and not allowed
+(`references/model_patterns.md` → "The `_fit` contract", item 6, with the reasons). When the library
+offers a transductive mode, the wrapper uses its inductive one; when it has none, raise it with the
+maintainer before writing the wrapper, quoting where it happens (autogluon/tabarena#720). Once the
+wrapper fits, `python -P -m tabarena.tools.audit_transduction --model <Method>` checks it on the CPU.
+
 For an in-context model, check whether the library can cache the fitted context for later predict
 calls: a KV cache (TabICL's `kv_cache`, OrionMSP's `enable_kv_cache`), TabPFN's
 `fit_mode="fit_with_cache"`, or a `fit` that records the encoded context, as Kumo Tabular's library
@@ -119,11 +128,23 @@ does. With `refit_folds` each bagged fold model predicts its out-of-fold rows on
 dropped, so the cache pays off only in the refit model that serves the test predictions. Settle this
 in the model's first PR: expose the switch as a hyperparameter, off for the fold models and on for
 the refit model through `ag.refit_hyperparameters` in the default config, and estimate the cache's
-size for the largest tables against the workers' disk and RAM. Then measure the fitted model's pickle
-against that estimate on the library's GPU code path: a cache kept as slices of one batched tensor
-pickles every slice's whole storage, which made FTFM's refit model eight times its real size and filled
-the workers' disk and RAM (autogluon/tabarena#679). See "Context caches: only in the refit model" in
-`references/model_patterns.md`.
+size for the largest tables against the workers' disk and RAM. Then measure the saved model
+(`model.pkl` and `model_tensors.pt`) against that estimate on the library's GPU code path, since a CPU
+fit can take another one and a slice that keeps a larger batched tensor alive saves all of it. See
+"Context caches: only in the refit model" in `references/model_patterns.md`.
+
+Keep the cache, and any other fitted state that grows with the training rows, out of `model.pkl`.
+AutoGluon pickles a model inside the timed fit (in memory to size it, to disk to save the refit
+model), so a cache inside `model.pkl` is copied on every dataset: Seldon's first run trained at 1.7x
+its real time at the median and ran a 177 GB worker out of RAM on GiveMeSomeCredit
+(autogluon/tabarena#701). AutoGluon writes every torch tensor of a fitted model with `torch.save` to
+`model_tensors.pt` beside `model.pkl` and sizes it from the storages without a copy, so a cache held
+as torch tensors needs no code in the wrapper. What still reaches `model.pkl` is state the pickle does
+not see as tensors: NumPy arrays, or tensors that a library's own `__getstate__` or `__reduce__` turns
+into bytes. Check the wrapper with `python -P -m tabarena.tools.audit_pickle --model <Method>`: `FLAG`
+means `model.pkl` grows with the training rows through tensors AutoGluon could not see; `NOTE` is
+growth without tensors, which needs no change for the nodes of boosted trees and a move to torch
+tensors for a NumPy cache (see "Keep the cache out of the pickle" in `references/model_patterns.md`).
 
 ## Step 2: Pick the right base class and reference model
 
@@ -179,7 +200,7 @@ The AutoGluon wrapper class. Use the template in `references/model_patterns.md` 
   model's smoke test fails. The others (`_get_default_resources`, `get_minimum_resources`,
   `_get_default_ag_args_ensemble`, `_get_default_auxiliary_params`) still work but are the old
   style. Never mutate `self.params` / `self.params_aux` after construction — it raises in 1.7.
-- **Honor the `_fit` contract** (read `references/model_patterns.md` → "The `_fit` contract"). The most common review findings on new wrappers are: ignoring the provided `X_val`/`y_val` (and instead auto-splitting a second holdout), ignoring `time_limit`, hardcoding the thread count instead of wiring `num_cpus`, and label-encoding + `fillna(0)` categoricals when the library handles them natively. `models/realmlp/model.py` is the reference for all of these. (In-context-learning foundation models have no train loop / no eval set, so they legitimately ignore `time_limit` + `X_val` — see `sap_rpt_oss`/`tabfm`.)
+- **Honor the `_fit` contract** (read `references/model_patterns.md` → "The `_fit` contract"). The most common review findings on new wrappers are: ignoring the provided `X_val`/`y_val` (and instead auto-splitting a second holdout), ignoring `time_limit`, hardcoding the thread count instead of wiring `num_cpus`, label-encoding + `fillna(0)` categoricals when the library handles them natively, and transductive prediction (test rows that see each other or a transform fit on them; item 6). `models/realmlp/model.py` is the reference for all of these. (In-context-learning foundation models have no train loop / no eval set, so they legitimately ignore `time_limit` + `X_val` — see `sap_rpt_oss`/`tabfm`.)
 - For GPU models: also set `default_resources_physical_cores_only = True`, `default_num_gpus = 1`, `minimum_num_gpus = 1`, and `_default_ag_args_ensemble_extra` (with `fold_fitting_strategy: sequential_local` — **and `refit_folds: True` for foundation/pre-trained TFMs**; see the "Foundation models: set `refit_folds=True`" note in `references/model_patterns.md`. From-scratch NNs omit it), plus `_more_tags()` (with `can_refit_full: True`). Do **not** declare a `can_estimate_memory_usage_static` tag: AutoGluon derives it from whether you implement `_estimate_memory_usage_static`. **Only torch models** (`AbstractTorchModel`) additionally implement `get_device()` / `_set_device()`; non-torch GPU models on `AbstractModel` must NOT (they have no `.to(device)`).
 - Docstring must include: description, paper title, authors, codebase URL, license
 - Keep optional third-party imports (the wrapped library itself) inside `_fit` / per-method scope so importing this module never requires the optional dep at top-level
@@ -486,7 +507,11 @@ protocol and fairness; the wrapper's data path) in a single message, give each t
 the library unpacked at the pinned version, the paper's evaluation notes and its section of the
 checklist, and leave your own conclusions out of the brief. Then read every cited line yourself,
 mark each finding confirmed, plausible or rejected, fix the confirmed ones in the wrapper, and take
-library-level findings to the maintainer. The review's outcome goes into the Report.
+library-level findings to the maintainer. Run `python -P -m tabarena.tools.audit_pickle --model <Method>`
+next to the agents (it fits the model on two table sizes and prints how much `model.pkl` grows per
+training row) and `python -P -m tabarena.tools.audit_transduction --model <Method>` (it predicts probe
+rows alone, in other batches, next to decoys and next to a duplicate, on the CPU); a `FLAG` or `FAIL`
+is a confirmed finding. The review's outcome goes into the Report.
 
 ## Step 8: Arena registration (optional — only if the model has been benchmarked)
 

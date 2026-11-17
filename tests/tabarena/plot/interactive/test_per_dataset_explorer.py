@@ -8,6 +8,7 @@ import pytest
 
 from tabarena.plot.interactive.per_dataset_explorer import (
     BEYONDARENA_SIZE_BUCKETS,
+    MAX_HIGHLIGHTS,
     build_per_dataset_explorer_html,
     dataset_records,
     imputed_counts,
@@ -429,3 +430,47 @@ def test_rows_without_a_trajectory_say_so_instead_of_swallowing_the_click(tmp_pa
     assert "const hasTraj = trajIndexOf(p.m) >= 0;" in html
     assert "No tuning trajectory was published for this method" in html
     assert ".pd-rankrow.no-traj { cursor: default; }" in html
+
+
+def test_default_highlights_skip_unknown_names_and_the_contender(tmp_path):
+    out = build_per_dataset_explorer_html(
+        results_per_split=_results_per_split(),
+        method_info=_METHOD_INFO,
+        trajectories=_trajectories(),
+        dataset_metadata=None,
+        default_contender="AutoGluon 1.6 (extreme, 4h)",
+        default_highlights=["CatBoost (tuned)", "not a method", "AutoGluon 1.6 (extreme, 4h)", "CatBoost (tuned)"],
+        save_path=tmp_path / "per_dataset_explorer.html",
+    )
+    config = _config(out.read_text(encoding="utf-8"))
+    names = [config["methods"][i]["name"] for i in config["defaultHighlights"]]
+    # A name that is not in the cell, the contender itself and a repeat are all dropped.
+    assert names == ["CatBoost (tuned)"]
+    assert config["maxHighlights"] == MAX_HIGHLIGHTS
+
+
+def test_explorer_opens_without_highlights_by_default(tmp_path):
+    out = build_per_dataset_explorer_html(
+        results_per_split=_results_per_split(),
+        method_info=_METHOD_INFO,
+        dataset_metadata=None,
+        save_path=tmp_path / "per_dataset_explorer.html",
+    )
+    assert _config(out.read_text(encoding="utf-8"))["defaultHighlights"] == []
+
+
+def test_the_page_can_mark_and_hide_methods(tmp_path):
+    out = build_per_dataset_explorer_html(
+        results_per_split=_results_per_split(),
+        method_info=_METHOD_INFO,
+        dataset_metadata=None,
+        save_path=tmp_path / "per_dataset_explorer.html",
+    )
+    html = out.read_text(encoding="utf-8")
+    for element in ('id="markpick"', 'id="marks"', 'id="hidepick"', 'id="hiddenlist"'):
+        assert element in html
+    # One shape and one colour per allowed mark, and the reader's hidden methods share the host's
+    # exclusion path.
+    assert html.count('"diamond", "triangle", "square", "down"') == 1
+    assert all(f"--mark-{slot}:" in html for slot in range(1, MAX_HIGHLIGHTS + 1))
+    assert "EXCLUDED = new Set([...HOST_EXCLUDED, ...state.hidden]);" in html

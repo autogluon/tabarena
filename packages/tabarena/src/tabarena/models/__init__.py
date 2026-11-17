@@ -20,6 +20,7 @@ if TYPE_CHECKING:
     from tabarena.models.exaone_tabular.model import EXAONETabularModel
     from tabarena.models.ftfm.model import FTFMModel
     from tabarena.models.iltm.model import ILTMModel
+    from tabarena.models.inpriora.model import InprioraModel
     from tabarena.models.knn.model import KNNNewModel
     from tabarena.models.kumo_tabular.model import (
         KumoTabularMediumModel,
@@ -41,6 +42,7 @@ if TYPE_CHECKING:
     from tabarena.models.tababax.model import TabAbaxModel
     from tabarena.models.tabdpt.model import TabDPTModel, TabDPTTurboModel, TabDPTv13Model
     from tabarena.models.tabfm.model import TabFMModel
+    from tabarena.models.tabh2o.model import TabH2OModel
     from tabarena.models.tabicl.model import TabICLModel, TabICLv2Model
     from tabarena.models.tabldm.model import TabLDMModel
     from tabarena.models.tabm.model import TabMModel
@@ -70,6 +72,7 @@ _LAZY_CLASSES: dict[str, str] = {
     "EXAONETabularModel": "tabarena.models.exaone_tabular.model",
     "FTFMModel": "tabarena.models.ftfm.model",
     "ILTMModel": "tabarena.models.iltm.model",
+    "InprioraModel": "tabarena.models.inpriora.model",
     "KNNNewModel": "tabarena.models.knn.model",
     "KumoTabularMediumModel": "tabarena.models.kumo_tabular.model",
     "KumoTabularModel": "tabarena.models.kumo_tabular.model",
@@ -93,6 +96,7 @@ _LAZY_CLASSES: dict[str, str] = {
     "TabDPTTurboModel": "tabarena.models.tabdpt.model",
     "TabDPTv13Model": "tabarena.models.tabdpt.model",
     "TabFMModel": "tabarena.models.tabfm.model",
+    "TabH2OModel": "tabarena.models.tabh2o.model",
     "TabICLModel": "tabarena.models.tabicl.model",
     "TabICLv2Model": "tabarena.models.tabicl.model",
     "TabLDMModel": "tabarena.models.tabldm.model",

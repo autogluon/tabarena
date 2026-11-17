@@ -16,6 +16,7 @@ import numpy as np
 import pandas as pd
 from autogluon.core.data.label_cleaner import LabelCleaner, LabelCleanerDummy
 from autogluon.core.metrics import Scorer, get_metric
+from loguru import logger
 from pandas.api.types import is_integer_dtype
 
 from tabarena.benchmark.task.metrics import default_eval_metric, normalize_eval_metric
@@ -499,7 +500,9 @@ class OOFExperimentRunner(ExperimentRunner):
         compute_simulation_artifacts:
             If True (and the model supports OOF), build the ensemble-simulation artifact.
         compute_bag_info:
-            If True, include per-bagged-child OOF/test info when the model exposes it.
+            If True, include per-bagged-child OOF/test info when the model exposes it. With each
+            child's own validation predictions in it (a bag fit with AutoGluon's ``oof_per_fold``),
+            the artifact holds no pooled ``pred_proba_dict_val``: it is their per-row mean.
         optimize_simulation_artifacts_memory:
             If True, shrink the artifact in place (downcast indices, drop pandas wrappers,
             float32 probabilities) before returning it.
@@ -553,10 +556,39 @@ class OOFExperimentRunner(ExperimentRunner):
             if source is not None and isinstance(out.get("method_metadata"), dict):
                 out["method_metadata"]["per_child_test_source"] = source
 
-        simulation_artifact["pred_proba_dict_val"] = {self.method: simulation_artifact["pred_proba_dict_val"]}
+        if self._per_child_val_reproduces_pooled(simulation_artifact):
+            # `AGBagResult` pools the per-child validation predictions when it reads the result
+            del simulation_artifact["pred_proba_dict_val"]
+        else:
+            simulation_artifact["pred_proba_dict_val"] = {self.method: simulation_artifact["pred_proba_dict_val"]}
         simulation_artifact["pred_proba_dict_test"] = {self.method: simulation_artifact["pred_proba_dict_test"]}
         out["simulation_artifacts"] = simulation_artifact
         return out
+
+    @staticmethod
+    def _per_child_val_reproduces_pooled(simulation_artifact: dict) -> bool:
+        """Whether the artifact's per-child validation predictions average to its pooled ones.
+
+        True only for a bag artifact with ``pred_proba_val_per_child`` whose per-row mean equals
+        ``pred_proba_dict_val`` to ``np.isclose``, the check ``AGBagResult`` makes when it reads a result
+        that has both. The pooled array then repeats what the per-child ones hold. Predictions that
+        differ (logged) keep both.
+        """
+        from tabarena.benchmark.result.ag_bag_result import pool_per_child_val
+
+        bag_info = simulation_artifact.get("bag_info") or {}
+        if "pred_proba_val_per_child" not in bag_info:
+            return False
+        pooled = np.asarray(simulation_artifact["pred_proba_dict_val"])
+        from_children = pool_per_child_val(
+            bag_info["val_idx_per_child"], bag_info["pred_proba_val_per_child"], num_rows=len(pooled)
+        )
+        if from_children.shape == pooled.shape and np.isclose(from_children, pooled).all():
+            return True
+        logger.warning(
+            "The per-child validation predictions do not average to the pooled ones: the artifact keeps both."
+        )
+        return False
 
     @staticmethod
     def _optimize_simulation_artifact_memory(artifact: dict) -> None:

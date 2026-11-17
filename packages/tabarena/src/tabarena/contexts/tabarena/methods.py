@@ -65,6 +65,7 @@ from tabarena.models.extra_trees.info import extra_trees_new_method_metadata
 from tabarena.models.fastai.info import fastai_method_metadata
 from tabarena.models.ftfm.info import ftfm_method_metadata
 from tabarena.models.iltm.info import iltm_method_metadata
+from tabarena.models.inpriora.info import inpriora_method_metadata
 from tabarena.models.knn.info import knn_method_metadata as knn_metadata
 from tabarena.models.kumo_tabular.info import (
     kumo_tabular_medium_method_metadata,
@@ -72,9 +73,9 @@ from tabarena.models.kumo_tabular.info import (
     kumo_tabular_small_method_metadata,
 )
 from tabarena.models.lightgbm.info import lightgbm_method_metadata
-from tabarena.models.lightpfn.info import lightpfn_method_metadata
+from tabarena.models.lightpfn.info import lightpfn_1p0_method_metadata, lightpfn_method_metadata
 from tabarena.models.limix.info import limix_method_metadata as limix_metadata
-from tabarena.models.limix_2.info import limix_2_method_metadata
+from tabarena.models.limix_2.info import limix_2_1016_method_metadata, limix_2_method_metadata
 from tabarena.models.lr.info import (
     lr_2026_09_method_metadata,
     lr_method_metadata as lr_metadata,
@@ -99,7 +100,12 @@ from tabarena.models.realmlp.info import realmlp_method_metadata as realmlp_gpu_
 from tabarena.models.sap_rpt_oss.info import (
     sap_rpt_oss_method_metadata as contexttab_metadata,
 )
-from tabarena.models.seldon.info import seldon_method_metadata, seldon_mini_method_metadata
+from tabarena.models.seldon.info import (
+    seldon_classification_method_metadata,
+    seldon_method_metadata,
+    seldon_mini_classification_method_metadata,
+    seldon_mini_method_metadata,
+)
 from tabarena.models.tababax.info import tababax_method_metadata
 from tabarena.models.tabdpt.info import (
     tabdpt_method_metadata as tabdpt_metadata,
@@ -111,6 +117,7 @@ from tabarena.models.tabfm.info import (
     tabfm_method_metadata,
     tabfm_new_method_metadata,
 )
+from tabarena.models.tabh2o.info import tabh2o_method_metadata
 from tabarena.models.tabicl.info import (
     tabicl_method_metadata,
     tabiclv2_2026_09_method_metadata,
@@ -254,7 +261,7 @@ tabarena_method_metadata_collection = MethodMetadataCollection(
         tabldm_new_method_metadata,
         tabpfn_3_5_method_metadata,
         tabpfn_3_5_fast_method_metadata,
-        limix_2_method_metadata,
+        limix_2_1016_method_metadata,
         tabdpt_v13_method_metadata,
         kumo_tabular_method_metadata,
         kumo_tabular_medium_method_metadata,
@@ -265,6 +272,8 @@ tabarena_method_metadata_collection = MethodMetadataCollection(
         seldon_method_metadata,
         seldon_mini_method_metadata,
         tabpack_method_metadata,
+        tabh2o_method_metadata,
+        inpriora_method_metadata,
     ],
 )
 
@@ -289,6 +298,10 @@ methods_superseded: list[MethodMetadata] = [
     mitra_v2_method_metadata,  # rerun tabarena-2026-09-16 replaced it
     tabldm_method_metadata,  # rerun tabarena-2026-09-16 replaced it
     tabstar_metadata,  # TabSTAR-v1.1 (models/tabstar_v1p1) replaced it
+    seldon_classification_method_metadata,  # classification only; tabarena-2026-11-08 adds regression
+    seldon_mini_classification_method_metadata,  # classification only; tabarena-2026-11-08 adds regression
+    lightpfn_1p0_method_metadata,  # lightpfn 1.0.0, classification only; 1.5.1 (tabarena-2026-11-11) replaced it
+    limix_2_method_metadata,  # the #648 checkpoint, with its leakage warning; LimiX-2-1016 replaced it
 ]
 
 # All historical results for each method = the latest collection + every superseded variant: the

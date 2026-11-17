@@ -146,7 +146,11 @@ review of the add-model skill, `.claude/skills/add-model/references/model_review
 agent per lens (leakage and cheating; protocol and fairness; the wrapper's data path), started in one
 message, each given the wrapper folder, the PR diff, the library unpacked at the version the PR pins
 and the paper's evaluation notes, and none of your own conclusions. Verify every finding against the
-code before you report it. A blocker stops the run until the maintainer decides.
+code before you report it. A blocker stops the run until the maintainer decides. Run
+`python -P -m tabarena.tools.audit_pickle --model <Method>` alongside them: a `FLAG` (the fitted
+model's pickle grows with the training rows) costs every item of the run time and the large tables
+their RAM, so fix it before the launch, not after (Seldon, #701, ran twice; see add-model's "Keep the
+cache out of the pickle").
 
 Fixing what the review finds, on top of the PR, follows the add-model skill and its
 `references/model_patterns.md`, which hold the conventions a wrapper is held to: the `_fit` contract
@@ -170,6 +174,27 @@ that mentions a hold-out is the quickest tell (#637: "fits its candidate/ensembl
 single 20% hold-out split"), but read the code, because a library can do it without the PR saying
 so. Early stopping on `X_val` is fine, and so is an in-context model that ignores `X_val`.
 EXAONE-Tabular's regression hold-out was accepted by oversight and is no precedent.
+
+The second check is transductive prediction. A test row's prediction may depend only on the training
+data and that row, so read the library's predict path for test rows that attend to each other,
+statistics or transforms fit on the rows being predicted, and test-time training on the unlabeled
+test rows (add-model's `references/model_patterns.md` → "The `_fit` contract", item 6, which also
+gives the reasons and the quieter forms inside the network). Run
+`python -P -m tabarena.tools.audit_transduction --model <Method>` in the run venv on the CPU next to
+the reviewers: it predicts probe rows alone, in batches of other sizes, next to decoy rows and after a
+duplicate of themselves, and a `FAIL` names the kind of cause. A library with a transductive mode is
+wrapped in its inductive one; one without an inductive mode stops the run until its authors add one
+(autogluon/tabarena#720). A pin bump that claims a fix gets the same tool and the full review again:
+LimiX `977c3de` fixed its preprocessing and still failed three probes through paths outside the diff.
+
+For a checkpoint whose training data is not purely synthetic, or one that replaces a checkpoint
+with a `leakage_evidence` entry, run `python -P -m tabarena.tools.audit_contamination --model <Method>`
+(autogluon/tabarena#723) before the run: its verdict decides whether the new entry keeps the
+leakage warning. The full sweep fits every TabArena dataset in several column orders; on a GPU model,
+spread it over a few workers of a small SkyPilot pool built from the run's staged environment (a copy
+of the run's pool YAML with its own name and `workers: 4`, one job per shard, the tool's data written
+to the bucket first because the workers have no OpenML access), with a watcher that takes the pool
+down when the jobs end.
 
 ## Step 2: Resolve the run venv and install the model's extra
 
@@ -197,6 +222,14 @@ $PY -c "import <the model's library>"                                           
 the model key, e.g. `tabm`, `mitra_v2`, `nori`; check the file, some differ). If no extra exists,
 install the `pip_extra` requirement strings directly with `uv pip install --python "$PY" <req...>`.
 Skip the install when the library already imports at the pinned version. Report what was installed.
+
+Take torch from PyPI (its Linux wheel is a CUDA build), not from the PyTorch index. A SkyPilot worker rebuilds the
+venv from `setup`'s frozen requirements with `uv pip install --no-deps -r` against PyPI, so a pin with a local label
+such as `torch==2.13.0+cu130` resolves on no worker: every worker of `beyondarena_seldon_09112026`'s first pool
+FAILED in setup that way. When another CUDA build is needed, pass its index through
+`SkyPilotSetup(requirements_extra_lines=...)`, and before applying a pool check that the staged requirements resolve:
+`uv pip install --dry-run -r <requirements.txt>` into a throwaway venv (the pool YAML's `ENV_SPEC` names the env
+manifest, whose `requirements` entry is the file's URI).
 
 ## Step 3: Generate `tmp_scripts/run_<model>.py`
 
@@ -352,12 +385,14 @@ and classify:
 | CUDA out of memory | folds co-scheduled on the card, or one huge table | confirm `fake_memory_for_estimates`; for a single wide table consider `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` in the wrapper's warm-up, a smaller support size, or `fold_fitting_strategy="sequential_local"` |
 | Python traceback in the wrapper | a bug the smoke fit did not reach | fix it in the wrapper, then relaunch |
 | `jq: command not found`, import errors | environment, not the model | fix the venv, then relaunch |
+| every pool worker `FAILED` minutes after `pool apply`, the controller log (`sky jobs pool logs --controller --no-follow --tail 2000 <pool>`) showing `No solution found when resolving dependencies` for a `+cu...` torch pin | the run venv's torch came from the PyTorch index and its local version label is not on PyPI (Step 2) | `pool down`, reinstall PyPI's torch of the same version in the run venv, run `setup` again (a new env manifest) and dry-run the staged requirements before the next `pool apply` |
 | `PENDING` with reason `launch failed requeued held` | the spot node failed to boot; SLURM requeued the task but holds it until someone releases it | `scontrol release <job>_<task>`; a loop over `squeue -r -o "%i %r"` every few minutes when the partition keeps losing nodes |
 | `LocalEntryNotFoundError`, `PretrainedWeightsUnavailableError`, `WeightsUnavailableError` | the job ran with `offline_weights` and a checkpoint was not in the shared cache | re-run `setup` (its head-node prefetch fills the cache) or set `offline_weights=False` on the plan for that run |
 | `##### item FAILED` lines with `##### bundle summary: ok=N failed=M` | one item of the bundle failed; the array task continues with its siblings and exits non-zero at the end | count the `results.pkl` files, not the task state: a `FAILED` task may have completed most of its items, and only the failed ones are missing |
 | a pool stuck below its size with workers in `STARTING` after their setup log ends `SUCCEEDED`, the controller log (`sky jobs pool logs --controller --no-follow --tail 300 <pool>`) repeating `Found 2 node(s) with the same cluster name tag`, `sky_progress.sh --pool <pool>` printing `DUPLICATE VM` | two workers share one GCP cluster name because the pool name is too long (Step 5); the prober fails on every pass and promotes no worker | do not delete one of the VMs, it may belong to the other worker; cancel the launch's worker jobs, take the pool down, re-run `setup` with a pool name of at most 22 characters and launch again (finished items stay cached) |
 | an item running far past a finished sibling's time, `#RECOVERIES > 0` for its job in `sky jobs queue --all`, `resuming own claim` in `sky jobs logs <id>` | the worker was replaced (a spot preemption, or a pool re-apply, see Step 5) and the item restarted from scratch; not a stall | nothing, apart from noting the restart in the log entry; compare the fit times of finished siblings before calling an item stuck |
-| `OSError: [Errno 28] No space left on device` in `save_child` / `save_pkl`, or a Ray `OutOfMemoryError` with one runner holding most of the node's RAM, on small tables too | the fitted model pickles far larger than its cache: slices of one batched tensor each write the whole storage (FTFM, ftfm_21102026: 8x, 34 GB for a 22k-row table). AutoGluon pickles to save and to size the model, so disk and RAM fill together | cancel the launch; on one VM, run a failed item and sample `df`, the item scratch (`du`) and the runner's RSS; compare the refit `model.pkl` with the expected cache size. Fix in the wrapper (copy the slices into their own storage after `fit`, see add-model's "Check the pickle, not only the tensors"), rerun the failed tables on that VM, then relaunch the full run under a new `benchmark_name` |
+| `OSError: [Errno 28] No space left on device` in `save_child` / `save_pkl`, or a Ray `OutOfMemoryError` with one runner holding most of the node's RAM, on small tables too | the fitted model saves far larger than its cache: on an AutoGluon that pickled tensors, slices of one batched tensor each wrote the whole storage (FTFM, ftfm_21102026: 8x, 34 GB for a 22k-row table); with `model_tensors.pt`, a slice that keeps a much larger tensor alive. AutoGluon saves and sizes the model, so disk and RAM fill together | cancel the launch; on one VM, run a failed item and sample `df`, the item scratch (`du`) and the runner's RSS; compare the refit model's `model.pkl` and `model_tensors.pt` with the expected cache size (`python -P -m tabarena.tools.audit_pickle --model <Method>` in the run venv). Fix in the wrapper (copy such a slice into its own storage after `fit`, see add-model's "Context caches: only in the refit model"), rerun the failed tables on that VM, then relaunch the full run under a new `benchmark_name` |
+| `(raylet) Task run_bash_command_with_log_and_return_pid failed due to oom. There are infinite oom retries remaining` in `sky jobs logs <id>`, the node near 95% of its RAM, only on the largest tables, the item restarting from scratch every few minutes | the wrapper keeps a fitted state that grows with the training rows (a context or KV cache) inside `model.pkl`, and AutoGluon's pickled-size estimate and save copy it (Seldon on GiveMeSomeCredit, #701) | cancel the launch: the retries never end. Confirm with `python -P -m tabarena.tools.audit_pickle --model <Method>` in the run venv, make the state reach AutoGluon's `model_tensors.pt` (an AutoGluon that writes it, the state held as torch tensors), and rerun every item of the model, not only the failed ones: the copy also inflated the training time of every item that passed |
 | `TimeLimitExceeded` from `_get_fold_time_limit` after thousands of `CUDACachingAllocator ... memory allocation failed` or `auto batch skip` lines, one to three children fitted in hours | a library that survives GPU out-of-memory by shrinking its batches and crawls until AutoGluon projects the remaining folds past the limit: a memory failure that never raises | treat it as out-of-memory and cap the in-context table in the wrapper. Measure rows and columns separately before choosing the cap: LimiX-2 passed 38k x 318 in 4 h but not 53.6k x 243 or 7.9k x 1652 (the same 13M cells), so a rows x columns budget is the wrong proxy; prefer the library's own knobs (`test_batch_size`, `max_num_rows`), engage the cap only above a shape that fails, and rerun every affected table with the final code |
 
 A `FAILED` array task is a bundle with at least one failed item. The log carries one `##### item
@@ -560,7 +595,12 @@ been read and the API probed.
 - The scripts target TabArena-v0.1 (`TabArenaContext`, `TabArenaV0pt1ExperimentBundle`,
   `TabArenaEvalConfig`). BeyondArena is a different eval shape (`BeyondArenaContext`,
   `BeyondArenaEvalConfig`, `BenchmarkRun` comparisons); adapt
-  `packages/tabflow_slurm/experiments/run_beyondarena.py` for that instead.
+  `packages/tabflow_slurm/experiments/run_beyondarena.py` for that instead. For a foundation model on `core2k`
+  at every size, split the plan into two `ModelJob`s by table size: `TaskSubset(subset=["core2k", "medium|large"])`
+  with a 16 h `time_limit` and `TaskSubset(subset=["core2k", "!medium", "!large"])` with BeyondArena's 4 h default
+  (the Kumo-Tabular and Seldon runs in `BENCHMARK_LOG.md`), launched on one pool, the long group first. `setup` then
+  warns, for the second group, that the first launch "still has N bundle(s) not done" and would be fitted twice;
+  the two groups cover disjoint datasets, so that warning is a false alarm here.
 - SLURM tasks import the checkout live over the shared filesystem (SkyPilot workers use the archive
   staged at `setup`). Do not pull, rebase or edit package code in that checkout while an array runs;
   a task that starts during the change fails on a half-updated registry. Test-only edits are safe.
@@ -581,6 +621,8 @@ been read and the API probed.
 - Before the cluster run, `python -P -m tabarena.tools.audit_warmup --model <Method>` shows whether the
   model's timed fit and predict still import packages or load weights cold; fix that in the wrapper
   (`warmup_modules`, a `shared_weights` declaration) rather than paying it on every item.
+  `python -P -m tabarena.tools.audit_pickle --model <Method>` does the same for the pickle: a `FLAG`
+  means the timed fit copies a per-row state on every item.
 - Weights on the cluster: `setup` prefetches the selected models' checkpoints on the head node and,
   when every selected model prefetched (`offline_weights="auto"`), the jobs run with `HF_HUB_OFFLINE=1`
   and `AG_FETCH_PRETRAINED_WEIGHTS=false`, so a cache miss fails the item instead of downloading inside

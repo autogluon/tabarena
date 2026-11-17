@@ -291,11 +291,12 @@ dataset is re-materialized from its container into a scratch OpenML root and the
 replaces the legacy file atomically (a SLURM job reading the shared cache meanwhile sees one complete
 file or the other).
 
-Weights follow the same path. For each of the run's models without a remote `weights/<model>.json`,
-`setup` runs the model's prefetch on the head node into a scratch cache root with `HF_HOME`,
+Weights follow the same path. For each of the run's models without a remote `weights/<model>.json`, or
+whose manifest records another fingerprint of the model's weight declaration (its pip pin and the source of
+the folder that defines its prefetcher, where pinned checkpoint revisions live), `setup` runs the model's prefetch on the head node into a scratch cache root with `HF_HOME`,
 `XDG_CACHE_HOME` (tabpfn's cache) and `TORCH_HOME` redirected, uploads what landed there (Hugging Face
 repositories as their `snapshots` and `refs`, so blobs are not stored twice; tabpfn checkpoints file by
-file) and writes the manifest, so the next setup skips the prefetch. The head node's own token is used
+file) and writes the manifest, so the next setup skips the prefetch until the fingerprint changes. Only missing files are uploaded, so a moved revision lands next to the old one. The head node's own token is used
 for gated repositories. Workers pull every model's entries at start and, when all of them are seeded,
 run with `HF_HUB_OFFLINE=1`, so no token reaches the VMs; a model without seeded weights is prefetched
 by the worker from the Hub as before. Workers only read the prefix. `dataset_cache_uri` points it

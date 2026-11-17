@@ -29,10 +29,11 @@ from tabarena.models.kumo_tabular.info import (
     kumo_tabular_small_descriptor,
 )
 from tabarena.models.lightgbm.info import lightgbm_descriptor
-from tabarena.models.limix_2.info import limix_2_descriptor
+from tabarena.models.limix_2.info import limix_2_1016_descriptor, limix_2_descriptor
 from tabarena.models.lr.info import lr_descriptor
 from tabarena.models.random_forest.info import random_forest_descriptor
 from tabarena.models.realmlp.info import realmlp_descriptor
+from tabarena.models.seldon.info import seldon_descriptor, seldon_mini_descriptor
 from tabarena.models.tabdpt.info import tabdpt_descriptor, tabdpt_v13_descriptor
 from tabarena.models.tabfm.info import tabfm_descriptor
 from tabarena.models.tabicl.info import tabiclv2_descriptor
@@ -179,18 +180,20 @@ beyond_tabpfn3_metadata = tabpfn_3_descriptor.method_metadata(
 # deviation from the 4 h default). TabPFN-3.5, TabPFN-3.5-Fast and Causilo ran every core dataset; the other
 # six ran the tables up to 100k training rows and are imputed on the larger ones.
 _tfm_run_kwargs = {**_common_fm_kwargs, "suite": "beyondarena-2026-09-22", "date": "2026-09-22", "verified": False}
+# TabPFN-3.5 and TabPFN-3.5-Fast are verified (maintainer sign-off, 2026-11-09); the other seven are not yet.
+_tfm_verified_run_kwargs = {**_tfm_run_kwargs, "verified": True}
 
 beyond_tabpfn35_metadata = tabpfn_3_5_descriptor.method_metadata(
     method="TA-TabPFN-3.5",
     ag_key="TA-TABPFN-3.5",
     config_default="TA-TabPFN-3.5_c1_BAG_L1",
-    **_tfm_run_kwargs,
+    **_tfm_verified_run_kwargs,
 )
 beyond_tabpfn35_fast_metadata = tabpfn_3_5_fast_descriptor.method_metadata(
     method="TA-TabPFN-3.5-Fast",
     ag_key="TA-TABPFN-3.5-FAST",
     config_default="TA-TabPFN-3.5-Fast_c1_BAG_L1",
-    **_tfm_run_kwargs,
+    **_tfm_verified_run_kwargs,
 )
 beyond_causilo_metadata = causilo_descriptor.method_metadata(
     method="Causilo",
@@ -269,6 +272,34 @@ beyond_tabpack_metadata = tabpack_descriptor.method_metadata(
     **{**_common_fm_kwargs, "suite": "beyondarena-2026-11-08", "date": "2026-11-08", "verified": False},
 )
 
+# -- Seldon and Seldon-Mini, run 2026-11-09 (`beyondarena_seldon_09112026` in BENCHMARK_LOG.md) -----------------
+# The official protocol on every core2k split, up to the 1M-row tables, with neuralk-oss 0.3.0 and the fit time
+# limits of the Kumo-Tabular run: 16 h on the tables above 10k training rows, the 4 h default on the others.
+_seldon_run_kwargs = {**_common_fm_kwargs, "suite": "beyondarena-2026-11-09", "date": "2026-11-09", "verified": True}
+
+beyond_seldon_metadata = seldon_descriptor.method_metadata(
+    method="TA-Seldon",
+    ag_key="TA-SELDON",
+    config_default="TA-Seldon_c1_BAG_L1",
+    **_seldon_run_kwargs,
+)
+beyond_seldon_mini_metadata = seldon_mini_descriptor.method_metadata(
+    method="TA-Seldon-Mini",
+    ag_key="TA-SELDON-MINI",
+    config_default="TA-Seldon-Mini_c1_BAG_L1",
+    **_seldon_run_kwargs,
+)
+
+# -- LimiX-2-1016, run 2026-11-12 (`beyondarena_limix21016_12112026` in BENCHMARK_LOG.md) -----------------------
+# The official protocol on the core2k splits up to 100k training rows, the scope of the LimiX-2 run, with fit time
+# limits of 16 h on the tables above 10k training rows and the 4 h default on the others.
+beyond_limix2_1016_metadata = limix_2_1016_descriptor.method_metadata(
+    method="TA-LimiX-2-1016",
+    ag_key="TA-LIMIX-2",
+    config_default="TA-LimiX-2-1016_c1_BAG_L1",
+    **{**_common_fm_kwargs, "suite": "beyondarena-2026-11-12", "date": "2026-11-12", "verified": True},
+)
+
 beyond_method_metadata_lst: list[MethodMetadata] = [
     beyond_linear_2026_09_metadata,
     beyond_random_forest_metadata,
@@ -286,7 +317,7 @@ beyond_method_metadata_lst: list[MethodMetadata] = [
     beyond_tabpfn35_metadata,
     beyond_tabpfn35_fast_metadata,
     beyond_causilo_metadata,
-    beyond_limix2_metadata,
+    beyond_limix2_1016_metadata,
     beyond_tabfm_metadata,
     beyond_exaone_tabular_metadata,
     beyond_realtabpfnv25_metadata,
@@ -295,6 +326,8 @@ beyond_method_metadata_lst: list[MethodMetadata] = [
     beyond_kumo_tabular_metadata,
     beyond_kumo_tabular_medium_metadata,
     beyond_kumo_tabular_small_metadata,
+    beyond_seldon_metadata,
+    beyond_seldon_mini_metadata,
 ]
 
 beyond_method_metadata_collection = MethodMetadataCollection(
@@ -307,6 +340,7 @@ beyond_methods_superseded: list[MethodMetadata] = [
     beyond_linear_metadata,  # rerun beyondarena-2026-09-24 replaced it
     beyond_tabm_metadata,  # the merged suite beyondarena-2026-10-28 replaced it
     beyond_tabm_2026_10_rerun_metadata,  # the rerun alone (14 datasets, with raw), merged into beyondarena-2026-10-28
+    beyond_limix2_metadata,  # the #648 checkpoint, with its leakage warning; LimiX-2-1016 replaced it
 ]
 
 # The roster plus every superseded variant: all hosted BeyondArena results.
