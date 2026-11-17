@@ -48,7 +48,9 @@ checks the client it can read and probes the behaviour it cannot. The checks:
     learner, a nearest-neighbour model) loses it under the noise and may degrade sharply there
     without cheating, so the verdict is judged on the rows without a training copy, where a lookup of
     the public test labels is the only way to an exact match. Too few such rows (or one class only)
-    and it falls back to all rows.
+    and it falls back to all rows. The noise turns integer columns into floats, which a server that
+    casts the test rows to its training schema refuses or casts back, so on training data with
+    integer columns the probe fits once more on float64 columns and perturbs rows of that schema.
 ``time``
     Wall-clock of every call against the ``time_limit`` the system was given. Its ``fit-split`` result
     compares the fit with the prediction call: a fit that returns at once while the prediction call
@@ -99,7 +101,7 @@ import socket
 import sys
 import time
 import tokenize
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlsplit
@@ -783,6 +785,11 @@ def jitter(X: pd.DataFrame, X_train: pd.DataFrame, *, scale: float, seed: int) -
     return out
 
 
+def float_schema(X_train: pd.DataFrame) -> dict:
+    """``{column: "float64"}`` for the columns `jitter` perturbs that are not float already."""
+    return {c: "float64" for c in _numeric_columns(X_train) if not pd.api.types.is_float_dtype(X_train[c])}
+
+
 def _derangement(classes: list) -> dict:
     """Map each class to the next one (a cyclic shift: no class keeps its label)."""
     return {c: classes[(i + 1) % len(classes)] for i, c in enumerate(classes)}
@@ -1074,11 +1081,23 @@ def probe_dataset(sut: SystemUnderAudit, data: ProbeData, checks: Iterable[str],
         if not _numeric_columns(data.X_train):
             results.append(CheckResult("jitter", data.name, SKIP, "no numeric feature to perturb"))
         else:
-            X_jit = jitter(data.X_test, data.X_train, scale=0.01, seed=seed)
-            jit = as_array(sut.predict(model, data, X_jit, probe="jitter"))
+            jit_data, jit_model, jit_base = data, model, base
+            cast = float_schema(data.X_train)
+            if cast:
+                # The noisy rows must match the schema the system was fit on (see the module docstring).
+                jit_data = replace(data, X_train=data.X_train.astype(cast), X_test=data.X_test.astype(cast))
+                jit_model, jit_pred = sut.fit_predict(
+                    jit_data, jit_data.X_train, jit_data.y_train, jit_data.X_test, probe="jitter-base"
+                )
+                jit_base = as_array(jit_pred)
+            X_jit = jitter(jit_data.X_test, jit_data.X_train, scale=0.01, seed=seed)
+            jit = as_array(sut.predict(jit_model, jit_data, X_jit, probe="jitter"))
             results.append(
-                _jitter_check(data, classes, base, jit, ref_base, as_array(reference(X_jit))),
+                _jitter_check(jit_data, classes, jit_base, jit, ref_base, as_array(reference(X_jit))),
             )
+            if jit_model is not model:
+                with contextlib.suppress(Exception):
+                    jit_model.cleanup()
 
     with contextlib.suppress(Exception):
         model.cleanup()
