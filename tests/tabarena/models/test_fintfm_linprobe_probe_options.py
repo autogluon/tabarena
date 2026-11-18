@@ -47,19 +47,24 @@ class _Network:
         return np.full((len(X), 3), 1.0 / 3.0)
 
 
-def _fitted(monkeypatch: pytest.MonkeyPatch, probe: str | None) -> FinTFMLinearProbeModel:
+def _fitted(monkeypatch: pytest.MonkeyPatch, probe: str | None, *, splines: bool = False) -> FinTFMLinearProbeModel:
     """A probe model fitted on three features with the parent fit stubbed and ``FINTFM_PROBE`` set.
 
     Cross-fitting is off (``probe_crossfit_folds=0``): these tests cover the readout options on a
     fixed representation, and the stand-in network has no context to restrict. The stubbed parent
-    fit resolves the entry settings from the model's hyperparameters as the real one does.
+    fit resolves the entry settings from the model's hyperparameters as the real one does. Spline
+    features are off unless ``splines`` is set, so the ``raw`` block's width is the feature count;
+    the multiclass entry turns them on (fintfm FINDINGS §293).
     """
+    hp = {"probe_crossfit_folds": 0}
+    if not splines:
+        hp["probe_spline"] = None
     model = FinTFMLinearProbeModel(
         path="",
         name="fintfm_probe_opts",
         problem_type="multiclass",
         eval_metric="log_loss",
-        hyperparameters={"probe_crossfit_folds": 0},
+        hyperparameters=hp,
     )
     model.random_seed = 0
 
@@ -93,11 +98,18 @@ def test_empty_object_is_the_plain_logistic_regression(monkeypatch: pytest.Monke
 
 
 def test_unset_takes_the_entry_default_for_the_problem_type(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Without ``FINTFM_PROBE`` the multiclass entry's own readout applies (scale, cv and raw)."""
+    """Without ``FINTFM_PROBE`` the multiclass entry's own readout applies (scale, cv and raw).
+
+    With splines off the probe sees the two representation columns and the three raw features;
+    with the entry's splines on (at most 10,000 rows) the raw block is expanded, so it is wider.
+    """
     model = _fitted(monkeypatch, None)
     assert model._probe_opts == {"scale": True, "cv": True, "raw": True}
     assert isinstance(model._linear_probe, Pipeline)
     assert model._linear_probe.n_features_in_ == 5
+    splined = _fitted(monkeypatch, None, splines=True)
+    assert splined._raw_spline is not None
+    assert splined._linear_probe.n_features_in_ > 5
 
 
 def test_probe_hyperparameter_beats_the_environment(monkeypatch: pytest.MonkeyPatch) -> None:
