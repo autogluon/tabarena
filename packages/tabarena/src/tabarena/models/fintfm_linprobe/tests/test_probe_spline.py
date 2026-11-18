@@ -1,5 +1,5 @@
 # ruff: noqa: F811
-"""``probe_spline``: spline features of the numeric raw columns in the readout (binary entry default: on)."""
+"""``probe_spline``: spline features of the numeric raw columns in the readout (entry default: on, FINDINGS §290/§293)."""
 
 from __future__ import annotations
 
@@ -54,20 +54,12 @@ def knots(m) -> list[np.ndarray]:
     return [np.array(b.t) for b in m._raw_spline["tf"].bsplines_]
 
 
-@pytest.mark.parametrize("problem_type", ["multiclass", "regression"])
-def test_multiclass_and_regression_default_off_is_bit_identical(problem_type, tmp_path, checkpoint):
-    base, _, X_test = fitted(tmp_path / "a", checkpoint, problem_type)
-    explicit, _, _ = fitted(tmp_path / "b", checkpoint, problem_type, probe_spline=None)
-    assert base._get_model_params()["probe_spline"] is None
-    assert base._spline_cfg is None
-    assert base._raw_spline is None
-    assert np.array_equal(predict(base, X_test), predict(explicit, X_test))
-
-
-def test_binary_explicit_none_turns_the_entry_splines_off(tmp_path, checkpoint):
-    entry, _, X_test = fitted(tmp_path / "a", checkpoint)
-    off, _, _ = fitted(tmp_path / "b", checkpoint, probe_spline=None)
+@pytest.mark.parametrize("problem_type", ["binary", "multiclass", "regression"])
+def test_explicit_none_turns_the_entry_splines_off(problem_type, tmp_path, checkpoint):
+    entry, _, X_test = fitted(tmp_path / "a", checkpoint, problem_type)
+    off, _, _ = fitted(tmp_path / "b", checkpoint, problem_type, probe_spline=None)
     assert entry._spline_cfg is not None and entry._raw_spline is not None
+    assert off._get_model_params()["probe_spline"] is None
     assert off._spline_cfg is None and off._raw_spline is None
     assert not np.array_equal(predict(entry, X_test), predict(off, X_test))
 

@@ -91,7 +91,13 @@ def test_max_levels_rejects_bad_values(bad):
 
 
 def fit_reg(tmp_path, checkpoint, **hp):
-    """Fit a regression model on a nonlinear target, where rff differs from plain ridge."""
+    """Fit a regression model on a nonlinear target, where rff differs from plain ridge.
+
+    Splines off unless asked for: the regression entry's splines (FINDINGS §293) fit this toy target
+    well enough that RFFRidgeCV's inner folds choose its plain-ridge candidate, so rff and ridge
+    would agree and the cap could not be observed.
+    """
+    hp.setdefault("probe_spline", None)
     X, y, X_test = data("regression", categorical=True)
     y = pd.Series(np.sin(2.5 * X["f0"].to_numpy()) * 2.0 + X["f1"].to_numpy() ** 2, index=X.index)
     m = make("regression", tmp_path, checkpoint, probe_regression=PROBE, **hp)

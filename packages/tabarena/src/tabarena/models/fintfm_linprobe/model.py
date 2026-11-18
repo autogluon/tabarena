@@ -136,10 +136,10 @@ class FinTFMLinearProbeModel(FinTFMModel):
       count (``len(X)`` in ``_fit``, so a bagged child counts its own rows). ``None`` never gates.
       Applies to whichever problem type has a partition with ``n_bags`` set.
     - ``probe_spline`` (``None``/``False``, ``True`` or ``{"n_knots", "degree", "max_columns"}``; entry:
-      binary only, see ``_entry_probe_spline``): spline-expands the numeric columns of the ``raw`` readout
+      on for every problem type, see ``_entry_probe_spline``): spline-expands the numeric columns of the ``raw`` readout
       block (``n_knots`` quantile knots from the training rows, B-spline ``degree``, at most ``max_columns``
       columns). Needs the ``raw`` probe option; a request without it is ignored with a warning.
-    - ``spline_max_rows`` (int >= 1 or ``None``; the binary entry sets 10,000): a fit with more training rows
+    - ``spline_max_rows`` (int >= 1 or ``None``; the binary and multiclass entries set 10,000): a fit with more training rows
       than this treats ``probe_spline`` as off (no spline columns); a fit at or below it, or
       ``None``, is unchanged. Decided once per fit from the fit's row count (``len(X)`` in
       ``_fit``, so a bagged child counts its own rows). No effect unless ``probe_spline`` is set.
@@ -170,6 +170,8 @@ class FinTFMLinearProbeModel(FinTFMModel):
     #:   FINDINGS §290's entry ``fintfm_g287_bag4_spline``: four bags up to 5,000 fit rows
     #:   (``_entry_bags_max_rows``), spline features on the ``raw`` block up to 10,000 fit rows
     #:   (``_entry_probe_spline``, ``_entry_spline_max_rows``);
+    #:   multiclass and regression add FINDINGS §293's splines (entry ``fintfm_g292_emr``): multiclass up
+    #:   to 10,000 fit rows, regression at every size;
     #: - multiclass, runs ``fintfm_lp_mc_floor_cpu`` and ``fintfm_lp_mc_floor_sdss17_mac`` (§265, §269):
     #:   partition ``n_bags`` 8, the same probe, the probability floor ``probe_prob_floor="cv"``
     #:   (``_entry_prob_floor``), no cross-fitting;
@@ -198,11 +200,13 @@ class FinTFMLinearProbeModel(FinTFMModel):
     _entry_bags_max_rows: ClassVar[dict] = {"binary": 5_000, "multiclass": None, "regression": None}
     #: ``probe_spline`` per problem type (``True`` is ``SPLINE_N_KNOTS`` knots, degree ``SPLINE_DEGREE``, at most
     #: ``SPLINE_MAX_COLUMNS`` columns) and ``spline_max_rows``, the fit-row count above which the splines are off
-    #: (FINDINGS §290, ``fintfm_g287_bag4_spline``). Binary only; multiclass and regression have no splines.
-    #: Splines apply only with the ``raw`` probe option, which the binary entry has (``_entry_probe``).
+    #: (FINDINGS §290, ``fintfm_g287_bag4_spline``, binary; §293, ``fintfm_g292_emr``, multiclass and
+    #: regression). Multiclass splines were measured only on fits of at most 10,000 rows, so they are gated
+    #: there like binary's; regression was measured at every size and is not gated.
+    #: Splines apply only with the ``raw`` probe option, which all three entries have (``_entry_probe``).
     #: ``FINTFM_PROBE_SPLINE`` and ``FINTFM_SPLINE_MAX_ROWS`` override them.
-    _entry_probe_spline: ClassVar[dict] = {"binary": True, "multiclass": None, "regression": None}
-    _entry_spline_max_rows: ClassVar[dict] = {"binary": 10_000, "multiclass": None, "regression": None}
+    _entry_probe_spline: ClassVar[dict] = {"binary": True, "multiclass": True, "regression": True}
+    _entry_spline_max_rows: ClassVar[dict] = {"binary": 10_000, "multiclass": 10_000, "regression": None}
     _entry_probe: ClassVar[dict] = {
         "binary": {"scale": True, "cv": True, "raw": True},
         "multiclass": {"scale": True, "cv": True, "raw": True},

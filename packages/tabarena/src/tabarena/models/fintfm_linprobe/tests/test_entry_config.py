@@ -444,9 +444,12 @@ def test_explicit_partition_and_env_partition_still_win(monkeypatch, tmp_path):
 
 
 #: FINDINGS §290, entry ``fintfm_g287_bag4_spline``: the binary entry adds spline features on the ``raw`` block
-#: for fits of at most 10,000 training rows; multiclass and regression have none.
-SPLINE = {"binary": True, "multiclass": None, "regression": None}
-SPLINE_GATE = {"binary": 10_000, "multiclass": None, "regression": None}
+#: for fits of at most 10,000 training rows. FINDINGS §293, entry ``fintfm_g292_emr``: multiclass the same, and
+#: regression at every size.
+SPLINE = {"binary": True, "multiclass": True, "regression": True}
+SPLINE_GATE = {"binary": 10_000, "multiclass": 10_000, "regression": None}
+#: ``probe_spline=True`` resolved: ``SPLINE_N_KNOTS``, ``SPLINE_DEGREE``, ``SPLINE_MAX_COLUMNS``.
+SPLINE_ON = {"n_knots": 5, "degree": 3, "max_columns": 64}
 
 
 def spline_for(problem_type: str, tmp_path, n_rows: int, **hyperparameters) -> dict | None:
@@ -464,22 +467,23 @@ def test_spline_defaults_to_the_entry_per_problem_type(problem_type, tmp_path):
     assert params["spline_max_rows"] == SPLINE_GATE[problem_type]
 
 
-def test_binary_entry_has_the_raw_option_splines_need(tmp_path):
-    entry, _ = resolve(make("binary", tmp_path))
+@pytest.mark.parametrize("problem_type", ["binary", "multiclass", "regression"])
+def test_every_entry_has_the_raw_option_splines_need(problem_type, tmp_path):
+    entry, _ = resolve(make(problem_type, tmp_path))
     assert entry["probe"]["raw"] is True
 
 
-def test_binary_entry_splines_follow_the_row_count(tmp_path):
-    assert spline_for("binary", tmp_path, 100) == {"n_knots": 5, "degree": 3, "max_columns": 64}
-    assert spline_for("binary", tmp_path, 10_000) == {"n_knots": 5, "degree": 3, "max_columns": 64}
-    assert spline_for("binary", tmp_path, 10_001) is None
-    assert spline_for("binary", tmp_path, 1_000_000) is None
+@pytest.mark.parametrize("problem_type", ["binary", "multiclass"])
+def test_binary_and_multiclass_entry_splines_follow_the_row_count(problem_type, tmp_path):
+    assert spline_for(problem_type, tmp_path, 100) == SPLINE_ON
+    assert spline_for(problem_type, tmp_path, 10_000) == SPLINE_ON
+    assert spline_for(problem_type, tmp_path, 10_001) is None
+    assert spline_for(problem_type, tmp_path, 1_000_000) is None
 
 
-@pytest.mark.parametrize("problem_type", ["multiclass", "regression"])
-def test_multiclass_and_regression_never_get_splines(problem_type, tmp_path):
+def test_regression_entry_splines_at_every_size(tmp_path):
     for n_rows in (100, 10_000, 1_000_000):
-        assert spline_for(problem_type, tmp_path, n_rows) is None
+        assert spline_for("regression", tmp_path, n_rows) == SPLINE_ON
 
 
 @pytest.mark.parametrize("problem_type", ["multiclass", "regression"])
@@ -494,7 +498,8 @@ def test_spline_overrides_win(monkeypatch, tmp_path):
     assert spline_for("binary", tmp_path, 8_000, spline_max_rows=5_000) is None
     assert spline_for("binary", tmp_path, 12_000, spline_max_rows=None) is not None
     assert spline_for("binary", tmp_path, 100, probe_spline={"n_knots": 4})["n_knots"] == 4
-    assert spline_for("multiclass", tmp_path, 100, probe_spline=True) is not None
+    assert spline_for("multiclass", tmp_path, 100, probe_spline=None) is None
+    assert spline_for("regression", tmp_path, 100, probe_spline=False) is None
     monkeypatch.setenv("FINTFM_PROBE_SPLINE", "off")
     assert spline_for("binary", tmp_path, 100) is None
     monkeypatch.delenv("FINTFM_PROBE_SPLINE")
