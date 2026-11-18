@@ -22,6 +22,7 @@ if TYPE_CHECKING:
     from tabarena.models.iltm.model import ILTMModel
     from tabarena.models.inpriora.model import InprioraModel
     from tabarena.models.knn.model import KNNNewModel
+    from tabarena.models.kumo_cellridge.model import KumoCellRidgeModel
     from tabarena.models.kumo_tabular.model import (
         KumoTabularMediumModel,
         KumoTabularModel,
@@ -74,6 +75,7 @@ _LAZY_CLASSES: dict[str, str] = {
     "ILTMModel": "tabarena.models.iltm.model",
     "InprioraModel": "tabarena.models.inpriora.model",
     "KNNNewModel": "tabarena.models.knn.model",
+    "KumoCellRidgeModel": "tabarena.models.kumo_cellridge.model",
     "KumoTabularMediumModel": "tabarena.models.kumo_tabular.model",
     "KumoTabularModel": "tabarena.models.kumo_tabular.model",
     "KumoTabularSmallModel": "tabarena.models.kumo_tabular.model",

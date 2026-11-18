@@ -1,0 +1,14 @@
+{
+  "classification": {
+    "filename": "classification.safetensors",
+    "sha256": "74ee94f17eb1f8625ce99dee501174075b395f1dc3d48a0d4d04adaf11619afd",
+    "bytes": 112067120,
+    "source_checkpoint_sha256": "91f151ed0eb215b166ada6ff55cdbbb724f744cbb70b9831f7b74dc056fa2c79"
+  },
+  "regression": {
+    "filename": "regression.safetensors",
+    "sha256": "432bd55da71a9fd4b620e2892769e96a37077d5e020a6b90d3122731ccced53b",
+    "bytes": 116099004,
+    "source_checkpoint_sha256": "97df0aa8f65da039dd005d786c49fe7ec98e457a3b7977aeb8dd14ff209ffe0c"
+  }
+}
