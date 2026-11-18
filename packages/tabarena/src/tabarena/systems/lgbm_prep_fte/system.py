@@ -20,14 +20,15 @@ if TYPE_CHECKING:
     from tabarena.benchmark.task.metadata import ValidationMetadata
 
 CONFIGS_PATH = Path(__file__).with_name("configs.json")
-NAME = "LGBM-Prep-FTE25"
+NAME = "LGBM-Prep-FTE"
 ENSEMBLE_SIZE = 40
 """Greedy ensemble selection iterations, as in TabArena's tuned + ensembled simulation."""
+NUM_BAG_FOLDS = 8
 
 
 @dataclass(frozen=True)
 class _ArenaSetup:
-    """How the bags validate and preprocess on one benchmark: the way that benchmark fits its models."""
+    """How the bags validate, preprocess and budget on one benchmark: the way that benchmark fits a model."""
 
     protocol: ValidationProtocol
     preprocessing_pipeline: str | None
@@ -36,29 +37,48 @@ class _ArenaSetup:
 
     The benchmark applies it to a system's input as well, so the system's bags see the same column order as
     the per-config model runs; only :func:`make_bag_experiment`, which builds those model runs, sets it."""
+    model_time_limit: int
+    """The benchmark's per-model ``time_limit`` in seconds: each of a bag's folds may use this much."""
+
+    @property
+    def bag_time_limit(self) -> int:
+        """One bag's budget with its folds fitted one after another: every fold keeps the per-model limit."""
+        return NUM_BAG_FOLDS * self.model_time_limit
 
 
 ARENA_SETUPS: dict[str, _ArenaSetup] = {
-    # TabArena-v0.1: 8 folds x 1 set, plain stratified inner splits, no model-agnostic preprocessing.
+    # TabArena-v0.1: 8 folds x 1 set, plain stratified inner splits, no model-agnostic preprocessing, 1 h.
     "tabarena": _ArenaSetup(
-        protocol=TABARENA_V0PT1_VALIDATION_PROTOCOL, preprocessing_pipeline=None, shuffle_features=False
+        protocol=TABARENA_V0PT1_VALIDATION_PROTOCOL,
+        preprocessing_pipeline=None,
+        shuffle_features=False,
+        model_time_limit=3600,
     ),
-    # BeyondArena: 8 folds x 1 set with group / time-aware inner splits and class-adaptive folds, and TabArena's
-    # default preprocessing. This is BeyondArena's official protocol without its tiny-data 5 x 5 regime, which
-    # the reference runs predate; the system keeps 8 x 1 on every task.
+    # BeyondArena: 8 folds x 1 set with group / time-aware inner splits and class-adaptive folds, TabArena's
+    # default preprocessing, 4 h. This is BeyondArena's official protocol without its tiny-data 5 x 5 regime,
+    # which the reference runs predate; the system keeps 8 x 1 on every task.
     "beyondarena": _ArenaSetup(
         protocol=ValidationProtocol(
-            name="LGBM-Prep-FTE25 (BeyondArena)", task_specific_validation=True, adapt_num_folds_to_n_classes=True
+            name="LGBM-Prep-FTE (BeyondArena)", task_specific_validation=True, adapt_num_folds_to_n_classes=True
         ),
         preprocessing_pipeline="tabarena_default",
         shuffle_features=True,
+        model_time_limit=4 * 3600,
     ),
 }
 
 
-def load_configs() -> list[dict[str, Any]]:
-    """The 26 FTE25 configs in portfolio order: ``c1`` is the LightGBM default."""
-    return json.loads(CONFIGS_PATH.read_text())["configs"]
+def load_configs(arena: str) -> list[dict[str, Any]]:
+    """The arena's portfolio in order: ``c1`` is the LightGBM default.
+
+    TabArena: the default + 200 configs (FTE200). BeyondArena: the default + 25 configs (FTE25).
+    """
+    return json.loads(CONFIGS_PATH.read_text())["portfolios"][arena]["configs"]
+
+
+def system_time_limit(arena: str) -> int:
+    """The ``time_limit`` under which the system gives every bag the budget a model config gets on the arena."""
+    return len(load_configs(arena)) * ARENA_SETUPS[arena].bag_time_limit
 
 
 def make_bag_experiment(
@@ -77,7 +97,7 @@ def make_bag_experiment(
     can be assembled from per-config fits.
     """
     from tabarena.benchmark.experiment import AGModelBagExperiment
-    from tabarena.systems.lgbm_prep_fte25._model import LGBMDefaultModel, LGBMPrepModel
+    from tabarena.systems.lgbm_prep_fte._model import LGBMDefaultModel, LGBMPrepModel
 
     setup = ARENA_SETUPS[arena]
     if config["model"] == "lightgbm_default":
@@ -128,17 +148,18 @@ def ensemble_weights(
     return np.asarray(ensembler.weights_, dtype=float)
 
 
-class LGBMPrepFTE25SystemModel(ExternalSystemModel):
+class LGBMPrepFTESystemModel(ExternalSystemModel):
     """LightGBM + TabPrep with a fixed filtered portfolio, bagged and ensembled.
 
     The pipeline, per training split:
 
-    1. Fit 26 bagged LightGBM models: AutoGluon's LightGBM default and 25 configs that each pair LightGBM
-       parameters with TabPrep feature engineering (8 of them) or none (17). The 25 were selected offline, on
-       synthetic data only, for the tuned + ensembled objective out of a bank of 4,000 configs drawn from
-       TabArena's LightGBM space (TabPrep on every fourth). Each bag uses 8 inner folds; TabPrep is fitted inside
-       every fold on its training rows only, and at most 2,000 features (by absolute Spearman correlation on
-       those rows) go into LightGBM.
+    1. Fit a bagged LightGBM model per portfolio config: AutoGluon's LightGBM default, then configs that each
+       pair LightGBM parameters with TabPrep feature engineering or none. The portfolio was selected offline,
+       on synthetic data only, for the tuned + ensembled objective out of a bank of 4,000 configs drawn from
+       TabArena's LightGBM space (TabPrep on every fourth): 200 configs on TabArena (54 with TabPrep), 25 on
+       BeyondArena (8 with TabPrep). Each bag uses 8 inner folds; TabPrep is fitted inside every fold on its
+       training rows only, and at most 2,000 features (by absolute Spearman correlation on those rows) go into
+       LightGBM.
     2. Greedy ensemble selection (40 iterations) on the bags' out-of-fold predictions.
     3. Predict with the weighted average of the selected bags' predictions (each bag averages its 8 fold models).
 
@@ -146,11 +167,13 @@ class LGBMPrepFTE25SystemModel(ExternalSystemModel):
     ``AGModelBagExperiment``, so its inner folds, bagging and preprocessing are those TabArena applies to a model
     on the same benchmark; ``arena`` selects that benchmark's setup (see ``ARENA_SETUPS``).
 
+    Budget: ``time_limit`` is split evenly over the bags, which fit their folds one after another. Under
+    ``system_time_limit(arena)`` every fold gets the per-model limit of the arena (1 h on TabArena, 4 h on
+    BeyondArena), as a model config does there.
+
     Init hyperparameters:
 
-    * ``arena`` -- ``"tabarena"`` (default) or ``"beyondarena"``.
-    * ``bag_time_limit`` -- time limit in seconds of each bag (all its folds). ``None`` (default) splits the
-      split's ``time_limit`` evenly over the 26 bags, or no limit when there is none.
+    * ``arena`` -- ``"tabarena"`` (default) or ``"beyondarena"``: the portfolio and the bag setup.
     * ``path`` -- where the bags write their artifacts; ``None`` uses a temp dir removed in :meth:`cleanup`.
 
     Codebase of TabPrep: https://github.com/atschalz/tabprep
@@ -158,19 +181,11 @@ class LGBMPrepFTE25SystemModel(ExternalSystemModel):
 
     uses_ray = False  # folds are fitted sequentially in-process
 
-    def __init__(
-        self,
-        *,
-        arena: str = "tabarena",
-        bag_time_limit: float | None = None,
-        path: str | None = None,
-        **kwargs,
-    ):
+    def __init__(self, *, arena: str = "tabarena", path: str | None = None, **kwargs):
         super().__init__(**kwargs)
         if arena not in ARENA_SETUPS:
             raise ValueError(f"arena must be one of {sorted(ARENA_SETUPS)}, got {arena!r}")
         self.arena = arena
-        self.bag_time_limit = bag_time_limit
         self.path = path
         self._bags: list = []
         self._weights: np.ndarray | None = None
@@ -224,17 +239,15 @@ class LGBMPrepFTE25SystemModel(ExternalSystemModel):
         time_limit: float | None,
         random_state: int | None,
     ):
-        """Fit the 26 bags on all training rows, then the ensemble weights on their out-of-fold predictions.
+        """Fit every bag on all training rows, then the ensemble weights on their out-of-fold predictions.
 
         The configs carry their own seeds, so ``random_state`` is not used. See ``ExternalSystemModel._fit_system``
         for the argument contract.
         """
         del target_name, num_gpus, random_state
-        configs = load_configs()
-        bag_time_limit = self.bag_time_limit
-        if bag_time_limit is None and time_limit is not None:
-            bag_time_limit = time_limit / len(configs)
-        self._root = self.path or tempfile.mkdtemp(prefix="tabarena_lgbm_prep_fte25_")
+        configs = load_configs(self.arena)
+        bag_time_limit = None if time_limit is None else time_limit / len(configs)
+        self._root = self.path or tempfile.mkdtemp(prefix="tabarena_lgbm_prep_fte_")
         oof, y_oof, internal_problem_type = [], None, None
         for config in configs:
             bag = self._make_bag(
@@ -284,7 +297,7 @@ class LGBMPrepFTE25SystemModel(ExternalSystemModel):
         return total
 
     def get_metadata(self) -> dict:
-        """The ensemble weights per config, the arena setup and the bag time limit."""
+        """The ensemble weights per config, the arena and the bag time limit."""
         return dict(self._fit_report)
 
     def cleanup(self):

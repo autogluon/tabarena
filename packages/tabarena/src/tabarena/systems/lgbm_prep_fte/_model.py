@@ -19,10 +19,10 @@ from autogluon.core.models import AbstractModel
 from autogluon.core.utils.exceptions import TimeLimitExceeded
 from autogluon.tabular.models import LGBModel
 
-from tabarena.systems.lgbm_prep_fte25._tabprep import tabprep_frames
+from tabarena.systems.lgbm_prep_fte._tabprep import tabprep_frames
 
-AG_KEY = "LGBM-PREP-FTE25"
-AG_NAME = "LGBMPrepFTE25"
+AG_KEY = "LGBM-PREP-FTE"
+AG_NAME = "LGBMPrepFTE"
 MAX_THREADS = 16
 """LightGBM and the feature cap use at most this many threads, as in the reference runs."""
 
@@ -30,7 +30,7 @@ MAX_THREADS = 16
 class LGBMPrepModel(AbstractModel):
     """One fitted inner fold of an LGBM-Prep config.
 
-    Hyperparameters (one FTE25 config): ``config_id``, ``model_seed`` (LightGBM's ``random_state``),
+    Hyperparameters (one portfolio config): ``config_id``, ``model_seed`` (LightGBM's ``random_state``),
     ``lightgbm`` (LightGBM parameters), ``tabprep_enabled`` and ``tabprep`` (TabPrep budgets and seeds).
     """
 
