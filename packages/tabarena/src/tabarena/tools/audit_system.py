@@ -922,8 +922,14 @@ def _jitter_check(
     )
 
 
-def probe_dataset(sut: SystemUnderAudit, data: ProbeData, checks: Iterable[str], *, seed: int) -> list[CheckResult]:
-    """Run the behaviour probes (and the egress analysis of their requests) on one split."""
+def probe_dataset(
+    sut: SystemUnderAudit, data: ProbeData, checks: Iterable[str], *, seed: int, n_shuffles: int = 1
+) -> list[CheckResult]:
+    """Run the behaviour probes (and the egress analysis of their requests) on one split.
+
+    ``n_shuffles`` fits for ``shuffled``, each on another permutation of the training labels; the verdict reads
+    their mean score. The first permutation is the one a single-shuffle run draws.
+    """
     checks = set(checks)
     results: list[CheckResult] = []
     is_reg = data.problem_type == "regression"
@@ -1037,24 +1043,37 @@ def probe_dataset(sut: SystemUnderAudit, data: ProbeData, checks: Iterable[str],
         results.append(CheckResult("labels", data.name, verdict, summary, details))
 
     if "shuffled" in checks:
-        rng = np.random.default_rng(seed)
-        y_shuf = pd.Series(rng.permutation(data.y_train.to_numpy()), index=data.y_train.index, name=data.y_train.name)
-        if isinstance(data.y_train.dtype, pd.CategoricalDtype):
-            y_shuf = y_shuf.astype(data.y_train.dtype)
-        _, shuf_pred = sut.fit_predict(data, data.X_train, y_shuf, data.X_test, probe="shuffled")
-        shuf = as_array(shuf_pred)
         y_true = np.asarray([str(v) for v in data.y_test]) if not is_reg else data.y_test.astype(float).to_numpy()
         if data.problem_type == "binary":
             score_name, chance = "AUC", 0.5
-            score, score_base = 1.0 - err(data.y_test, shuf), 1.0 - base_err
+
+            def score_of(pred: np.ndarray) -> float:
+                return 1.0 - err(data.y_test, pred)
+
         elif data.problem_type == "multiclass":
             score_name, chance = "accuracy", float(pd.Series(y_true).value_counts(normalize=True).iloc[0])
-            score = float(np.mean(_labels(shuf, classes) == y_true))
-            score_base = float(np.mean(_labels(base, classes) == y_true))
+
+            def score_of(pred: np.ndarray) -> float:
+                return float(np.mean(_labels(pred, classes) == y_true))
+
         else:
             score_name, chance = "R^2", 0.0
-            score = float(1.0 - np.mean((y_true - shuf) ** 2) / np.var(y_true))
-            score_base = float(1.0 - np.mean((y_true - base) ** 2) / np.var(y_true))
+
+            def score_of(pred: np.ndarray) -> float:
+                return float(1.0 - np.mean((y_true - pred) ** 2) / np.var(y_true))
+
+        rng = np.random.default_rng(seed)
+        scores = []
+        for _ in range(max(1, n_shuffles)):
+            y_shuf = pd.Series(
+                rng.permutation(data.y_train.to_numpy()), index=data.y_train.index, name=data.y_train.name
+            )
+            if isinstance(data.y_train.dtype, pd.CategoricalDtype):
+                y_shuf = y_shuf.astype(data.y_train.dtype)
+            _, shuf_pred = sut.fit_predict(data, data.X_train, y_shuf, data.X_test, probe="shuffled")
+            scores.append(score_of(as_array(shuf_pred)))
+        score = float(np.mean(scores))
+        score_base = 1.0 - base_err if data.problem_type == "binary" else score_of(base)
         retained = (score - chance) / max(score_base - chance, 1e-9)
         above = score > chance + SHUFFLED_MIN_MARGIN
         if above and retained > SHUFFLED_RETAINED_FAIL:
@@ -1063,11 +1082,18 @@ def probe_dataset(sut: SystemUnderAudit, data: ProbeData, checks: Iterable[str],
             verdict = WARN
         else:
             verdict = PASS
+        each = f", mean of {len(scores)} shuffles ({'/'.join(f'{s:.3f}' for s in scores)})" if len(scores) > 1 else ""
         summary = (
-            f"{score_name} with shuffled training labels {score:.3f} (chance {chance:.3f}, real labels {score_base:.3f}): "
-            f"{retained:.0%} of the skill above chance kept"
+            f"{score_name} with shuffled training labels {score:.3f}{each} (chance {chance:.3f}, real labels "
+            f"{score_base:.3f}): {retained:.0%} of the skill above chance kept"
         )
-        details = {"score": score, "score_real_labels": score_base, "chance": chance, "retained": retained}
+        details = {
+            "score": score,
+            "scores": scores,
+            "score_real_labels": score_base,
+            "chance": chance,
+            "retained": retained,
+        }
         results.append(CheckResult("shuffled", data.name, verdict, summary, details))
 
     if "jitter" in checks:

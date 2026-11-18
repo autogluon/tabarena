@@ -351,14 +351,30 @@ def test_string_columns_reach_the_model_as_categories():
     fitted.cleanup()
 
 
-def test_honest_model_passes_every_dataset():
+def test_order_invariant_honest_model_is_info_not_pass():
+    """``_HonestModel`` sorts its columns by name: the order probe cannot see a memory in it, and says so."""
     results = audit_contamination(_HonestModel, datasets=_five_datasets(), checks=("order",), num_gpus=0, seed=3)
     order = _by_check(results, "order")
     assert set(order) == {"synth-a", "synth-b", "synth-c", "synth-d", "synth-e"}
     for r in order.values():
-        assert r.verdict == PASS, r.summary
-        assert abs(r.details["d_mean"]) < 0.05
-    assert all(r.verdict == PASS for r in _by_check(results, VERDICT_CHECK).values())
+        assert r.verdict == INFO, r.summary
+        assert "order-invariant" in r.summary
+        assert r.details["spread"] == 0.0
+    run_rows = [r for r in results if r.check == "calibration"]
+    assert len(run_rows) == 1 and run_rows[0].verdict == INFO and "INFO, not PASS" in run_rows[0].summary
+    assert all(r.verdict == INFO for r in _by_check(results, VERDICT_CHECK).values())
+    assert leakage_tuple(results) == () and leakage_tuple(results, WARN) == ()
+
+
+def test_order_sensitive_model_is_not_reported_as_order_invariant():
+    """A model that reads column order keeps PASS (and WARN) rows; none turns into the INFO of the rule above."""
+    results = audit_contamination(
+        _OrderSensitiveHonest, datasets=_five_datasets(), checks=("order",), num_gpus=0, seed=3
+    )
+    order = _by_check(results, "order")
+    assert {r.verdict for r in order.values()} <= {PASS, WARN}, {k: r.summary for k, r in order.items()}
+    assert PASS in {r.verdict for r in order.values()}
+    assert not [r for r in results if r.check == "calibration" and r.verdict == INFO]
     assert leakage_tuple(results) == ()
 
 
@@ -378,8 +394,9 @@ def test_order_memorizer_fails_only_the_memorized_dataset():
         r.startswith("random") for r in order["synth-b"].details["rotations"]
     )
     assert order["synth-b"].details["n_orders"] == 11  # the confirmation rerun
+    # Off the memorized table the memorizer is the order-invariant honest model: INFO there, the FAIL kept.
     for name in ("synth-a", "synth-c", "synth-d", "synth-e"):
-        assert order[name].verdict == PASS, order[name].summary
+        assert order[name].verdict == INFO, order[name].summary
     assert leakage_tuple(results) == ("synth-b",)
 
 
@@ -528,6 +545,89 @@ def test_calibrate_order_uses_the_problem_type_center_when_it_has_enough_dataset
     assert rows[0].verdict == PASS
     assert calibrate_order(rows, types) == calibration  # recalibration is stable and does not stack notes
     assert rows[-1].summary.count("; z") == 1
+
+
+def _order_row(name: str, d_perm: dict[str, float]) -> CheckResult:
+    d = float(np.mean(list(d_perm.values())))
+    details = {
+        "d_perm": d_perm,
+        "d_mean": d,
+        "d_low": float(np.percentile(list(d_perm.values()), 25)),
+        "d_min": min(d_perm.values()),
+        "d_low_per_split": {"0": d},
+        "d_min_per_split": {"0": d},
+        "rank_pub": 2.0,
+        "rank_p": 0.5,
+        "n_orders": len(d_perm) + 1,
+        "n_splits": 1,
+        "metric": "roc_auc",
+    }
+    return CheckResult("order", name, INFO, "x over 1 split(s)", details)
+
+
+def test_calibrate_order_reports_an_order_invariant_run_as_info():
+    # FTFM-like: errors move by a few 1e-3 at most; one dataset with a real effect keeps its WARN.
+    quiet = [_order_row(f"q{i}", {REVERSED: 0.001 * i, "random0": -0.002}) for i in range(5)]
+    loud = _order_row("loud", {REVERSED: 0.6, "random0": 0.5})
+    types = {r.dataset: "binary" for r in [*quiet, loud]}
+    calibration = calibrate_order([*quiet, loud], types)
+    assert calibration["order_invariant"] and calibration["median_spread"] < 0.005
+    assert all(r.verdict == INFO and "order-invariant" in r.summary for r in quiet), [r.summary for r in quiet]
+    assert loud.verdict == WARN
+    # TabDPT-like: an honest model that reads column order keeps its PASS rows.
+    moving = [_order_row(f"m{i}", {REVERSED: 0.02, "random0": -0.03 * (i % 2)}) for i in range(5)]
+    calibration = calibrate_order(moving, {r.dataset: "binary" for r in moving})
+    assert not calibration["order_invariant"]
+    assert all(r.verdict == PASS for r in moving), [r.summary for r in moving]
+    # Fewer than CALIBRATION_MIN_DATASETS datasets: not assessed.
+    few = [_order_row(f"f{i}", {REVERSED: 0.0}) for i in range(2)]
+    calibration = calibrate_order(few, {r.dataset: "binary" for r in few}, no_calibration=True)
+    assert calibration["median_spread"] is None and not calibration["order_invariant"]
+    assert all(r.verdict == PASS for r in few)
+
+
+def test_shuffled_averages_several_label_shuffles():
+    data = _five_datasets()[:1]
+    one = audit_contamination(
+        _HonestModel, datasets=data, checks=("shuffled",), n_shuffles=1, num_gpus=0, seed=3, no_calibration=True
+    )
+    three = audit_contamination(
+        _HonestModel, datasets=data, checks=("shuffled",), n_shuffles=3, num_gpus=0, seed=3, no_calibration=True
+    )
+    single, mean = _by_check(one, "shuffled")["synth-a"], _by_check(three, "shuffled")["synth-a"]
+    assert len(single.details["scores"]) == 1 and "mean of" not in single.summary
+    assert len(mean.details["scores"]) == 3 and "mean of 3 shuffles" in mean.summary
+    assert mean.details["scores"][0] == pytest.approx(single.details["score"])  # the same first permutation
+    assert mean.details["score"] == pytest.approx(float(np.mean(mean.details["scores"])))
+    expected = (mean.details["score"] - 0.5) / (mean.details["score_real_labels"] - 0.5)
+    assert mean.details["retained"] == pytest.approx(expected)
+
+
+class _ClassificationOnly(_HonestModel):
+    ag_key = "_AUDIT_CLASSIFICATION_ONLY"
+    ag_name = "_AuditClassificationOnly"
+    _supported_problem_types = ["binary", "multiclass"]
+
+
+def test_unsupported_problem_type_is_skipped_not_fitted():
+    meta: dict = {}
+    results = audit_contamination(
+        _ClassificationOnly,
+        datasets=_five_datasets(),
+        checks=("order",),
+        num_gpus=0,
+        seed=3,
+        no_calibration=True,
+        meta=meta,
+    )
+    support = _by_check(results, "support")
+    assert set(support) == {"synth-e"} and support["synth-e"].verdict == SKIP
+    assert "regression" in support["synth-e"].summary
+    assert "synth-e" not in _by_check(results, "order")
+    assert not [c for c in meta["calls"] if c["dataset"] == "synth-e"]
+    verdict = _by_check(results, VERDICT_CHECK)["synth-e"]
+    assert verdict.verdict == SKIP and verdict.summary == "problem type not supported"
+    assert len(_by_check(results, "order")) == 4
 
 
 def test_dataset_verdicts_and_leakage_tuple():

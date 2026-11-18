@@ -4,7 +4,7 @@ the same rows with the columns in another order?
 Usage::
 
     python -P -m tabarena.tools.audit_contamination --model NAME [--datasets NAME ...] [--checks CHECK ...]
-        [--splits 0 | all | 0 1 2] [--random-orders K] [--confirm] [--config off | released]
+        [--splits 0 | all | 0 1 2] [--random-orders K] [--shuffles K] [--confirm] [--config off | released]
         [--seed N] [--num-gpus N] [--json PATH]
     python -P -m tabarena.tools.audit_contamination --list-models
 
@@ -61,7 +61,10 @@ and compares what the published order buys. The checks:
     reference unchanged): the memory is of the rows' exact values, read through the context labels. But
     ``jitter`` also fires on honest models wherever 1% noise matters (polish_companies_bankruptcy: +1247% for
     TabPFN-3 and +932% for TabICLv2 against +203% for the reference; anneal: +309% for TabICLv2), so the three
-    raise a dataset to WARN at most.
+    raise a dataset to WARN at most. ``shuffled`` averages ``SHUFFLED_N`` label shuffles (``--shuffles``): on a
+    table with a dominant feature a model picks up a chance correlation between the shuffled labels and that
+    feature and ranks the test rows along it, in either direction, so a single shuffle swings widely (TabDPT-1.3
+    on E-CommereShippingData kept 63% of its skill with one seed and -8% to -42% with four others).
 
 The probes run with the model's test-time augmentation turned off (``--config off``, the default): one
 ensemble member, no feature shift, for the registry names in ``AUGMENTATION_OFF`` (LimiX-2: the members that
@@ -77,8 +80,14 @@ the published rows; the context is capped at ``--max-train-rows``.
 
 What the ``order`` probe detects is one mechanism: training on the table in a fixed column order. A model that
 saw the table under column augmentation is contaminated and order-invariant, and a PASS says nothing about
-it. The thresholds are set from the #648 figures (LimiX-2 diabetes d = 3.1, blood-transfusion 0.38; honest
-models within 0.12 on 51 datasets) and will move as more models are audited. Verdicts: ``PASS``, ``WARN``
+it. The run reports when that is the case for the model as a whole: when the largest ``|d|`` of any
+permutation has a median below ``ORDER_INVARIANT_SPREAD`` over at least ``CALIBRATION_MIN_DATASETS``
+datasets, a run-level ``calibration`` INFO row says so and the order rows that would PASS are INFO instead
+(FAIL and WARN are kept). FTFM, whose error moved by 0.0019 at the median, gets this; TabDPT-1.3, an honest
+model that reads column order, moved by 0.0187 and does not. A dataset whose problem type the model does
+not support (``_supported_problem_types``) is not fitted and gets a ``support`` SKIP row. The thresholds are
+set from the #648 figures (LimiX-2 diabetes d = 3.1, blood-transfusion 0.38; honest models within 0.12 on 51
+datasets) and will move as more models are audited. Verdicts: ``PASS``, ``WARN``
 (read the details), ``FAIL`` (write it up for the model's authors), ``INFO`` and ``SKIP``. The report ends
 with the ``leakage_datasets`` tuple of the failed datasets and the ``warn_datasets`` tuple, in the form
 ``ModelDescriptor`` takes; ``--json`` keeps every error, column order and configuration for a rerun. A fit
@@ -137,6 +146,8 @@ CHECKS = ("order", "ensemble", "labels", "shuffled", "jitter")
 SECONDARY_CHECKS = ("labels", "shuffled", "jitter")
 #: Verdict row per dataset, built from the probes above.
 VERDICT_CHECK = "verdict"
+#: Row for a dataset whose problem type the model does not declare in ``_supported_problem_types``.
+SUPPORT_CHECK = "support"
 
 #: ``d_mean`` an honest model stays within: the largest move on 51 datasets x 9 splits for TabPFN-3.5 and
 #: Kumo Tabular (polish bankruptcy, 0.0088 vs 0.0099, a few samples deciding) in the #648 write-up.
@@ -160,12 +171,20 @@ COLLINEAR_CORRELATION = 0.9999
 #: confirmation's 10 permutations on every split, 2 / 11 when one order the memory survives (a rotation) ties
 #: with it. Honest order preferences rank 3.8 or worse of 11 (TabPFN-3 on anneal).
 ORDER_RANK_P_CONFIRM = 0.2
+#: Median over the run's datasets of the largest ``|d|`` of any permutation below which the model counts as
+#: order-invariant, and its order PASS rows are reported as INFO. FTFM: 0.0019 over 9 classification tables;
+#: TabDPT-1.3, an honest model that reads column order: 0.0187 over 51 datasets (lowest 0.0043, heloc).
+ORDER_INVARIANT_SPREAD = 0.005
 #: Datasets a run needs before the across-dataset rule has a median and a MAD.
 CALIBRATION_MIN_DATASETS = 5
 #: Datasets of one problem type before its own calibration replaces the pooled one.
 CALIBRATION_MIN_PER_TYPE = 5
 #: ``log(err_released / err_off)`` above which stripping the ensemble helped too much.
 ENSEMBLE_LOG_RATIO_WARN = 0.25
+#: Label shuffles the ``shuffled`` probe averages. One shuffle is not enough on a table with a dominant
+#: feature: TabDPT-1.3 on E-CommereShippingData kept 63% of its skill with seed 0 and -8%, -36%, -12% and
+#: -42% with seeds 1 to 4 (mean -7%).
+SHUFFLED_N = 5
 #: Error floor for the log ratios (1 - AUC and log loss); regression uses ``ERR_EPS_REGRESSION_STD`` standard
 #: deviations of the test target.
 ERR_EPS = 1e-3
@@ -180,9 +199,11 @@ THRESHOLDS = (
     "ORDER_N_RANDOM",
     "ORDER_N_RANDOM_CONFIRM",
     "ORDER_RANK_P_CONFIRM",
+    "ORDER_INVARIANT_SPREAD",
     "CALIBRATION_MIN_DATASETS",
     "CALIBRATION_MIN_PER_TYPE",
     "ENSEMBLE_LOG_RATIO_WARN",
+    "SHUFFLED_N",
     "ERR_EPS",
 )
 PUBLISHED, REVERSED = "published", "reversed"
@@ -842,10 +863,12 @@ def probe_ensemble(
 
 
 def probe_secondary(
-    mua: ModelUnderAudit, dataset: DatasetSplits, checks: Sequence[str], *, seed: int
+    mua: ModelUnderAudit, dataset: DatasetSplits, checks: Sequence[str], *, seed: int, n_shuffles: int = SHUFFLED_N
 ) -> list[CheckResult]:
-    """The ``audit_system`` behaviour probes on the published order of the first split (plus its baseline)."""
-    return probe_dataset(mua, dataset.splits[0], list(checks), seed=seed)
+    """The ``audit_system`` behaviour probes on the published order of the first split (plus its baseline);
+    ``shuffled`` averages ``n_shuffles`` label shuffles.
+    """
+    return probe_dataset(mua, dataset.splits[0], list(checks), seed=seed, n_shuffles=n_shuffles)
 
 
 # --------------------------------------------------------------------------------------------------
@@ -886,6 +909,14 @@ def calibrate_order(
     # A model that prefers the published order on most of its datasets has no honest median to compare with.
     unreliable = calibration["pooled"] is not None and calibration["pooled"]["median_d"] >= ORDER_LOG_RATIO_WARN
     calibration["unreliable"] = unreliable
+    # A model whose error does not move with the column order cannot show an order memory: there a PASS only
+    # says the model ignores column order, which is also what a memory formed under column shuffling looks like.
+    for r in order:
+        r.details["spread"] = max((abs(v) for v in r.details["d_perm"].values()), default=0.0)
+    spreads = [r.details["spread"] for r in order]
+    calibration["median_spread"] = float(np.median(spreads)) if len(spreads) >= CALIBRATION_MIN_DATASETS else None
+    order_invariant = calibration["median_spread"] is not None and calibration["median_spread"] < ORDER_INVARIANT_SPREAD
+    calibration["order_invariant"] = order_invariant
     for r in order:
         d = r.details
         center = calibration["by_problem_type"].get(problem_types.get(r.dataset, "")) or calibration["pooled"]
@@ -915,6 +946,9 @@ def calibrate_order(
                 note += "; within the run's own spread (most datasets move with the column order)"
             if effect and r.dataset not in confirmed:
                 note += "; rerun with --confirm"
+        elif order_invariant:
+            r.verdict = INFO
+            note = "order-invariant model: the probe cannot see a memory here"
         else:
             r.verdict = PASS
             note = ""
@@ -938,8 +972,11 @@ def dataset_verdicts(results: Sequence[CheckResult]) -> list[CheckResult]:
     out = []
     for dataset, rows in by_dataset.items():
         order = next((r for r in rows if r.check == "order"), None)
+        unsupported = any(r.check == SUPPORT_CHECK for r in rows)
         verdict = order.verdict if order else SKIP
-        reasons = [f"order {order.verdict}"] if order else ["no order probe"]
+        reasons = (
+            [f"order {order.verdict}"] if order else ["problem type not supported" if unsupported else "no order probe"]
+        )
         raised = [r for r in rows if r.check == "ensemble" and r.verdict == WARN] + [
             r for r in rows if r.check in SECONDARY_CHECKS and r.verdict in (WARN, FAIL)
         ]
@@ -968,6 +1005,7 @@ def audit_contamination(
     checks: Sequence[str] = CHECKS,
     splits: Sequence[int] | str = (0,),
     n_random_orders: int = ORDER_N_RANDOM,
+    n_shuffles: int = SHUFFLED_N,
     confirm: bool = False,
     config: str = "off",
     hyperparameters_off: dict | None = None,
@@ -985,7 +1023,9 @@ def audit_contamination(
 
     ``model`` is a registry name or a model class (then ``hyperparameters_off`` is what the class runs with).
     ``datasets`` are specs (see the module docstring) or ``ProbeData`` objects, grouped into datasets by name.
-    ``meta`` (optional) collects what the JSON records: the configurations, the calibration and the splits.
+    A dataset whose problem type the model class does not declare in ``_supported_problem_types`` is not fitted
+    and gets a ``support`` SKIP row. ``meta`` (optional) collects what the JSON records: the configurations, the
+    calibration and the splits.
     """
     checks = tuple(checks)
     unknown = set(checks) - set(CHECKS)
@@ -1055,7 +1095,23 @@ def audit_contamination(
     results: list[CheckResult] = []
     problem_types = {g.name: g.problem_type for g in groups}
     calls: list[dict] = []
+    supported = (
+        model_cls.supported_problem_types()
+        if hasattr(model_cls, "supported_problem_types")
+        else getattr(model_cls, "_supported_problem_types", None)
+    )
     for g in groups:
+        if supported is not None and g.problem_type not in supported:
+            results.append(
+                CheckResult(
+                    SUPPORT_CHECK,
+                    g.name,
+                    SKIP,
+                    f"{g.problem_type} is not among the problem types the model supports ({', '.join(supported)})",
+                )
+            )
+            log(format_result(results[-1]))
+            continue
         off = off_for(g.problem_type)
         log(
             f"--- {g.name} ({g.problem_type}, {len(g.splits)} split(s), {len(g.splits[0].X_train)} train / "
@@ -1069,7 +1125,7 @@ def audit_contamination(
                 log(format_result(new[-1]))
             secondary = [c for c in checks if c in SECONDARY_CHECKS]
             if secondary:
-                for r in probe_secondary(mua, g, secondary, seed=seed):
+                for r in probe_secondary(mua, g, secondary, seed=seed, n_shuffles=n_shuffles):
                     new.append(r)
                     log(format_result(r))
         except Exception as exc:
@@ -1135,6 +1191,20 @@ def audit_contamination(
                 WARN,
                 f"the run's median d_mean is {calibration['pooled']['median_d']:+.2f}: the model prefers the "
                 "published order on most of its datasets, so the floors apply alone",
+                calibration,
+            )
+        )
+        log(format_result(results[-1]))
+    if calibration.get("order_invariant"):
+        results.append(
+            CheckResult(
+                "calibration",
+                "-",
+                INFO,
+                f"the largest error change under any column order has a median of {calibration['median_spread']:.4f} "
+                f"over {calibration['n_datasets']} datasets (under {ORDER_INVARIANT_SPREAD}): the model ignores "
+                "column order on most datasets, where the order probe cannot tell an honest model from a memory "
+                "formed under column shuffling, so those order rows are INFO, not PASS",
                 calibration,
             )
         )
@@ -1246,6 +1316,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--checks", nargs="+", default=list(CHECKS), choices=CHECKS)
     parser.add_argument("--splits", nargs="+", default=["0"], help="Split indices (n_folds * repeat + fold) or 'all'.")
     parser.add_argument("--random-orders", type=int, default=ORDER_N_RANDOM, help="Random column orders in the screen.")
+    parser.add_argument("--shuffles", type=int, default=SHUFFLED_N, help="Label shuffles the shuffled probe averages.")
     parser.add_argument(
         "--confirm", action="store_true", help="Rerun suspect datasets with more orders on every split."
     )
@@ -1291,6 +1362,7 @@ def main(argv: list[str] | None = None) -> int:
         "date_introduced": info.method_metadata.date_introduced,
         "checks": args.checks,
         "n_random_orders": args.random_orders,
+        "n_shuffles": args.shuffles,
         "confirm": args.confirm,
         "splits": splits,
         "max_train_rows": args.max_train_rows,
@@ -1309,6 +1381,7 @@ def main(argv: list[str] | None = None) -> int:
         checks=args.checks,
         splits=splits,
         n_random_orders=args.random_orders,
+        n_shuffles=args.shuffles,
         confirm=args.confirm,
         config=args.config,
         hyperparameters_off=json.loads(args.hyperparameters_off) if args.hyperparameters_off else None,
@@ -1322,7 +1395,7 @@ def main(argv: list[str] | None = None) -> int:
         meta=meta,
     )
     verdict_rows = [r for r in results if r.check == VERDICT_CHECK]
-    counts = {v: sum(r.verdict == v for r in verdict_rows) for v in (FAIL, WARN, PASS, SKIP)}
+    counts = {v: sum(r.verdict == v for r in verdict_rows) for v in (FAIL, WARN, PASS, INFO, SKIP)}
     raised = sum(r.check == "probe" for r in results)
     summary = ", ".join(f"{n} {v}" for v, n in counts.items() if n) + " dataset(s)"
     if raised:
