@@ -17,7 +17,8 @@ fintfm_method_metadata = MethodMetadata.config(
     #: produced so far hold only the default. ``hpo.py`` now declares a search space; set this
     #: to ``True`` once a run that includes sampled configs is the one being registered.
     can_hpo=False,
-    #: Runs on CPU, MPS and CUDA; the reference machine has no CUDA at all.
+    #: Runs on CPU or CUDA (MPS only when forced with ``FINTFM_DEVICE``); the reference
+    #: machine has no CUDA at all.
     compute="cpu",
     is_bag=True,
     date_introduced="2026-09",

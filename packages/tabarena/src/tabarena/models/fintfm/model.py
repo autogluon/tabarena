@@ -144,8 +144,8 @@ class FinTFMModel(AbstractTorchModel):
         ``_fit`` moves the network to CUDA only when AutoGluon passes ``num_gpus`` > 0, and the
         inherited default is zero GPUs, so without this a CUDA machine fitted on its CPU while
         its GPU sat idle (2026-11-18: a T4 job ran three times slower than the measured T4 entry,
-        which had forced the device with ``FINTFM_DEVICE=cuda``). Machines without CUDA, MPS
-        included, are unchanged: zero GPUs, and ``_fit`` still prefers MPS, then CPU.
+        which had forced the device with ``FINTFM_DEVICE=cuda``). Machines without CUDA, Apple
+        Silicon included, get zero GPUs and fit on CPU (:meth:`_choose_device`).
 
         Returns:
             ``(num_cpus, num_gpus)``.
@@ -255,7 +255,6 @@ class FinTFMModel(AbstractTorchModel):
         validation set to stop against.
         """
         import numpy as np
-        import torch
         from fintfm.inference.classifier import FinancialTFMClassifier
         from fintfm.modeling.model import FinancialTFM
 
@@ -270,19 +269,7 @@ class FinTFMModel(AbstractTorchModel):
         # emitted continuous targets during pretraining, which the others never did.
         checkpoint = resolve_checkpoint(entry["checkpoint"], problem_type=self.problem_type)
 
-        # Prefer any real accelerator. AutoGluon's GPU accounting is CUDA-only, so a machine
-        # with Apple Silicon reports zero GPUs and would otherwise run this on CPU -- which is
-        # 10-100x slower for this model and is the difference between completing a task inside
-        # the harness's time budget and hitting TimeLimitExceeded.
-        forced = self._forced_device()
-        if forced is not None:
-            device = forced
-        elif num_gpus and torch.cuda.is_available():
-            device = "cuda"
-        elif torch.backends.mps.is_available():
-            device = "mps"
-        else:
-            device = "cpu"
+        device = self._choose_device(num_gpus)
         network = FinancialTFM.load(checkpoint, map_location=device)
 
         X = self.preprocess(X, y=y, is_train=True)
@@ -325,11 +312,37 @@ class FinTFMModel(AbstractTorchModel):
             classifier = PartitionedTFMClassifier(classifier, random_state=params["random_state"], **partition)
         self.model = classifier.fit(X, y_fit)
 
+    @classmethod
+    def _choose_device(cls, num_gpus: int | float | None) -> str:
+        """The torch device ``_fit`` loads the network on.
+
+        ``FINTFM_DEVICE`` when set; otherwise CUDA when AutoGluon granted a GPU and CUDA is
+        present; otherwise CPU. Apple's MPS is never chosen automatically: every stored
+        TabArena-Lite result of this model was fitted on CPU or CUDA, and on MPS the default
+        entry's fits exhausted Metal's memory pool (requests above 80 GiB on a 64 GB machine)
+        within the first minutes of every dataset tried, 2026-11-18. ``FINTFM_DEVICE=mps``
+        still selects it.
+
+        Args:
+            num_gpus: GPUs AutoGluon allotted to this fit.
+
+        Returns:
+            ``"cpu"``, ``"mps"`` or ``"cuda"``.
+        """
+        import torch
+
+        forced = cls._forced_device()
+        if forced is not None:
+            return forced
+        if num_gpus and torch.cuda.is_available():
+            return "cuda"
+        return "cpu"
+
     @staticmethod
     def _forced_device() -> str | None:
         """The device named by ``FINTFM_DEVICE``, or ``None`` to choose one automatically.
 
-        Unset, the adapter prefers CUDA, then MPS, then CPU. On Apple Silicon, Metal's memory
+        Unset, the adapter uses CUDA when granted a GPU, else CPU. On Apple Silicon, Metal's memory
         outside live tensors grows over many forward passes, and a fit with many of them (for
         example ``context_strategy="retrieval"``, one context per query group) can exhaust it
         within one dataset. ``FINTFM_DEVICE=cpu`` lets such a dataset rerun on CPU. Like
