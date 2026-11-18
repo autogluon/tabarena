@@ -112,6 +112,12 @@ class FinTFMLinearProbeModel(FinTFMModel):
       (:class:`~tabarena.models.fintfm_linprobe.rff.RFFRidgeCV`, bandwidth and alpha chosen by
       inner K-fold on the training rows). A fit with more than ``reg_rff_max_rows`` training rows
       uses the plain ridge, decided once per fit. Classification ignores both.
+    - ``reg_clip_margin`` (``None`` or a float >= 0; entry default 0.1 for regression): every
+      regression prediction is clipped to the training target's range widened by this fraction of
+      it on each side, ``[min - m * (max - min), max + m * (max - min)]``. The ridge on spline
+      features of near-collinear columns can predict far off the training manifold for a few rows
+      (diamonds: -19 million against prices of 326 to 18,806; fintfm FINDINGS §295). Each bagged
+      fold model clips to its own training rows' range. Classification ignores it.
 
     **Threads.** ``blas_threads`` (``"auto"``, ``None`` or an int >= 1; entry default ``"auto"``, that
     is ``min(4, num_cpus)``): fit and predict run with numpy's and scipy's BLAS limited to that many
@@ -247,6 +253,8 @@ class FinTFMLinearProbeModel(FinTFMModel):
     #: ``FINTFM_REG_READOUT`` and ``FINTFM_REG_RFF_MAX_ROWS`` override them.
     _entry_reg_readout: ClassVar[dict] = {"binary": "ridge", "multiclass": "ridge", "regression": "rff"}
     _entry_reg_rff_max_rows: ClassVar[dict] = {"binary": None, "multiclass": None, "regression": 5_000}
+    #: Clip of regression predictions to the widened training target range (§295); off elsewhere.
+    _entry_reg_clip_margin: ClassVar[dict] = {"binary": None, "multiclass": None, "regression": 0.1}
     #: Cross-fit folds of the entry. Binary cross-fits (§254, run ``fintfm_lp_bin_both_kaggle`` records
     #: ``probe_crossfit_folds: 5``). Multiclass and regression do not (§255: no gain; the multiclass
     #: runs record ``probe_crossfit_folds: 0``, and ``fintfm_lp_reg_rawpart4_pure_1114`` predates the option).
@@ -318,6 +326,8 @@ class FinTFMLinearProbeModel(FinTFMModel):
     _reg_blend_weight: float | None = None
     #: Duan smearing factor of the log1p back-transform.
     _reg_smear: float = 1.0
+    #: ``(low, high)`` every regression prediction is clipped to, or ``None`` (no clip).
+    _reg_clip: tuple[float, float] | None = None
     #: Held-out readout-row targets and predictions the blend weight and smearing are chosen on.
     _reg_oof: ClassVar[dict] = {}
 
@@ -329,6 +339,7 @@ class FinTFMLinearProbeModel(FinTFMModel):
         self._set_default_param_value("reg_ridge_alphas", None)
         self._set_default_param_value("reg_readout", self._entry_reg_readout[self.problem_type])
         self._set_default_param_value("reg_rff_max_rows", self._entry_reg_rff_max_rows[self.problem_type])
+        self._set_default_param_value("reg_clip_margin", self._entry_reg_clip_margin[self.problem_type])
         self._set_default_param_value("partition_bags_max_rows", self._entry_bags_max_rows[self.problem_type])
         self._set_default_param_value("probe_spline", self._entry_probe_spline[self.problem_type])
         self._set_default_param_value("spline_max_rows", self._entry_spline_max_rows[self.problem_type])
@@ -735,6 +746,49 @@ class FinTFMLinearProbeModel(FinTFMModel):
         return value
 
     @staticmethod
+    def _check_reg_clip_margin(value, *, source: str) -> float | None:
+        """Validate a ``reg_clip_margin`` value.
+
+        Args:
+            value: ``None`` (no clip) or a finite number >= 0.
+            source: Where the value came from, for the error message.
+
+        Returns:
+            ``None`` or the value as a float.
+
+        Raises:
+            ValueError: the value is not ``None`` and not a finite number >= 0.
+        """
+        import math
+
+        if value is None:
+            return None
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value < 0:
+            raise ValueError(f"{source} must be None or a finite number >= 0, got {value!r}")
+        return float(value)
+
+    def _clip_bounds(self, y: np.ndarray) -> tuple[float, float] | None:
+        """The clip range of this fit's regression predictions, from its training targets.
+
+        Args:
+            y: Training targets in the readout's space (transformed when a target transform is on).
+
+        Returns:
+            ``(low, high)`` on the original target scale, or ``None`` when ``reg_clip_margin`` is off.
+        """
+        import numpy as np
+
+        if self._reg_clip_margin is None:
+            return None
+        lo, hi = float(np.min(y)), float(np.max(y))
+        if self._target_tf is not None:
+            # Monotone transforms: the ends map to the ends. Smearing (a factor on the
+            # back-transform) is left out so the range is the observed one.
+            lo, hi = (float(v) for v in self._target_tf.inverse(np.array([lo, hi]), 1.0))
+        pad = self._reg_clip_margin * (hi - lo)
+        return lo - pad, hi + pad
+
+    @staticmethod
     def _check_reg_rff_max_rows(value, *, source: str) -> int | None:
         """Validate a ``reg_rff_max_rows`` value.
 
@@ -858,6 +912,7 @@ class FinTFMLinearProbeModel(FinTFMModel):
         self._reg_alphas = self._check_reg_alphas(get("reg_ridge_alphas", None), source="reg_ridge_alphas")
         self._reg_readout = self._check_reg_readout(get("reg_readout", "ridge"), source="reg_readout")
         self._reg_rff_max_rows = self._check_reg_rff_max_rows(get("reg_rff_max_rows", None), source="reg_rff_max_rows")
+        self._reg_clip_margin = self._check_reg_clip_margin(get("reg_clip_margin", None), source="reg_clip_margin")
         self._reg_readout_eff = self._effective_reg_readout()
         folds = params.get("probe_crossfit_folds", PROBE_CROSSFIT_FOLDS)
         if self._reg_blend == "cv" and not (isinstance(folds, int) and folds >= 2):
@@ -1057,6 +1112,7 @@ class FinTFMLinearProbeModel(FinTFMModel):
             self._reg_smear = 1.0
             self._fit_ridge_probe(np.asarray(Xp, dtype=np.float32), y_arr.astype(np.float64))
             self._finish_reg_levers()
+            self._reg_clip = self._clip_bounds(y_arr.astype(np.float64))
             self._log_crossfit()
             return
         if hasattr(self.model, "trees_"):
@@ -2164,6 +2220,8 @@ class FinTFMLinearProbeModel(FinTFMModel):
                 pred = self._reg_blend_weight * pred + (1.0 - self._reg_blend_weight) * head
             if self._target_tf is not None:
                 pred = self._target_tf.inverse(pred, self._reg_smear)
+            if self._reg_clip is not None:
+                pred = np.clip(pred, *self._reg_clip)
             return pred
         if getattr(self, "_leaf_probes", None) is not None:
             Xp = _as_f32(self.preprocess(X, **kwargs))
