@@ -28,3 +28,25 @@ def test_missing_class_and_reload(tmp_path):
     path = model.save()
     restored = KumoCellRidgeModel.load(str(Path(path)))
     np.testing.assert_allclose(restored.predict_proba(q), before, atol=1e-5)
+
+
+def test_context_limit_and_nested_sample(tmp_path, monkeypatch):
+    from tabarena.models.kumo_cellridge import network
+    from tabarena.models.kumo_tabular.model import KumoTabularSmallModel
+
+    # Check support selection through fit without allocating a full neural forward.
+    monkeypatch.setattr(network, "load_network", lambda *args: None)
+    n = KumoTabularSmallModel.default_max_context_size + 1
+    x = pd.DataFrame({"row_id": np.arange(n, dtype=np.int32)})
+    y = pd.Series(np.arange(n) % 2)
+    support = {}
+    for cap in (None, 512, 2048):
+        params = {"ag.num_gpus": 0}
+        if cap is not None:
+            params["max_context_size"] = cap
+        model = KumoCellRidgeModel(path=str(tmp_path / str(cap)), problem_type="binary", hyperparameters=params)
+        model.fit(X=x, y=y, num_cpus=1, num_gpus=0)
+        support[cap] = model.model.xs[:, 0].numpy()
+        assert len(support[cap]) == (cap or KumoTabularSmallModel.default_max_context_size)
+    np.testing.assert_array_equal(support[None][:2048], support[2048])
+    np.testing.assert_array_equal(support[2048][:512], support[512])

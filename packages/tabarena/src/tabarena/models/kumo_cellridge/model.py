@@ -37,11 +37,16 @@ class KumoCellRidgeModel(AbstractTorchModel):
     ag_priority = 65
     seed_name = "random_state"
     _supported_problem_types: ClassVar[list] = [BINARY, MULTICLASS, REGRESSION]
+    default_max_context_size: ClassVar[int] = 200_000
     default_num_gpus = 1
     minimum_num_gpus = 0
     default_resources_physical_cores_only = True
     _default_ag_args_ensemble_extra: ClassVar[dict] = {"fold_fitting_strategy": "sequential_local", "refit_folds": True}
     warmup_modules: ClassVar[tuple] = ("sdm", "sdm.models.kumo.tabular")
+
+    def _set_default_params(self):
+        super()._set_default_params()
+        self._set_default_param_value("max_context_size", self.default_max_context_size)
 
     def _fit(self, X, y, num_cpus=1, num_gpus=0, **kwargs):
         import torch
@@ -54,19 +59,22 @@ class KumoCellRidgeModel(AbstractTorchModel):
         self._classes = 0 if self.problem_type == REGRESSION else self.num_classes
         if self._classes > 10:
             raise ValueError("The 1024 checkpoint supports up to ten classes in one pass")
+        limit = self._get_model_params()["max_context_size"]
+        if isinstance(limit, bool) or not isinstance(limit, (int, np.integer)) or limit <= 0:
+            raise ValueError("max_context_size must be a positive integer")
         network = load_network(self._task, self._fit_device)
         X = self.preprocess(X)
         # Draw only from this training fold; guarantee representation of each observed class.
         rng = np.random.default_rng(self.random_seed or 0)
         order = rng.permutation(len(X))
         labels = np.asarray(y)
-        if len(order) > 512:
-            if self._classes:
-                _, positions = np.unique(labels[order], return_index=True)
-                keep = np.zeros(len(order), dtype=bool)
-                keep[positions] = True
-                order = np.concatenate((order[keep], order[~keep]))
-            order = order[:512]
+        # Preserve the released 512-row ordering so the old support is a prefix.
+        if self._classes and len(order) > min(512, limit):
+            _, positions = np.unique(labels[order], return_index=True)
+            keep = np.zeros(len(order), dtype=bool)
+            keep[positions] = True
+            order = np.concatenate((order[keep], order[~keep]))
+        order = order[:limit]
         X = X.iloc[order]
         self._categories = {}
         for col in X:
