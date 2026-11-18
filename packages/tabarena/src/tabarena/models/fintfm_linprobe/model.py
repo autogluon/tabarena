@@ -113,6 +113,13 @@ class FinTFMLinearProbeModel(FinTFMModel):
       inner K-fold on the training rows). A fit with more than ``reg_rff_max_rows`` training rows
       uses the plain ridge, decided once per fit. Classification ignores both.
 
+    **Threads.** ``blas_threads`` (``"auto"``, ``None`` or an int >= 1; entry default ``"auto"``, that
+    is ``min(4, num_cpus)``): fit and predict run with numpy's and scipy's BLAS limited to that many
+    threads (``threadpoolctl``); torch's threads are untouched. On an 8-vCPU machine OpenBLAS's
+    default of 8 threads beside torch's made the readout's ``LogisticRegressionCV`` miss the time
+    limit on large tables, and 4 fitted the same table in 412 s (fintfm FINDINGS §296, §298).
+    ``None`` leaves BLAS as the machine sets it.
+
     The entry defaults are the configuration measured in fintfm ``docs/results/FINDINGS.md``
     §283. An explicit hyperparameter, or the matching environment variable, overrides each one.
 
@@ -325,6 +332,7 @@ class FinTFMLinearProbeModel(FinTFMModel):
         self._set_default_param_value("partition_bags_max_rows", self._entry_bags_max_rows[self.problem_type])
         self._set_default_param_value("probe_spline", self._entry_probe_spline[self.problem_type])
         self._set_default_param_value("spline_max_rows", self._entry_spline_max_rows[self.problem_type])
+        self._set_default_param_value("blas_threads", "auto")
         self._set_default_param_value("partition_scale_with_n", self._entry_scale_with_n[self.problem_type])
         self._set_default_param_value("partition_scale_k", PARTITION_SCALE_K)
         self._set_default_param_value("partition_depth_cap", PARTITION_DEPTH_CAP)
@@ -900,6 +908,60 @@ class FinTFMLinearProbeModel(FinTFMModel):
             self._train_matrix = out
         return out
 
+    #: BLAS thread limit chosen at fit and reused at predict, or ``None`` (no limit).
+    _blas_limit: int | None = None
+
+    @staticmethod
+    def _check_blas_threads(value, *, source: str) -> str | int | None:
+        """Validate a ``blas_threads`` value.
+
+        Args:
+            value: ``"auto"``, ``None`` or an int >= 1.
+            source: Where the value came from, for the error message.
+
+        Returns:
+            The value.
+
+        Raises:
+            ValueError: any other value.
+        """
+        if value is None or value == "auto":
+            return value
+        if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+            raise ValueError(f"{source} must be 'auto', None or an integer >= 1, got {value!r}")
+        return value
+
+    @staticmethod
+    def _blas_limit_for(setting: str | int | None, num_cpus) -> int | None:
+        """The BLAS thread limit for a fit given AutoGluon's CPUs.
+
+        Args:
+            setting: A validated ``blas_threads`` value.
+            num_cpus: CPUs AutoGluon gave the fit; anything but a positive int counts as the
+                machine's CPU count.
+
+        Returns:
+            ``min(4, num_cpus)`` for ``"auto"``, the int itself, or ``None`` for no limit.
+        """
+        import os
+
+        if setting is None:
+            return None
+        if setting != "auto":
+            return int(setting)
+        cpus = num_cpus if isinstance(num_cpus, int) and not isinstance(num_cpus, bool) and num_cpus > 0 else None
+        return min(4, cpus or os.cpu_count() or 1)
+
+    def _blas_context(self):
+        """A context that limits BLAS to ``_blas_limit`` threads, or does nothing when it is ``None``."""
+        import contextlib
+
+        if self._blas_limit is None:
+            return contextlib.nullcontext()
+        from threadpoolctl import threadpool_limits
+
+        return threadpool_limits(limits=self._blas_limit, user_api="blas")
+
     def _fit(
         self,
         X: pd.DataFrame,
@@ -911,6 +973,33 @@ class FinTFMLinearProbeModel(FinTFMModel):
         num_gpus: int = 0,
         **kwargs,
     ):
+        """Fit under the BLAS thread limit (``blas_threads``); see :meth:`_fit_readout`."""
+        setting = self._check_blas_threads(self._get_model_params().get("blas_threads"), source="blas_threads")
+        self._blas_limit = self._blas_limit_for(setting, num_cpus)
+        with self._blas_context():
+            return self._fit_readout(
+                X,
+                y,
+                X_val=X_val,
+                y_val=y_val,
+                time_limit=time_limit,
+                num_cpus=num_cpus,
+                num_gpus=num_gpus,
+                **kwargs,
+            )
+
+    def _fit_readout(
+        self,
+        X: pd.DataFrame,
+        y: pd.Series,
+        X_val: pd.DataFrame | None = None,
+        y_val: pd.Series | None = None,
+        time_limit: float | None = None,
+        num_cpus: int = 1,
+        num_gpus: int = 0,
+        **kwargs,
+    ):
+        """Fit the network context and the readout (the body of :meth:`_fit`)."""
         import numpy as np
 
         self._parse_reg_levers(dict(self._get_model_params()), pop=False)
@@ -1028,6 +1117,7 @@ class FinTFMLinearProbeModel(FinTFMModel):
         if isinstance(folds, bool) or not isinstance(folds, int) or folds < 0:
             raise ValueError(f"probe_crossfit_folds must be a non-negative integer, got {folds!r}")
         onehot = params.pop("probe_onehot", None)
+        params.pop("blas_threads", None)  # read by _fit before this runs; the classifier never sees it
         entry = super()._resolve_entry(params)
         entry["partition"] = self._scaled_partition(self._gate_partition_bags(entry["partition"]))
         self._probe_opts = entry["probe"] = self._validated_probe(entry["probe"], source=f"probe_{self.problem_type}")
@@ -2057,6 +2147,12 @@ class FinTFMLinearProbeModel(FinTFMModel):
         return (1.0 - e) * proba + e / proba.shape[1]
 
     def _predict_proba(self, X: pd.DataFrame, **kwargs) -> np.ndarray:
+        """Predict under the BLAS thread limit chosen at fit; see :meth:`_predict_proba_readout`."""
+        with self._blas_context():
+            return self._predict_proba_readout(X, **kwargs)
+
+    def _predict_proba_readout(self, X: pd.DataFrame, **kwargs) -> np.ndarray:
+        """The readout's prediction (the body of :meth:`_predict_proba`)."""
         import numpy as np
 
         if getattr(self, "_ridge_probe", None) is not None:
