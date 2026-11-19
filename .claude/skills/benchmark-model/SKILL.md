@@ -614,6 +614,11 @@ been read and the API probed.
   (the Kumo-Tabular and Seldon runs in `BENCHMARK_LOG.md`), launched on one pool, the long group first. `setup` then
   warns, for the second group, that the first launch "still has N bundle(s) not done" and would be fitted twice;
   the two groups cover disjoint datasets, so that warning is a false alarm here.
+- Systems on BeyondArena run with an 8 h time limit (models: 4 h). `BeyondArenaResourcesSetup` applies it to every
+  system job (`system_experiments=True`) without a `time_limit` of its own. For a hosted API, check that the API
+  accepts that budget for the config being run (TabPFN-3.5-Thinking takes 8 h only at `effort="max"`), and give each
+  arena's config its own leaderboard name when they differ ("TabPFN-3.5-Thinking (xhigh)" on TabArena,
+  "TabPFN-3.5-Thinking (max)" on BeyondArena).
 - SLURM tasks import the checkout live over the shared filesystem (SkyPilot workers use the archive
   staged at `setup`). Do not pull, rebase or edit package code in that checkout while an array runs;
   a task that starts during the change fails on a half-updated registry. Test-only edits are safe.

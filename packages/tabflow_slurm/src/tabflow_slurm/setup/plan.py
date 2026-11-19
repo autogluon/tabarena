@@ -293,6 +293,13 @@ class TabArenaBenchmarkPlan:
             task_subset = TaskSubset.from_input(self.task_subset).merged_with(job.tasks)
             # Zero out models so only non-model settings define the signature.
             experiment = _apply_overrides(self.experiment_bundle, {**job.experiment, "models": []}, "experiment")
+            # A system job gets the resources' system time limit (BeyondArena: 8 h) unless it sets its own.
+            if (
+                experiment.system_experiments
+                and resources.system_time_limit is not None
+                and "time_limit" not in job.resources
+            ):
+                resources = replace(resources, time_limit=resources.system_time_limit)
 
             signature = (resources, scheduler, task_subset, experiment, job.ignore_cache)
             match = next((g for g in groups if g["signature"] == signature), None)

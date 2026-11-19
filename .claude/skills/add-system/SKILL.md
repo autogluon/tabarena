@@ -70,7 +70,9 @@ only part maintainers can inspect, so it is held to this contract:
   `MethodMetadata.system(...)`, so loaded results charge the prediction call to the train time too
   and the leaderboard marks that train time with a †. Say so in the PR. Such a call sees the test
   features next to the training data, and must still predict each test row inductively (Step 1).
-- Forward `random_state` when the API takes a seed, and `time_limit` as the fit budget.
+- Forward `random_state` when the API takes a seed, and `time_limit` as the fit budget. BeyondArena runs
+  systems with 8 h (models: 4 h), so the budget the API accepts must reach that far or be capped at the
+  API's own maximum, which the run's log entry then names.
 - Bound the retries (transient errors, HTTP 429 and 5xx; never a 4xx) and give the request a
   timeout above `time_limit`, so a dead endpoint fails an item instead of hanging it.
 - Record what the server reports in `get_metadata()`: the model or API version, server-side fit and

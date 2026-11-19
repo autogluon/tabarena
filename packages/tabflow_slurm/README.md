@@ -214,10 +214,12 @@ Compute + time budget per fit: `time_limit` (s), `num_cpus`, `num_gpus`, `memory
   sentence-transformer text encoding, while fitting on CPU);
 - `fake_memory_for_estimates` — report a different memory figure to a model's internal estimator
   (e.g. when VRAM ≫ host RAM for foundation models) — experimental;
-- preprocessing-time knobs (`time_limit_*_model_agnostic_preprocessing`).
+- preprocessing-time knobs (`time_limit_*_model_agnostic_preprocessing`);
+- `system_time_limit` — the time limit of a system job (`system_experiments=True`) that sets no
+  `time_limit` of its own; `None` gives systems `time_limit`.
 
 Presets: **`TabArenaV0pt1ResourcesSetup`** (8 CPU / 32 GB / 1h) and **`BeyondArenaResourcesSetup`**
-(auto CPU/RAM, 4h; docstring records the exact GPU/CPU node specs used).
+(auto CPU/RAM, 4h for models and 8h for systems; docstring records the exact GPU/CPU node specs used).
 
 ### `SchedulerSetup` / `SlurmSetup` / `GCPSlurmSetup` — `setup/scheduler.py`
 - **`SchedulerSetup`** (base) owns scheduler-agnostic **batching**: `bundle_size` (items per array
