@@ -139,18 +139,25 @@ When the model was integrated in this session with the `add-model` skill, its St
 review below; go on to Step 2. Otherwise, and always for a model from a contributor's PR, review it
 before anything is launched.
 
-Check eligibility first, from the PR body. The leaderboard tracks the state of the art, so a method
-that builds on an entrant already on the leaderboard (a fine-tune of its checkpoint, a new head or
-readout on its backbone, a fixed configuration of it) has to improve on that entrant. Compare the
-self-reported Lite results with the parent. When the parent wins on most datasets and has the higher
-Elo, and the method has not been accepted at a peer-reviewed venue, stop before the review and the
-run and raise it with the maintainer, with the comparison and any case for an exception the PR
-makes. The rule allows exceptions case by case, and the maintainer makes the call. When they close
-the PR, draft the closing comment for them to post: it names the comparison and invites a
-resubmission once the method is accepted at a peer-reviewed venue. When they make an exception, go
-on with the review. The precedent is
-autogluon/tabarena#735: 4 wins and 47 losses against Kumo Tabular Small, the model it builds on, with
-an Elo of 1297.6 against 1836.8. Launch nothing until the maintainer decides.
+Check eligibility first, from the PR body. The leaderboard tracks the state of the art, and the
+TabArena paper asks new models for promising TabArena-Lite results (Appendix E.2). Compare the
+self-reported Lite results with the current Lite leaderboard (`splits="lite"`). Two findings call for
+the maintainer when the method has not been accepted at a peer-reviewed venue:
+
+- Its best variant does not clear the default RandomForest (Elo 1000, the anchor): the lower end of
+  its Elo interval is at or below 1000.
+- It builds on an entrant already on the leaderboard (a fine-tune of its checkpoint, a new head or
+  readout on its backbone, a fixed configuration of it), and that entrant wins on most Lite datasets
+  and has the higher Elo.
+
+Then stop before the review and the run, and give the maintainer the comparison and any case for an
+exception the PR makes. The findings only raise the question; the rule allows exceptions case by
+case, and the maintainer makes the call. When they close the PR, draft the closing comment for them
+to post: it names the comparison, points to the paper's bar, and invites a resubmission once the
+method is accepted at a peer-reviewed venue. When they make an exception, go on with the review. The
+precedents are autogluon/tabarena#616 (did not beat a tuned KNN), #735 (4 wins and 47 losses against
+Kumo Tabular Small, the model it builds on, with an Elo of 1297.6 against 1836.8) and #736 (1022.6
+Elo, inside the interval of the default RandomForest). Launch nothing until the maintainer decides.
 
 Get the code first. For a PR, read it with `gh pr view <n> -R autogluon/tabarena` and
 `gh pr diff <n>`, and fetch the head into a local branch (`git fetch origin pull/<n>/head:<branch>`,
