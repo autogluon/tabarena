@@ -87,8 +87,9 @@ a library warm-up entry point the docs do not name (Step 3g).
 Note in the plan whether the model builds on an entrant already on the leaderboard: a fine-tune of
 its checkpoint, a new head or readout on its backbone, or a fixed configuration of it. The
 leaderboard tracks the state of the art, so such a variant has to improve on its parent in the Lite
-results, and maintainers close a submission that its parent dominates unless the method has been
-accepted at a peer-reviewed venue (autogluon/tabarena#735). Tell the user this before the
+results. As a rule, maintainers close a submission that its parent dominates unless the method has
+been accepted at a peer-reviewed venue (autogluon/tabarena#735). They can make exceptions case by
+case, and the call is theirs, so do not decide it for them. Tell the user this before the
 integration starts; Step 9 checks the results against it.
 
 ## Step 1: Understand the model API
@@ -552,6 +553,7 @@ with the hardware and the entry-point script if they exist; if they do not, say 
 maintainer will ask (TabArena verifies submitted results by re-running them, it does not benchmark
 on request). For a model that builds on an entrant (Step 0), compare its Lite results with that
 entrant before opening the PR. When the parent wins on most datasets and has the higher Elo, tell
-the user that maintainers close such a submission unless the method has been accepted at a
-peer-reviewed venue, and open the PR only if they still want to. Questions go through the issue
+the user that maintainers close such a submission as a rule unless the method has been accepted at
+a peer-reviewed venue, and that they can make exceptions case by case. Open the PR only if the user
+still wants to, and put their case for an exception in the PR description. Questions go through the issue
 forms in `.github/ISSUE_TEMPLATE/`.

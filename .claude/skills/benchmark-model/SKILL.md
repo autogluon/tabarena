@@ -144,8 +144,11 @@ that builds on an entrant already on the leaderboard (a fine-tune of its checkpo
 readout on its backbone, a fixed configuration of it) has to improve on that entrant. Compare the
 self-reported Lite results with the parent. When the parent wins on most datasets and has the higher
 Elo, and the method has not been accepted at a peer-reviewed venue, stop before the review and the
-run, tell the maintainer, and draft a closing comment for them to post that names the comparison and
-invites a resubmission once the method is accepted at a peer-reviewed venue. The precedent is
+run and raise it with the maintainer, with the comparison and any case for an exception the PR
+makes. The rule allows exceptions case by case, and the maintainer makes the call. When they close
+the PR, draft the closing comment for them to post: it names the comparison and invites a
+resubmission once the method is accepted at a peer-reviewed venue. When they make an exception, go
+on with the review. The precedent is
 autogluon/tabarena#735: 4 wins and 47 losses against Kumo Tabular Small, the model it builds on, with
 an Elo of 1297.6 against 1836.8. Launch nothing until the maintainer decides.
 
