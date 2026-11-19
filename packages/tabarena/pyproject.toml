@@ -120,10 +120,9 @@ agentic_tabm = ["agentic-tabular[torch] @ git+https://github.com/yandex-research
 
 # Extended model extras — opt-in individually or together via the `extended` union below.
 causilo = ["causilo==1.0.2"]  # 1.0.2 fits more than ten classes with its own output codes; 1.0.0 rejected them
-# Weights are fetched from the Hugging Face Hub at a pinned commit (see models/fintfm/model.py).
-fintfm = ["fintfm==0.12.0"]
-# FinTFM with a trained linear readout: the same pinned library, an exploratory entry kept out of the union extras.
-fintfm_linprobe = ["fintfm==0.12.0"]
+# FinTFM with a trained linear readout (the method lives in the fintfm package). Weights are fetched from the
+# Hugging Face Hub at a pinned commit by `fintfm.readout`, which needs huggingface_hub (already a dependency of tabarena).
+fintfm_linprobe = ["fintfm==0.13.0"]
 modernnca = ["category_encoders"]
 xrfm = ["xrfm[cu12]"]
 # sap-rpt-oss and tabfm stay pinned to the git commits used for the benchmark runs, so these two
@@ -244,7 +243,6 @@ benchmark = [
 # Note: `probmetrics` is intentionally excluded — install it explicitly via `tabarena[probmetrics]` or `tabarena[all]`.
 extended = [
   "tabarena[causilo]",
-  "tabarena[fintfm]",
   "tabarena[fintfm_linprobe]",
   "tabarena[modernnca]",
   "tabarena[xrfm]",

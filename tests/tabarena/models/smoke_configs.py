@@ -105,8 +105,7 @@ SMOKE_OVERRIDES: dict[str, ModelSmokeTest] = {
     "Seldon-Mini": ModelSmokeTest(verify_single_prediction_equivalent_to_multi=False),
     "TabSTAR-v1.1": ModelSmokeTest({"max_epochs": 1}),
     "TabFM": ModelSmokeTest({"n_estimators": 1}),
-    # Binary only: the entry's multiclass and regression checkpoints are not published, so a default
-    # fit on either raises CheckpointNotPublishedError.
+    # All three problem types: the entry's three checkpoints are published and pinned by commit.
     "FinTFM-LinProbe": ModelSmokeTest(problem_types=("binary", "multiclass", "regression")),
     "Nori": ModelSmokeTest(problem_types=("regression",)),
     "Nori-30M": ModelSmokeTest(problem_types=("regression",)),

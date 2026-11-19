@@ -7,6 +7,9 @@ import os
 import numpy as np
 import pandas as pd
 import pytest
+
+pytest.importorskip("fintfm")
+from fintfm.readout import LinearReadoutModel
 from threadpoolctl import threadpool_info
 
 from tabarena.models.fintfm_linprobe.model import FinTFMLinearProbeModel
@@ -15,6 +18,13 @@ from tabarena.models.fintfm_linprobe.model import FinTFMLinearProbeModel
 def blas_threads_now() -> list[int]:
     """Thread counts of every BLAS library loaded in this process."""
     return [p["num_threads"] for p in threadpool_info() if p["user_api"] == "blas"]
+
+
+def stub_preprocess(monkeypatch) -> None:
+    """Replace AutoGluon's preprocessing, which needs an initialised model, by a plain float32 matrix."""
+    monkeypatch.setattr(
+        FinTFMLinearProbeModel, "preprocess", lambda self, X, **kw: X.to_numpy(dtype=np.float32), raising=True
+    )
 
 
 def make(tmp_path, **hp) -> FinTFMLinearProbeModel:
@@ -53,20 +63,22 @@ def test_entry_default_is_auto(tmp_path) -> None:
 
 
 def test_fit_and_predict_run_under_the_limit(tmp_path, monkeypatch) -> None:
-    """The readout's fit and predict bodies see BLAS at the limit; the limit is lifted afterwards."""
+    """The library's fit and predict see BLAS at the limit; the limit is lifted afterwards."""
     if not blas_threads_now():
         pytest.skip("no BLAS library visible to threadpoolctl")
     seen: dict[str, list[int]] = {}
 
-    def fake_fit(self, X, y, **kwargs):
+    def fake_fit(self, X, y, categorical_features=(), feature_names=None):
         seen["fit"] = blas_threads_now()
+        return self
 
-    def fake_predict(self, X, **kwargs):
+    def fake_predict(self, X):
         seen["predict"] = blas_threads_now()
-        return np.zeros(len(X))
+        return np.zeros((len(X), 2))
 
-    monkeypatch.setattr(FinTFMLinearProbeModel, "_fit_readout", fake_fit)
-    monkeypatch.setattr(FinTFMLinearProbeModel, "_predict_proba_readout", fake_predict)
+    stub_preprocess(monkeypatch)
+    monkeypatch.setattr(LinearReadoutModel, "fit", fake_fit)
+    monkeypatch.setattr(LinearReadoutModel, "predict_proba", fake_predict)
     before = blas_threads_now()
     model = make(tmp_path, blas_threads=1)
     X = pd.DataFrame({"a": [0.0, 1.0]})
@@ -81,9 +93,13 @@ def test_fit_and_predict_run_under_the_limit(tmp_path, monkeypatch) -> None:
 def test_none_leaves_blas_alone(tmp_path, monkeypatch) -> None:
     """``blas_threads=None`` runs the bodies with whatever thread count the process has."""
     seen: dict[str, list[int]] = {}
-    monkeypatch.setattr(
-        FinTFMLinearProbeModel, "_fit_readout", lambda self, X, y, **kw: seen.setdefault("fit", blas_threads_now())
-    )
+
+    def fake_fit(self, X, y, categorical_features=(), feature_names=None):
+        seen.setdefault("fit", blas_threads_now())
+        return self
+
+    stub_preprocess(monkeypatch)
+    monkeypatch.setattr(LinearReadoutModel, "fit", fake_fit)
     before = blas_threads_now()
     model = make(tmp_path, blas_threads=None)
     model._fit(pd.DataFrame({"a": [0.0, 1.0]}), pd.Series([0, 1]), num_cpus=8)

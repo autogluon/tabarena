@@ -18,7 +18,6 @@ if TYPE_CHECKING:
     from tabarena.models.chimeraboost.model import ChimeraBoostModel
     from tabarena.models.ctboost.model import CTBoostModel
     from tabarena.models.exaone_tabular.model import EXAONETabularModel
-    from tabarena.models.fintfm.model import FinTFMModel
     from tabarena.models.fintfm_linprobe.model import FinTFMLinearProbeModel
     from tabarena.models.ftfm.model import FTFMModel
     from tabarena.models.iltm.model import ILTMModel
@@ -72,7 +71,6 @@ _LAZY_CLASSES: dict[str, str] = {
     "ChimeraBoostModel": "tabarena.models.chimeraboost.model",
     "CTBoostModel": "tabarena.models.ctboost.model",
     "EXAONETabularModel": "tabarena.models.exaone_tabular.model",
-    "FinTFMModel": "tabarena.models.fintfm.model",
     "FinTFMLinearProbeModel": "tabarena.models.fintfm_linprobe.model",
     "FTFMModel": "tabarena.models.ftfm.model",
     "ILTMModel": "tabarena.models.iltm.model",
