@@ -822,7 +822,8 @@ __BASE_JS__
       `<div>Rank: <b>${fmtNum(p.r, 1)}</b> of ${STATS[d].n}</div>` +
       `<div>Behind the best by <b>${fmtNum(p.i, 1)}%</b></div>` +
       (verdict ? `<div>${escapeHtml(verdict)}</div>` : "") +
-      (p.t != null ? `<div>Mean fit: <b>${fmtTime(p.t)}</b></div>` : "");
+      (p.t != null ? `<div>Mean fit: <b>${fmtTime(p.t)}</b></div>` : "") +
+      (p.it != null ? `<div>Mean infer: <b>${fmtTime(p.it)}</b></div>` : "");
   }
 
   // ---------- the list ----------

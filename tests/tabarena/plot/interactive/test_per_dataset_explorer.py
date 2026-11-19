@@ -201,6 +201,23 @@ def test_per_dataset_points_are_the_leaderboard_terms():
     assert points.loc[("beta", "AutoGluon 1.6 (extreme, 4h)"), "rank"] == pytest.approx(1.0)
 
 
+def test_per_dataset_points_carry_mean_fit_and_infer_time():
+    frame = _results_per_split()
+    slow = (frame["dataset"] == "alpha") & (frame["method"] == "CAT (tuned)")
+    frame.loc[slow, "time_train_s"] = [30.0, 50.0]
+    frame.loc[slow, "time_infer_s"] = [1.0, 3.0]
+    points = per_dataset_points(frame).set_index(["dataset", "method"])
+    assert points.loc[("alpha", "CAT (tuned)"), "train_s"] == pytest.approx(40.0)
+    assert points.loc[("alpha", "CAT (tuned)"), "infer_s"] == pytest.approx(2.0)
+    assert points.loc[("beta", "CAT (tuned)"), "infer_s"] == pytest.approx(0.5)
+
+
+def test_per_dataset_points_without_prediction_times():
+    points = per_dataset_points(_results_per_split().drop(columns=["time_infer_s"]))
+    assert points["infer_s"].isna().all()
+    assert points["train_s"].notna().all()
+
+
 def test_dataset_records_fall_back_without_metadata():
     records = dataset_records(_results_per_split(), None)
     assert list(records["dataset"]) == ["alpha", "beta"]
@@ -257,6 +274,10 @@ def test_build_per_dataset_explorer(tmp_path):
     assert len(points) == 6
     assert {p["d"] for p in points} == {0, 1}
     assert {p["m"] for p in points} == {0, 1, 2}
+    # Mean fit and prediction time over the splits, and the tooltip line that shows the latter.
+    assert {p["t"] for p in points} == {10.0}
+    assert {p["it"] for p in points} == {0.5}
+    assert "Mean infer: <b>${fmtTime(p.it)}</b>" in html
 
     # The page opens on the method with the best mean rank: CatBoost (tuned) is 1st on alpha
     # and 2nd on beta, against the system's 2nd and 1st, and CatBoost (default)'s 3rd and 3rd.
@@ -415,6 +436,8 @@ def test_explorer_points_carry_spread_and_tie_fields(tmp_path):
     default = by_method[names.index("CAT (default)")]
     assert default["b"] == 0
     assert '"significance"' in html
+    # These results carry no prediction time, so no point has one for the tooltip to show.
+    assert all(p.get("it") is None for p in points)
 
 
 def test_rows_without_a_trajectory_say_so_instead_of_swallowing_the_click(tmp_path):
