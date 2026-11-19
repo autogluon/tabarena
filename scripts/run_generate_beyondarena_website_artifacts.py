@@ -58,6 +58,7 @@ from tabarena.utils.parallel_for import parallel_for
 from tabarena.website.page_pack import PAGES_FILE, chunk_pages, write_page_pack
 from tabarena.website.process_artifacts_to_website import process_one_folder, write_n_datasets_index
 from tabarena.website.process_pngs import process_png_bulk
+from tabarena.website.website_format import system_display_names
 
 # The filter axes of the BeyondArena tab: axis -> {key: extra predicate(s) layered on top of the
 # always present "core2k" protocol}. Each axis's first key, "all", adds no filter. The keys are the
@@ -384,6 +385,7 @@ class BeyondArenaWebsiteArtifactGenerator:
             output_dir / f"result_plots{suffix}",
             metrics=("elo", "improvability"),
             contenders=CONTENDER_MODELS,
+            systems=system_display_names(context.method_metadata_collection.info()),
         )
         # The overview is published as PNG only (zipped by ``process_png_bulk``).
         for pdf in (output_dir / f"result_plots{suffix}").glob("*.pdf"):

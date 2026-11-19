@@ -116,6 +116,35 @@ def test_unlisted_foundation_model_joins_the_tfm_family(leaderboards):
     assert any("TabPFN-3.5" in label for label in labels), labels
 
 
+def test_a_system_keeps_its_name_and_gets_the_system_line(leaderboards, tmp_path):
+    from matplotlib.text import Text
+
+    from tabarena.plot import subset_results as sr
+
+    # A system row has no subtype; its name starts like a foundation model's, and its parentheses are part of it.
+    system = "TabPFN-3.5-Thinking (max)"
+    with_system = {
+        label: pd.concat([lb, lb.iloc[[0]].assign(method=system, method_subtype=np.nan, elo=2e3)])
+        for label, lb in leaderboards.items()
+    }
+    order = list(with_system)
+    df = sr._prepare_frame(with_system, order, frozenset({system}))
+    assert set(df.loc[df["method"] == system, "method_subtype"]) == {sr.SYSTEM_SUBTYPE}
+    assert system not in sr._foundation_models(df, frozenset({system}))
+    # Without the system list, "(max)" is stripped like a model's subtype suffix.
+    assert system not in set(sr._prepare_frame(with_system, order)["method"])
+
+    groups = {**sr.DEFAULT_FAMILY_GROUPS, "System": {"family": "System", "subtype": "S", "methods": [system]}}
+    fig = sr._per_family_figure(df, order, sr.METRIC_SPECS["elo"], groups, [])
+    labels = [t.get_text() for t in fig.findobj(Text)]
+    assert any(system in label for label in labels), labels
+    for contenders in ([], [system]):
+        saved = plot_subset_results(
+            with_system, tmp_path / str(len(contenders)), contenders=contenders, systems=[system]
+        )
+        assert len(saved) == 4
+
+
 def test_per_model_width_grows_with_the_number_of_methods(leaderboards):
     from tabarena.plot import subset_results as sr
 
