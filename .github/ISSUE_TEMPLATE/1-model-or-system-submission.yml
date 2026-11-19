@@ -17,7 +17,7 @@ body:
         - Quick starts: [TabArena model](https://github.com/autogluon/tabarena/blob/main/examples/benchmarking/run_quickstart_tabarena_model.py), [TabArena system](https://github.com/autogluon/tabarena/blob/main/examples/benchmarking/run_quickstart_tabarena_system.py), [BeyondArena model](https://github.com/autogluon/tabarena/blob/main/examples/beyondarena/run_quickstart_beyondarena_model.py), [BeyondArena system](https://github.com/autogluon/tabarena/blob/main/examples/beyondarena/run_quickstart_beyondarena_system.py)
         - Step-by-step guides: [add-model](https://github.com/autogluon/tabarena/blob/main/.claude/skills/add-model/SKILL.md), [add-system](https://github.com/autogluon/tabarena/blob/main/.claude/skills/add-system/SKILL.md)
 
-        For eligibility questions, say how the method differs from the entrants already on the leaderboard. A new version of an existing model is a subclass in the existing folder that supersedes the old entry, not a new model. Results posted in an issue cannot be integrated; open a pull request for that.
+        For eligibility questions, say how the method differs from the entrants already on the leaderboard. A new version of an existing model is a subclass in the existing folder that supersedes the old entry, not a new model. A method that builds on an entrant (a fine-tune, a new head or readout, a fixed configuration) has to improve on that entrant in its Lite results; we do not list a variant that its parent model dominates until the method is accepted at a peer-reviewed venue. Results posted in an issue cannot be integrated; open a pull request for that.
   - type: dropdown
     id: kind
     attributes:

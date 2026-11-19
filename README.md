@@ -140,7 +140,10 @@ results by re-running them.
 
 1. Say how your method differs from the entrants already on the leaderboard. A new version of an
    existing method goes into the existing folder and supersedes the old entry rather than becoming a
-   new one.
+   new one. The leaderboard tracks the state of the art, so a method that builds on an entrant (a
+   fine-tune of its checkpoint, a new head or readout on its backbone, a fixed configuration of it)
+   has to improve on that entrant in your Lite results. We close a submission that its parent model
+   dominates; once the method is accepted at a peer-reviewed venue, you are welcome to resubmit it.
 2. Integrate it following the guide above and run the quick start.
 3. Evaluate it yourself on TabArena-Lite (`subset="lite"`, the first split of every dataset) with HPO
    where applicable (the default plus about 25 random configurations), or on the BeyondArena `core2k`

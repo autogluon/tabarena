@@ -21,6 +21,8 @@
 
 TabArena is not a benchmarking service. We accept methods their authors have already evaluated with the official pipeline and confirm the results by re-running them. See [Contributing a Model or System](https://github.com/autogluon/tabarena#contributing-a-model-or-system).
 
+The leaderboard tracks the state of the art in tabular prediction. A method that builds on an entrant already on the leaderboard (a fine-tune of its checkpoint, a new head or readout on its backbone, a fixed configuration of it) has to improve on that entrant in your own Lite results. A variant that its parent model dominates adds no information to the leaderboard, and we close its pull request. Once the method is accepted at a peer-reviewed venue, you are welcome to resubmit it.
+
 A submission reaches the leaderboard in five stages. This pull request is stage 1; maintainers drive the other four and post in the PR as each one completes, so this thread is the record of the submission.
 
 1. Pull request with the method. You integrate the model or system, run the quick start and the TabArena-Lite evaluation, and open this PR with the checklists below filled in. Reviewers check the wrapper against the protocol (the validation split TabArena passes, time limits, resources, seeds), the validation protocol the results record (the official one unless the PR declares otherwise), the dependency pin and license, and the Lite results, and help fix what the review finds.
@@ -29,7 +31,7 @@ A submission reaches the leaderboard in five stages. This pull request is stage 
 4. Upload and merge. The maintainer processes the raw results, hosts the artifacts (results, processed predictions and raw predictions), records the hosted locations and the verification status in the method's `info.py`, registers the method in the arena's method collection, and merges the PR. A merged method therefore always has hosted results behind it.
 5. Leaderboard update. After the merge, the website artifacts are regenerated from the hosted results and the leaderboard is refreshed with a new version entry that names the method. This happens in batches with other new entries, usually within days of the merge.
 
-Kind: <!-- model or system; if it replaces an entrant already on the leaderboard, name it -->
+Kind: <!-- model or system; if it replaces or builds on an entrant already on the leaderboard, name it -->
 
 **Files**
 
@@ -49,6 +51,7 @@ Kind: <!-- model or system; if it replaces an entrant already on the leaderboard
 **Results** (we need these before we re-run the method)
 
 - [ ] TabArena-Lite (`subset="lite"`) with the official pipeline: the default plus about 25 random HPO configurations where the method has a search space; or the BeyondArena `core2k` subset. The run used the arena's official validation protocol (the default); a run made with `official_validation_protocol=False` says so here and why.
+- [ ] A method that builds on an entrant: the Lite leaderboard below includes that entrant, and the method improves on it.
 - [ ] The hardware (CPU, GPU, RAM) and the entry-point script are stated below.
 - [ ] Optional: a link to the run's output directory (the `expname` folder with the `results.pkl` files, zipped or as a GitHub / Hugging Face release) so we can verify and integrate the results directly.
 - [ ] Who signs off on the maintainer re-run on behalf of the authors: <!-- GitHub handle -->
