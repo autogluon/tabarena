@@ -55,6 +55,8 @@
  "artifacts/beyondarena-2026-10-28-tabmfix/methods/TA-TabM/results/model_results.parquet": "b48a9389d955d7f2c9b91f57abd8f6cd",
  "artifacts/beyondarena-2026-10-28/methods/TA-TabM/results/hpo_results.parquet": "22839c918b7928d7e9490e04b6677eac",
  "artifacts/beyondarena-2026-10-28/methods/TA-TabM/results/model_results.parquet": "5a7848945e7b81eb6a6018839b663b7c",
+ "artifacts/beyondarena-2026-11-08/methods/TA-TabPack/results/hpo_results.parquet": "6ae1c1393427dc6c724dc83efe628a1e",
+ "artifacts/beyondarena-2026-11-08/methods/TA-TabPack/results/model_results.parquet": "81f0a7f4a5a5684d95da7f388aea25ad",
  "artifacts/beyondarena-2026-11-09/methods/TA-Seldon-Mini/results/hpo_results.parquet": "9437abd42afb76d7c5d4103eef656915",
  "artifacts/beyondarena-2026-11-09/methods/TA-Seldon-Mini/results/model_results.parquet": "7973908913c35247e7d404f5aacea5cd",
  "artifacts/beyondarena-2026-11-09/methods/TA-Seldon/results/hpo_results.parquet": "c3eaafa88c4d469c191fd7476236080c",
@@ -264,8 +266,12 @@
  "artifacts/tabarena-2026-11-08/methods/Seldon/results/model_results.parquet": "593703a3e86c1bebe341cddd91ddac00",
  "artifacts/tabarena-2026-11-08/methods/TabH2O/results/hpo_results.parquet": "49283888612b9d03ac88ddbab93241e2",
  "artifacts/tabarena-2026-11-08/methods/TabH2O/results/model_results.parquet": "c0bd16d0f997c577085ef23788dc6a6d",
+ "artifacts/tabarena-2026-11-08/methods/TabPack/results/hpo_results.parquet": "419b7f153c1df9b8cf04a7f0188c0c41",
+ "artifacts/tabarena-2026-11-08/methods/TabPack/results/model_results.parquet": "d6727fb2f93643806edc6292b41106ab",
  "artifacts/tabarena-2026-11-11/methods/LightPFN/results/hpo_results.parquet": "dad191971566f07e339dd0f399ff33c5",
  "artifacts/tabarena-2026-11-11/methods/LightPFN/results/model_results.parquet": "9a0cae924ffc8c758393293c1e9d9276",
  "artifacts/tabarena-2026-11-12/methods/LimiX-2-1016/results/hpo_results.parquet": "c3b78926fba27ba6ca8d51af6e2a3b4d",
- "artifacts/tabarena-2026-11-12/methods/LimiX-2-1016/results/model_results.parquet": "9bdd902363b61f63179b38d020d25faf"
+ "artifacts/tabarena-2026-11-12/methods/LimiX-2-1016/results/model_results.parquet": "9bdd902363b61f63179b38d020d25faf",
+ "artifacts/tabarena-2026-11-16/methods/Inpriora/results/hpo_results.parquet": "7dd7c650ba425801d066c0004ae927b3",
+ "artifacts/tabarena-2026-11-16/methods/Inpriora/results/model_results.parquet": "182291ac99a2bac475963e474be3e7c3"
 }

@@ -192,6 +192,68 @@ def test_result_ag_bag():
     assert repo.config_hyperparameters(config="m1") == {"param1": 10}
 
 
+def _make_raw_result_ag_bag_per_fold(problem_type: str):
+    """A bagged result as the runner writes it for a bag that kept each fold model's validation predictions: 2 folds
+    x 2 repeats over 4 rows, no pooled ``pred_proba_dict_val``.
+    """
+    rng = np.random.default_rng(0)
+    shape = {"multiclass": (2, 3), "binary": (2,), "regression": (2,)}[problem_type]
+    result = _make_result_baseline()
+    result["problem_type"] = problem_type
+    result["metric"] = {"multiclass": "log_loss", "binary": "roc_auc", "regression": "rmse"}[problem_type]
+    result["metric_error_val"] = 0.5
+    y_val = {"multiclass": [2, 1, 2, 0], "binary": [1, 0, 1, 0], "regression": [0.5, 1.5, 2.5, 3.5]}[problem_type]
+    pred_test = rng.random((6, 3)).astype(np.float32) if problem_type == "multiclass" else rng.random(6)
+    result["simulation_artifacts"] = dict(
+        y_val=np.array(y_val),
+        y_val_idx=np.array([3, 0, 4, 8]),
+        y_test=np.array([0, 2, 1, 1, 1, 1]) if problem_type == "multiclass" else np.array([0, 1, 1, 0, 1, 1]),
+        y_test_idx=np.array([1, 2, 5, 6, 9, 7]),
+        pred_proba_dict_test={"m1": pred_test},
+        label="class",
+        bag_info=dict(
+            val_idx_per_child=[np.array([0, 2]), np.array([1, 3]), np.array([0, 1]), np.array([2, 3])],
+            pred_proba_val_per_child=[rng.random(shape).astype(np.float32) for _ in range(4)],
+            pred_proba_test_per_child=[pred_test, pred_test],
+        ),
+    )
+    result["method_metadata"] = dict(
+        model_hyperparameters={"param1": 10}, model_cls="DummyModel", model_type="DUMMY", name_prefix="Dummy"
+    )
+    return result
+
+
+@pytest.mark.parametrize("problem_type", ["multiclass", "binary", "regression"])
+def test_result_ag_bag_pools_the_per_fold_val_predictions(problem_type):
+    result = _make_raw_result_ag_bag_per_fold(problem_type)
+    per_child = [p.copy() for p in result["simulation_artifacts"]["bag_info"]["pred_proba_val_per_child"]]
+
+    result_obj = BaselineResult.from_dict(result)
+
+    assert isinstance(result_obj, AGBagResult)
+    kept = result_obj.y_pred_proba_val_per_child  # the fold models' own predictions, not slices of a pooled array
+    assert all(np.array_equal(a, b) for a, b in zip(kept, per_child, strict=True))
+    pooled = result_obj.simulation_artifacts["pred_val"]
+    assert pooled.dtype == np.float32
+    assert pooled.shape == (4, *per_child[0].shape[1:])
+    # row 0 is validated by children 0 and 2 (their first rows), row 3 by children 1 and 3 (their second rows)
+    np.testing.assert_allclose(pooled[0], (per_child[0][0] + per_child[2][0]) / 2, rtol=1e-6)
+    np.testing.assert_allclose(pooled[3], (per_child[1][1] + per_child[3][1]) / 2, rtol=1e-6)
+    np.testing.assert_allclose(result_obj.y_pred_proba_val_as_pd.to_numpy(), pooled, rtol=1e-6)
+
+
+def test_result_ag_bag_per_fold_reaches_the_repo_with_the_pooled_val_predictions():
+    result = _make_raw_result_ag_bag_per_fold("multiclass")
+    per_child = result["simulation_artifacts"]["bag_info"]["pred_proba_val_per_child"]
+    expected_row0 = (per_child[0][0] + per_child[2][0]) / 2
+
+    repo = experiment_batch_runner.repo_from_results(results_lst=[result])
+
+    assert repo.configs() == ["m1"]
+    pred_val = repo.predict_val(dataset="d1", fold=0, config="m1")
+    np.testing.assert_allclose(pred_val[0], expected_row0, rtol=1e-6)
+
+
 def test_result_ag_bag_calibrate():
     result = _make_result_ag_bag()
     result_obj = AGBagResult(result=result)

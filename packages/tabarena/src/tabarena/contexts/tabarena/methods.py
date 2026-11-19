@@ -65,6 +65,7 @@ from tabarena.models.extra_trees.info import extra_trees_new_method_metadata
 from tabarena.models.fastai.info import fastai_method_metadata
 from tabarena.models.ftfm.info import ftfm_method_metadata
 from tabarena.models.iltm.info import iltm_method_metadata
+from tabarena.models.inpriora.info import inpriora_method_metadata
 from tabarena.models.knn.info import knn_method_metadata as knn_metadata
 from tabarena.models.kumo_tabular.info import (
     kumo_tabular_medium_method_metadata,
@@ -125,6 +126,7 @@ from tabarena.models.tabicl.info import (
 )
 from tabarena.models.tabldm.info import tabldm_method_metadata, tabldm_new_method_metadata
 from tabarena.models.tabm.info import tabm_new_method_metadata
+from tabarena.models.tabpack.info import tabpack_method_metadata
 from tabarena.models.tabpfn_3.info import (
     tabpfn_3_2026_09_method_metadata,
     tabpfn_3_method_metadata as tabpfnv3_method_metadata,
@@ -269,7 +271,9 @@ tabarena_method_metadata_collection = MethodMetadataCollection(
         tababax_method_metadata,
         seldon_method_metadata,
         seldon_mini_method_metadata,
+        tabpack_method_metadata,
         tabh2o_method_metadata,
+        inpriora_method_metadata,
     ],
 )
 

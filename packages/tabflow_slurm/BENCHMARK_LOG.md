@@ -34,6 +34,63 @@ run against `main`. To reproduce an entry, check out its recorded **git SHA**.
 
 ---
 
+## 2026-11-16 — inpriora_16112026
+
+- **Model(s):** Inpriora (default config only, no search space) on all 816 TabArena-v0.1 splits, 816 items
+- **Git SHA:** `f06ed3f1` on `add-inpriora`, the head of autogluon/tabarena#730: the author's commit `972ef2a5` from
+  #729 (Inpriora `dde547d0`, checkpoint `ai-for-data/inpriora@f8638e83`), merged with main `bfa8c50c`, plus the
+  maintainer's wrapper fixes (the network left in place on save, preprocessing moved with the model to the CPU, the
+  context budget counted over the kept columns, a test of the cache paths), clean. AutoGluon 1.6.4b20261115 from PyPI.
+- **Validation protocol:** `8x1`
+- **Purpose:** First maintainer run of Inpriora, Ant Group's in-context tabular foundation model trained on synthetic
+  data, submitted in #729 (closed for #730, which keeps the author's commit).
+- **Notes:** SkyPilot pool `inpriora-1611` (spot RTX PRO 6000 workers, env `295bd71551e3`), one item per bundle,
+  `fake_memory_for_estimates=96`, the 1 h default time limit. Run venv `~/.venvs/tabarena_inpriora_16112026` (PyPI
+  torch 2.13.0, triton 3.7.1). The admin policy now rejects fixed-size pools, so the generated pool YAML (`workers:
+  32`) was edited by hand to `min_workers: 0`, `max_workers: 32`, `downscale_delay_seconds: 120` before the apply;
+  one job was launched first and checked, then the other 31 under the same launch
+  (`inpriora_16112026_gpu-20261116-091949-2f72`).
+  - Before the launch: three reviewer lenses on the wrapper and Inpriora `dde547d0`, no blocker. On the CPU,
+    `audit_transduction` passed with `cache=False` (the fold models) and `cache=True` (the refit) for binary,
+    multiclass and regression, 12-class probes (the many-class path) differed by at most 8e-7, cached, uncached and
+    `repr` predictions agreed, and `audit_pickle` and the smoke fit passed. The training data is claimed synthetic;
+    no contamination audit was run.
+  - 816 of 816 items, 0 failed, from 09:24 to 10:01 UTC. The warm-up audit found no import or CUDA initialization
+    inside a timed fit or predict. The slowest fit, GiveMeSomeCredit, took about 150 s.
+- **Result:**
+  - Full: #9 of 117, Elo 1839 (+94/-65), nothing imputed, between TabFM+ (1841) and Seldon-Mini (1818).
+  - Binary: #10 of 115, Elo 1808. Multiclass: #13 of 115, Elo 1807 (+375/-182). Regression: #6 of 113, Elo 2221.
+  - Median 1.07 s train and 0.063 s inference per 1K rows, on the Pareto front of Elo against inference time.
+  - The authors' run in #729 reported Elo 1824 (full), 1795 (binary), 1787 (multiclass) and 2209 (regression).
+- **Upload:** processed and uploaded as suite `tabarena-2026-11-16` (`inpriora_method_metadata` in
+  `models/inpriora/info.py`, 816 splits, raw included), `verified=True` on the maintainer's sign-off.
+
+```python
+TabArenaV0pt1BenchmarkPlan(
+    benchmark_name="inpriora_16112026",
+    model_jobs=[
+        ModelJob(
+            models=("Inpriora", 0),
+            name="gpu",
+            # REQUIRED for every GPU model: AutoGluon budgets parallel bagging folds against this memory figure.
+            resources={"num_gpus": 1, "fake_memory_for_estimates": 96},
+        ),
+    ],
+    task_subset=TaskSubset(),  # the full task set, all splits
+    path_setup=PathSetup(
+        workspace="/home/lennart_priorlabs_ai/workspace/benchmarking/tabarena_workspace",
+        python_path="/home/lennart_priorlabs_ai/.venvs/tabarena_inpriora_16112026/bin/python",
+    ),
+    experiment_bundle=TabArenaV0pt1ExperimentBundle(model_verbosity=2),
+    resources_setup=TabArenaV0pt1ResourcesSetup(num_cpus=None, memory_limit=None),  # auto-detect on the node
+    scheduler_setup=SkyPilotSetup(bundle_size=1, workers=32, use_pool=True, pool_name="inpriora-1611"),
+).setup_jobs()
+# The generated pool YAML then edited to pool: {min_workers: 0, max_workers: 32, upscale_delay_seconds: 30,
+# downscale_delay_seconds: 120} for the admin policy.
+```
+
+---
+
 ## 2026-11-12 — beyondarena_limix21016_12112026
 
 - **Model(s):** LimiX-2-1016 (registry `LimiX-2` at launch; default config only) on the 1,962 BeyondArena `core2k`
@@ -393,6 +450,104 @@ TabArenaBenchmarkPlan(
     ),
     resources_setup=BeyondArenaResourcesSetup(),
     scheduler_setup=SkyPilotSetup(bundle_size=1, workers=32, use_pool=True, pool_name="seldon-beyond-0911"),
+).setup_jobs()
+```
+
+---
+
+## 2026-11-08 — beyondarena_tabpack_core2k_08112026
+
+- **Model(s):** TabPack (default config only, no search space), every BeyondArena `core2k` split (142 datasets,
+  2,000 items)
+- **Git SHA:** `e2113666` (PR #698: `time_limit` through `training_loop_time_budget` of
+  `tabpackage[sklearn]==0.0.2.dev0`), clean, for the first launch; `bb4eaba9` and `77731742` for the two reruns
+  below. AutoGluon from the editable `../autogluon` checkout (`88d33ba6`).
+- **Validation protocol:** `8x1+tiny5x5<=500+task-specific+adapt-classes` (BeyondArena's official protocol)
+- **Purpose:** BeyondArena run of the PR #698 integration, in parallel with tabpack_08112026 below.
+- **Notes:** SkyPilot pool `tabpackba-0811` (64 spot RTX PRO 6000 workers), venv `~/.venvs/tabarena_10082026`, one
+  item per bundle, `fake_memory_for_estimates=96`, BeyondArena's default 4 h fit time limit, launched 10:49 UTC.
+  Every split of 7 datasets ran out of GPU memory: three with ID-like categoricals (`ieee_fraud_detection`,
+  `consumer_complaints_1m`, `cooking_time_1m`), where the library one-hot encodes every training category, and four
+  gene-expression tables with 6.8k to 22k features (`lung_cancer`, `prostate_cancer_detection`,
+  `lung_cancer_epithelial_genexp`, `pancreatic_cancer_mouse_detection`), where the first layers of the 64 models
+  exceed the card. The wrapper got a category budget (`4e764d13`) and a pack-size cap (`430fb16b`, plus the 2**31
+  bound of `bb4eaba9` after a CUDA illegal memory access); the 28 items of these datasets ran on pool
+  `tabpackba-0811r` (28 workers) at `bb4eaba9`. `maps_router_eta_1m` then stopped on the bag's time limit: an epoch
+  takes about 10 minutes there, the library checks the budget only after an epoch, and each fold ran slightly over
+  its share. With one probed epoch reserved from the budget on tables from 100,000 training rows (`77731742`), all
+  32 splits of the 20 datasets that reach that size ran again on pool `tabpackba-0811p` (33 workers), and
+  `maps_router_eta_1m` finished in 13,321 s. Their earlier results are under the run's
+  `set_aside_epochprobe_08112026/` and were not uploaded. Final: 2,000 of 2,000, 0 failed; each later fix only
+  engages on the tables that were rerun, so the final code reproduces every result. Eval with
+  `BeyondArenaContext(extra_methods=...)` on `core2k` (41 methods): #18, Elo 1157 (+28/-23); grouped #3, high-dim #8,
+  large, temporal and text #10, regression #13. Processed and uploaded as suite `beyondarena-2026-11-08`
+  (`beyond_tabpack_metadata` in `contexts/beyondarena/methods.py`), `verified=False`.
+
+```python
+TabArenaBenchmarkPlan(
+    benchmark_name="beyondarena_tabpack_core2k_08112026",
+    model_jobs=[
+        ModelJob(
+            models=("TabPack", 0),
+            name="gpu",  # reruns: "gpu_rerun", "gpu_rerun_large"
+            resources={"num_gpus": 1, "fake_memory_for_estimates": 96},
+            # reruns: tasks=TaskSubset(subset=["core2k"], dataset_names=[<the 7, then the 20 datasets above>]),
+        ),
+    ],
+    task_subset=TaskSubset(subset=["core2k"]),
+    context=BeyondArenaContext(),
+    experiment_bundle=BeyondArenaExperimentBundle(model_verbosity=2),
+    path_setup=PathSetup(
+        workspace="/home/lennart_priorlabs_ai/workspace/benchmarking/tabarena_workspace",
+        python_path="/home/lennart_priorlabs_ai/.venvs/tabarena_10082026/bin/python",
+    ),
+    resources_setup=BeyondArenaResourcesSetup(),
+    scheduler_setup=SkyPilotSetup(
+        bundle_size=1,
+        workers=64,  # reruns: 28, 33
+        use_pool=True,
+        pool_name="tabpackba-0811",  # reruns: tabpackba-0811r, tabpackba-0811p
+        api_server_endpoint="http://skypilot-api:46580",
+    ),
+).setup_jobs()
+```
+
+---
+
+## 2026-11-08 — tabpack_08112026
+
+- **Model(s):** TabPack (default config only, no search space), every TabArena-v0.1 split, 816 items
+- **Git SHA:** `e2113666` (PR #698: `time_limit` through `training_loop_time_budget` of
+  `tabpackage[sklearn]==0.0.2.dev0`), clean; AutoGluon from the editable `../autogluon` checkout (`88d33ba6`)
+- **Validation protocol:** `8x1`
+- **Purpose:** Maintainer run of the PR #698 integration (TabPack, Yandex Research), not an author submission.
+- **Notes:** SkyPilot pool `tabpack-0811` (32 spot RTX PRO 6000 workers), venv `~/.venvs/tabarena_10082026`, one
+  item per bundle, `fake_memory_for_estimates=96`, `sequential_local` fold fitting from the wrapper, launched 10:36
+  UTC. 816 of 816, 0 failed. The wrapper changes made for the BeyondArena run above engage on no TabArena table: the
+  most categories per fold are about 25k (`kddcup09_appetency`, below the 32,768 budget), the widest table stays
+  below the pack cap, and the largest training fold has 87,500 rows (below the 100,000 of the epoch probe). Eval on
+  116 methods: #49, Elo 1356 (+43/-38); binary #59 (1344), multiclass #61 (1346), regression #39 (1530). Processed
+  and uploaded as suite `tabarena-2026-11-08` (`tabpack_method_metadata` in `models/tabpack/info.py`),
+  `verified=False`.
+
+```python
+TabArenaV0pt1BenchmarkPlan(
+    benchmark_name="tabpack_08112026",
+    model_jobs=[
+        ModelJob(
+            models=("TabPack", 0),
+            name="gpu",
+            resources={"num_gpus": 1, "fake_memory_for_estimates": 96},
+        ),
+    ],
+    task_subset=TaskSubset(),
+    path_setup=PathSetup(
+        workspace="/home/lennart_priorlabs_ai/workspace/benchmarking/tabarena_workspace",
+        python_path="/home/lennart_priorlabs_ai/.venvs/tabarena_10082026/bin/python",
+    ),
+    experiment_bundle=TabArenaV0pt1ExperimentBundle(model_verbosity=2),
+    resources_setup=TabArenaV0pt1ResourcesSetup(num_cpus=None, memory_limit=None),
+    scheduler_setup=SkyPilotSetup(bundle_size=1, workers=32, use_pool=True, pool_name="tabpack-0811"),
 ).setup_jobs()
 ```
 

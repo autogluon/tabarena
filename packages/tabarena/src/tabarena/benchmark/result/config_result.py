@@ -199,8 +199,9 @@ class ConfigResult(BaselineResult):
                 self.result["simulation_artifacts"]["pred_test"] = self.result["simulation_artifacts"]["pred_test"][
                     :, 1
                 ]
-            if len(self.result["simulation_artifacts"]["pred_val"].shape) > 1:
-                self.result["simulation_artifacts"]["pred_val"] = self.result["simulation_artifacts"]["pred_val"][:, 1]
+            pred_val = self.result["simulation_artifacts"].get("pred_val")  # a bag result may derive it afterwards
+            if pred_val is not None and len(pred_val.shape) > 1:
+                self.result["simulation_artifacts"]["pred_val"] = pred_val[:, 1]
 
         self._infer_class_metadata_if_missing()
 
