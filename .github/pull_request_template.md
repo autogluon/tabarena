@@ -21,7 +21,7 @@
 
 TabArena is not a benchmarking service. We accept methods their authors have already evaluated with the official pipeline and confirm the results by re-running them. See [Contributing a Model or System](https://github.com/autogluon/tabarena#contributing-a-model-or-system).
 
-The leaderboard tracks the state of the art in tabular prediction. A method that builds on an entrant already on the leaderboard (a fine-tune of its checkpoint, a new head or readout on its backbone, a fixed configuration of it) has to improve on that entrant in your own Lite results. A variant that its parent model dominates adds no information to the leaderboard, so as a rule we close its pull request. Maintainers can make exceptions case by case, and the call is theirs; if you think your method warrants one, say why in the description. Once the method is accepted at a peer-reviewed venue, you are welcome to resubmit it.
+The leaderboard tracks the state of the art in tabular prediction, so a new method needs promising TabArena-Lite results, as the [TabArena paper](https://arxiv.org/abs/2506.16791) asks of new models (Appendix E.2). It has to compete with the established tuned baselines (gradient-boosted trees, random forests, MLPs); beating only KNN and linear models is not enough, and a method at the level of the default random forest or below adds no information to the leaderboard. A method that builds on an entrant already on the leaderboard (a fine-tune of its checkpoint, a new head or readout on its backbone, a fixed configuration of it) also has to improve on that entrant in your own Lite results. As a rule we close a pull request that misses either bar. Maintainers can make exceptions case by case, and the call is theirs; if you think your method warrants one, say why in the description. A method accepted at a peer-reviewed venue is welcome to submit or resubmit, since readers want to know where published methods stand.
 
 A submission reaches the leaderboard in five stages. This pull request is stage 1; maintainers drive the other four and post in the PR as each one completes, so this thread is the record of the submission.
 
@@ -51,7 +51,7 @@ Kind: <!-- model or system; if it replaces or builds on an entrant already on th
 **Results** (we need these before we re-run the method)
 
 - [ ] TabArena-Lite (`subset="lite"`) with the official pipeline: the default plus about 25 random HPO configurations where the method has a search space; or the BeyondArena `core2k` subset. The run used the arena's official validation protocol (the default); a run made with `official_validation_protocol=False` says so here and why.
-- [ ] A method that builds on an entrant: the Lite leaderboard below includes that entrant, and the method improves on it (or the description says why it should be an exception).
+- [ ] The Lite leaderboard below shows the method competing with the tuned tree ensembles and MLPs and, when it builds on an entrant, includes that entrant with the method ahead of it. Otherwise the description names the peer-reviewed venue or says why the method should be an exception.
 - [ ] The hardware (CPU, GPU, RAM) and the entry-point script are stated below.
 - [ ] Optional: a link to the run's output directory (the `expname` folder with the `results.pkl` files, zipped or as a GitHub / Hugging Face release) so we can verify and integrate the results directly.
 - [ ] Who signs off on the maintainer re-run on behalf of the authors: <!-- GitHub handle -->
