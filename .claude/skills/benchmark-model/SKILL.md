@@ -489,6 +489,12 @@ a white plate in both themes, since they are drawn on white. The copy button use
 "right-click, Copy image" hint, because some views block image copying. Keep PR comment and
 description text out of the page.
 
+Write ranks as `13 / 120` (or "rank 13 of 120"), never `#13/120`, in everything meant to be pasted into
+GitHub: the "Copy as Markdown" output, figure captions and the PR comment drafts. GitHub links `#<digits>`
+to the issue or PR of that number, and a backslash, `&#35;` or an HTML comment between the `#` and the
+digits does not stop it (checked with GitHub's Markdown API); only a code span does. Have the copy
+function drop a `#` before a digit as a guard.
+
 ### CPU models: check the fit times before they replace hosted results
 
 A re-run of a CPU model reproduces its Elo but not necessarily its fit times: CatBoost and EBM re-run on
