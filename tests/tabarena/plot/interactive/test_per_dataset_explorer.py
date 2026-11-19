@@ -278,6 +278,9 @@ def test_build_per_dataset_explorer(tmp_path):
     assert {p["t"] for p in points} == {10.0}
     assert {p["it"] for p in points} == {0.5}
     assert "Mean infer: <b>${fmtTime(p.it)}</b>" in html
+    # A row of the ranked list names both times in its hover text.
+    assert "`, ${fmtTime(p.t)} to fit`" in html
+    assert "`, ${fmtTime(p.it)} to predict`" in html
 
     # The page opens on the method with the best mean rank: CatBoost (tuned) is 1st on alpha
     # and 2nd on beta, against the system's 2nd and 1st, and CatBoost (default)'s 3rd and 3rd.
