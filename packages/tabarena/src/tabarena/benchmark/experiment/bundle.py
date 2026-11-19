@@ -231,6 +231,11 @@ class TabArenaExperimentBundle:
     without one. 1 hour for the generic TabArena setup; subclasses override (BeyondArena
     uses 4 hours)."""
 
+    DEFAULT_SYSTEM_TIME_LIMIT: ClassVar[int | None] = None
+    """Default fit ``time_limit`` (seconds) of a system (``system_experiments=True``) when
+    ``build_experiments`` is called without one. ``None`` uses :attr:`DEFAULT_TIME_LIMIT`, as
+    on TabArena; BeyondArena gives systems 8 hours."""
+
     DEFAULT_MODEL_CONSTRAINTS: ClassVar[dict[str, ModelConstraints]] = {
         "TABICL": TABICL_CONSTRAINTS,
         "TA-TABICL": TABICL_CONSTRAINTS,
@@ -306,6 +311,13 @@ class TabArenaExperimentBundle:
         with Path(configs_path).open() as file:
             return yaml.safe_load(file)["methods"]
 
+    @property
+    def default_time_limit(self) -> int:
+        """The fit ``time_limit`` used when none is passed: the system default for systems, if set."""
+        if self.system_experiments and self.DEFAULT_SYSTEM_TIME_LIMIT is not None:
+            return self.DEFAULT_SYSTEM_TIME_LIMIT
+        return self.DEFAULT_TIME_LIMIT
+
     def build_experiments(
         self,
         *,
@@ -326,7 +338,8 @@ class TabArenaExperimentBundle:
         All arguments have defaults, so ``build_experiments()`` works with no arguments:
 
         - ``time_limit``: ``None`` uses this bundle's :attr:`DEFAULT_TIME_LIMIT`
-          (1 hour for TabArena, 4 hours for BeyondArena).
+          (1 hour for TabArena, 4 hours for BeyondArena), or for systems its
+          :attr:`DEFAULT_SYSTEM_TIME_LIMIT` when set (8 hours for BeyondArena).
         - ``num_cpus`` / ``num_gpus`` / ``memory_limit``: ``None`` is baked into the
           experiment as "auto-detect on whatever node runs it" — resolved to the running
           machine's resources at fit time (see ``Experiment._apply_resources``).
@@ -334,7 +347,7 @@ class TabArenaExperimentBundle:
           bounds model fit only, excluding preprocessing).
         """
         if time_limit is None:
-            time_limit = self.DEFAULT_TIME_LIMIT
+            time_limit = self.default_time_limit
         if self.outer_experiments:
             self._warn_unhonored_outer_knobs(
                 memory_limit=memory_limit,
@@ -764,3 +777,5 @@ class BeyondArenaExperimentBundle(TabArenaExperimentBundle):
 
     DEFAULT_TIME_LIMIT: ClassVar[int] = 4 * 3600
     """BeyondArena used a 4-hour per-model fit time limit."""
+    DEFAULT_SYSTEM_TIME_LIMIT: ClassVar[int | None] = 8 * 3600
+    """BeyondArena runs systems with an 8-hour fit time limit."""

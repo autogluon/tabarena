@@ -15,6 +15,7 @@ import pytest
 
 from tabarena.benchmark.exec_models import ExternalSystemModel
 from tabarena.benchmark.experiment import (
+    BeyondArenaExperimentBundle,
     ExternalSystemExperiment,
     TabArenaV0pt1ExperimentBundle,
     YamlExperimentSerializer,
@@ -196,6 +197,15 @@ class TestBundleSystemMode:
         fit_kwargs = experiments[0].method_kwargs["fit_kwargs"]
         assert fit_kwargs["time_limit"] == TabArenaV0pt1ExperimentBundle.DEFAULT_TIME_LIMIT
         assert {"num_cpus", "num_gpus", "memory_limit"} <= fit_kwargs.keys()
+
+    def test_beyondarena_systems_default_to_eight_hours(self):
+        def time_limit(bundle, **kwargs):
+            return bundle.build_experiments(**kwargs)[0].method_kwargs["fit_kwargs"]["time_limit"]
+
+        systems = BeyondArenaExperimentBundle(models=[(_generator(), 0)], system_experiments=True)
+        assert time_limit(systems) == 8 * 3600
+        assert time_limit(systems, time_limit=600) == 600
+        assert BeyondArenaExperimentBundle(models=[]).default_time_limit == 4 * 3600
 
     def test_mutually_exclusive_with_other_modes(self):
         with pytest.raises(ValueError, match="mutually"):
