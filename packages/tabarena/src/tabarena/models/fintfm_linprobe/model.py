@@ -172,6 +172,10 @@ class FinTFMLinearProbeModel(FinTFMModel):
     #: All three problem types, because the entry is measured on all three. All three checkpoints
     #: are published on Hugging Face and pinned by commit and SHA-256 (``checkpoints.py``).
     _supported_problem_types: ClassVar[list[str]] = ["binary", "multiclass", "regression"]
+    #: The published multiclass checkpoint represents at most 10 classes and the fit refuses more,
+    #: so the limit is declared where AutoGluon reads it (``ag.max_classes``) instead of failing inside
+    #: the fit. Every TabArena-Lite multiclass table has at most 10 classes.
+    _default_auxiliary_params_extra: ClassVar[dict] = {"max_classes": 10}
 
     #: The measured TabArena-Lite entry (fintfm ``docs/results/FINDINGS.md`` §232, §235, §237).
     #: The default config reproduces it with no environment variable set:
