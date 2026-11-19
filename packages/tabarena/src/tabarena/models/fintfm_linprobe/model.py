@@ -63,6 +63,12 @@ REG_READOUTS = ("ridge", "rff")
 class FinTFMLinearProbeModel(FinTFMModel):
     """fintfm, decided by a linear probe on its representation rather than its own head.
 
+    **Inputs it does not use.** ``time_limit`` is accepted for AutoGluon's API and does not bound the
+    fit: there is no training loop or early stop to cut short (AutoGluon's own per-fold projection
+    still applies). ``X_val`` / ``y_val`` are accepted and ignored. The readout selects its
+    regularisation, cross-fit folds and multiclass floor by internal cross-validation on the training
+    rows only (see the ``_entry_*`` defaults); nothing is tuned or selected on the validation split.
+
     Sibling of :class:`~tabarena.models.fintfm.model.FinTFMModel` whose default config is the
     measured TabArena-Lite entry (see ``_entry_*`` below). fintfm ``docs/results/FINDINGS.md`` §130/§131 measured that a plain
     ``LogisticRegression`` on the model's own pre-head representation beats its trained
