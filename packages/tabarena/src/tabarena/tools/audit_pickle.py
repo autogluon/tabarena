@@ -38,6 +38,7 @@ import tempfile
 import time
 import traceback
 from collections.abc import Mapping
+from types import ModuleType
 from typing import Any
 
 from tabarena.models._registry import assert_autogluon_resolves
@@ -57,7 +58,9 @@ def tensor_nbytes(obj: Any) -> int:
     """Bytes of the distinct tensor storages reachable from ``obj``.
 
     Walks mappings, lists, tuples and object attributes, and counts each storage once, so a cache whose
-    entries are views of one batched tensor is not counted twice.
+    entries are views of one batched tensor is not counted twice. Modules are skipped: a model can hold
+    one (SciPy's ``BSpline`` keeps its array namespace in ``_xp``), and its namespace leads through
+    ``sys.modules`` into every imported package, none of which the pickle stores.
     """
     import torch
 
@@ -65,7 +68,7 @@ def tensor_nbytes(obj: Any) -> int:
     seen: set[int] = set()
 
     def walk(value: Any) -> None:
-        if id(value) in seen:
+        if id(value) in seen or isinstance(value, ModuleType):
             return
         seen.add(id(value))
         if torch.is_tensor(value):
