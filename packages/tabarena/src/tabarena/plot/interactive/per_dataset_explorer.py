@@ -229,18 +229,22 @@ def per_dataset_points(results_per_split: pd.DataFrame) -> pd.DataFrame:
     so a dataset's numbers here are the per-dataset terms of the leaderboard's averages. ``std``
     is the standard deviation of the error over the splits (``NaN`` with a single split) and
     ``tied`` whether the method is statistically tied with the dataset's best method, see
-    :func:`tied_with_best`.
+    :func:`tied_with_best`. ``train_s`` and ``infer_s`` are the mean fit and prediction time
+    over the splits; ``infer_s`` is ``NaN`` when the results carry no ``time_infer_s``.
     """
     df = measured_results(results_per_split)
     best_per_split = df.groupby(["dataset", "fold"])["metric_error"].transform("min")
     df["_imp"] = (1 - best_per_split / df["metric_error"]).fillna(0.0) * 100
     df["_rank"] = df.groupby(["dataset", "fold"])["metric_error"].rank(method="average")
+    if "time_infer_s" not in df.columns:
+        df["time_infer_s"] = np.nan
     points = df.groupby(["dataset", "method"], as_index=False).agg(
         err=("metric_error", "mean"),
         std=("metric_error", "std"),
         rank=("_rank", "mean"),
         imp=("_imp", "mean"),
         train_s=("time_train_s", "mean"),
+        infer_s=("time_infer_s", "mean"),
     )
     points = points.merge(tied_with_best(df), on=["dataset", "method"], how="left")
     # A left merge fills unmatched rows with NaN; keep the column's `None`-or-bool contract.
@@ -389,6 +393,7 @@ def build_per_dataset_explorer_html(
             "r": [_round(v, 2) for v in points["rank"]],
             "i": [_round(v, 3) for v in points["imp"]],
             "t": [_significant(v, 4) for v in points["train_s"]],
+            "it": [_significant(v, 4) for v in points["infer_s"]],
             # The spread over the splits, and whether the method is statistically tied with the
             # dataset's best (1 / 0; absent when the test could not run, see `tied_with_best`).
             "s": [_significant(v, 3) for v in points["std"]],
