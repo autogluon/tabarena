@@ -46,10 +46,10 @@ search_space = {
     "partition_multiclass": Categorical({"n_bags": 8}, {"n_bags": 4}, {}),
 }
 
-#: PROPOSAL, not part of ``search_space``: ``probe_crossfit_folds`` (``model.py``) is 5 by default,
-#: cross-fitting the readout's training rows against a context that leaves each out. The measured
-#: 932 Elo entry was produced with it off (``0``). Sampling it only makes sense after the default
-#: has been re-measured, to ask whether 2, 3, 5 or 10 folds matter; until then it is a setting to
+#: PROPOSAL, not part of ``search_space``: ``probe_crossfit_folds`` (``model.py``) cross-fits the
+#: readout's training rows against a context that leaves each out. The measured entry uses 5 for
+#: binary and 0 for multiclass and regression (fintfm FINDINGS §255: cross-fitting did not help
+#: those two). Whether 2, 3 or 10 folds would matter has not been measured, so it is a setting to
 #: fix, not to tune. ``0`` also makes the ``head`` probe option available again.
 proposed_search_space_additions = {
     "probe_crossfit_folds": Categorical(5, 0),
