@@ -34,6 +34,70 @@ run against `main`. To reproduce an entry, check out its recorded **git SHA**.
 
 ---
 
+## 2026-11-19 — lattice_19112026
+
+- **Model(s):** Lattice and Lattice-tiny (default config only, no search space) on all 816 TabArena-v0.1 splits each,
+  1,632 items
+- **Git SHA:** `dc5a176c` on `add-lattice`, the head of autogluon/tabarena#737 as submitted (Lattice `e106f9f`,
+  checkpoints `hachure-ai/Lattice@38d704ff` and `hachure-ai/Lattice-tiny@c0ea3161`), clean. AutoGluon 1.6.4b20261119
+  from PyPI.
+- **Validation protocol:** `8x1`
+- **Purpose:** First maintainer run of Lattice, Nanjing University's in-context tabular foundation model, in its two
+  released sizes, submitted in #737.
+- **Notes:** SkyPilot pool `lattice-1911` (spot RTX PRO 6000 workers, env `1ab8f3cb956c`), one item per bundle,
+  `fake_memory_for_estimates=96`, the 1 h default time limit. The generated pool YAML (`workers: 32`) was edited to
+  `min_workers: 0`, `max_workers: 32`, `upscale_delay_seconds: 30`, `downscale_delay_seconds: 120` for the admin
+  policy; one job was launched first and checked, then the other 31 under the same launch
+  (`lattice_19112026_gpu-20261119-170615-c12a`).
+  - Run venv `~/.venvs/tabarena_lattice_19112026`. `lattice[fast]` pins `torch==2.7.1` and `triton==3.3.1`, the only
+    stack Lattice's Triton fast path accepts. PyPI's torch 2.7.1 is the CUDA 12.6 build, compiled for `sm_50` to
+    `sm_90` without PTX, so it cannot run on the RTX PRO 6000 (`sm_120`); the venv holds the CUDA 12.8 build of torch
+    2.7.1, installed by direct URL from `download.pytorch.org/whl/cu128` so the frozen requirements resolve on the
+    workers without an extra index.
+  - Before the launch: three reviewer lenses on the wrapper and Lattice `e106f9f`, no blocker. On the CPU,
+    `audit_transduction` passed for both sizes with `kv_cache=False` (the fold models) and `kv_cache=True` (the
+    refit) on binary, multiclass and regression; a 12-class probe of the hierarchical path differed by at most 8.3e-7;
+    `audit_pickle`, `audit_warmup` and the smoke fit passed. The review found that the wrapper's `categorical_indices`
+    (passed only when a table has a `category` column) switch off Lattice's rule that treats numeric columns with at
+    most 3 values as categorical; the run kept the submitted wrapper, and a change to it needs a rerun. The training
+    data is claimed synthetic; no contamination audit was run (#723 is open).
+  - 1,632 of 1,632 items, 0 failed, 0 recoveries, from 17:12 to 18:03 UTC. The warm-up audit over the results found
+    816 of 816 warm-ups ok per model and no import or CUDA initialization inside a timed fit or predict. The slowest
+    item, APSFailure, took about 2 min (Lattice) and 1.4 min (Lattice-tiny).
+- **Result:**
+  - Full: Lattice rank 13 of 120, Elo 1799 (+86/-57), between TabFM (1803) and Causilo (1788); Lattice-tiny rank 20,
+    Elo 1692 (+61/-43). Nothing imputed. The authors reported about 1796 and 1691 for their preliminary full run.
+  - Binary: ranks 16 (1757) and 23 (1649) of 118. Multiclass: ranks 12 (1829) and 15 (1798) of 118. Regression: ranks
+    9 (2154) and 20 (1955) of 116.
+  - Median per 1K rows: Lattice 1.36 s train and 0.114 s inference, Lattice-tiny 0.97 s and 0.074 s.
+- **Upload:** processed and uploaded as suite `tabarena-2026-11-19` (`lattice_method_metadata` and
+  `lattice_tiny_method_metadata` in `models/lattice/info.py`, 816 splits each, raw included), `verified=True`.
+
+```python
+TabArenaV0pt1BenchmarkPlan(
+    benchmark_name="lattice_19112026",
+    model_jobs=[
+        ModelJob(
+            models=[("Lattice", 0), ("Lattice-tiny", 0)],
+            name="gpu",
+            resources={"num_gpus": 1, "fake_memory_for_estimates": 96},
+        ),
+    ],
+    task_subset=TaskSubset(),  # the full task set, all splits
+    path_setup=PathSetup(
+        workspace="/home/lennart_priorlabs_ai/workspace/benchmarking/tabarena_workspace",
+        python_path="/home/lennart_priorlabs_ai/.venvs/tabarena_lattice_19112026/bin/python",
+    ),
+    experiment_bundle=TabArenaV0pt1ExperimentBundle(model_verbosity=2),
+    resources_setup=TabArenaV0pt1ResourcesSetup(num_cpus=None, memory_limit=None),
+    scheduler_setup=SkyPilotSetup(bundle_size=1, workers=32, use_pool=True, pool_name="lattice-1911"),
+).setup_jobs()
+# The generated pool YAML then edited to pool: {min_workers: 0, max_workers: 32, upscale_delay_seconds: 30,
+# downscale_delay_seconds: 120} for the admin policy.
+```
+
+---
+
 ## 2026-11-16 — inpriora_16112026
 
 - **Model(s):** Inpriora (default config only, no search space) on all 816 TabArena-v0.1 splits, 816 items

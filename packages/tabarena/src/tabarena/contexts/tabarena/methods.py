@@ -72,6 +72,7 @@ from tabarena.models.kumo_tabular.info import (
     kumo_tabular_method_metadata,
     kumo_tabular_small_method_metadata,
 )
+from tabarena.models.lattice.info import lattice_method_metadata, lattice_tiny_method_metadata
 from tabarena.models.lightgbm.info import lightgbm_method_metadata
 from tabarena.models.lightpfn.info import lightpfn_1p0_method_metadata, lightpfn_method_metadata
 from tabarena.models.limix.info import limix_method_metadata as limix_metadata
@@ -274,6 +275,8 @@ tabarena_method_metadata_collection = MethodMetadataCollection(
         tabpack_method_metadata,
         tabh2o_method_metadata,
         inpriora_method_metadata,
+        lattice_method_metadata,
+        lattice_tiny_method_metadata,
     ],
 )
 

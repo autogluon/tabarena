@@ -273,5 +273,9 @@
  "artifacts/tabarena-2026-11-12/methods/LimiX-2-1016/results/hpo_results.parquet": "c3b78926fba27ba6ca8d51af6e2a3b4d",
  "artifacts/tabarena-2026-11-12/methods/LimiX-2-1016/results/model_results.parquet": "9bdd902363b61f63179b38d020d25faf",
  "artifacts/tabarena-2026-11-16/methods/Inpriora/results/hpo_results.parquet": "7dd7c650ba425801d066c0004ae927b3",
- "artifacts/tabarena-2026-11-16/methods/Inpriora/results/model_results.parquet": "182291ac99a2bac475963e474be3e7c3"
+ "artifacts/tabarena-2026-11-16/methods/Inpriora/results/model_results.parquet": "182291ac99a2bac475963e474be3e7c3",
+ "artifacts/tabarena-2026-11-19/methods/Lattice-tiny/results/hpo_results.parquet": "d6c784850edfd77fa82d9dd176b82d61",
+ "artifacts/tabarena-2026-11-19/methods/Lattice-tiny/results/model_results.parquet": "30ee5e339adba80d3f7be12eb73bd42d",
+ "artifacts/tabarena-2026-11-19/methods/Lattice/results/hpo_results.parquet": "700ec59eed1889dbfcc2377c59f65160",
+ "artifacts/tabarena-2026-11-19/methods/Lattice/results/model_results.parquet": "1df92999af390605880bd5441eeb0d05"
 }
