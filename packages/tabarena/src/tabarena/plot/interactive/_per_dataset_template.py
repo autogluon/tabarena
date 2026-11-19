@@ -1202,7 +1202,8 @@ __BASE_JS__
       if (mk) li.style.setProperty("--mk", mk.color);
       const verdict = tiedText(p, STATS[d]);
       li.title = `${m.name} — ${errWithStd(p, DATASETS[d])} ${metricName(DATASETS[d])}, ${fmtNum(p.i, 1)}% behind the best` +
-        (p.t != null ? `, ${fmtTime(p.t)} to fit` : "") + (verdict ? `. ${verdict}` : "") +
+        (p.t != null ? `, ${fmtTime(p.t)} to fit` : "") + (p.it != null ? `, ${fmtTime(p.it)} to predict` : "") +
+        (verdict ? `. ${verdict}` : "") +
         (hasTraj ? "" : ". No tuning trajectory was published for this method, so the chart cannot show it");
       const frac = Math.min(1, Math.max(0, 1 - (p.i || 0) / cap));
       li.innerHTML =
