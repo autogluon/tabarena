@@ -103,7 +103,7 @@ SMOKE_OVERRIDES: dict[str, ModelSmokeTest] = {
     "TabFM": ModelSmokeTest({"n_estimators": 1}),
     # Binary only: the entry's multiclass and regression checkpoints are not published, so a default
     # fit on either raises CheckpointNotPublishedError.
-    "FinTFM-LinProbe": ModelSmokeTest(problem_types=("binary",)),
+    "FinTFM-LinProbe": ModelSmokeTest(problem_types=("binary", "multiclass", "regression")),
     "Nori": ModelSmokeTest(problem_types=("regression",)),
     "Nori-30M": ModelSmokeTest(problem_types=("regression",)),
     "iLTM": ModelSmokeTest({"finetuning_max_steps": 1, "n_ensemble": 1, "tree_n_estimators": 1}),
