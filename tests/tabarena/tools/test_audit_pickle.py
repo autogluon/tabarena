@@ -8,6 +8,9 @@ nodes), one stores only the training table.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+from types import ModuleType, SimpleNamespace
+
 import numpy as np
 import pytest
 
@@ -85,6 +88,35 @@ class _TableModel(AbstractModel):
 def test_tensor_nbytes_counts_a_shared_storage_once():
     base = torch.zeros(4, 256)
     assert tensor_nbytes({"a": base[:2], "b": [base[2:], base]}) == base.untyped_storage().nbytes()
+
+
+class _RefusingMapping(Mapping):
+    """A mapping that refuses iteration, like the urllib3 object a walk through ``sys.modules`` hit."""
+
+    def __getitem__(self, key):
+        raise KeyError(key)
+
+    def __iter__(self):
+        raise TypeError("refuses iteration")
+
+    def __len__(self):
+        return 0
+
+
+def test_tensor_nbytes_skips_modules():
+    """A module on the model (SciPy's ``BSpline._xp``) is not walked: its state is not the model's."""
+    module = ModuleType("_array_namespace")
+    module.headers = _RefusingMapping()
+    module.weights = torch.zeros(1024)
+    cache = torch.zeros(4, 256)
+    assert tensor_nbytes(SimpleNamespace(xp=module, cache=cache)) == cache.untyped_storage().nbytes()
+
+
+def test_tensor_nbytes_walks_past_a_scipy_spline():
+    interpolate = pytest.importorskip("scipy.interpolate")
+    spline = interpolate.make_interp_spline(np.arange(10.0), np.arange(10.0) ** 2)
+    cache = torch.zeros(4, 256)
+    assert tensor_nbytes({"spline": spline, "cache": cache}) == cache.untyped_storage().nbytes()
 
 
 @pytest.mark.parametrize(
