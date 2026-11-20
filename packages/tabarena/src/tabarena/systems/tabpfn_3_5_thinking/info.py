@@ -30,6 +30,6 @@ tabpfn_3_5_thinking_info = SystemInfo(
     system_cls=TabPFN35ThinkingSystemModel,
     config_generator=gen_tabpfn_3_5_thinking,
     method_metadata=tabpfn_3_5_thinking_method_metadata,
-    pip_extra=("tabpfn-client==0.8.0",),
+    pip_extra=("tabpfn-client==0.10.1",),
     prefetch_weights=None,
 )
