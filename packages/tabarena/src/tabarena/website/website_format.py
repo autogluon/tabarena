@@ -178,6 +178,7 @@ def get_model_family(model_name: str, system_names: Container[str] = frozenset()
             "TA-KUMO-TABULAR",
             "TA-SELDON",
             "FTFM",
+            "LATTICE",
             "LIGHTPFN",
             "INPRIORA",
             "TABABAX",

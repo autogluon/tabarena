@@ -27,6 +27,7 @@ if TYPE_CHECKING:
         KumoTabularModel,
         KumoTabularSmallModel,
     )
+    from tabarena.models.lattice.model import LatticeModel, LatticeTinyModel
     from tabarena.models.lightpfn.model import LightPFNModel
     from tabarena.models.limix.model import LimiXModel
     from tabarena.models.limix_2.model import LimiX2Model
@@ -77,6 +78,8 @@ _LAZY_CLASSES: dict[str, str] = {
     "KumoTabularMediumModel": "tabarena.models.kumo_tabular.model",
     "KumoTabularModel": "tabarena.models.kumo_tabular.model",
     "KumoTabularSmallModel": "tabarena.models.kumo_tabular.model",
+    "LatticeModel": "tabarena.models.lattice.model",
+    "LatticeTinyModel": "tabarena.models.lattice.model",
     "LightPFNModel": "tabarena.models.lightpfn.model",
     "LimiXModel": "tabarena.models.limix.model",
     "LimiX2Model": "tabarena.models.limix_2.model",
