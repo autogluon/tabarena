@@ -11,7 +11,11 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 
 from tabarena.benchmark.exec_models import ExternalSystemModel
-from tabarena.benchmark.validation_protocol import TABARENA_V0PT1_VALIDATION_PROTOCOL, ValidationProtocol
+from tabarena.benchmark.validation_protocol import (
+    BEYONDARENA_VALIDATION_PROTOCOL,
+    TABARENA_V0PT1_VALIDATION_PROTOCOL,
+    ValidationProtocol,
+)
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -54,13 +58,11 @@ ARENA_SETUPS: dict[str, _ArenaSetup] = {
         shuffle_features=False,
         model_time_limit=3600,
     ),
-    # BeyondArena: 8 folds x 1 set with group / time-aware inner splits and class-adaptive folds, TabArena's
-    # default preprocessing, 4 h. This is BeyondArena's official protocol without its tiny-data 5 x 5 regime,
-    # which the reference runs predate; the system keeps 8 x 1 on every task.
+    # BeyondArena: its official protocol -- 8 folds x 1 set, 5 x 5 at or below 500 training group instances,
+    # group / time-aware inner splits and class-adaptive folds -- TabArena's default preprocessing, 4 h. The
+    # reference runs used the same protocol, tiny-data regime included.
     "beyondarena": _ArenaSetup(
-        protocol=ValidationProtocol(
-            name="LGBM-Prep-FTE (BeyondArena)", task_specific_validation=True, adapt_num_folds_to_n_classes=True
-        ),
+        protocol=BEYONDARENA_VALIDATION_PROTOCOL,
         preprocessing_pipeline="tabarena_default",
         shuffle_features=True,
         model_time_limit=4 * 3600,

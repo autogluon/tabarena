@@ -1,3 +1,6 @@
+# Adapted from TabPrep (https://github.com/atschalz/tabprep, commit fee7f189), licensed under the Apache License,
+# Version 2.0; changes: ported onto AutoGluon's public feature generators, vectorised group lookups, sorted category
+# order. See the module docstring.
 """TabPrep feature engineering for the LGBM-Prep bag child, on AutoGluon's public generators.
 
 Three parts, each a port of the code the reference runs used:

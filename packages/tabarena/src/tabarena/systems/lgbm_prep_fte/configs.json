@@ -2,7 +2,7 @@
  "portfolios": {
   "tabarena": {
    "description": "LightGBM default + the 200-config T+E-filtered portfolio (FTE200), TabPrep on 54",
-   "source": "beyond-arena dev/resources/lgbm-prep-te-native200-{configs,portfolio}.json",
+   "source": "greedy portfolio selection for the tuned + ensembled objective on synthetic data only, from a bank of 4,000 configs drawn from TabArena's LightGBM search space (TabPrep on every fourth)",
    "selection_sha256": "4f268b8e9dc130e8cfbf539b706a2f82109c1676d581d2b3b0b84ffdc86434c9",
    "add_order": [
     448,
@@ -6102,7 +6102,7 @@
   },
   "beyondarena": {
    "description": "LightGBM default + the 25-config T+E-filtered portfolio (FTE25), TabPrep on 8",
-   "source": "beyond-arena dev/resources/lgbm-prep-te-native25-{configs,portfolio}.json; hyperparameters copied from the recorded fits",
+   "source": "the first 25 configs of the same greedy selection (synthetic data only, 4,000-config bank); hyperparameters as recorded in the reference runs",
    "add_order": [
     448,
     3130,
