@@ -5,14 +5,12 @@ from tabarena.systems._system_info import SystemInfo
 from tabarena.systems.lgbm_prep_fte.hpo import gen_lgbm_prep_fte
 from tabarena.systems.lgbm_prep_fte.system import NAME, LGBMPrepFTESystemModel
 
-# TODO(results): set `suite`, `date` and `verified` once the TabArena-v0.1 and BeyondArena core2k results are
-# hosted; add `cache_type` / `cache_kwargs` per the upload-method skill.
-lgbm_prep_fte_method_metadata = MethodMetadata.system(
+# TODO(results): set `verified` and add `cache_type` / `cache_kwargs` per the upload-method skill once the results
+# are hosted, then register both in the arenas' method collections.
+_common_kwargs = dict(
     method=NAME,
     name=NAME,
-    suite="tabarena-2026-11-18",
     compute="cpu",
-    date="2026-11-18",
     date_introduced="2026-09",
     reference_url="https://github.com/atschalz/tabprep",
     organization="Yandex Research",
@@ -20,6 +18,14 @@ lgbm_prep_fte_method_metadata = MethodMetadata.system(
     commercial_use=True,
     tags=(),
     verified=False,
+)
+
+#: TabArena-v0.1 (all 816 splits): the 201-config portfolio.
+lgbm_prep_fte_method_metadata = MethodMetadata.system(suite="tabarena-2026-11-20", date="2026-11-20", **_common_kwargs)
+
+#: BeyondArena core2k (2,000 splits): the 26-config portfolio.
+lgbm_prep_fte_beyondarena_method_metadata = MethodMetadata.system(
+    suite="beyondarena-2026-11-20", date="2026-11-20", **_common_kwargs
 )
 
 lgbm_prep_fte_info = SystemInfo(

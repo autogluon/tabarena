@@ -139,7 +139,8 @@ def ensemble_weights(
     """Greedy (Caruana) ensemble weights over the bags, fit on their out-of-fold predictions.
 
     ``oof_predictions`` are in AutoGluon's internal label space (positive-class probability for binary), in
-    portfolio order; ties go to the earlier bag. Shared with the result rebuild so both select identically.
+    portfolio order. Ties are broken by AutoGluon's ensemble selection with its fixed seed, so the selection is
+    deterministic. Shared with the result rebuild so both select identically.
     """
     from tabarena.simulation.ensemble.greedy_ensembler import GreedyEnsembler
 

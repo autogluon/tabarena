@@ -10,6 +10,7 @@ the system's model family name.
 from __future__ import annotations
 
 import copy
+import os
 import time
 from pathlib import Path
 
@@ -45,7 +46,7 @@ class LGBMPrepModel(AbstractModel):
         return ["binary", "multiclass", "regression"]
 
     def _get_default_resources(self):
-        return MAX_THREADS, 0
+        return min(MAX_THREADS, os.cpu_count() or 1), 0
 
     def get_minimum_resources(self, is_gpu_available=False):
         return {"num_cpus": 1, "num_gpus": 0}
