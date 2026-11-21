@@ -1,4 +1,4 @@
-"""LGBM-Prep-FTE: portfolio integrity, label isolation of TabPrep, row-independent predictions, ensembling.
+"""LightGBM-Prep-FTE200 / -FTE25: portfolio integrity, label isolation of TabPrep, row-independent predictions, ensembling.
 
 Everything runs on CPU on small synthetic frames. The only end-to-end fit is a two-config system (the
 LightGBM default plus one TabPrep config, 8-fold bags on 200 rows), fitted once per module.
@@ -22,7 +22,7 @@ from tabarena.systems.lgbm_prep_fte import (
 from tabarena.systems.lgbm_prep_fte._model import LGBMDefaultModel, LGBMPrepModel
 from tabarena.systems.lgbm_prep_fte.system import (
     ARENA_SETUPS,
-    NAME,
+    NAMES,
     NUM_BAG_FOLDS,
     LGBMPrepFTESystemModel,
     ensemble_weights,
@@ -129,7 +129,7 @@ def test_make_bag_experiment_wires_the_config_without_mutating_it():
     before = copy.deepcopy(config)
     experiment = make_bag_experiment(config, arena="tabarena", bag_time_limit=10)
     assert config == before
-    assert experiment.name == f"{NAME}_{config['name']}"
+    assert experiment.name == f"LightGBM-Prep-FTE200_{config['name']}"
     assert experiment.method_kwargs["model_cls"] is LGBMPrepModel
     hps = experiment.method_kwargs["model_hyperparameters"]
     assert hps["tabprep"] == config["hyperparameters"]["tabprep"]
@@ -386,8 +386,15 @@ def test_ensemble_weights_tie_breaking_is_deterministic():
 # -- 5. registration --------------------------------------------------------------------------
 
 
-def test_lgbm_prep_fte_is_registered_as_a_system():
-    info = discover_systems()[NAME]
+@pytest.mark.parametrize(
+    ("arena", "name"), [("tabarena", "LightGBM-Prep-FTE200"), ("beyondarena", "LightGBM-Prep-FTE25")]
+)
+def test_each_arena_portfolio_is_registered_as_its_own_system(arena, name):
+    assert NAMES[arena] == name
+    info = discover_systems()[name]
     assert info.system_cls is LGBMPrepFTESystemModel
+    assert info.method_metadata.method == name
     assert info.method_metadata.method_class == "system"
     assert info.method_metadata.compute == "cpu"
+    assert info.config_generator.manual_configs == [{"arena": arena}]
+    assert info.method_metadata.suite.startswith(arena)

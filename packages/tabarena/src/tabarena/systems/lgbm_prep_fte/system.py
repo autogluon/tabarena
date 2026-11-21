@@ -24,7 +24,8 @@ if TYPE_CHECKING:
     from tabarena.benchmark.task.metadata import ValidationMetadata
 
 CONFIGS_PATH = Path(__file__).with_name("configs.json")
-NAME = "LGBM-Prep-FTE"
+#: One leaderboard entry per arena: the portfolios differ (201 configs on TabArena, 26 on BeyondArena).
+NAMES = {"tabarena": "LightGBM-Prep-FTE200", "beyondarena": "LightGBM-Prep-FTE25"}
 ENSEMBLE_SIZE = 40
 """Greedy ensemble selection iterations, as in TabArena's tuned + ensembled simulation."""
 NUM_BAG_FOLDS = 8
@@ -121,7 +122,7 @@ def make_bag_experiment(
     if artifact_path is not None:
         init_kwargs["default_base_path"] = artifact_path
     return AGModelBagExperiment(
-        name=f"{NAME}_{config['name']}",
+        name=f"{NAMES[arena]}_{config['name']}",
         model_cls=model_cls,
         model_hyperparameters=hyperparameters,
         time_limit=bag_time_limit,
