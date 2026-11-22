@@ -7,6 +7,14 @@ from tabarena.models.utils import convert_numpy_dtypes
 from tabarena.utils.config_utils import CustomAGConfigGenerator
 
 
+# Provenance (autogluon/tabarena#687): this is the library's own space, ``iltm.get_hyperparameter_search_space``
+# (iltm 0.1.6 and 0.1.7), and it is derived from the library's 25-config portfolio
+# (``iltm.get_hyperparameter_configs``), which the authors selected on their meta-validation datasets. Every
+# categorical choice set is the set of values the portfolio uses (``tree_subsample`` and ``tree_feature_fraction``
+# are its sampled values rounded to two decimals), the continuous ranges are the portfolio's minimum and maximum
+# rounded outward, and most choice probabilities are the portfolio's frequencies. The continuous parameters draw
+# new values and the parameters are sampled independently, so random search does produce new configurations.
+# The maintainers judged this borderline and accepted it; the paper's wider space is Table 17 of arXiv:2511.15941v2.
 def generate_single_config_iltm(rng):
     params = {
         "checkpoint": rng.choice(["cbrconcat", "xgbrconcat", "rtr"], p=[0.7, 0.2, 0.1]),

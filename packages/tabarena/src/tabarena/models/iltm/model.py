@@ -3,7 +3,6 @@ from __future__ import annotations
 import os
 import sys
 import time
-from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar
 
@@ -35,7 +34,7 @@ def checkpoint_dir() -> Path:
     The same rule as ``iltm.model_checkpoints._get_default_ckpt_dir``: ``ILTM_CKPT_DIR`` when the
     variable is set, else the platform cache directory (``$XDG_CACHE_HOME/iltm`` or ``~/.cache/iltm``
     on Linux, ``~/Library/Caches/iltm`` on macOS, ``%LOCALAPPDATA%/iltm`` on Windows). Replicated here
-    so the head node can prefetch without importing ``iltm`` (see :func:`_isolate_iltm_global_state`).
+    so the head node can prefetch without importing ``iltm`` and torch.
     """
     if CKPT_DIR_ENV in os.environ:
         path = Path(os.environ[CKPT_DIR_ENV])
@@ -95,21 +94,24 @@ class ILTMModel(AbstractTorchModel):
     library's own checkpoint directory, which its resolution reads local-first at fit time.
 
     Validation data: every selection step runs on the passed ``X_val`` / ``y_val``. The network's
-    fine-tuning early-stops on it and the adaptive retrieval alpha is chosen on it, both by the
-    library's default. The tree embedding needs ``tree_use_external_eval_set=True`` (a default
-    parameter of this wrapper): with the library's default it early-stops each tree on a 20% split of
-    the fold's training rows, which a model submission may not do (autogluon/tabarena#637).
+    fine-tuning and the tree embedding early-stop on it and the adaptive retrieval alpha is chosen on
+    it. ``tree_use_external_eval_set=True`` is the library's default from iltm 0.1.7 and a default
+    parameter of this wrapper as well: with ``False`` the trees early-stop on a split of the fold's
+    training rows, which a model submission may not do (autogluon/tabarena#637).
 
-    Known gaps (iltm 0.1.6):
+    Precision: ``allow_tf32=True`` (a default parameter) runs CUDA float32 matmuls in TF32 during the
+    fit and the predict, which the authors consider part of the method. The library sets it per call
+    and restores the caller's setting afterwards; nothing changes at import.
 
-    - ``num_cpus`` is not passed on. The tree embedding fits XGBoost with ``n_jobs=-1`` and CatBoost
-      with ``thread_count=-1`` (``iltm/tree_embedding.py``), and the library offers no thread argument.
-    - ``fit_max_time`` is checked before each ensemble member and each fine-tuning step, not during the
-      tree fit, the first fine-tuning step, or the adaptive-alpha predict on the validation rows after
-      the loop, so a fit can overrun ``time_limit`` by about one member's non-fine-tuning work. With
-      less than 10 s left the library raises a plain ``TimeoutError``.
+    Known gaps (iltm 0.1.7):
+
+    - ``fit_max_time`` is checked between steps (before and after each tree fit, each fine-tuning
+      step, the adaptive-alpha predict), so a single step can still overrun ``time_limit``. A fit whose
+      budget runs out before the first member is complete raises ``TimeoutError``, as does a budget
+      of 10 s or less.
     - ``auto_stop_on_low_cpu_memory`` (on by default) stops adding ensemble members when host memory
-      runs low, so the member count can depend on the node.
+      runs low, so the member count can depend on the node; the fitted estimator reports it as
+      ``n_ensemble_`` and in its log.
 
     Paper: iLTM: Integrated Large Tabular Model (arXiv:2511.15941)
     Authors: Bonet, Comajoan Cara, Calafell, Mas Montserrat, Ioannidis
@@ -135,8 +137,6 @@ class ILTMModel(AbstractTorchModel):
     _default_auxiliary_params_extra = {"max_classes": 100}
 
     warmup_modules: ClassVar[tuple[str, ...]] = ("iltm",)
-    """Already imported by :meth:`warmup` inside :func:`_isolate_iltm_global_state` (the import changes the
-    process's float32 matmul precision); listed so the Ray worker warm-up imports it too."""
 
     #: Knobs that make the warm-up's dummy fit cheap (a short fine-tuning, a tiny tree embedding). Three
     #: ensemble members, because a ``checkpoint_mix`` config cycles its members through cbrconcat,
@@ -148,30 +148,22 @@ class ILTMModel(AbstractTorchModel):
         "tree_n_estimators": 2,
     }
 
-    @classmethod
-    def warmup(cls, **kwargs) -> None:
-        """Import ``iltm`` inside :func:`_isolate_iltm_global_state`, before the generic module layer does.
-
-        The library's first import in a process changes the float32 matmul precision; importing it here
-        restores the caller's precision afterwards, and every later ``import iltm`` is a no-op.
-        """
-        with _isolate_iltm_global_state():
-            pass
-
     def _set_default_params(self):
-        # Early-stop the tree embedding on the passed validation rows, not on a split of the training rows.
-        default_params = {"tree_use_external_eval_set": True}
+        default_params = {
+            # Early-stop the tree embedding on the passed validation rows, not on a split of the training rows.
+            "tree_use_external_eval_set": True,
+            # TF32 for CUDA matmuls during fit and predict, the authors' recipe; scoped by the library.
+            "allow_tf32": True,
+        }
         for param, val in default_params.items():
             self._set_default_param_value(param, val)
 
     def _preprocess(self, X: pd.DataFrame, *, is_train: bool = False, **kwargs) -> pd.DataFrame:
         """Detect indices of pandas `category`-dtype columns for iLTM's `cat_features`.
 
-        iLTM only auto-detects object-dtype string columns as categorical
-        (iltm/inference_interface.py::detect_object_string_columns). AutoGluon's
-        CategoryFeatureGenerator converts categoricals to pandas 'category' dtype,
-        which CatBoost (used in iLTM's tree embedding) then rejects unless the
-        column index is listed in cat_features.
+        AutoGluon's CategoryFeatureGenerator converts categoricals to pandas 'category' dtype, which
+        CatBoost (used in iLTM's tree embedding) rejects unless the column index is listed in
+        cat_features. iltm 0.1.7 also detects such columns itself and merges them with the passed list.
         """
         X = super()._preprocess(X, **kwargs)
 
@@ -212,45 +204,44 @@ class ILTMModel(AbstractTorchModel):
                 "Please switch to CPU usage instead.",
             )
 
-        with _isolate_iltm_global_state():
-            from iltm import iLTMClassifier, iLTMRegressor
+        from iltm import iLTMClassifier, iLTMRegressor
 
-            if self.problem_type in ["binary", "multiclass"]:
-                model_cls = iLTMClassifier
-            elif self.problem_type == "regression":
-                model_cls = iLTMRegressor
-            else:
-                raise AssertionError(f"Unsupported problem_type: {self.problem_type}")
+        if self.problem_type in ["binary", "multiclass"]:
+            model_cls = iLTMClassifier
+        elif self.problem_type == "regression":
+            model_cls = iLTMRegressor
+        else:
+            raise AssertionError(f"Unsupported problem_type: {self.problem_type}")
 
-            hps = self._get_model_params()
+        hps = self._get_model_params()
 
-            X = self.preprocess(X, y=y, is_train=True)
-            if X_val is not None:
-                X_val = self.preprocess(X_val)
-                eval_set = (X_val, y_val)
-            else:
-                eval_set = None
+        X = self.preprocess(X, y=y, is_train=True)
+        if X_val is not None:
+            X_val = self.preprocess(X_val)
+            eval_set = (X_val, y_val)
+        else:
+            eval_set = None
 
-            self.model = model_cls(
-                **hps,
-                device=device,
-                cat_features=self._categorical_indices,
-            )
+        self.model = model_cls(
+            **hps,
+            device=device,
+            cat_features=self._categorical_indices,
+            n_jobs=num_cpus,
+        )
 
-            remaining_time = None if time_limit is None else max(0.0, time_limit - (time.monotonic() - fit_start))
-            self.model = self.model.fit(
-                X=X,
-                y=y,
-                eval_set=eval_set,
-                fit_max_time=remaining_time,
-            )
+        remaining_time = None if time_limit is None else max(0.0, time_limit - (time.monotonic() - fit_start))
+        self.model = self.model.fit(
+            X=X,
+            y=y,
+            eval_set=eval_set,
+            fit_max_time=remaining_time,
+        )
 
     def _predict_proba(self, X: pd.DataFrame, **kwargs):
         X = self.preprocess(X, **kwargs)
-        with _isolate_iltm_global_state():
-            if self.problem_type == "regression":
-                return self.model.predict(X)
-            y_pred_proba = self.model.predict_proba(X)
+        if self.problem_type == "regression":
+            return self.model.predict(X)
+        y_pred_proba = self.model.predict_proba(X)
         return self._convert_proba_to_unified_form(self._align_proba(y_pred_proba))
 
     def _align_proba(self, y_pred_proba: np.ndarray) -> np.ndarray:
@@ -302,51 +293,3 @@ class ILTMModel(AbstractTorchModel):
         self.model.device = device
         if getattr(self.model, "_model", None) is not None:
             self.model._model = self.model._model.to(device)
-
-
-@contextmanager
-def _isolate_iltm_global_state():
-    """Run iLTM at full fp32 and leave the process-global state as the caller had it.
-
-    Developer fix. ``iltm/inference_interface.py`` (iltm 0.1.6) calls
-    ``torch.set_float32_matmul_precision("high")`` and then the legacy ``allow_tf32 = True`` at import,
-    which turns TF32 on for CUDA and oneDNN matmuls for the rest of the process and mixes torch's two
-    precision APIs (reading ``allow_tf32`` afterwards raises). Every fit also reseeds through
-    ``iltm.utils.seed_everything``, which sets ``PYTHONHASHSEED``, and changes the cuDNN determinism flags.
-
-    The context imports the library, so its first import in a process always happens here, then pins
-    float32 matmuls to ``"highest"`` (the maintainers' decision of 2026-09-16: iLTM is fit and scored at
-    full fp32, whichever code imported the library first), and on exit restores the matmul precision,
-    the cuDNN flags and ``PYTHONHASHSEED``. The library should leave the precision to the caller, or
-    scope TF32 to its own fit and predict behind a parameter; asked upstream in autogluon/tabarena#687.
-    """
-    import torch
-
-    cuda_matmul = torch.backends.cuda.matmul
-    mkldnn_matmul = getattr(getattr(torch.backends, "mkldnn", None), "matmul", None)
-    precision_attrs = [obj for obj in (cuda_matmul, mkldnn_matmul) if hasattr(obj, "fp32_precision")]
-    try:
-        saved_precision = torch.get_float32_matmul_precision()
-    except RuntimeError:  # the two precision APIs were mixed before this context (e.g. an unguarded import)
-        saved_precision = "highest"
-    saved_fp32_precisions = [obj.fp32_precision for obj in precision_attrs]
-    saved_cudnn_deterministic = torch.backends.cudnn.deterministic
-    saved_cudnn_benchmark = torch.backends.cudnn.benchmark
-    saved_hash_seed = os.environ.get("PYTHONHASHSEED")
-
-    try:
-        import iltm  # noqa: F401  # the first import changes the precision, so pin it afterwards
-
-        torch.set_float32_matmul_precision("highest")
-        yield
-    finally:
-        # The legacy-free reset first, then the caller's per-backend values on top of it.
-        torch.set_float32_matmul_precision(saved_precision)
-        for obj, value in zip(precision_attrs, saved_fp32_precisions, strict=False):
-            obj.fp32_precision = value
-        torch.backends.cudnn.deterministic = saved_cudnn_deterministic
-        torch.backends.cudnn.benchmark = saved_cudnn_benchmark
-        if saved_hash_seed is None:
-            os.environ.pop("PYTHONHASHSEED", None)
-        else:
-            os.environ["PYTHONHASHSEED"] = saved_hash_seed
