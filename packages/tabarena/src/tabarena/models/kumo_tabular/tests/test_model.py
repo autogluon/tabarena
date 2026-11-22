@@ -68,8 +68,10 @@ def test_uncached_predictions_match_the_cache(tmp_path, max_context_size):
     np.testing.assert_allclose(predictions[True], predictions[False], atol=1e-5)
 
 
-def test_resave_over_a_memory_mapped_cache(tmp_path):
+def test_cache_is_saved_beside_the_pickle_and_resaved_after_a_load(tmp_path):
     pytest.importorskip("sdm")
+    import os
+
     import numpy as np
     import pandas as pd
 
@@ -87,8 +89,19 @@ def test_resave_over_a_memory_mapped_cache(tmp_path):
     )
     model.fit(X=X, y=y, num_gpus=0)
     expected = model.predict_proba(X.iloc[:20])
-    loaded = KumoTabularSmallModel.load(model.save())
-    # On the CPU the loaded cache is memory-mapped from the file this save replaces.
+    cache_bytes = model.model.cache.size()
+    size_estimate = model._get_pickled_size()
+    path = model.save()
+
+    # AutoGluon writes the model's tensors, the KV cache among them, beside model.pkl.
+    pickle_bytes = os.path.getsize(os.path.join(path, KumoTabularSmallModel.model_file_name))
+    tensor_file_bytes = os.path.getsize(os.path.join(path, KumoTabularSmallModel.model_tensors_file_name))
+    assert pickle_bytes < cache_bytes / 10
+    assert tensor_file_bytes >= cache_bytes
+    assert cache_bytes <= size_estimate <= pickle_bytes + tensor_file_bytes
+
+    loaded = KumoTabularSmallModel.load(path)
+    # refit_full re-saves a loaded model over the files it was loaded from.
     loaded.save()
 
     np.testing.assert_allclose(loaded.predict_proba(X.iloc[:20]), expected, atol=1e-6)

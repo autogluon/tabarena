@@ -11,6 +11,8 @@ from tabarena.models._registry import (
 
 if TYPE_CHECKING:
     from tabarena.models._method_metadata import MethodMetadata
+    from tabarena.models.agentic_mlp.model import AgenticMLPModel
+    from tabarena.models.agentic_tabm.model import AgenticTabMModel
     from tabarena.models.aplr.model import APLRModel
     from tabarena.models.causilo.model import CausiloModel
     from tabarena.models.chimeraboost.model import ChimeraBoostModel
@@ -18,12 +20,14 @@ if TYPE_CHECKING:
     from tabarena.models.exaone_tabular.model import EXAONETabularModel
     from tabarena.models.ftfm.model import FTFMModel
     from tabarena.models.iltm.model import ILTMModel
+    from tabarena.models.inpriora.model import InprioraModel
     from tabarena.models.knn.model import KNNNewModel
     from tabarena.models.kumo_tabular.model import (
         KumoTabularMediumModel,
         KumoTabularModel,
         KumoTabularSmallModel,
     )
+    from tabarena.models.lattice.model import LatticeModel, LatticeTinyModel
     from tabarena.models.lightpfn.model import LightPFNModel
     from tabarena.models.limix.model import LimiXModel
     from tabarena.models.limix_2.model import LimiX2Model
@@ -35,12 +39,15 @@ if TYPE_CHECKING:
     from tabarena.models.prismboost.model import PrismBoostModel
     from tabarena.models.realmlp.model import RealMLPModel
     from tabarena.models.sap_rpt_oss.model import SAPRPTOSSModel
+    from tabarena.models.seldon.model import SeldonMiniModel, SeldonModel
     from tabarena.models.tababax.model import TabAbaxModel
     from tabarena.models.tabdpt.model import TabDPTModel, TabDPTTurboModel, TabDPTv13Model
     from tabarena.models.tabfm.model import TabFMModel
+    from tabarena.models.tabh2o.model import TabH2OModel
     from tabarena.models.tabicl.model import TabICLModel, TabICLv2Model
     from tabarena.models.tabldm.model import TabLDMModel
     from tabarena.models.tabm.model import TabMModel
+    from tabarena.models.tabpack.model import TabPackModel
     from tabarena.models.tabpfn_3.model import TabPFN3Model
     from tabarena.models.tabpfn_3_5.model import TabPFN35FastModel, TabPFN35Model
     from tabarena.models.tabpfnv2_5.model import RealTabPFNv25Model, TabPFNv26Model
@@ -56,6 +63,8 @@ if TYPE_CHECKING:
 # repository transitive imports we don't want to charge every consumer for.
 _LAZY_CLASSES: dict[str, str] = {
     "MethodMetadata": "tabarena.models._method_metadata",
+    "AgenticMLPModel": "tabarena.models.agentic_mlp.model",
+    "AgenticTabMModel": "tabarena.models.agentic_tabm.model",
     "APLRModel": "tabarena.models.aplr.model",
     "TabAbaxModel": "tabarena.models.tababax.model",
     "CausiloModel": "tabarena.models.causilo.model",
@@ -64,10 +73,13 @@ _LAZY_CLASSES: dict[str, str] = {
     "EXAONETabularModel": "tabarena.models.exaone_tabular.model",
     "FTFMModel": "tabarena.models.ftfm.model",
     "ILTMModel": "tabarena.models.iltm.model",
+    "InprioraModel": "tabarena.models.inpriora.model",
     "KNNNewModel": "tabarena.models.knn.model",
     "KumoTabularMediumModel": "tabarena.models.kumo_tabular.model",
     "KumoTabularModel": "tabarena.models.kumo_tabular.model",
     "KumoTabularSmallModel": "tabarena.models.kumo_tabular.model",
+    "LatticeModel": "tabarena.models.lattice.model",
+    "LatticeTinyModel": "tabarena.models.lattice.model",
     "LightPFNModel": "tabarena.models.lightpfn.model",
     "LimiXModel": "tabarena.models.limix.model",
     "LimiX2Model": "tabarena.models.limix_2.model",
@@ -81,14 +93,18 @@ _LAZY_CLASSES: dict[str, str] = {
     "RealMLPModel": "tabarena.models.realmlp.model",
     "RealTabPFNv25Model": "tabarena.models.tabpfnv2_5.model",
     "SAPRPTOSSModel": "tabarena.models.sap_rpt_oss.model",
+    "SeldonMiniModel": "tabarena.models.seldon.model",
+    "SeldonModel": "tabarena.models.seldon.model",
     "TabDPTModel": "tabarena.models.tabdpt.model",
     "TabDPTTurboModel": "tabarena.models.tabdpt.model",
     "TabDPTv13Model": "tabarena.models.tabdpt.model",
     "TabFMModel": "tabarena.models.tabfm.model",
+    "TabH2OModel": "tabarena.models.tabh2o.model",
     "TabICLModel": "tabarena.models.tabicl.model",
     "TabICLv2Model": "tabarena.models.tabicl.model",
     "TabLDMModel": "tabarena.models.tabldm.model",
     "TabMModel": "tabarena.models.tabm.model",
+    "TabPackModel": "tabarena.models.tabpack.model",
     "TabPFN35FastModel": "tabarena.models.tabpfn_3_5.model",
     "TabPFN35Model": "tabarena.models.tabpfn_3_5.model",
     "TabPFN3Model": "tabarena.models.tabpfn_3.model",

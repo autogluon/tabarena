@@ -116,7 +116,8 @@ class FTFMModel(AbstractTorchModel):
     ) -> int:
         """The fitted contexts dominate: one per ensemble member, and per codeword above ten classes.
 
-        They stay in host memory (offloaded from the GPU between decodes) and are pickled with the model.
+        They stay in host memory (offloaded from the GPU between decodes) and are saved with the model,
+        to AutoGluon's tensor file beside ``model.pkl``.
         """
         hyperparameters = hyperparameters or {}
         n_contexts = hyperparameters.get("n_estimators", 8)

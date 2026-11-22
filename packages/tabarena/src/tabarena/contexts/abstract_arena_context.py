@@ -57,7 +57,7 @@ from tabarena.models._method_simulator import MethodSimulator
 from tabarena.nips2025_utils.per_dataset_tables import get_per_dataset_tables
 from tabarena.repository import EvaluationRepository, EvaluationRepositoryCollection
 from tabarena.simulation.repo_simulator import RepoSimulator
-from tabarena.website.website_format import format_leaderboard
+from tabarena.website.website_format import format_leaderboard, system_display_names
 
 if TYPE_CHECKING:
     from tabarena.benchmark.experiment import Experiment, Job
@@ -1521,6 +1521,7 @@ class AbstractArenaContext:
         composite_leaderboard_kwargs: dict | None = None,
         save_composite_pareto_explorer: bool | None = None,
         save_composite_trajectories_explorer: bool | None = None,
+        save_explorer_hub: bool | None = None,
         save_per_dataset_explorer: bool | None = None,
         save_head_to_head_explorer: bool | None = None,
         head_to_head_methods: tuple[str, str] | None = None,
@@ -1565,6 +1566,13 @@ class AbstractArenaContext:
         is) likewise writes ``<output_dir>/tuning_trajectories_explorer.html``, one tuning-trajectories explorer
         over every subset, from the per-subset ``tuning_trajectories/tuning_trajectories.csv``, and
         ``<output_dir>/tuning_diagnostics_explorer.html`` from the per-subset ``tuning_diagnostics.csv``.
+
+        ``save_explorer_hub`` (``None`` by default: on whenever ``plot_compare`` or
+        ``plot_tuning_trajectories`` is) writes ``<output_dir>/explorers.html``, one page with a tab per
+        explorer the run wrote: the composite pages, and per subset the per-dataset, head-to-head and
+        win-rate pages with a subset picker (see
+        :func:`tabarena.plot.interactive.explorer_hub.build_explorer_hub_html`). The composite leaderboard's
+        interactive table, ``composite_leaderboard_explorer.html``, is written with the composite itself.
 
         ``static_figures`` (``"uncovered"`` by default) leaves out the static figures an interactive page
         shows and exports: each subset's four ``pareto_front_*`` figures (``pareto_front_explorer.html``), its
@@ -1651,6 +1659,8 @@ class AbstractArenaContext:
             save_composite_pareto_explorer = plot_compare
         if save_composite_trajectories_explorer is None:
             save_composite_trajectories_explorer = plot_tuning_trajectories
+        if save_explorer_hub is None:
+            save_explorer_hub = plot_compare or plot_tuning_trajectories
         if subsets == "auto":
             subsets = self._default_subsets
         output_dir = Path(output_dir)
@@ -1696,6 +1706,7 @@ class AbstractArenaContext:
             # The title follows this context's benchmark unless the caller names one explicitly.
             composite_kwargs = dict(composite_leaderboard_kwargs or {})
             composite_kwargs.setdefault("title", f"{self.benchmark_name} Leaderboard")
+            composite_kwargs.setdefault("system_names", system_display_names(self.method_metadata_collection.info()))
             generate_composite_leaderboard(
                 leaderboards=composite_inputs,
                 output_dir=output_dir,
@@ -1706,6 +1717,15 @@ class AbstractArenaContext:
         if save_composite_trajectories_explorer:
             self._save_composite_trajectories_explorer(output_dir, [suffix for suffix, _ in subset_results])
             self._save_composite_diagnostics_explorer(output_dir, [suffix for suffix, _ in subset_results])
+        if save_explorer_hub:
+            from tabarena.plot.interactive.explorer_hub import build_explorer_hub_html
+
+            build_explorer_hub_html(
+                output_dir,
+                subsets=[suffix for suffix, _ in subset_results],
+                page_title=f"{self.benchmark_name} explorers",
+                strip_lite=(composite_leaderboard_kwargs or {}).get("strip_lite"),
+            )
 
     def _save_composite_pareto_explorer(self, output_dir: Path, suffixes: list[str]) -> Path | None:
         """``<output_dir>/pareto_front_explorer.html``: the subsets' Pareto points (each subset's
@@ -1862,7 +1882,11 @@ class AbstractArenaContext:
             self._save_per_dataset_explorer(output_dir_subset, leaderboard=lb_df, subset_label=output_suffix)
         if save_head_to_head_explorer and plot_compare:
             self._save_head_to_head_explorer(
-                output_dir_subset, leaderboard=lb_df, subset_label=output_suffix, methods=head_to_head_methods
+                output_dir_subset,
+                leaderboard=lb_df,
+                subset_label=output_suffix,
+                methods=head_to_head_methods,
+                average_seeds=bool(compare_kwargs.get("average_seeds", False)),
             )
         return output_suffix, lb_compact
 
@@ -1921,11 +1945,13 @@ class AbstractArenaContext:
         leaderboard: pd.DataFrame | None,
         subset_label: str,
         methods: tuple[str, str] | None = None,
+        average_seeds: bool = False,
     ) -> Path | None:
         """``<output_dir_subset>/head_to_head_explorer.html``, two methods compared dataset by dataset over the
         subset's ``results_per_split.csv`` and ``method_info.csv`` (see :meth:`generate_all_figs`), opening on
-        ``methods`` or else ``leaderboard``'s top two. Returns the page, or ``None`` when the compare pass wrote
-        neither file.
+        ``methods`` or else ``leaderboard``'s top two, its Elo, ranks, improvability and win rates averaging seeds per
+        dataset when ``average_seeds`` (as the compare pass did). Returns the page, or ``None`` when the compare pass
+        wrote neither file.
         """
         from tabarena.plot.interactive.head_to_head_explorer import build_head_to_head_explorer_html
         from tabarena.website.process_artifacts_to_website import leader_names
@@ -1950,8 +1976,9 @@ class AbstractArenaContext:
             size_buckets=self._per_dataset_size_buckets,
             save_path=output_dir_subset / "head_to_head_explorer.html",
             page_title=f"{self.benchmark_name} head-to-head — {subset_label}",
-            # The page's Elo pins the method the leaderboard pins at 1000.
+            # The page's Elo pins the method the leaderboard pins at 1000, and averages seeds when its compare did.
             elo_calibration=self.calibration_method,
+            average_seeds=average_seeds,
         )
 
     def load_repo(

@@ -52,7 +52,8 @@ class CacheConfig:
         — because TabArena hangs its derived artifacts off this root at runtime — also
         ``tabarena_tasks/`` (materialized task specs), ``tabarena_text_cache/`` (text-feature
         embeddings), ``tabarena_metadata_cache/`` (data-foundry reference manifests) and
-        ``local/datasets/`` (local dataset payloads). Point this at a large disk; the library
+        ``local/datasets/`` (local dataset payloads; a ``UserTask`` created with ``task_cache_path``
+        writes them under that path instead). Point this at a large disk; the library
         default is ``~/.cache/openml``. :meth:`apply` sets this on the (global) ``openml.config``;
         set ``scope_openml=True`` (or use :meth:`scoped_openml`) to point TabArena at it only for
         the duration of a run and restore any pre-existing ``openml.config`` location after.

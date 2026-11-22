@@ -118,8 +118,10 @@ def get_model_family(model_name: str, system_names: Container[str] = frozenset()
         return Constants.system
     prefixes_mapping = {
         Constants.neural_network: [
+            "MLP-A",
             "REALMLP",
             "TABM",
+            "TABPACK",
             "FASTAI",
             "MNCA",
             "MODERNNCA",
@@ -158,6 +160,7 @@ def get_model_family(model_name: str, system_names: Container[str] = frozenset()
             "BETA",
             "TABFLEX",
             "TABFM",
+            "TABH2O",
             "REALTABPFN-V2.5",
             "SAP-RPT-OSS",
             "TABICLV2",
@@ -173,8 +176,11 @@ def get_model_family(model_name: str, system_names: Container[str] = frozenset()
             "EXAONE",
             "XIAOMI-TABLDM",
             "TA-KUMO-TABULAR",
+            "TA-SELDON",
             "FTFM",
+            "LATTICE",
             "LIGHTPFN",
+            "INPRIORA",
             "TABABAX",
         ],
         Constants.baseline: ["KNN", "LR", "LINEAR"],

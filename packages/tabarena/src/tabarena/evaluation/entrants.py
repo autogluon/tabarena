@@ -224,7 +224,16 @@ def filter_results_to_pool(
     pre-existing result is.
     """
     info = method_metadata_info.rename(columns={"method": "ta_name", "suite": "ta_suite"})
-    admitted = {
+    admitted = _admitted_methods(pool, info)
+    known = set(zip(info["ta_name"], info["ta_suite"], strict=True))
+    keys = list(zip(df_results["ta_name"], df_results["ta_suite"], strict=True))
+    keep = [key in admitted or key not in known for key in keys]
+    return df_results.loc[keep]
+
+
+def _admitted_methods(pool: EntrantPool, info: pd.DataFrame) -> frozenset[tuple[str, str]]:
+    """The ``(ta_name, ta_suite)`` keys of the rows of ``info`` that compete in ``pool``."""
+    return frozenset(
         (row.ta_name, row.ta_suite)
         for row in info.itertuples()
         if pool.admits(
@@ -232,8 +241,19 @@ def filter_results_to_pool(
             getattr(row, "tags", ()) or (),
             leakage=has_leakage_warning(getattr(row, "leakage_evidence", None)),
         )
-    }
-    known = set(zip(info["ta_name"], info["ta_suite"], strict=True))
-    keys = list(zip(df_results["ta_name"], df_results["ta_suite"], strict=True))
-    keep = [key in admitted or key not in known for key in keys]
-    return df_results.loc[keep]
+    )
+
+
+def group_identical_pools(method_metadata_info: pd.DataFrame) -> list[list[str]]:
+    """The keys of :data:`ENTRANT_POOLS`, grouped by the set of methods each pool admits.
+
+    Pools that admit the same methods publish the same numbers: a category nobody has entered yet
+    (no system carries its tag) adds no one, so every pool selecting it is a copy of the pool
+    without it. The website build computes each group once and publishes it under every key.
+    Groups and the keys inside them keep the order of :data:`ENTRANT_POOLS`.
+    """
+    info = method_metadata_info.rename(columns={"method": "ta_name", "suite": "ta_suite"})
+    groups: dict[frozenset, list[str]] = {}
+    for pool in ENTRANT_POOLS:
+        groups.setdefault(_admitted_methods(pool, info), []).append(pool.key)
+    return list(groups.values())

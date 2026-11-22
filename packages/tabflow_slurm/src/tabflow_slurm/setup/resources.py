@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from tabarena.benchmark.experiment import BeyondArenaExperimentBundle
+
 
 @dataclass
 class ResourcesSetup:
@@ -30,6 +32,10 @@ class ResourcesSetup:
         - If True, we stop fitting a model after `time_limit` minus the
             time it took for model agnostic preprocessing.
     """
+    system_time_limit: int | None = None
+    """Time limit for each fit of a system (a bundle with ``system_experiments=True``) in seconds.
+    If None (default), systems get ``time_limit`` like models. The plan applies it to a system job
+    unless the job sets its own ``time_limit``."""
     num_gpus_model: int | None = None
     """Number of GPUs passed to a model for fitting.
     If None (default), uses the same value as ``num_gpus``.
@@ -102,6 +108,8 @@ class BeyondArenaResourcesSetup(ResourcesSetup):
     """
 
     time_limit: int = 3600 * 4
+    system_time_limit: int | None = BeyondArenaExperimentBundle.DEFAULT_SYSTEM_TIME_LIMIT
+    """Systems run with 8 hours on BeyondArena (models: 4 hours)."""
     num_gpus: int = 0  # Default 0, only some models use GPU
     # When using GPU, we set the below to match the GPU VRAM
     # fake_memory_for_estimates: int = 80 # 40/80/96 depending on the GPU node used

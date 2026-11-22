@@ -107,6 +107,32 @@ system.
 </details>
 
 <details>
+<summary><b>🔒 Inductive predictions only</b> — why a test row may not see the other test rows</summary>
+
+TabArena evaluates inductive learning. A test row's prediction may use the training data and that
+row, and nothing else: the same row predicted alone, inside the full test set or in batches of any
+size gets the same prediction, up to floating-point rounding. Test rows that attend to each other,
+statistics or transforms fit on the rows being predicted, and test-time training on the unlabeled
+test rows are transductive and not accepted. A library with a transductive mode is integrated in its
+inductive one; the [`add-model` guide](.claude/skills/add-model/references/model_patterns.md) ("The
+`_fit` contract") lists what to look for. Why we require it:
+
+- **Fairness across methods.** A method that uses the test data at prediction time gains an advantage
+  over the methods and baselines that predict purely inductively, and the comparison no longer
+  reflects the models' quality.
+- **Representativeness.** A transductive setup here gives the model the *entire* test set at once
+  rather than a batch. Outside of Kaggle-style competitions this rarely matches real-world inference,
+  where predictions are made on smaller batches as the data arrives. Benchmarking transductive
+  learning properly needs a dedicated benchmark and a study of which test-time batch sizes are
+  realistic; in our past investigations, many of the gains vanished once batches were cut to a
+  realistic size (for example 1,000 rows).
+
+Transductive learning is an interesting direction, and we would like to support it in a separate
+benchmark in the future. TabArena-v0.2 will include tests that check for this behavior, so model
+developers can spot it early.
+</details>
+
+<details>
 <summary><b>📬 Submission process</b> — evaluate, open a PR, verification, leaderboard update</summary>
 
 We accept methods their authors have already evaluated with the official pipeline and confirm the
@@ -114,7 +140,14 @@ results by re-running them.
 
 1. Say how your method differs from the entrants already on the leaderboard. A new version of an
    existing method goes into the existing folder and supersedes the old entry rather than becoming a
-   new one.
+   new one. The leaderboard tracks the state of the art, so a new method needs promising Lite
+   results, as the [TabArena paper](https://arxiv.org/abs/2506.16791) asks of new models (Appendix
+   E.2): it has to compete with the established tuned baselines (gradient-boosted trees, random
+   forests, MLPs), and beating only KNN and linear models is not enough. A method that builds on an
+   entrant (a fine-tune of its checkpoint, a new head or readout on its backbone, a fixed
+   configuration of it) also has to improve on that entrant. As a rule we close a submission that
+   misses either bar. Maintainers can make exceptions case by case, and the call is theirs. A method
+   accepted at a peer-reviewed venue is welcome to submit or resubmit.
 2. Integrate it following the guide above and run the quick start.
 3. Evaluate it yourself on TabArena-Lite (`subset="lite"`, the first split of every dataset) with HPO
    where applicable (the default plus about 25 random configurations), or on the BeyondArena `core2k`

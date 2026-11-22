@@ -365,6 +365,42 @@ def test_task_cache_path_custom(tmp_path):
     assert ut.task_cache_path == tmp_path
 
 
+@pytest.mark.parametrize("custom_task_cache_path", [True, False])
+def test_create_local_openml_task_data_pickle_location(tmp_path, monkeypatch, custom_task_cache_path):
+    """The data pickle goes under ``task_cache_path`` when set, else under the OpenML root."""
+    openml_root, task_cache = tmp_path / "openml", tmp_path / "tasks"
+    monkeypatch.setattr(openml.config, "_root_cache_directory", openml_root)
+    df, target, _, _ = _make_dataset("classification", n=10)
+    ut = UserTask(task_name="data-pickle-location", task_cache_path=task_cache if custom_task_cache_path else None)
+    oml_task = ut.create_local_openml_task(
+        dataset=df,
+        target_feature=target,
+        problem_type="classification",
+        splits={0: {0: (list(range(8)), [8, 9])}},
+    )
+    expected_root, other_root = (task_cache, openml_root) if custom_task_cache_path else (openml_root, task_cache)
+    pickle_file = expected_root / "local" / "datasets" / ut._local_dataset_id / "data.pkl.py3"
+    assert pickle_file.exists()
+    assert oml_task.get_dataset().data_pickle_file == pickle_file
+    assert not (other_root / "local").exists()
+
+
+def test_create_local_openml_task_relative_task_cache_path_stores_absolute_pickle_path(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    df, target, _, _ = _make_dataset("classification", n=10)
+    ut = UserTask(task_name="relative-cache", task_cache_path=Path("tasks"))
+    oml_task = ut.create_local_openml_task(
+        dataset=df,
+        target_feature=target,
+        problem_type="classification",
+        splits={0: {0: (list(range(8)), [8, 9])}},
+    )
+    assert (
+        oml_task.get_dataset().data_pickle_file
+        == tmp_path / "tasks" / "local" / "datasets" / ut._local_dataset_id / "data.pkl.py3"
+    )
+
+
 def test_task_cache_path_default_contains_tabarena_tasks():
     ut = UserTask(task_name="test")
     assert "tabarena_tasks" in str(ut.task_cache_path)

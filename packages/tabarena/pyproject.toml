@@ -46,11 +46,13 @@ dependencies = [
   # `autogluon.timeseries` (torch, transformers, ...). `autogluon.tabular` transitively
   # provides `autogluon.{common,core,features}`, which is everything the code uses.
   # To use `uv`, you need to do `uv pip install --prerelease=allow .` so it recognizes pre-release AutoGluon.
-  # The shared-weights API (autogluon.core.models.abstract.SharedWeights) that the foundation-model
-  # wrappers import landed on AutoGluon's master on 2026-09-16 and ships in the nightlies from
-  # 1.6.3b20260917 on. The 1.6.3 release of 2026-09-18 was cut without it, so it is excluded; a pin
-  # that names a pre-release also lets pip consider the nightlies without `--pre`.
-  "autogluon.tabular>=1.6.3b20260917,!=1.6.3,<1.7",
+  # The floor is the first nightly that writes a model's torch tensors to `model_tensors.pt` beside
+  # `model.pkl` (autogluon/autogluon#6057). Without it, the context caches of Kumo-Tabular, Seldon
+  # and FTFM go back into the pickle, which AutoGluon writes inside the timed fit, and nothing
+  # errors. It also has the shared-weights API (autogluon.core.models.abstract.SharedWeights) the
+  # foundation-model wrappers import. A pin that names a pre-release also lets pip consider the
+  # nightlies without `--pre`.
+  "autogluon.tabular>=1.6.4b20261109,<1.7",
   # core's [ray] extra is exactly ray[default] at the range autogluon.core pins, so the
   # two cannot drift apart. (Not autogluon.tabular[ray]: that maps to core[all], which
   # additionally drags in raytune's hyperopt/stevedore/ray[tune].) autogluon.core is
@@ -111,6 +113,10 @@ realmlp = ["pytabkit>=1.5.0,<2.0"]
 # 1.3.1 is the first release with TabDPT-1.3's shared-weights loader (`TabDPTEstimator._load_model`).
 tabdpt = ["tabdpt>=1.3.1"]
 tabm = ["torch", "tabm>=0.0.3", "rtdl_num_embeddings>=0.0.12"]
+# agentic-tabular requires Python >= 3.12 (PEP 695 syntax in bin/{mlp,tabm}/_util.py), so these two extras, and
+# `extended` / `all` that include them, do not install on Python 3.11.
+agentic_mlp = ["agentic-tabular[torch] @ git+https://github.com/yandex-research/agentic-hpset.git@3d7349b36df9bea48a5c236830a8f313ba1819c9"]
+agentic_tabm = ["agentic-tabular[torch] @ git+https://github.com/yandex-research/agentic-hpset.git@3d7349b36df9bea48a5c236830a8f313ba1819c9", "loguru>=0.7.0"]
 
 # Extended model extras — opt-in individually or together via the `extended` union below.
 causilo = ["causilo==1.0.2"]  # 1.0.2 fits more than ten classes with its own output codes; 1.0.0 rejected them
@@ -127,6 +133,7 @@ tabfm = [
   "tabpfn-extensions[many_class]>=0.6.1",  # the output coding of datasets with more than ten classes
 ]
 tabstar_v1p1 = ["tabstar==1.2.0"]
+tabh2o = ["h2ofm==0.43.1"]
 # Chakra-Tab is a hosted API (systems/chakra_tab): the extra is only the HTTP client and the table encoding.
 chakra-tab = ["requests>=2.31", "pyarrow>=14"]
 perpetualboosting = ["perpetual"] # We used version 2.1.0
@@ -142,16 +149,21 @@ limix = [
   "kditransform",
 ]
 # LimiX-2's inference package is not on PyPI (pinned to a commit; keep in sync with `pip_extra` in
-# models/limix_2/info.py; empty extra on PyPI, see the note at the top of this table) and pins
-# torch==2.9.1, which would replace the torch every other model runs on. The extra is therefore left
-# out of `extended` and `all`; install it without its dependency tree next to the existing torch:
-#   uv pip install --no-deps "LimiX @ git+https://github.com/limix-ldm-ai/LimiX.git@774aa3e1a994cbe38f33758e3d663e9951855554" nvtx
+# models/limix_2/info.py; empty extra on PyPI, see the note at the top of this table), and its requirements
+# would be resolved against the torch every other model runs on (its constraints file pins torch==2.9.1). The
+# extra is therefore left out of `extended` and `all`; install it without its dependency tree next to the
+# existing torch:
+#   uv pip install --no-deps "LimiX @ git+https://github.com/limix-ldm-ai/LimiX.git@a917fa052eb637db98318b65712def280055ec34" nvtx
 limix_2 = [
-  "LimiX @ git+https://github.com/limix-ldm-ai/LimiX.git@774aa3e1a994cbe38f33758e3d663e9951855554",
+  "LimiX @ git+https://github.com/limix-ldm-ai/LimiX.git@a917fa052eb637db98318b65712def280055ec34",
   "nvtx",
 ]
 tabpfnwide = ["tabpfnwide>=0.3.0"]
 iltm = ["iltm==0.1.7"]
+# The `[triton]` extra enables the fused CUDA kernels used in the run.
+inpriora = [
+  "inpriora[triton] @ git+https://github.com/ai-for-data/inpriora.git@dde547d0559ee825a5e3830825c2bfff9badc6ab",
+]
 chimeraboost = ["chimeraboost>=0.30.0"]
 ctboost = ["ctboost==0.1.61"]
 prismboost = ["prismboost>=0.5.1"]
@@ -168,10 +180,10 @@ exaone_tabular = [
 tabswift = []
 # TabLDM is not published on PyPI; pinned to a commit so the benchmarked code is fixed.
 # Keep in sync with `pip_extra` in models/tabldm/info.py.
-tabldm = ["Xiaomi-TabLDM @ git+https://github.com/xiaomi-research/xiaomi-tabldm.git@d3fc3b7a0644631c8e3c18fa50629440e334f3f4"]
+tabldm = ["Xiaomi-TabLDM @ git+https://github.com/xiaomi-research/xiaomi-tabldm.git@19e752a7f09ec7e3d4bf2e04e6a45c4170f8e518"]
 # Xiaomi-TabLDM+ (systems/tabldm_plus) runs the same commit as `tabldm`. Keep in sync with
 # `pip_extra` in systems/tabldm_plus/info.py.
-tabldm_plus = ["Xiaomi-TabLDM @ git+https://github.com/xiaomi-research/xiaomi-tabldm.git@d3fc3b7a0644631c8e3c18fa50629440e334f3f4"]
+tabldm_plus = ["Xiaomi-TabLDM @ git+https://github.com/xiaomi-research/xiaomi-tabldm.git@19e752a7f09ec7e3d4bf2e04e6a45c4170f8e518"]
 # Mitra-v2 runs on AutoGluon's Mitra implementation; this is AutoGluon's own `mitra` extra
 # (loguru, einops, transformers, huggingface_hub, ...). Keep in sync with models/mitra_v2/info.py.
 # flash-attn is optional (faster attention, same results) and needs a prebuilt wheel:
@@ -185,11 +197,24 @@ tabpfn_3_5 = ["tabpfn>=9.0.0"]
 kumo_tabular = [
   "structured-data-models @ git+https://github.com/NVIDIA/structured-data-models.git@98f61289c7a4e1bce3b33771223ac2e123b63f19",
 ]
-# LightPFN: a 4.6M-parameter in-context classifier; keep in sync with `pip_extra` in models/lightpfn/info.py.
-lightpfn = ["lightpfn==1.0.0"]
+# Seldon / Seldon-Mini (Neuralk-AI). Keep in sync with `pip_extra` in models/seldon/info.py. Not in `extended`
+# because neuralk-oss and the `kumo_tabular` extra pin different versions of structured-data-models.
+seldon = ["neuralk-oss==0.3.0"]
+lattice = [
+  "lattice[fast] @ git+https://github.com/hachure-ai/Lattice.git@e106f9fba5994f85aca9593ae82af561054ab77a",
+  "torch>=2.7.1",  # AutoGluon's tensor serialization needs torch.utils.serialization.
+]
+# LightPFN: ~4.8M-parameter in-context classifier and regressor; keep in sync with `pip_extra` in models/lightpfn/info.py.
+lightpfn = [
+  "lightpfn==1.5.1",
+  "tabpfn-extensions[many_class]>=0.6.1",  # the output coding of datasets with more than ten classes
+]
 # FTFM is not published on PyPI; pinned to a commit so the benchmarked code is fixed (empty extra on
 # PyPI). Keep in sync with `pip_extra` in models/ftfm/info.py.
 ftfm = ["ftfm @ git+https://github.com/machinelearningnuremberg/ftfm-official.git@7e5e237daa26ef20f0faec1650d000b04de5122e"]
+# tabpackage is experimental upstream ("expect breaking changes"), so the release is pinned exactly.
+# Keep in sync with `pip_extra` in models/tabpack/info.py.
+tabpack = ["tabpackage[sklearn]==0.0.2.dev0"]
 # TabAbax is not on PyPI. Its model code is derived from TabICL
 # (github.com/soda-inria/tabicl, BSD-3-Clause). Keep in sync with `pip_extra`
 # in models/tababax/info.py. The default checkpoints download from
@@ -229,6 +254,7 @@ extended = [
   "tabarena[limix]",
   "tabarena[tabpfnwide]",
   "tabarena[iltm]",
+  "tabarena[inpriora]",
   "tabarena[chimeraboost]",
   "tabarena[ctboost]",
   "tabarena[prismboost]",
@@ -240,9 +266,14 @@ extended = [
   "tabarena[mitra_v2]",
   "tabarena[tabpfn_3_5]",
   "tabarena[kumo_tabular]",
+  "tabarena[lattice]",
   "tabarena[lightpfn]",
   "tabarena[ftfm]",
+  "tabarena[tabpack]",
   "tabarena[tababax]",
+  "tabarena[agentic_mlp]",
+  "tabarena[agentic_tabm]",
+  "tabarena[tabh2o]",
 ]
 
 # Convenience: everything (core + extended + probmetrics).

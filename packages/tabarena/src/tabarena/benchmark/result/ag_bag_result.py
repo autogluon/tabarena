@@ -10,6 +10,22 @@ from tabarena.benchmark.result.config_result import ConfigResult
 from tabarena.benchmark.validation_protocol import validation_protocol_key
 
 
+def pool_per_child_val(
+    val_idx_per_child: list[np.ndarray], pred_val_per_child: list[np.ndarray], num_rows: int
+) -> np.ndarray:
+    """The pooled validation predictions of a bag: per row, the mean of the predictions of the children that
+    validated it (float32, ``num_rows`` rows). A row no child validated is NaN.
+    """
+    pred_val = np.zeros(dtype=np.float64, shape=(num_rows, *np.shape(pred_val_per_child[0])[1:]))
+    val_child_count = np.zeros(dtype=int, shape=num_rows)
+    for val_idx_child, pred_val_child in zip(val_idx_per_child, pred_val_per_child, strict=False):
+        val_child_count[val_idx_child] += 1
+        pred_val[val_idx_child] += pred_val_child
+    with np.errstate(invalid="ignore"):
+        pred_val = pred_val / val_child_count.reshape(-1, *([1] * (pred_val.ndim - 1)))
+    return pred_val.astype(np.float32)
+
+
 class AGBagResult(ConfigResult):
     @property
     def bag_info(self) -> dict:
@@ -69,6 +85,10 @@ class AGBagResult(ConfigResult):
         bag_info = self.result["simulation_artifacts"]["bag_info"]
         if "pred_proba_test_per_child" in bag_info:
             bag_info["pred_test_per_child"] = bag_info.pop("pred_proba_test_per_child")
+        if "pred_proba_val_per_child" in bag_info:
+            # The fold models' own validation predictions (a bag fit with AutoGluon's `oof_per_fold`). The
+            # pooled `pred_val` is their per-row mean, which the result may then not carry.
+            bag_info["pred_val_per_child"] = bag_info.pop("pred_proba_val_per_child")
         if "val_idx_per_child" in bag_info and "pred_val_per_child" not in bag_info:
             # TODO: verify nothing break if we dont assert anymore
             # Ensure no repeated bagging
@@ -118,21 +138,11 @@ class AGBagResult(ConfigResult):
         return self.result
 
     def _pred_val_from_children(self) -> np.ndarray:
-        num_samples_val = len(self.simulation_artifacts["y_val_idx"])
-        if len(self.bag_info["pred_val_per_child"][0].shape) == 1:
-            pred_val = np.zeros(dtype=np.float64, shape=num_samples_val)
-        else:
-            pred_val = np.zeros(
-                dtype=np.float64, shape=(num_samples_val, self.bag_info["pred_val_per_child"][0].shape[1])
-            )
-        val_child_count = np.zeros(dtype=int, shape=num_samples_val)
-        for val_idx_child, pred_val_child in zip(
-            self.bag_info["val_idx_per_child"], self.bag_info["pred_val_per_child"], strict=False
-        ):
-            val_child_count[val_idx_child] += 1
-            pred_val[val_idx_child] += pred_val_child
-        pred_val = pred_val / val_child_count if len(pred_val.shape) == 1 else pred_val / val_child_count[:, None]
-        return pred_val.astype(np.float32)
+        return pool_per_child_val(
+            self.bag_info["val_idx_per_child"],
+            self.bag_info["pred_val_per_child"],
+            num_rows=len(self.simulation_artifacts["y_val_idx"]),
+        )
 
     def _pred_test_from_children(self) -> np.ndarray:
         num_samples_test = len(self.simulation_artifacts["y_test_idx"])

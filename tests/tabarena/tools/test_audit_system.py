@@ -413,6 +413,33 @@ def test_jitter_is_judged_on_rows_without_a_training_copy():
     assert check.verdict == PASS, check.summary
 
 
+class _SchemaStrictSystem(_HonestSystem):
+    """Refuses test rows whose column types differ from the fit's, as a server casting to its training schema does."""
+
+    def _fit_system(self, X, y, **kwargs):
+        self._dtypes = dict(X.dtypes)
+        return super()._fit_system(X, y, **kwargs)
+
+    def _features(self, X, *, fit: bool = False) -> np.ndarray:
+        if not fit and dict(X.dtypes) != self._dtypes:
+            raise RuntimeError("Cannot losslessly cast from float64 to int64")
+        return super()._features(X, fit=fit)
+
+
+def test_jitter_perturbs_rows_of_the_schema_the_system_was_fit_on():
+    data = _split("binary")
+    integer = list(data.X_train.select_dtypes("number").columns[:2])
+    for frame in (data.X_train, data.X_test):
+        frame[integer] = (frame[integer] * 10).round().astype("int64")
+    results = audit_system(_SchemaStrictSystem, datasets=[data], checks=("jitter", "time"), log=lambda _msg: None)
+
+    assert not _by_check(results, "probe")
+    (check,) = _by_check(results, "jitter")
+    assert check.verdict == PASS, check.summary
+    (timing,) = _by_check(results, "time")
+    assert [c["probe"] for c in timing.details["calls"]] == ["base", "jitter-base", "jitter"]
+
+
 def _timed_calls(fit_s: float, predict_s: float) -> list[dict]:
     return [
         {"probe": "p", "dataset": "d", "rows": 10, "wall_s": fit_s + predict_s, "fit_s": fit_s, "predict_s": predict_s}

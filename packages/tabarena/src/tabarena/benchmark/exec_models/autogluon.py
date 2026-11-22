@@ -13,7 +13,6 @@ from autogluon.core.utils import get_pred_from_proba
 from loguru import logger
 
 from tabarena.benchmark.exec_models.autogluon_utils import (
-    SPLIT_RANDOM_STATE,
     get_num_group_instances,
     resolve_holdout_split,
     resolve_model_cls,
@@ -21,6 +20,7 @@ from tabarena.benchmark.exec_models.autogluon_utils import (
     validation_structure_from_metadata,
 )
 from tabarena.benchmark.exec_models.base import AbstractExecModel
+from tabarena.benchmark.exec_models.grouped_splits import SPLIT_RANDOM_STATE
 from tabarena.benchmark.exec_models.persist_inference import (
     InferencePersistence,
     dispatch_prepare_for_inference,
@@ -90,8 +90,8 @@ class AGWrapper(AbstractExecModel):
         no effect on a task without ``time_on``; cannot be combined with stacking (AutoGluon raises).
     split_random_state:
         Full predictor only. Seed for AutoGluon's structure-aware splitting, injected as the
-        learner's ``random_state`` when a structure is declared. Defaults to ``data_foundry``'s
-        seed (:data:`~tabarena.benchmark.exec_models.autogluon_utils.SPLIT_RANDOM_STATE`) so the
+        learner's ``random_state`` when a structure is declared. Defaults to the split seed
+        (:data:`~tabarena.benchmark.exec_models.grouped_splits.SPLIT_RANDOM_STATE`) so the
         folds match TabArena's resolved ones; an explicit ``init_kwargs["learner_kwargs"]["random_state"]``
         wins.
     persist:
@@ -781,7 +781,7 @@ class AGWrapper(AbstractExecModel):
             release_after_inference(predictor)
         else:
             free_inference_memory()
-        if predictor is not None:
+        if predictor is not None and predictor.path is not None:
             shutil.rmtree(predictor.path, ignore_errors=True)
         if self.release_shared_weights_on_cleanup:
             from tabarena.models import _weights
@@ -1331,6 +1331,9 @@ class AGSingleBagWrapper(AGSingleWrapper):
         forwarded to ``get_per_child_test``, which takes the arrays the timed predict's children pass
         kept, or reuses the outputs for a single-child bag, instead of predicting again;
         ``per_child_test_source`` records which path produced the artifact.
+
+        A bag that kept each fold model's validation predictions (``get_per_child_val``) adds them as
+        ``pred_proba_val_per_child``, one array per entry of ``val_idx_per_child``.
         """
         model = self._load_model()
         bag_info = {}
@@ -1338,7 +1341,35 @@ class AGSingleBagWrapper(AGSingleWrapper):
             X_test=X_test, model=model, y_pred=y_pred, y_pred_proba=y_pred_proba
         )
         bag_info["val_idx_per_child"] = self.get_per_child_val_idx(model=model)
+        pred_val_per_child = self.get_per_child_val(model=model, val_idx_per_child=bag_info["val_idx_per_child"])
+        if pred_val_per_child is not None:
+            bag_info["pred_proba_val_per_child"] = pred_val_per_child
         return bag_info
+
+    @staticmethod
+    def get_per_child_val(model, val_idx_per_child: list[np.ndarray]) -> list[np.ndarray] | None:
+        """Return each fold model's predictions on its own validation rows, or None when the bag kept none.
+
+        A bag fit with AutoGluon's ``oof_per_fold`` (an ``ag_args_ensemble`` option) keeps them, in child
+        order, also after ``refit_folds`` dropped the fold models. The bag's pooled out-of-fold
+        predictions are their per-row mean, so with repeated folds they cannot be cut back out of the
+        pooled array. An AutoGluon without the option returns None, and so does a bag whose kept folds
+        are not those of ``val_idx_per_child`` (logged), so the list always pairs with it.
+        """
+        predict_proba_oof_per_fold = getattr(model, "predict_proba_oof_per_fold", None)
+        if predict_proba_oof_per_fold is None or not model.params.get("oof_per_fold", False):
+            return None
+        folds = predict_proba_oof_per_fold()
+        same_folds = len(folds) == len(val_idx_per_child) and all(
+            np.array_equal(rows, val_idx) for (rows, _pred), val_idx in zip(folds, val_idx_per_child, strict=True)
+        )
+        if not same_folds:
+            logger.warning(
+                f"{model.name}: the folds of its per-fold out-of-fold predictions differ from its validation "
+                f"indices, the per-fold predictions are left out of the bag artifact."
+            )
+            return None
+        return [np.asarray(pred, dtype=np.float32) for _rows, pred in folds]
 
     def get_per_child_val_idx(self, model=None) -> list[np.ndarray]:
         """Return each child's out-of-fold validation indices (into the internal train data).

@@ -637,12 +637,22 @@ class EloHelper:
         multiplicity vector over the columns of :meth:`_rank_win_matrix`. Each round is then a
         matrix-vector product plus one Bradley-Terry solve, so the battle table -- and the cost of
         reweighting it every round -- drops out entirely.
+
+        Each round's solve starts from the previous round's ratings. Resamples of the same tasks
+        have nearby optima, so this saves iterations on every field, and on a field of a few tasks
+        it is the difference between seconds and a minute: there a resample is often separable (a
+        group of methods wins every game against the rest), the gap between the groups has no
+        finite maximum, and only the ridge (:data:`BT_RIDGE`) bounds it. The likelihood is that flat
+        out there that a solve from zero needs thousands of iterations to stop, and where it stops
+        within that plateau is arbitrary in both cases. Ratings with a finite maximum come out the
+        same either way.
         """
         methods, win_matrix = self._rank_win_matrix(results_per_task=results_per_task)
         n_tasks = win_matrix.shape[1]
 
         rng = np.random.default_rng(seed=seed)
         rows = []
+        init = None
         for _ in tqdm(range(BOOTSTRAP_ROUNDS), desc="bootstrap", disable=not show_process):
             counts = np.bincount(rng.choice(n_tasks, size=n_tasks, replace=True), minlength=n_tasks)
             elo = self._bradley_terry_from_win_totals(
@@ -650,7 +660,10 @@ class EloHelper:
                 n_tasks=n_tasks,
                 SCALE=SCALE,
                 INIT_RATING=INIT_RATING,
+                init=init,
             )
+            # Back to the centred log-strengths the solver works in.
+            init = (elo - INIT_RATING) * np.log(10) / SCALE
             ser = pd.Series(elo, index=methods)
             if calibration_framework is not None:
                 target = INIT_RATING if calibration_elo is None else float(calibration_elo)

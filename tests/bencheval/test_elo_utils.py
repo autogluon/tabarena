@@ -298,6 +298,28 @@ def test_rank_path_bootstrap_matches_the_battle_path():
         assert (a - b).abs().max() < 1e-2
 
 
+def test_warm_started_bootstrap_matches_independent_solves():
+    """Each round starts from the last one's ratings; on a field with a finite maximum that changes nothing."""
+    results = _ladder_results(n_methods=8, n_tasks=60)
+    helper = EloHelper(method_col="method", task_col="task", error_col="metric_error")
+    rounds = 20
+
+    warm = helper.compute_elo_ratings_from_ranks(results_per_task=results, BOOTSTRAP_ROUNDS=rounds, show_process=False)
+
+    # The same resamples (same seed, same draws), each solved from zero.
+    methods, win_matrix = helper._rank_win_matrix(results_per_task=results)
+    n_tasks = win_matrix.shape[1]
+    rng = np.random.default_rng(seed=0)
+    cold = []
+    for _ in range(rounds):
+        counts = np.bincount(rng.choice(n_tasks, size=n_tasks, replace=True), minlength=n_tasks)
+        elo = EloHelper._bradley_terry_from_win_totals(wins=win_matrix @ counts.astype(float), n_tasks=n_tasks)
+        cold.append(pd.Series(elo, index=methods))
+    cold = pd.DataFrame(cold)[warm.columns]
+
+    assert np.abs(warm.to_numpy() - cold.to_numpy()).max() < 1e-3
+
+
 def test_ratings_are_centred_on_init_rating():
     """Bradley-Terry fixes strengths only up to a common factor, so the offset needs a convention."""
     elo = _elo_helper().compute_mle_elo_from_ranks(results_per_task=_ragged_results(), INIT_RATING=1000)

@@ -290,6 +290,29 @@ class TestBuildSetups:
         setup = _plan([ModelJob(models=("A", 0))]).build_setups(num_ray_cpus=3)[0]
         assert setup.num_ray_cpus == 3
 
+    def test_system_job_gets_the_system_time_limit(self):
+        systems = TabArenaExperimentBundle(
+            n_random_configs=0, preprocessing_pipelines=["default"], system_experiments=True
+        )
+        resources = _resources(system_time_limit=8 * 3600)
+        system_setup = _plan([ModelJob(models=("S", 0))], experiment_bundle=systems, resources_setup=resources)
+        assert system_setup.build_setups()[0].resources_setup.time_limit == 8 * 3600
+        # A job's own time limit wins, and models keep `time_limit`.
+        own = _plan(
+            [ModelJob(models=("S", 0), resources={"time_limit": 600})],
+            experiment_bundle=systems,
+            resources_setup=resources,
+        )
+        assert own.build_setups()[0].resources_setup.time_limit == 600
+        models = _plan([ModelJob(models=("A", 0))], resources_setup=resources)
+        assert models.build_setups()[0].resources_setup.time_limit == 3600
+
+    def test_beyondarena_resources_give_systems_eight_hours(self):
+        from tabflow_slurm.setup.resources import BeyondArenaResourcesSetup
+
+        resources = BeyondArenaResourcesSetup()
+        assert (resources.time_limit, resources.system_time_limit) == (4 * 3600, 8 * 3600)
+
 
 # ---------------------------------------------------------------------------
 # TabArenaV0pt1BenchmarkPlan (preset defaults)

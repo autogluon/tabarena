@@ -21,6 +21,8 @@
 
 TabArena is not a benchmarking service. We accept methods their authors have already evaluated with the official pipeline and confirm the results by re-running them. See [Contributing a Model or System](https://github.com/autogluon/tabarena#contributing-a-model-or-system).
 
+The leaderboard tracks the state of the art in tabular prediction, so a new method needs promising TabArena-Lite results, as the [TabArena paper](https://arxiv.org/abs/2506.16791) asks of new models (Appendix E.2). It has to compete with the established tuned baselines (gradient-boosted trees, random forests, MLPs); beating only KNN and linear models is not enough, and a method at the level of the default random forest or below adds no information to the leaderboard. A method that builds on an entrant already on the leaderboard (a fine-tune of its checkpoint, a new head or readout on its backbone, a fixed configuration of it) also has to improve on that entrant in your own Lite results. As a rule we close a pull request that misses either bar. Maintainers can make exceptions case by case, and the call is theirs; if you think your method warrants one, say why in the description. A method accepted at a peer-reviewed venue is welcome to submit or resubmit, since readers want to know where published methods stand.
+
 A submission reaches the leaderboard in five stages. This pull request is stage 1; maintainers drive the other four and post in the PR as each one completes, so this thread is the record of the submission.
 
 1. Pull request with the method. You integrate the model or system, run the quick start and the TabArena-Lite evaluation, and open this PR with the checklists below filled in. Reviewers check the wrapper against the protocol (the validation split TabArena passes, time limits, resources, seeds), the validation protocol the results record (the official one unless the PR declares otherwise), the dependency pin and license, and the Lite results, and help fix what the review finds.
@@ -29,7 +31,7 @@ A submission reaches the leaderboard in five stages. This pull request is stage 
 4. Upload and merge. The maintainer processes the raw results, hosts the artifacts (results, processed predictions and raw predictions), records the hosted locations and the verification status in the method's `info.py`, registers the method in the arena's method collection, and merges the PR. A merged method therefore always has hosted results behind it.
 5. Leaderboard update. After the merge, the website artifacts are regenerated from the hosted results and the leaderboard is refreshed with a new version entry that names the method. This happens in batches with other new entries, usually within days of the merge.
 
-Kind: <!-- model or system; if it replaces an entrant already on the leaderboard, name it -->
+Kind: <!-- model or system; if it replaces or builds on an entrant already on the leaderboard, name it -->
 
 **Files**
 
@@ -40,6 +42,7 @@ Kind: <!-- model or system; if it replaces an entrant already on the leaderboard
 **Implementation**
 
 - [ ] Model: `_fit` uses the `X_val` / `y_val` that TabArena passes (no internal cross-validation, hold-out split or tuning on the training data), and the search space in `hpo.py` supports about 200 configurations. Variants are search-space parameters, not separate models.
+- [ ] Predictions are inductive: a test row's prediction depends only on the training data and that row, so it does not change with the other test rows, their order or the batch size. No test rows attending to each other, no statistics or transforms fit on the rows being predicted, no test-time training on the test rows; a library with a transductive mode runs in its inductive one (see "Inductive predictions only" in the README).
 - [ ] `time_limit`, `num_cpus` / `num_gpus` and the seed are wired through; nothing is monkey-patched globally; optional imports stay inside the wrapper; the model pickles for parallel bagging.
 - [ ] The dependency is pip-installable with an exact pin (PyPI version or git commit, no vendored code) and the extra matches `pip_extra` in `info.py`; Hugging Face checkpoints pin a revision. Gated weights are fine (TabPFN's are gated) when maintainers can get access with their own Hugging Face account; the PR names the gated repository, and the token comes from the maintainer's Hugging Face login (`HF_TOKEN` or `hf auth login`), never from the code. The license, the paper and documentation links, and the supported problem types are stated.
 - [ ] Hosted API (`closed-source-api`): the key is read from an environment variable at call time; requests carry only the training table, the test features and the task's problem type, metric, time limit and config, never the dataset name or split; `python -P -m tabarena.tools.audit_system --system <Name> --offline` ran and its request outline is pasted below. State the concurrency the API allows, the hardware and the models behind it, and how maintainers get an evaluation key.
@@ -48,6 +51,7 @@ Kind: <!-- model or system; if it replaces an entrant already on the leaderboard
 **Results** (we need these before we re-run the method)
 
 - [ ] TabArena-Lite (`subset="lite"`) with the official pipeline: the default plus about 25 random HPO configurations where the method has a search space; or the BeyondArena `core2k` subset. The run used the arena's official validation protocol (the default); a run made with `official_validation_protocol=False` says so here and why.
+- [ ] The Lite leaderboard below shows the method competing with the tuned tree ensembles and MLPs and, when it builds on an entrant, includes that entrant with the method ahead of it. Otherwise the description names the peer-reviewed venue or says why the method should be an exception.
 - [ ] The hardware (CPU, GPU, RAM) and the entry-point script are stated below.
 - [ ] Optional: a link to the run's output directory (the `expname` folder with the `results.pkl` files, zipped or as a GitHub / Hugging Face release) so we can verify and integrate the results directly.
 - [ ] Who signs off on the maintainer re-run on behalf of the authors: <!-- GitHub handle -->

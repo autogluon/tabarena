@@ -15,6 +15,7 @@ than a re-evaluation.
 from __future__ import annotations
 
 import math
+from collections.abc import Sequence
 from pathlib import Path
 
 import numpy as np
@@ -54,6 +55,11 @@ BEYONDARENA_SIZE_BUCKETS: list[tuple[str, str, float]] = [
     ("medium", "10k – 100k", 100_000),
     ("large", "> 100k", math.inf),
 ]
+
+#: How many methods the reader can mark besides the contender: one per slot the page draws, each
+#: its own colour and shape (blue diamond, red triangle, aqua square, ink inverted triangle). Three
+#: hues are all a strip clears for colour-blind and normal vision together; the fourth is neutral.
+MAX_HIGHLIGHTS = 4
 
 #: The per-dataset trajectory frame's file name, as the tuning-trajectory pass writes it next to its figures.
 PER_DATASET_TRAJECTORIES_FILE = "tuning_trajectories_per_dataset.csv"
@@ -223,18 +229,22 @@ def per_dataset_points(results_per_split: pd.DataFrame) -> pd.DataFrame:
     so a dataset's numbers here are the per-dataset terms of the leaderboard's averages. ``std``
     is the standard deviation of the error over the splits (``NaN`` with a single split) and
     ``tied`` whether the method is statistically tied with the dataset's best method, see
-    :func:`tied_with_best`.
+    :func:`tied_with_best`. ``train_s`` and ``infer_s`` are the mean fit and prediction time
+    over the splits; ``infer_s`` is ``NaN`` when the results carry no ``time_infer_s``.
     """
     df = measured_results(results_per_split)
     best_per_split = df.groupby(["dataset", "fold"])["metric_error"].transform("min")
     df["_imp"] = (1 - best_per_split / df["metric_error"]).fillna(0.0) * 100
     df["_rank"] = df.groupby(["dataset", "fold"])["metric_error"].rank(method="average")
+    if "time_infer_s" not in df.columns:
+        df["time_infer_s"] = np.nan
     points = df.groupby(["dataset", "method"], as_index=False).agg(
         err=("metric_error", "mean"),
         std=("metric_error", "std"),
         rank=("_rank", "mean"),
         imp=("_imp", "mean"),
         train_s=("time_train_s", "mean"),
+        infer_s=("time_infer_s", "mean"),
     )
     points = points.merge(tied_with_best(df), on=["dataset", "method"], how="left")
     # A left merge fills unmatched rows with NaN; keep the column's `None`-or-bool contract.
@@ -317,6 +327,7 @@ def build_per_dataset_explorer_html(
     trajectories: pd.DataFrame | None = None,
     dataset_metadata: pd.DataFrame | None = None,
     default_contender: str | None = None,
+    default_highlights: Sequence[str] | None = None,
     save_path: str | Path,
     title: str | None = None,
     page_title: str = "TabArena per-dataset results",
@@ -343,6 +354,10 @@ def build_per_dataset_explorer_html(
         Display name of the method the page should open on; the leaderboard's top row. Falls
         back to the best mean rank, which is only a fallback because dropping imputed results
         makes that measure favour a model that ran on few datasets and did well on those.
+    default_highlights
+        Display names of methods the page should open with marked next to the contender, each in
+        its own colour and shape on the strips, the ranking and the chart (at most ``MAX_HIGHLIGHTS``; names
+        not in the cell and the contender itself are skipped). The reader can change them.
     title
         Headline shown above the table; omitted when ``None``.
     size_buckets
@@ -378,6 +393,7 @@ def build_per_dataset_explorer_html(
             "r": [_round(v, 2) for v in points["rank"]],
             "i": [_round(v, 3) for v in points["imp"]],
             "t": [_significant(v, 4) for v in points["train_s"]],
+            "it": [_significant(v, 4) for v in points["infer_s"]],
             # The spread over the splits, and whether the method is statistically tied with the
             # dataset's best (1 / 0; absent when the test could not run, see `tied_with_best`).
             "s": [_significant(v, 3) for v in points["std"]],
@@ -413,6 +429,12 @@ def build_per_dataset_explorer_html(
         mean_rank = points.groupby("method")["rank"].mean()
         contender_index = method_index[mean_rank.idxmin()] if not mean_rank.empty else 0
 
+    highlight_indices: list[int] = []
+    for name in default_highlights or ():
+        index = by_name.get(name)
+        if index is not None and index != contender_index and index not in highlight_indices:
+            highlight_indices.append(index)
+
     config = {
         "title": title,
         "datasets": _drop_nulls(datasets.drop(columns=["dataset"]).assign(key=datasets["dataset"])),
@@ -425,6 +447,8 @@ def build_per_dataset_explorer_html(
         ],
         "metricDisplay": _METRIC_DISPLAY,
         "defaultContender": int(contender_index),
+        "defaultHighlights": [int(i) for i in highlight_indices[:MAX_HIGHLIGHTS]],
+        "maxHighlights": MAX_HIGHLIGHTS,
         # What the `b` flag on a point means, for the page's tooltips and legend.
         "significance": {
             "alpha": SIGNIFICANCE_ALPHA,

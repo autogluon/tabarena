@@ -214,10 +214,12 @@ Compute + time budget per fit: `time_limit` (s), `num_cpus`, `num_gpus`, `memory
   sentence-transformer text encoding, while fitting on CPU);
 - `fake_memory_for_estimates` — report a different memory figure to a model's internal estimator
   (e.g. when VRAM ≫ host RAM for foundation models) — experimental;
-- preprocessing-time knobs (`time_limit_*_model_agnostic_preprocessing`).
+- preprocessing-time knobs (`time_limit_*_model_agnostic_preprocessing`);
+- `system_time_limit` — the time limit of a system job (`system_experiments=True`) that sets no
+  `time_limit` of its own; `None` gives systems `time_limit`.
 
 Presets: **`TabArenaV0pt1ResourcesSetup`** (8 CPU / 32 GB / 1h) and **`BeyondArenaResourcesSetup`**
-(auto CPU/RAM, 4h; docstring records the exact GPU/CPU node specs used).
+(auto CPU/RAM, 4h for models and 8h for systems; docstring records the exact GPU/CPU node specs used).
 
 ### `SchedulerSetup` / `SlurmSetup` / `GCPSlurmSetup` — `setup/scheduler.py`
 - **`SchedulerSetup`** (base) owns scheduler-agnostic **batching**: `bundle_size` (items per array
@@ -291,11 +293,12 @@ dataset is re-materialized from its container into a scratch OpenML root and the
 replaces the legacy file atomically (a SLURM job reading the shared cache meanwhile sees one complete
 file or the other).
 
-Weights follow the same path. For each of the run's models without a remote `weights/<model>.json`,
-`setup` runs the model's prefetch on the head node into a scratch cache root with `HF_HOME`,
+Weights follow the same path. For each of the run's models without a remote `weights/<model>.json`, or
+whose manifest records another fingerprint of the model's weight declaration (its pip pin and the source of
+the folder that defines its prefetcher, where pinned checkpoint revisions live), `setup` runs the model's prefetch on the head node into a scratch cache root with `HF_HOME`,
 `XDG_CACHE_HOME` (tabpfn's cache) and `TORCH_HOME` redirected, uploads what landed there (Hugging Face
 repositories as their `snapshots` and `refs`, so blobs are not stored twice; tabpfn checkpoints file by
-file) and writes the manifest, so the next setup skips the prefetch. The head node's own token is used
+file) and writes the manifest, so the next setup skips the prefetch until the fingerprint changes. Only missing files are uploaded, so a moved revision lands next to the old one. The head node's own token is used
 for gated repositories. Workers pull every model's entries at start and, when all of them are seeded,
 run with `HF_HUB_OFFLINE=1`, so no token reaches the VMs; a model without seeded weights is prefetched
 by the worker from the Hub as before. Workers only read the prefix. `dataset_cache_uri` points it
