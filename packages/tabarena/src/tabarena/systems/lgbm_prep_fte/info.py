@@ -31,8 +31,8 @@ lgbm_prep_fte200_method_metadata = MethodMetadata.system(
 lgbm_prep_fte25_method_metadata = MethodMetadata.system(
     method=NAMES["beyondarena"],
     name=NAMES["beyondarena"],
-    suite="beyondarena-2026-11-20",
-    date="2026-11-20",
+    suite="beyondarena-2026-11-23",
+    date="2026-11-23",
     **_common_kwargs,
 )
 
