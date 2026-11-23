@@ -3,7 +3,7 @@ from __future__ import annotations
 import inspect
 import logging
 import time
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar
 
 from autogluon.core.models import AbstractModel
 from autogluon.core.utils.exceptions import TimeLimitExceeded
@@ -38,6 +38,7 @@ class APLRModel(AbstractModel):
     ag_name = "aplr"
     ag_priority = 65
     seed_name = "random_state"
+    _default_ag_args_ensemble_extra: ClassVar[dict] = {"vary_seed_across_folds": True}  # trained: a seed per fold model
     _supported_problem_types = ["binary", "multiclass", "regression"]
     default_resources_physical_cores_only = True
 

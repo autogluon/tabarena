@@ -180,6 +180,7 @@ class XRFMModel(AbstractModel):
     warmup_modules: ClassVar[tuple[str, ...]] = ("torch", "xrfm")
     ag_name = "xRFM"
     seed_name = "random_state"
+    _default_ag_args_ensemble_extra: ClassVar[dict] = {"vary_seed_across_folds": True}  # trained: a seed per fold model
     _supported_problem_types = ["binary", "multiclass", "regression"]
     default_num_gpus = 1
     default_resources_physical_cores_only = True

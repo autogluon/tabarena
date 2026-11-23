@@ -232,6 +232,7 @@ class LimiXModel(AbstractTorchModel):
     _default_ag_args_ensemble_extra = {
         "fold_fitting_strategy": "sequential_local",
         "refit_folds": True,
+        "vary_seed_across_folds": False,  # pretrained: the fold models are the refit that predicts
     }
     # We set the default to 100k to try to run on all of TabArena.
     # Note, all examples of LimiX code itself says one should skip above 50k.

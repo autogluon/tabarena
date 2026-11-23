@@ -228,6 +228,7 @@ class TabFMModel(AbstractTorchModel):
     _default_ag_args_ensemble_extra = {
         "fold_fitting_strategy": "sequential_local",
         "refit_folds": True,
+        "vary_seed_across_folds": False,  # pretrained: the fold models are the refit that predicts
     }
     #: No ``max_classes`` cap: above ``many_class_threshold`` (the head's width) the fit output-codes the labels.
     _default_auxiliary_params_extra = {"max_classes": None, "many_class_threshold": 10}

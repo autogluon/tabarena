@@ -61,6 +61,7 @@ class PrismBoostModel(AbstractModel):
     ag_name = "PrismBoost"
     ag_priority = 65
     seed_name = "random_state"
+    _default_ag_args_ensemble_extra: ClassVar[dict] = {"vary_seed_across_folds": True}  # trained: a seed per fold model
     warmup_modules: ClassVar[tuple[str, ...]] = ("prismboost",)
     cheap_hyperparameters: ClassVar[dict] = {"n_estimators": 8, "max_depth": 2}
     _supported_problem_types = ["binary", "multiclass", "regression"]

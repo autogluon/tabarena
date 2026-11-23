@@ -33,6 +33,30 @@ _CORE_MODELS = frozenset(
 )
 
 
+# The models TabArena defines that are trained on the task's data: a bag gives each fold model a seed
+# of its own. Every other model TabArena defines is a pretrained (foundation) model, whose bag keeps
+# one seed so that the fold models are the refit that predicts.
+_TRAINED_MODELS = frozenset(
+    {
+        "CTBoost",
+        "ChimeraBoost",
+        "KNeighbors",
+        "MLP-A",
+        "ModernNCA",
+        "ModernNCA_GPU",
+        "PerpetualBooster",
+        "PrismBoost",
+        "RealMLP",
+        "RealMLP_GPU",
+        "TabM",
+        "TabM-A",
+        "TabPack",
+        "aplr",
+        "xRFM_GPU",
+    }
+)
+
+
 def _regular_spec(name: str = "autogluon.tabular") -> ModuleSpec:
     return ModuleSpec(name, None, origin="/fake/autogluon/tabular/__init__.py")
 
@@ -220,6 +244,26 @@ def test_assert_autogluon_resolves_accepts_everything_but_shadowing(monkeypatch,
 def test_real_registry_discovers_core_models():
     missing = _CORE_MODELS - set(discover_models())
     assert not missing, f"core models missing from the registry: {sorted(missing)}"
+
+
+def test_tabarena_models_declare_vary_seed_across_folds():
+    """Every model class TabArena defines chooses whether a bag varies the seed across its folds, so the
+    choice is the model's and a new model has to make it. AutoGluon's own classes declare it there.
+    """
+    checked = []
+    for name, info in discover_models().items():
+        model_cls = info.model_cls
+        if not model_cls.__module__.startswith("tabarena."):
+            continue
+        vary_seed_across_folds = model_cls._get_default_ag_args_ensemble().get("vary_seed_across_folds")
+        assert isinstance(vary_seed_across_folds, bool), (
+            f"{name} ({model_cls.__name__}) must declare `vary_seed_across_folds` in "
+            f"`_default_ag_args_ensemble_extra`: True for a model trained on the data, False for a "
+            f"pretrained model."
+        )
+        assert vary_seed_across_folds is (name in _TRAINED_MODELS), name
+        checked.append(name)
+    assert "KNeighbors" in checked  # resolves on the base install
 
 
 def test_discover_models_ignores_underscore_and_non_modelinfo_attrs(patched_discovery):

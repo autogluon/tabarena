@@ -60,10 +60,12 @@ class {ClassName}Model(AbstractTorchModel):
     minimum_num_gpus = 1
     # sequential_local avoids crashes when weights are not pre-downloaded and folds fit in
     # parallel. Foundation / pre-trained models ALSO set refit_folds (see the note below);
-    # from-scratch NNs (TabM, RealMLP) omit it.
+    # from-scratch NNs (TabM, RealMLP) omit it. Every model sets vary_seed_across_folds: False
+    # for a pre-trained model, True for a model trained on the data (see the note below).
     _default_ag_args_ensemble_extra = {
         "fold_fitting_strategy": "sequential_local",
         "refit_folds": True,
+        "vary_seed_across_folds": False,
     }
 
     def _fit(
@@ -150,6 +152,14 @@ memory-estimate capability is derived rather than declared.
 > refits a single model on all the data — much faster to score, at parity with the bagged
 > ensemble. **Do not ship a TFM wrapper with only `sequential_local`** (a recurring miss).
 > From-scratch NNs (TabM, RealMLP) intentionally omit it and set `can_refit_full=False`.
+
+> **Every model: set `vary_seed_across_folds` in `_default_ag_args_ensemble_extra`.** `False` for a
+> pre-trained model: its seed decides how the data is presented to it (preprocessing, context and
+> estimator draws), so with one seed per bag the fold models are the refit that predicts and the
+> validation predictions track the test predictions. `True` for a model trained on the data: each
+> fold model is a training run of its own, and a seed per fold lets the bag average over seed noise.
+> The model owns this value (the bundles' seed policy only fills it in for a model that declares
+> nothing), and `tests/tabarena/models/test_registry.py` fails for a model that does not declare it.
 
 #### Context caches: only in the refit model
 
@@ -306,9 +316,11 @@ class {ClassName}Model(AbstractModel):
     default_num_gpus = 1
     minimum_num_gpus = 1
     # refit_folds=True for foundation models (see note above); drop it for from-scratch NNs.
+    # vary_seed_across_folds: False for foundation models, True for from-scratch models.
     _default_ag_args_ensemble_extra = {
         "fold_fitting_strategy": "sequential_local",
         "refit_folds": True,
+        "vary_seed_across_folds": False,
     }
 
     def _fit(self, X, y, num_cpus=1, num_gpus=0, **kwargs):

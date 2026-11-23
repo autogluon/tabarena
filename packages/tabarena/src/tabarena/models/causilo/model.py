@@ -34,7 +34,11 @@ class CausiloModel(AbstractTorchModel):
     default_num_gpus = 1
     minimum_num_gpus = 1
     _default_auxiliary_params_extra = {"valid_raw_types": ["int", "float", "category"]}
-    _default_ag_args_ensemble_extra = {"fold_fitting_strategy": "sequential_local", "refit_folds": True}
+    _default_ag_args_ensemble_extra = {
+        "fold_fitting_strategy": "sequential_local",
+        "refit_folds": True,
+        "vary_seed_across_folds": False,  # pretrained: the fold models are the refit that predicts
+    }
     #: ``Engine.fit`` loads the network through ``causilo.checkpoints.load_pretrained_model(task)`` and
     #: moves it to the engine's device; one build per task and device per process. The loader
     #: has no device input, so ``_fit`` records the device on ``self.device`` before the fit.
