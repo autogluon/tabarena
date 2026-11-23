@@ -53,8 +53,7 @@ class TabPFN3Model(AbstractTorchModel):
     _categorical_indices: list[int] | None
     """The indices of the categorical features, detected during preprocessing."""
     fixed_random_state: int = 0
-    """Using a fixed random seed, as in TabPFN-2.6. It replaces the seed AutoGluon gives the model,
-    which differs per fold of a bag (``vary_seed_across_folds``)."""
+    """Using a fixed random seed, as in TabPFN-2.6."""
     _default_auxiliary_params_extra = {
         "max_classes": 160,
         # Batch inference once we exceed 150_000 samples (batching starts at 150_001).
@@ -141,10 +140,8 @@ class TabPFN3Model(AbstractTorchModel):
             n_jobs=num_cpus,
             categorical_features_indices=self._categorical_indices,
         )
+        default_hps[self.seed_name] = self.fixed_random_state
         hps = {**default_hps, **hps}  # hps later to override any conflicting keys default keys.
-        # Not a default: AutoGluon writes the model's seed into the config, a different one for
-        # every fold model of a bag, and the config would win.
-        hps[self.seed_name] = self.fixed_random_state
 
         # Initialize and fit the model
         model_class = self._get_model_class()
@@ -158,6 +155,9 @@ class TabPFN3Model(AbstractTorchModel):
     def _set_default_params(self):
         default_params = {
             "ignore_pretraining_limits": True,  # to ignore warnings and size limits
+            # A seed in the hyperparameters replaces the one AutoGluon passes, which differs per
+            # fold model of a bag (``vary_seed_across_folds``): every fold model and the refit use it.
+            self.seed_name: self.fixed_random_state,
         }
         for param, val in default_params.items():
             self._set_default_param_value(param, val)

@@ -39,17 +39,18 @@ def test_default_config_caches_the_context_only_for_the_refit(tmp_path):
     assert refit_model.get_params()["hyperparameters"]["cache_context"] is True
 
 
-def test_every_model_of_a_bag_draws_with_the_same_seed(tmp_path):
+def test_every_model_of_a_bag_gets_the_same_seed(tmp_path):
     from tabarena.models.kumo_tabular.model import KumoTabularModel
 
-    # AutoGluon gives each fold model of a bag its own seed (`vary_seed_across_folds`)
-    seeds = []
+    # AutoGluon passes each fold model of a bag its own seed (`vary_seed_across_folds`)
     for fold_seed in (0, 3):
         model = KumoTabularModel(path=str(tmp_path), name=f"fold{fold_seed}", hyperparameters={})
         model.initialize(random_seed=fold_seed)
-        assert model.random_seed == fold_seed
-        seeds.append(model._seed)
-    assert seeds == [KumoTabularModel.fixed_random_state] * 2 == [0, 0]
+        assert model.random_seed == 0
+    # a seed in the config still wins
+    model = KumoTabularModel(path=str(tmp_path), name="own", hyperparameters={"random_state": 7})
+    model.initialize(random_seed=3)
+    assert model.random_seed == 7
 
 
 @pytest.mark.parametrize("max_context_size", [None, 150])
