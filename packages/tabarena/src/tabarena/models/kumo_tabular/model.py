@@ -90,12 +90,6 @@ class KumoTabularModel(AbstractTorchModel):
     ag_name = "TA-Kumo-Tabular"
     ag_priority = 65
     seed_name = "random_state"
-    fixed_random_state: int | None = 0
-    """The seed of the context subsample and of the estimators' random draws, the same for every
-    model of a bag and for its refit. AutoGluon gives each fold model its own seed
-    (``vary_seed_across_folds``); drawn from those, the fold models would not be the model that
-    predicts, and the validation predictions would be misleading for the refit (as for TabPFN).
-    ``None`` uses AutoGluon's seed."""
     _supported_problem_types: ClassVar[list[str]] = [BINARY, MULTICLASS, REGRESSION]
     default_num_gpus = 1
     default_resources_physical_cores_only = True
@@ -123,11 +117,6 @@ class KumoTabularModel(AbstractTorchModel):
     #: The library's default for the large model; NVIDIA's adapter uses 8 for the smaller two.
     default_num_estimators: ClassVar[int] = 16
     default_max_context_size: ClassVar[int] = 200_000
-
-    @property
-    def _seed(self) -> int | None:
-        """The seed this model draws with: `fixed_random_state`, or AutoGluon's when that is None."""
-        return self.random_seed if self.fixed_random_state is None else self.fixed_random_state
 
     def _fit(self, X: pd.DataFrame, y: pd.Series, num_cpus: int = 1, num_gpus: int = 0, **kwargs):
         """Fit preprocessing and cache the context, or keep only the context rows (``cache_context=False``).
@@ -168,7 +157,7 @@ class KumoTabularModel(AbstractTorchModel):
             n_rows=len(X),
             num_estimators=params["num_estimators"],
             max_context_size=params["max_context_size"],
-            seed=self._seed,
+            seed=self.random_seed,
         )
         num_estimators = params["num_estimators"]
         self._context_subsampled = context_index is not None
@@ -187,7 +176,7 @@ class KumoTabularModel(AbstractTorchModel):
         y_context = y_context.to(device)
         batch_size = self._resolve_estimator_batch_size(estimator, x_context, device)
         self._estimator_batch_size = batch_size
-        generator = torch.Generator(device).manual_seed(self._seed) if isinstance(self._seed, int) else None
+        generator = torch.Generator(device).manual_seed(self.random_seed) if isinstance(self.random_seed, int) else None
         previous_threads = torch.get_num_threads()
         try:
             torch.set_num_threads(num_cpus)
@@ -326,7 +315,7 @@ class KumoTabularModel(AbstractTorchModel):
         if context_index is not None:
             x_context, y_context = stack_member_contexts(x_context, y_context, context_index)
             num_estimators = None
-        generator = torch.Generator(device).manual_seed(self._seed) if isinstance(self._seed, int) else None
+        generator = torch.Generator(device).manual_seed(self.random_seed) if isinstance(self.random_seed, int) else None
         return {
             "x_context": x_context.to(device),
             "y_context": y_context.to(device),
@@ -343,6 +332,11 @@ class KumoTabularModel(AbstractTorchModel):
         self._set_default_param_value("estimator_batch_size", None)
         self._set_default_param_value("max_context_size", self.default_max_context_size)
         self._set_default_param_value("cache_context", True)
+        # A seed in the hyperparameters replaces the one AutoGluon passes, which differs per fold
+        # model of a bag (``vary_seed_across_folds``). The seed decides the context subsample and
+        # the estimators' draws, so with their own seeds the fold models would not be the refit
+        # that predicts, and the validation predictions would be misleading (as for TabPFN).
+        self._set_default_param_value(self.seed_name, 0)
 
     def get_device(self) -> str:
         param = next(self.model.network.parameters(), None)
