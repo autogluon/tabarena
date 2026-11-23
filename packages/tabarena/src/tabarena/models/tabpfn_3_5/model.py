@@ -68,7 +68,9 @@ class TabPFN35Model(AbstractTorchModel):
 
     fixed_random_state: int = 0
     """Using a fixed random seed, as in TabPFN-2.6 and TabPFN-3: tabpfn's random state decides its
-    preprocessing, so a refit with another seed would make the validation score misleading."""
+    preprocessing, so a refit with another seed would make the validation score misleading. It
+    replaces the seed AutoGluon gives the model, which differs per fold of a bag
+    (``vary_seed_across_folds``)."""
 
     _supported_problem_types = ["binary", "multiclass", "regression"]
     _default_auxiliary_params_extra = {
@@ -153,9 +155,11 @@ class TabPFN35Model(AbstractTorchModel):
             "model_path": self._resolve_model_path(checkpoint_per_problem_type),
             "device": device,
             "categorical_features_indices": self._categorical_indices,
-            self.seed_name: self.fixed_random_state,
         }
         hps = {**default_hps, **hps}  # the config wins over the defaults
+        # Not a default: AutoGluon writes the model's seed into the config, a different one for
+        # every fold model of a bag, and the config would win.
+        hps[self.seed_name] = self.fixed_random_state
 
         self.model = self._get_model_class()(**hps).fit(X=X, y=y)
 
