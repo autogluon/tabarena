@@ -45,6 +45,7 @@ class TabAbaxModel(AbstractTorchModel):
     - ``n_estimators=8``: ensemble views. ``1`` is a single forward pass.
     - ``batch_size=1``: ensemble members forwarded together. ``None`` sends all of them at once.
     - ``offload_mode="auto"``: puts the large column embedding on GPU, CPU, or disk according to free memory.
+    - ``context_subsample="auto"``: the model row-samples and chunks a split only when one activation exceeds this machine. ``False`` leaves the table whole.
     - ``use_amp="auto"``: mixed precision from the table size. Off for small tables and on CPU.
     - ``use_fa3=False``: FlashAttention-3. Leave off unless the runtime provides it.
     - ``allow_auto_download=True``: download the checkpoint when ``model_path`` is missing.
@@ -178,10 +179,47 @@ class TabAbaxModel(AbstractTorchModel):
             n_jobs=num_cpus,
             disk_offload_dir=disk_offload_dir,
             verbose=X.shape[0] > 250_000,
-            inference_config=dict(COL_CONFIG=dict(cpu_safety_factor=0.75)),
         )
         X = self.preprocess(X, y=y)
         self.model = self.model.fit(X=X, y=y)
+
+    # Feature-name alignment: AutoGluon's preprocessing pipeline can produce columns
+    # in a different ORDER between fit and predict for tables with text features
+    # (NoCatAsStringCategoryFeatureGenerator expands to variable column orderings).
+    # TabAbaxClassifier/Regressor.validate_data(reset=False) checks both name AND
+    # order, raising ValueError if they differ.  We reorder X to the fitted order
+    # before every predict call to prevent this.
+
+    @staticmethod
+    def _align_columns(X: "pd.DataFrame", model) -> "pd.DataFrame":
+        """Reorder X columns to match the order the model was fitted on."""
+        fitted_names = getattr(model, "feature_names_in_", None)
+        if fitted_names is None:
+            return X
+        try:
+            cols = list(fitted_names)
+            if list(X.columns) != cols:
+                return X[cols]
+        except (KeyError, TypeError):
+            pass  # let the model report the error with full details
+        return X
+
+    def _predict_proba(self, X: "pd.DataFrame", **kwargs):
+        # Regression has no class probabilities. Some AG code paths call _predict_proba
+        # for regression too; delegate so we never touch TabAbaxRegressor.predict_proba.
+        if self.problem_type == "regression":
+            return self._predict(X, **kwargs)
+        X = self._align_columns(X, self.model)
+        proba = self.model.predict_proba(X)
+        # Binary: AG's bagging writes each fold into a preallocated (N,) array.
+        # TabAbaxClassifier.predict_proba returns (N, 2); the positive-class column is (N,).
+        if self.problem_type == "binary":
+            return proba[:, 1]
+        return proba
+
+    def _predict(self, X: "pd.DataFrame", **kwargs):
+        X = self._align_columns(X, self.model)
+        return self.model.predict(X)
 
     @classmethod
     def _estimate_memory_usage_static(
@@ -205,6 +243,7 @@ class TabAbaxModel(AbstractTorchModel):
         self._set_default_param_value("use_amp", "auto")
         self._set_default_param_value("use_fa3", False)
         self._set_default_param_value("allow_auto_download", True)
+        self._set_default_param_value("context_subsample", "auto")
 
     def get_device(self) -> str:
         return self.model.device_.type
