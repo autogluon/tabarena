@@ -118,8 +118,9 @@ class TabArenaExperimentBundle:
     default_seed_config: str = "fold-config-wise"
     """How bagged random seeds are assigned across configs and folds (an
     :data:`~tabarena.utils.config_utils.AddSeed` value). The default gives each config its own
-    seed, varied across its folds. Use ``"static"`` for an ablation, where every config must share
-    a seed or the flip being measured is confounded with a seed change."""
+    seed, varied across its folds; a model that sets ``vary_seed_across_folds`` in its default
+    ``ag_args_ensemble`` keeps its own setting. Use ``"static"`` for an ablation, where every
+    config must share a seed or the flip being measured is confounded with a seed change."""
     preprocessing_pipelines: list[str]
     """EXPERIMENTAL!
     Preprocessing pipelines to add to the configurations we want to run.

@@ -78,7 +78,14 @@ class TabPFN35Model(AbstractTorchModel):
     }
     #: One fold at a time (parallel folds race on the checkpoint download), and a refit on the full
     #: data instead of the bag: same quality for an in-context model, one network at inference.
-    _default_ag_args_ensemble_extra = {"fold_fitting_strategy": "sequential_local", "refit_folds": True}
+    #: One seed for every fold model and the refit: tabpfn's random state decides its
+    #: preprocessing, so fold models with seeds of their own would not be the refit that predicts,
+    #: and the validation predictions would be misleading for it.
+    _default_ag_args_ensemble_extra = {
+        "fold_fitting_strategy": "sequential_local",
+        "refit_folds": True,
+        "vary_seed_across_folds": False,
+    }
     default_resources_physical_cores_only = True
     default_num_gpus = 1
     minimum_num_gpus = 1
@@ -161,9 +168,6 @@ class TabPFN35Model(AbstractTorchModel):
 
     def _set_default_params(self):
         self._set_default_param_value("ignore_pretraining_limits", True)  # no warnings or size limits
-        # A seed in the hyperparameters replaces the one AutoGluon passes, which differs per fold
-        # model of a bag (``vary_seed_across_folds``): every fold model and the refit use this one.
-        self._set_default_param_value(self.seed_name, self.fixed_random_state)
 
     def _more_tags(self) -> dict:
         return {"can_refit_full": True}  # no validation data is consumed by the fit

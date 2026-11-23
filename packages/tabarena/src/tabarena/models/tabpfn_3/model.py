@@ -155,9 +155,6 @@ class TabPFN3Model(AbstractTorchModel):
     def _set_default_params(self):
         default_params = {
             "ignore_pretraining_limits": True,  # to ignore warnings and size limits
-            # A seed in the hyperparameters replaces the one AutoGluon passes, which differs per
-            # fold model of a bag (``vary_seed_across_folds``): every fold model and the refit use it.
-            self.seed_name: self.fixed_random_state,
         }
         for param, val in default_params.items():
             self._set_default_param_value(param, val)
@@ -167,11 +164,16 @@ class TabPFN3Model(AbstractTorchModel):
     #  - add row/col limit?
     @classmethod
     def _get_default_ag_args_ensemble(cls, **kwargs) -> dict:
-        """Ensure one fold is fit at a time and refits is enabled by default."""
+        """Ensure one fold is fit at a time, refits is enabled by default and every fold model has the
+        refit's seed: tabpfn's random state decides its preprocessing, so fold models with seeds of
+        their own would not be the refit that predicts, and the validation predictions would be
+        misleading for it.
+        """
         default_ag_args_ensemble = super()._get_default_ag_args_ensemble(**kwargs)
         extra_ag_args_ensemble = {
             "fold_fitting_strategy": "sequential_local",
             "refit_folds": default_ag_args_ensemble.pop("refit_folds", True),
+            "vary_seed_across_folds": default_ag_args_ensemble.pop("vary_seed_across_folds", False),
         }
         default_ag_args_ensemble.update(extra_ag_args_ensemble)
         return default_ag_args_ensemble
