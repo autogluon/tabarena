@@ -197,6 +197,14 @@ tabpfn_3_5 = ["tabpfn>=9.0.0"]
 kumo_tabular = [
   "structured-data-models @ git+https://github.com/NVIDIA/structured-data-models.git@98f61289c7a4e1bce3b33771223ac2e123b63f19",
 ]
+# ValSelect system: LimiX-2-1016 + Kumo-Tabular holdout validation selection. Keep in sync with
+# `pip_extra` in systems/val_select/info.py.
+val_select = [
+  "LimiX @ git+https://github.com/limix-ldm-ai/LimiX.git@a917fa052eb637db98318b65712def280055ec34",
+  "nvtx",
+  "structured-data-models @ git+https://github.com/NVIDIA/structured-data-models.git@98f61289c7a4e1bce3b33771223ac2e123b63f19",
+  "tabpfn-extensions[many_class]>=0.6.1",
+]
 # Seldon / Seldon-Mini (Neuralk-AI). Keep in sync with `pip_extra` in models/seldon/info.py. Not in `extended`
 # because neuralk-oss and the `kumo_tabular` extra pin different versions of structured-data-models.
 seldon = ["neuralk-oss==0.3.0"]
