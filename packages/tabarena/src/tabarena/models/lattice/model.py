@@ -56,6 +56,7 @@ class LatticeModel(AbstractTorchModel):
     ag_priority = 65
     seed_name = "random_state"
     model_size: ClassVar[str] = "default"
+    default_n_estimators: ClassVar[int] = 8
     warmup_modules: ClassVar[tuple[str, ...]] = ("lattice", "huggingface_hub")
     cheap_hyperparameters: ClassVar[dict] = {"n_estimators": 1, "kv_cache": False}
     # The released checkpoints are frozen: every fit of the same file on the same
@@ -103,10 +104,11 @@ class LatticeModel(AbstractTorchModel):
         return X
 
     def _set_default_params(self):
-        self._set_default_param_value("n_estimators", 8)
+        self._set_default_param_value("n_estimators", self.default_n_estimators)
         self._set_default_param_value("kv_cache", False)
         self._set_default_param_value("preprocessing", "lattice")
         self._set_default_param_value("batch_size", "auto")
+        self._set_default_param_value("use_amp", True)
         self._set_default_param_value("use_fa3", False)
 
     def _fit(
@@ -180,7 +182,7 @@ class LatticeModel(AbstractTorchModel):
         self.model.ensemble_generator_.to(target)
 
     def prepare_for_inference(self) -> None:
-        """Re-derive the device-dependent inference state after a shared reload.
+        """Restore device-dependent inference state and place refit caches for serving.
 
         A shared fit is pickled as plain attributes, so the estimator's own
         ``__setstate__`` (which rebuilds ``inference_config_`` and reinstalls the
@@ -189,9 +191,14 @@ class LatticeModel(AbstractTorchModel):
         """
         super().prepare_for_inference()
         model = getattr(self, "model", None)
-        if self._shared_state is None or model is None:
+        if model is None:
             return
-        model.set_inference_device(model.device)
+        if self._shared_state is not None:
+            model.set_inference_device(model.device)
+        if model.device_.type == "cuda" and model.batch_size == "auto" and getattr(model, "model_kv_cache_", None):
+            from lattice._sklearn.cache_residency import place_caches
+
+            place_caches(model)
 
     def _more_tags(self) -> dict:
         return {"can_refit_full": True}
@@ -203,3 +210,4 @@ class LatticeTinyModel(LatticeModel):
     ag_key = "TA-LATTICE-TINY"
     ag_name = "TA-Lattice-tiny"
     model_size = "tiny"
+    default_n_estimators = 4

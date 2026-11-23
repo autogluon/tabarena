@@ -6,8 +6,9 @@ from tabarena.models.lattice.hpo import gen_lattice, gen_lattice_tiny
 from tabarena.models.lattice.model import LatticeModel, LatticeTinyModel
 
 _PIP_EXTRA = (
-    "lattice[fast] @ git+https://github.com/hachure-ai/Lattice.git@e106f9fba5994f85aca9593ae82af561054ab77a",
-    "torch>=2.7.1",  # AutoGluon's tensor serialization needs torch.utils.serialization.
+    "lattice @ git+https://github.com/hachure-ai/Lattice.git@4ab2558dba4001cb69dfd552ace14358a8af1b7d",
+    "torch==2.14.1",
+    "triton==3.8.0; sys_platform == 'linux'",
 )
 
 
