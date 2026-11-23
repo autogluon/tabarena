@@ -281,6 +281,26 @@ class TestSeedBlocks:
         )
         assert configs[1]["ag_args_ensemble"]["model_random_seed"] == 1
 
+    def test_a_model_keeps_its_own_fold_seed_setting(self):
+        class OneSeedPerBag(LGBModel):
+            _default_ag_args_ensemble_extra = {"vary_seed_across_folds": False}
+
+        def seeds(model_cls):
+            configs = _apply_seed_to_bag_configs([{}, {}], "fold-config-wise", model_cls=model_cls)
+            return [config["ag_args_ensemble"] for config in configs]
+
+        assert seeds(LGBModel) == [
+            {"model_random_seed": 0, "vary_seed_across_folds": True},
+            {"model_random_seed": 8, "vary_seed_across_folds": True},
+        ]
+        # the model's setting replaces the policy's, and each config's seed stays the policy's
+        assert seeds(OneSeedPerBag) == [
+            {"model_random_seed": 0, "vary_seed_across_folds": False},
+            {"model_random_seed": 8, "vary_seed_across_folds": False},
+        ]
+        (experiment,) = generate_bag_experiments(OneSeedPerBag, [{}], add_seed="fold-wise")
+        assert experiment.method_kwargs["model_hyperparameters"]["ag_args_ensemble"]["vary_seed_across_folds"] is False
+
 
 class TestLegacyYaml:
     """Experiments serialized before the protocol object existed load with a derived ``"legacy"`` protocol."""

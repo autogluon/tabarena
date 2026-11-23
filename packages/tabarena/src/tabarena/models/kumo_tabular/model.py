@@ -94,9 +94,13 @@ class KumoTabularModel(AbstractTorchModel):
     default_num_gpus = 1
     default_resources_physical_cores_only = True
     minimum_num_gpus = 1
+    #: One seed for every fold model of a bag and for its refit: the seed decides the context
+    #: subsample and the estimators' draws, so fold models with seeds of their own would not be the
+    #: refit that predicts, and the validation predictions would be misleading for it.
     _default_ag_args_ensemble_extra: ClassVar[dict] = {
         "fold_fitting_strategy": "sequential_local",
         "refit_folds": True,
+        "vary_seed_across_folds": False,
     }
     warmup_modules: ClassVar[tuple[str, ...]] = ("sdm", "sdm.models.kumo.tabular")
     #: The library loads inside its constructor, so the loading half is replicated in
@@ -332,11 +336,6 @@ class KumoTabularModel(AbstractTorchModel):
         self._set_default_param_value("estimator_batch_size", None)
         self._set_default_param_value("max_context_size", self.default_max_context_size)
         self._set_default_param_value("cache_context", True)
-        # A seed in the hyperparameters replaces the one AutoGluon passes, which differs per fold
-        # model of a bag (``vary_seed_across_folds``). The seed decides the context subsample and
-        # the estimators' draws, so with their own seeds the fold models would not be the refit
-        # that predicts, and the validation predictions would be misleading (as for TabPFN).
-        self._set_default_param_value(self.seed_name, 0)
 
     def get_device(self) -> str:
         param = next(self.model.network.parameters(), None)

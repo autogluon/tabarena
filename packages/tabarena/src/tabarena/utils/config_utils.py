@@ -460,13 +460,26 @@ def _build_experiments(
     return experiments
 
 
+def _model_vary_seed_across_folds(model_cls: type[AbstractModel] | None) -> bool | None:
+    """The model's own ``vary_seed_across_folds`` (its default ``ag_args_ensemble``), or None if it sets none."""
+    defaults = getattr(model_cls, "_get_default_ag_args_ensemble", None)
+    return None if defaults is None else defaults().get("vary_seed_across_folds")
+
+
 def _apply_seed_to_bag_configs(
     configs: list[dict],
     add_seed: AddSeed,
     *,
     validation_protocol: ValidationProtocol | None = None,
+    model_cls: type[AbstractModel] | None = None,
 ) -> list[dict]:
     """Tag each bagged config with a ``model_random_seed`` according to ``add_seed``.
+
+    A model that sets ``vary_seed_across_folds`` in its default ``ag_args_ensemble``
+    (``_default_ag_args_ensemble_extra``) keeps its setting: ``add_seed`` then only decides each
+    config's seed. This is for models whose seed decides how the data is presented to them (an
+    in-context model's preprocessing or context draws): with a seed per fold, the fold models
+    would not be the refit that predicts, and the validation predictions would mislead about it.
 
     * ``"static"`` — every config (and fold) uses seed 0.
     * ``"fold-wise"`` — seed 0, varied across the folds of each bag.
@@ -485,14 +498,20 @@ def _apply_seed_to_bag_configs(
       that block reservation exists so fold-varying seeds get disjoint ranges, and a config that
       does not vary its seed across folds consumes only one.
     """
+    model_varies = _model_vary_seed_across_folds(model_cls)
+
+    def vary(policy: bool) -> bool:
+        return policy if model_varies is None else model_varies
+
     if add_seed == "static":
-        return [add_seed_logic(config, random_seed=0, vary_seed_across_folds=False) for config in configs]
+        return [add_seed_logic(config, random_seed=0, vary_seed_across_folds=vary(False)) for config in configs]
     if add_seed == "fold-wise":
-        return [add_seed_logic(config, random_seed=0, vary_seed_across_folds=True) for config in configs]
+        return [add_seed_logic(config, random_seed=0, vary_seed_across_folds=vary(True)) for config in configs]
     if add_seed in ("fold-config-wise", "config-wise"):
         vary_seed_across_folds = add_seed == "fold-config-wise"
         # Fold-varying seeds consume one seed per child, so configs need that much space between
-        # them to stay disjoint; a config-wise seed consumes exactly one.
+        # them to stay disjoint; a config-wise seed consumes exactly one. The offset is the
+        # policy's whatever the model sets, so a config's seed is the same for every model.
         if validation_protocol is not None:
             seed_block = validation_protocol.num_bag_folds * validation_protocol.num_bag_sets
         else:
@@ -502,7 +521,7 @@ def _apply_seed_to_bag_configs(
             add_seed_logic(
                 config,
                 random_seed=i * offset_between_configs,
-                vary_seed_across_folds=vary_seed_across_folds,
+                vary_seed_across_folds=vary(vary_seed_across_folds),
             )
             for i, config in enumerate(configs)
         ]
@@ -536,7 +555,9 @@ def generate_bag_experiments(
     and built. ``**kwargs`` are forwarded to :class:`AGModelBagExperiment` (e.g.
     ``preprocessing_pipeline``).
     """
-    configs = _apply_seed_to_bag_configs(configs, add_seed, validation_protocol=validation_protocol)
+    configs = _apply_seed_to_bag_configs(
+        configs, add_seed, validation_protocol=validation_protocol, model_cls=model_cls
+    )
     if fold_fitting_strategy is not None:
         configs = [add_fold_fitting_strategy(config, fold_fitting_strategy=fold_fitting_strategy) for config in configs]
     if validation_protocol is not None:

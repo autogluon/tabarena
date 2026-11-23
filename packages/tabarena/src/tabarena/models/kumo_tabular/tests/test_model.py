@@ -39,18 +39,15 @@ def test_default_config_caches_the_context_only_for_the_refit(tmp_path):
     assert refit_model.get_params()["hyperparameters"]["cache_context"] is True
 
 
-def test_every_model_of_a_bag_gets_the_same_seed(tmp_path):
-    from tabarena.models.kumo_tabular.model import KumoTabularModel
+def test_a_bag_keeps_one_seed_across_its_folds():
+    from tabarena.models.kumo_tabular.hpo import gen_kumo_tabular
 
-    # AutoGluon passes each fold model of a bag its own seed (`vary_seed_across_folds`)
-    for fold_seed in (0, 3):
-        model = KumoTabularModel(path=str(tmp_path), name=f"fold{fold_seed}", hyperparameters={})
-        model.initialize(random_seed=fold_seed)
-        assert model.random_seed == 0
-    # a seed in the config still wins
-    model = KumoTabularModel(path=str(tmp_path), name="own", hyperparameters={"random_state": 7})
-    model.initialize(random_seed=3)
-    assert model.random_seed == 7
+    # the official bundles' seed policy varies the seed across a bag's folds
+    experiments = gen_kumo_tabular.generate_all_bag_experiments(num_random_configs=0, add_seed="fold-config-wise")
+    assert experiments
+    for experiment in experiments:
+        ensemble = experiment.method_kwargs["model_hyperparameters"]["ag_args_ensemble"]
+        assert ensemble["vary_seed_across_folds"] is False
 
 
 @pytest.mark.parametrize("max_context_size", [None, 150])
