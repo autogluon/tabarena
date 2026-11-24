@@ -6,7 +6,7 @@ import warnings
 from copy import deepcopy
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, ClassVar, Literal
+from typing import TYPE_CHECKING, ClassVar
 
 from tabarena.benchmark.experiment.experiment_constructor import Experiment
 from tabarena.benchmark.experiment.model_constraints import (
@@ -118,14 +118,8 @@ class TabArenaExperimentBundle:
     default_seed_config: str = "fold-config-wise"
     """How bagged random seeds are assigned across configs and folds (an
     :data:`~tabarena.utils.config_utils.AddSeed` value). The default gives each config its own
-    seed, varied across its folds (see ``vary_seed_across_folds``). Use ``"static"`` for an
-    ablation, where every config must share a seed or the flip being measured is confounded with a
-    seed change."""
-    vary_seed_across_folds: bool | Literal["auto"] = "auto"
-    """Whether a bag's fold models get seeds of their own. ``"auto"`` (the default): what the model
-    declares in its default ``ag_args_ensemble``, else what ``default_seed_config`` says (an
-    in-context model declares ``False``, so its fold models are the refit that predicts).
-    ``True`` / ``False``: that for every model, whatever the model declares."""
+    seed, varied across its folds. Use ``"static"`` for an ablation, where every config must share
+    a seed or the flip being measured is confounded with a seed change."""
     preprocessing_pipelines: list[str]
     """EXPERIMENTAL!
     Preprocessing pipelines to add to the configurations we want to run.
@@ -546,7 +540,6 @@ class TabArenaExperimentBundle:
             time_limit_with_preprocessing=time_limit_with_preprocessing,
             model_hyperparameters=self._with_model_verbosity_override(model_name, model_hyperparameters),
             default_seed_config=self.default_seed_config,
-            vary_seed_across_folds=self.vary_seed_across_folds,
         )
 
     def _with_model_verbosity_override(self, model_name: str, model_hyperparameters: dict | None) -> dict | None:
@@ -638,7 +631,6 @@ class TabArenaExperimentBundle:
         time_limit_with_preprocessing: bool,
         model_hyperparameters: dict | None = None,
         default_seed_config: str = "fold-config-wise",
-        vary_seed_across_folds: bool | Literal["auto"] = "auto",
     ) -> list:
         from tabarena.models.utils import get_configs_generator_from_name
 
@@ -741,7 +733,6 @@ class TabArenaExperimentBundle:
         return config_generator.generate_all_bag_experiments(
             num_random_configs=n_configs,
             add_seed=default_seed_config,
-            vary_seed_across_folds=vary_seed_across_folds,
             name_id_suffix=name_id_suffix,
             method_kwargs=bag_method_kwargs,
             time_limit=time_limit,

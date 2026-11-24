@@ -167,7 +167,8 @@ class TabPFN3Model(AbstractTorchModel):
         """Ensure one fold is fit at a time, refits is enabled by default and every fold model has the
         refit's seed: tabpfn's random state decides its preprocessing, so fold models with seeds of
         their own would not be the refit that predicts, and the validation predictions would be
-        misleading for it.
+        misleading for it. A default: a config that sets ``vary_seed_across_folds`` (as the benchmark
+        bundles' seed policy does) wins.
         """
         default_ag_args_ensemble = super()._get_default_ag_args_ensemble(**kwargs)
         extra_ag_args_ensemble = {
