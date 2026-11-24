@@ -33,15 +33,17 @@ _CORE_MODELS = frozenset(
 )
 
 
-# The models TabArena defines that are trained on the task's data: a bag gives each fold model a seed
-# of its own. Every other model TabArena defines is a pretrained (foundation) model, whose bag keeps
-# one seed so that the fold models are the refit that predicts.
-_TRAINED_MODELS = frozenset(
+# The models TabArena defines whose bag gives each fold model a seed of its own: the models trained
+# on the task's data, and Mitra-v2, which is fine-tuned per fold and not refit (its bag predicts).
+# Every other model TabArena defines is a pretrained (foundation) model, whose bag keeps one seed so
+# that the fold models are the refit that predicts.
+_VARY_SEED_ACROSS_FOLDS_MODELS = frozenset(
     {
         "CTBoost",
         "ChimeraBoost",
         "KNeighbors",
         "MLP-A",
+        "Mitra-v2",
         "ModernNCA",
         "ModernNCA_GPU",
         "PerpetualBooster",
@@ -258,10 +260,10 @@ def test_tabarena_models_declare_vary_seed_across_folds():
         vary_seed_across_folds = model_cls._get_default_ag_args_ensemble().get("vary_seed_across_folds")
         assert isinstance(vary_seed_across_folds, bool), (
             f"{name} ({model_cls.__name__}) must declare `vary_seed_across_folds` in "
-            f"`_default_ag_args_ensemble_extra`: True for a model trained on the data, False for a "
-            f"pretrained model."
+            f"`_default_ag_args_ensemble_extra`: True for a model trained (or fine-tuned without a refit) "
+            f"on the data, False for a pretrained model."
         )
-        assert vary_seed_across_folds is (name in _TRAINED_MODELS), name
+        assert vary_seed_across_folds is (name in _VARY_SEED_ACROSS_FOLDS_MODELS), name
         checked.append(name)
     assert "KNeighbors" in checked  # resolves on the base install
 
