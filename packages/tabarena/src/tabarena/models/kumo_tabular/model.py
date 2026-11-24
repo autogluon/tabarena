@@ -96,8 +96,7 @@ class KumoTabularModel(AbstractTorchModel):
     minimum_num_gpus = 1
     #: One seed for every fold model of a bag and for its refit: the seed decides the context
     #: subsample and the estimators' draws, so fold models with seeds of their own would not be the
-    #: refit that predicts, and the validation predictions would be misleading for it. A default: a
-    #: config that sets ``vary_seed_across_folds`` (as the benchmark bundles' seed policy does) wins.
+    #: refit that predicts, and the validation predictions would be misleading for it.
     _default_ag_args_ensemble_extra: ClassVar[dict] = {
         "fold_fitting_strategy": "sequential_local",
         "refit_folds": True,
