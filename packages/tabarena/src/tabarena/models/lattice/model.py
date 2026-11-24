@@ -182,23 +182,23 @@ class LatticeModel(AbstractTorchModel):
         self.model.ensemble_generator_.to(target)
 
     def prepare_for_inference(self) -> None:
-        """Restore device-dependent inference state and place refit caches for serving.
+        """Re-derive the device-dependent inference state after a shared reload.
 
         A shared fit is pickled as plain attributes, so the estimator's own
         ``__setstate__`` (which rebuilds ``inference_config_`` and reinstalls the
         fastpath on the reloaded network) does not run; the network comes back
         through ``ensure_network`` instead. Both are cheap and idempotent.
+
+        The refit's KV cache is the encoded training context, so it is not placed
+        here: the library's ``predict`` / ``predict_proba`` moves it to the device
+        inside the predict timer, as every other in-context model stages its context
+        (see the hook contract in ``tabarena.benchmark.exec_models.base``).
         """
         super().prepare_for_inference()
         model = getattr(self, "model", None)
-        if model is None:
+        if self._shared_state is None or model is None:
             return
-        if self._shared_state is not None:
-            model.set_inference_device(model.device)
-        if model.device_.type == "cuda" and model.batch_size == "auto" and getattr(model, "model_kv_cache_", None):
-            from lattice._sklearn.cache_residency import place_caches
-
-            place_caches(model)
+        model.set_inference_device(model.device)
 
     def _more_tags(self) -> dict:
         return {"can_refit_full": True}
