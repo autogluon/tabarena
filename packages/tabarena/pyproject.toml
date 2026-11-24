@@ -158,6 +158,12 @@ limix_2 = [
   "LimiX @ git+https://github.com/limix-ldm-ai/LimiX.git@a917fa052eb637db98318b65712def280055ec34",
   "nvtx",
 ]
+# Install the LimiX dependency with --no-deps as for limix_2 above.
+tabra_blends = [
+  "structured-data-models @ git+https://github.com/NVIDIA/structured-data-models.git@98f61289c7a4e1bce3b33771223ac2e123b63f19",
+  "LimiX @ git+https://github.com/limix-ldm-ai/LimiX.git@a917fa052eb637db98318b65712def280055ec34",
+  "nvtx",
+]
 tabpfnwide = ["tabpfnwide>=0.3.0"]
 iltm = ["iltm>=0.1.1"]
 # The `[triton]` extra enables the fused CUDA kernels used in the run.
