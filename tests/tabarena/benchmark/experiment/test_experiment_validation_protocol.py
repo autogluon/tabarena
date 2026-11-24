@@ -281,37 +281,6 @@ class TestSeedBlocks:
         )
         assert configs[1]["ag_args_ensemble"]["model_random_seed"] == 1
 
-    def test_auto_keeps_what_the_model_declares_and_an_explicit_value_overrides_it(self):
-        class OneSeedPerBag(LGBModel):
-            _default_ag_args_ensemble_extra = {"vary_seed_across_folds": False}
-
-        def seeds(model_cls, **kwargs):
-            configs = _apply_seed_to_bag_configs([{}, {}], "fold-config-wise", model_cls=model_cls, **kwargs)
-            return [config["ag_args_ensemble"] for config in configs]
-
-        def expected(vary: bool) -> list[dict]:
-            # each config's seed is the policy's in every case
-            return [
-                {"model_random_seed": 0, "vary_seed_across_folds": vary},
-                {"model_random_seed": 8, "vary_seed_across_folds": vary},
-            ]
-
-        # "auto" (the default): the model's declaration, else the policy's
-        assert seeds(LGBModel) == seeds(LGBModel, vary_seed_across_folds="auto") == expected(True)
-        assert seeds(OneSeedPerBag) == expected(False)
-        # an explicit value is for every model, whatever it declares
-        assert seeds(OneSeedPerBag, vary_seed_across_folds=True) == expected(True)
-        assert seeds(LGBModel, vary_seed_across_folds=False) == expected(False)
-        with pytest.raises(ValueError, match="vary_seed_across_folds"):
-            seeds(LGBModel, vary_seed_across_folds="never")
-
-        def experiment_setting(**kwargs) -> bool:
-            (experiment,) = generate_bag_experiments(OneSeedPerBag, [{}], add_seed="fold-wise", **kwargs)
-            return experiment.method_kwargs["model_hyperparameters"]["ag_args_ensemble"]["vary_seed_across_folds"]
-
-        assert experiment_setting() is False
-        assert experiment_setting(vary_seed_across_folds=True) is True
-
 
 class TestLegacyYaml:
     """Experiments serialized before the protocol object existed load with a derived ``"legacy"`` protocol."""

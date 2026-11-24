@@ -80,7 +80,8 @@ class TabPFN35Model(AbstractTorchModel):
     #: data instead of the bag: same quality for an in-context model, one network at inference.
     #: One seed for every fold model and the refit: tabpfn's random state decides its
     #: preprocessing, so fold models with seeds of their own would not be the refit that predicts,
-    #: and the validation predictions would be misleading for it.
+    #: and the validation predictions would be misleading for it. A default: a config that sets
+    #: ``vary_seed_across_folds`` (as the benchmark bundles' seed policy does) wins.
     _default_ag_args_ensemble_extra = {
         "fold_fitting_strategy": "sequential_local",
         "refit_folds": True,

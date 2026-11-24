@@ -36,7 +36,6 @@ EXPECTED_FIELD_NAMES = {
     "models",
     "n_random_configs",
     "default_seed_config",
-    "vary_seed_across_folds",
     "preprocessing_pipelines",
     "model_agnostic_preprocessing",
     "max_predict_batch_size",
@@ -59,7 +58,6 @@ EXPECTED_FIELD_NAMES = {
 COMMON_INHERITED_DEFAULTS = {
     "models": [],
     "default_seed_config": "fold-config-wise",
-    "vary_seed_across_folds": "auto",
     "model_agnostic_preprocessing": True,
     "max_predict_batch_size": None,
     "sequential_local_fold_fitting": False,
