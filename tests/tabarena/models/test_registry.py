@@ -34,7 +34,8 @@ _CORE_MODELS = frozenset(
 
 
 # The models TabArena defines whose bag gives each fold model a seed of its own: the models trained
-# on the task's data, and Mitra-v2, which is fine-tuned per fold and not refit (its bag predicts).
+# on the task's data, and Mitra-v2, TabSTAR-v1.1 and iLTM, which are fine-tuned per fold and not refit
+# (their bag predicts).
 # Every other model TabArena defines is a pretrained (foundation) model, whose bag keeps one seed so
 # that the fold models are the refit that predicts.
 _VARY_SEED_ACROSS_FOLDS_MODELS = frozenset(
@@ -53,7 +54,9 @@ _VARY_SEED_ACROSS_FOLDS_MODELS = frozenset(
         "TabM",
         "TabM-A",
         "TabPack",
+        "TabSTAR-v1.1",
         "aplr",
+        "iLTM",
         "xRFM_GPU",
     }
 )

@@ -158,8 +158,8 @@ memory-estimate capability is derived rather than declared.
 > estimator draws), so with one seed per bag the fold models are the refit that predicts and the
 > validation predictions track the test predictions. `True` for a model trained on the data: each
 > fold model is a training run of its own, and a seed per fold lets the bag average over seed noise.
-> Also `True` for a foundation model that is fine-tuned per fold and not refit (Mitra-v2): its bag
-> predicts. This is the model's default: a config that sets the value overrides it, as the benchmark
+> Also `True` for a foundation model that is fine-tuned per fold and not refit (Mitra-v2,
+> TabSTAR-v1.1, iLTM): its bag predicts. This is the model's default: a config that sets the value overrides it, as the benchmark
 > bundles' seed policy does today. `tests/tabarena/models/test_registry.py` fails for a model that
 > does not declare it.
 

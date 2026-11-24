@@ -101,7 +101,8 @@ class ILTMModel(AbstractTorchModel):
     ag_name = "TA-iLTM"
     ag_priority = 65
     seed_name = "seed"
-    _default_ag_args_ensemble_extra: ClassVar[dict] = {"vary_seed_across_folds": False}  # pretrained
+    #: Fine-tuned per fold and not refit: the bag itself predicts, so each fold model gets its own seed.
+    _default_ag_args_ensemble_extra: ClassVar[dict] = {"vary_seed_across_folds": True}
 
     _supported_problem_types = ["binary", "multiclass", "regression"]
 

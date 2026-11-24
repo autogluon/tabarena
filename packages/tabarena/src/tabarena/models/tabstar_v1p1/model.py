@@ -49,8 +49,9 @@ class TabSTARv1p1Model(AbstractTorchModel):
         # TODO: switch to parallel fitting on one GPU once VRAM memory estimation is supported.
         "fold_fitting_strategy": "sequential_local",
         # No `refit_folds`: unlike the in-context wrappers, each fold fine-tunes its own adapters,
-        # so the children differ and the bag's average is worth its inference cost.
-        "vary_seed_across_folds": False,  # pretrained: the fold models are the refit that predicts
+        # so the children differ and the bag's average is worth its inference cost. The bag itself
+        # predicts, so each fold model also gets its own seed.
+        "vary_seed_across_folds": True,
     }
     warmup_modules: ClassVar[tuple[str, ...]] = (
         "torch",
