@@ -16,10 +16,11 @@ if TYPE_CHECKING:
 
 #: The Hugging Face repository of the TabSil weights (one multitask checkpoint for both tasks).
 HF_REPO = "aiden-jeon/tabsil"
-#: The commit of the Hub tag ``v1``, pinned so the checkpoint never changes with the repository's
-#: branches. The weights (``model.safetensors``, LFS sha256 e03c8c32849a...) and ``config.json``
+#: The commit the Hub tag ``v1`` points to, pinned so the checkpoint never changes with the
+#: repository's branches or tags (the tag's own id, 41bf9bd3, stops resolving if the tag is
+#: re-created). The weights (``model.safetensors``, LFS sha256 e03c8c32849a...) and ``config.json``
 #: were last changed in 677da6a6. Bump deliberately, with a note on what changed.
-HF_REVISION = "41bf9bd3d21cb64d40f785cbebc95ba74a6afc08"
+HF_REVISION = "bc7c0d9b4970e010416408c51f8c4d1a2a66eccd"
 
 
 class TabSilModel(AbstractTorchModel):
@@ -108,7 +109,8 @@ class TabSilModel(AbstractTorchModel):
         self._num_cpus = num_cpus
         X = self.preprocess(X, y=y, is_train=True)
 
-        network, borders = tabsil.hub.from_pretrained(HF_REPO, revision=HF_REVISION)
+        with self._torch_threads():  # a registry miss builds the network inside the timed fit
+            network, borders = tabsil.hub.from_pretrained(HF_REPO, revision=HF_REVISION)
         params = {k: v for k, v in self._get_model_params().items() if v is not None}
         params.update(device=device, categorical_features_indices=self._categorical_indices)
         if self.problem_type == REGRESSION:
@@ -116,6 +118,20 @@ class TabSilModel(AbstractTorchModel):
         else:
             self.model = TabSilClassifier(network, **params)
         self.model.fit(X, y.to_numpy())
+        self._compact_training_rows()
+
+    def _compact_training_rows(self) -> None:
+        """Developer fix (tabsil 0.1.0): keep the members' encoded training rows in float32.
+
+        ``EnsembleClassifier`` / ``EnsembleRegressor.fit`` keep one float64 copy of the encoded
+        training rows per member (``X_trains_``, NumPy, so ``model.pkl`` holds all of them: 8x the
+        frame on float64 tables, 64x on int8 tables, about 157x on categorical tables after one-hot),
+        and AutoGluon pickles the model inside the timed fit. ``_iter_inputs`` concatenates them with
+        the test rows and casts the result to float32, so storing them in float32 halves the pickle and
+        leaves every prediction bit-identical. The library could keep them in float32 itself, or store
+        the encoded matrix once and build each member's rows in ``_iter_inputs`` (8x smaller).
+        """
+        self.model.X_trains_ = [x.astype(np.float32, copy=False) for x in self.model.X_trains_]
 
     def _predict_proba(self, X: pd.DataFrame, **kwargs) -> np.ndarray:
         X = self.preprocess(X, **kwargs)
@@ -130,7 +146,10 @@ class TabSilModel(AbstractTorchModel):
 
     @contextlib.contextmanager
     def _torch_threads(self):
-        """Run the forward passes on the fit's CPU budget and restore torch's thread count after."""
+        """Run torch work (the network build, the forward passes) on the fit's CPU budget.
+
+        Restores torch's thread count afterwards.
+        """
         import torch
 
         previous = torch.get_num_threads()
@@ -162,8 +181,9 @@ class TabSilModel(AbstractTorchModel):
     def _estimate_memory_usage_static(cls, *, X: pd.DataFrame, **kwargs) -> int:
         """The network (about 0.9 GB in float32) and its buffers, plus the members' copies of the training rows.
 
-        Each of the 8 members keeps its preprocessed training rows in float64, and prediction
-        stacks them with the test rows; 20x the frame covers both.
+        Each of the 8 members keeps its preprocessed training rows (float32, see
+        ``_compact_training_rows``), and prediction stacks them with the test rows in float64; 20x
+        the frame covers both.
         """
         baseline = 4e9
         return int(baseline + 20 * get_approximate_df_mem_usage(X).sum())

@@ -101,6 +101,17 @@ def test_save_and_load_keep_the_predictions(tmp_path, problem_type):
     np.testing.assert_allclose(_predict(loaded, X_test), expected, atol=1e-6)
 
 
+@pytest.mark.parametrize("problem_type", ["binary", "regression"])
+def test_float32_training_rows_keep_the_predictions(tmp_path, monkeypatch, problem_type):
+    """``_compact_training_rows`` stores the members' training rows in float32 without changing a prediction."""
+    model, X_test = _fit(tmp_path / "compact", problem_type)
+    assert all(x.dtype == np.float32 for x in model.model.X_trains_)
+    monkeypatch.setattr(TabSilModel, "_compact_training_rows", lambda self: None)
+    full, _ = _fit(tmp_path / "full", problem_type)
+    assert all(x.dtype == np.float64 for x in full.model.X_trains_)
+    np.testing.assert_array_equal(_predict(model, X_test), _predict(full, X_test))
+
+
 def test_a_class_missing_from_the_fold_gets_its_column(tmp_path):
     """AutoGluon's labels are 0..K-1 over the whole task; a fold without label 1 still returns K columns."""
     X = _table(200)
