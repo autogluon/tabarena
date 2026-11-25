@@ -206,6 +206,12 @@ class Causilo15Model(CausiloModelBase):
     #: The ``share_weights`` switch of ``model_class_settings``, as a declaring wrapper gets it.
     class_settings_cls = SharedWeightsClassSettings
 
+    def _set_default_params(self):
+        super()._set_default_params()
+        # The authors' setting for large tables: each member samples its own 200k-row context. Tables up to
+        # 200k training rows (every TabArena-v0.1 split) take the same full-context path as max_context=None.
+        self._set_default_param_value("max_context", 200_000)
+
     def _prepare_estimator(self, estimator) -> None:
         from tabarena.models.causilo._estimators import attach_shared_network
 

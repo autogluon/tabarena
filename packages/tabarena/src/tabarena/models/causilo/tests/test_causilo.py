@@ -108,3 +108,23 @@ def test_a_class_missing_from_the_fold_keeps_its_column(cls, tmp_path):
     assert proba.shape == (5, 4)
     assert (proba[:, 2] == 0).all()
     np.testing.assert_allclose(proba.sum(axis=1), 1, rtol=1e-6)
+
+
+def test_sampled_contexts_share_the_network_and_reload(tmp_path, binary_table):
+    X, y = binary_table  # 96 rows, so a 64-row budget samples one context per member
+    registry.release()
+    registry.reset_stats()
+    model = _fit(Causilo15Model, tmp_path, "sampled", X, y, "binary", n_estimators=2, max_context=64)
+    assert type(model.model._engine.state).__name__ == "SampledFitState"
+    assert model.get_info()["shared_weights"] is not None
+    expected = model.predict_proba(X)
+    reloaded = pickle.loads(pickle.dumps(model))
+    np.testing.assert_array_equal(reloaded.predict_proba(X), expected)
+
+
+def test_default_context_cap_matches_no_cap_below_it(tmp_path, binary_table):
+    X, y = binary_table
+    capped = _fit(Causilo15Model, tmp_path, "capped", X, y, "binary")
+    assert capped.params["max_context"] == 200_000
+    uncapped = _fit(Causilo15Model, tmp_path, "uncapped", X, y, "binary", max_context=None)
+    np.testing.assert_array_equal(capped.predict_proba(X), uncapped.predict_proba(X))
