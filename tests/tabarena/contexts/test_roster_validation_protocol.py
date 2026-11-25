@@ -37,7 +37,10 @@ def test_every_tabarena_method_declares_its_protocol():
 def test_every_beyondarena_method_declares_the_beyondarena_protocol():
     for collection in (beyond_method_metadata_collection, beyond_method_metadata_complete_collection):
         for method in collection.method_metadata_lst:
-            assert method.validation_protocol == BEYONDARENA_VALIDATION_PROTOCOL.key(), method.method
+            if method.method_class == "system":
+                assert method.validation_protocol == "system", method.method
+            else:
+                assert method.validation_protocol == BEYONDARENA_VALIDATION_PROTOCOL.key(), method.method
 
 
 def test_beyondarena_complete_collection_keeps_superseded_linear():
@@ -66,11 +69,13 @@ def test_roster_methods_read_as_official_on_their_arena():
     assert statuses == {"official", "system"}
     beyond = BeyondArenaContext(methods=[], task_metadata="BeyondArena")
     assert {beyond.validation_protocol_status(m) for m in beyond_method_metadata_collection.method_metadata_lst} == {
-        "official"
+        "official",
+        "system",
     }
     # A TabArena result read through the BeyondArena context is a custom protocol there, and the other way round.
     tabarena_model = next(
         m for m in tabarena_method_metadata_collection.method_metadata_lst if m.method_class == "model"
     )
+    beyond_model = next(m for m in beyond_method_metadata_collection.method_metadata_lst if m.method_class == "model")
     assert beyond.validation_protocol_status(tabarena_model) == "custom"
-    assert tabarena.validation_protocol_status(beyond_method_metadata_collection.method_metadata_lst[0]) == "custom"
+    assert tabarena.validation_protocol_status(beyond_model) == "custom"
