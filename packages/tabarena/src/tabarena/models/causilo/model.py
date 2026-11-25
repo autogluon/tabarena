@@ -238,7 +238,7 @@ class Causilo15Model(CausiloModelBase):
         The 1.5 runtime reads numeric category labels as ordered levels and interpolates a category
         missing from the context between its neighbours. AutoGluon codes every categorical column as
         integers, so a fold-unseen category of a nominal column would get an interpolated code instead
-        of the library's encoding for an unseen text category. The labels keep the codes' order, so
+        of the library's encoding for an unseen text category. The zero-padded labels keep the codes' order, so
         seen categories encode as before; AutoGluon drops categories seen fewer than twice, so every
         category a test row carries is in the refit model's context and only out-of-fold rows change.
         """
@@ -257,7 +257,8 @@ class Causilo15Model(CausiloModelBase):
             return X
         X = X.copy(deep=False)
         for column in coded:
-            categories = X[column].cat.categories
-            width = len(str(categories.max()))
-            X[column] = X[column].cat.rename_categories([f"c{code:0{width}d}" for code in categories])
+            # A fixed width (every non-negative int64) keeps a code's label the same whatever other categories
+            # the column's dtype holds: BeyondArena's preprocessing keeps unseen categories in the dtype at
+            # predict time, and a width taken from the largest code would relabel every category then.
+            X[column] = X[column].cat.rename_categories([f"c{code:019d}" for code in X[column].cat.categories])
         return X

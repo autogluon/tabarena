@@ -128,3 +128,17 @@ def test_default_context_cap_matches_no_cap_below_it(tmp_path, binary_table):
     assert capped.params["max_context"] == 200_000
     uncapped = _fit(Causilo15Model, tmp_path, "uncapped", X, y, "binary", max_context=None)
     np.testing.assert_array_equal(capped.predict_proba(X), uncapped.predict_proba(X))
+
+
+def test_category_labels_do_not_depend_on_the_other_categories(tmp_path):
+    """BeyondArena keeps unseen categories (here a longer code) in the dtype at predict time."""
+    rng = np.random.default_rng(3)
+    levels = [4675, 9999, 117961, 311867]
+    codes = rng.choice(levels, 160)
+    X = pd.DataFrame({"c": pd.Categorical(codes, categories=levels), "x": rng.normal(size=160)})
+    y = pd.Series(((codes == 9999) | (codes == 311867)).astype(int))
+    model = _fit(Causilo15Model, tmp_path, "labels", X, y, "binary")
+    query = X.iloc[:20]
+    widened = query.assign(c=pd.Categorical(query["c"].astype(int), categories=[*levels, 1234567]))
+    np.testing.assert_array_equal(model.predict_proba(widened), model.predict_proba(query))
+    assert model.predict_proba(query).std() > 0.05  # the categories carry the label
