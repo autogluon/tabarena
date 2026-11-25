@@ -201,8 +201,9 @@ kumo_tabular = [
 # because neuralk-oss and the `kumo_tabular` extra pin different versions of structured-data-models.
 seldon = ["neuralk-oss==0.3.0"]
 lattice = [
-  "lattice[fast] @ git+https://github.com/hachure-ai/Lattice.git@e106f9fba5994f85aca9593ae82af561054ab77a",
-  "torch>=2.7.1",  # AutoGluon's tensor serialization needs torch.utils.serialization.
+  "lattice @ git+https://github.com/hachure-ai/Lattice.git@4ab2558dba4001cb69dfd552ace14358a8af1b7d",
+  "torch==2.14.1",
+  "triton==3.8.0; sys_platform == 'linux'",
 ]
 # LightPFN: ~4.8M-parameter in-context classifier and regressor; keep in sync with `pip_extra` in models/lightpfn/info.py.
 lightpfn = [

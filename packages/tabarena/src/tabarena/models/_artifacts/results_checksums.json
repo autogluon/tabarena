@@ -277,5 +277,9 @@
  "artifacts/tabarena-2026-11-19/methods/Lattice-tiny/results/hpo_results.parquet": "d6c784850edfd77fa82d9dd176b82d61",
  "artifacts/tabarena-2026-11-19/methods/Lattice-tiny/results/model_results.parquet": "30ee5e339adba80d3f7be12eb73bd42d",
  "artifacts/tabarena-2026-11-19/methods/Lattice/results/hpo_results.parquet": "700ec59eed1889dbfcc2377c59f65160",
- "artifacts/tabarena-2026-11-19/methods/Lattice/results/model_results.parquet": "1df92999af390605880bd5441eeb0d05"
+ "artifacts/tabarena-2026-11-19/methods/Lattice/results/model_results.parquet": "1df92999af390605880bd5441eeb0d05",
+ "artifacts/tabarena-2026-11-24/methods/Lattice-tiny/results/hpo_results.parquet": "60661345d26fcc1591620678b2524f1a",
+ "artifacts/tabarena-2026-11-24/methods/Lattice-tiny/results/model_results.parquet": "8cb5ada0e0498caf91d10b47b5eeb496",
+ "artifacts/tabarena-2026-11-24/methods/Lattice/results/hpo_results.parquet": "4fe534197dbf83e1c55e1fe25589d619",
+ "artifacts/tabarena-2026-11-24/methods/Lattice/results/model_results.parquet": "aba995cf257f499044e0efe06b8bae26"
 }
