@@ -283,5 +283,7 @@
  "artifacts/tabarena-2026-11-24/methods/Lattice-tiny/results/hpo_results.parquet": "60661345d26fcc1591620678b2524f1a",
  "artifacts/tabarena-2026-11-24/methods/Lattice-tiny/results/model_results.parquet": "8cb5ada0e0498caf91d10b47b5eeb496",
  "artifacts/tabarena-2026-11-24/methods/Lattice/results/hpo_results.parquet": "4fe534197dbf83e1c55e1fe25589d619",
- "artifacts/tabarena-2026-11-24/methods/Lattice/results/model_results.parquet": "aba995cf257f499044e0efe06b8bae26"
+ "artifacts/tabarena-2026-11-24/methods/Lattice/results/model_results.parquet": "aba995cf257f499044e0efe06b8bae26",
+ "artifacts/tabarena-2026-11-25/methods/TabSil/results/hpo_results.parquet": "87c73b23d3d50e8af1cf50dc66e151f1",
+ "artifacts/tabarena-2026-11-25/methods/TabSil/results/model_results.parquet": "866bb85a9b1404f143fa7bf61edcc243"
 }

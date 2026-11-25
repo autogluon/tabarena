@@ -143,6 +143,7 @@ from tabarena.models.tabpfnv2_5.info import (
     realtabpfnv25_method_metadata as realtabpfn25_metadata,
     tabpfnv26_method_metadata as tabpfn26_metadata,
 )
+from tabarena.models.tabsil.info import tabsil_method_metadata
 from tabarena.models.tabstar_v1p1.info import tabstar_v1p1_method_metadata
 from tabarena.models.tabswift.info import (
     tabswift_2026_09_method_metadata,
@@ -282,6 +283,7 @@ tabarena_method_metadata_collection = MethodMetadataCollection(
         inpriora_method_metadata,
         lattice_method_metadata,
         lattice_tiny_method_metadata,
+        tabsil_method_metadata,
     ],
 )
 
