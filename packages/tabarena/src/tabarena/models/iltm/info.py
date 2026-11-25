@@ -46,6 +46,6 @@ iltm_info = ModelInfo(
     model_cls=ILTMModel,
     search_space=gen_iltm,
     method_metadata=iltm_method_metadata,
-    pip_extra=("iltm==0.1.7",),
+    pip_extra=("iltm==0.1.8",),
     prefetch_weights=ILTMModel.prefetch_weights,
 )
