@@ -553,7 +553,7 @@ A bagged fit of an in-context model would build the same frozen network once per
 once more for the refit child, inside the timed fit. Every foundation-model library builds its
 network inside one call its `fit` makes: a method on the estimator (tabpfn
 `_initialize_model_variables`, tabicl and tabldm `_load_model`), a module function (causilo
-`load_pretrained_model`, the vendored LimiX `load_model`) or a classmethod (`Tab2D.from_pretrained`,
+`load_hosted_model`, the vendored LimiX `load_model`) or a classmethod (`Tab2D.from_pretrained`,
 `TabSTARModel.from_pretrained`). The wrapper declares that call and the inputs that decide which
 network it builds; AutoGluon's `AbstractTorchModel` memoizes it per process (the mechanism lives in
 `autogluon.core.models.abstract.shared_weights`, whose module docstring is the reference):

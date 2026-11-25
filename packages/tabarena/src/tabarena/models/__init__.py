@@ -14,7 +14,7 @@ if TYPE_CHECKING:
     from tabarena.models.agentic_mlp.model import AgenticMLPModel
     from tabarena.models.agentic_tabm.model import AgenticTabMModel
     from tabarena.models.aplr.model import APLRModel
-    from tabarena.models.causilo.model import CausiloModel
+    from tabarena.models.causilo.model import Causilo15Model, CausiloModel
     from tabarena.models.chimeraboost.model import ChimeraBoostModel
     from tabarena.models.ctboost.model import CTBoostModel
     from tabarena.models.exaone_tabular.model import EXAONETabularModel
@@ -68,6 +68,7 @@ _LAZY_CLASSES: dict[str, str] = {
     "APLRModel": "tabarena.models.aplr.model",
     "TabAbaxModel": "tabarena.models.tababax.model",
     "CausiloModel": "tabarena.models.causilo.model",
+    "Causilo15Model": "tabarena.models.causilo.model",
     "ChimeraBoostModel": "tabarena.models.chimeraboost.model",
     "CTBoostModel": "tabarena.models.ctboost.model",
     "EXAONETabularModel": "tabarena.models.exaone_tabular.model",
