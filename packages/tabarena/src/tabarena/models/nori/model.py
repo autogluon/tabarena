@@ -162,6 +162,7 @@ class NoriModel(AbstractTorchModel):
             {
                 "fold_fitting_strategy": "sequential_local",
                 "refit_folds": default_ag_args_ensemble.pop("refit_folds", True),
+                "vary_seed_across_folds": default_ag_args_ensemble.pop("vary_seed_across_folds", False),
             },
         )
         return default_ag_args_ensemble

@@ -348,6 +348,7 @@ class TabPFNModel(AbstractTorchModel):
             # FIXME: Find a work-around to avoid crash if parallel and weights are not downloaded
             "fold_fitting_strategy": "sequential_local",
             "refit_folds": default_ag_args_ensemble.pop("refit_folds", True),
+            "vary_seed_across_folds": default_ag_args_ensemble.pop("vary_seed_across_folds", False),
         }
         default_ag_args_ensemble.update(extra_ag_args_ensemble)
         return default_ag_args_ensemble

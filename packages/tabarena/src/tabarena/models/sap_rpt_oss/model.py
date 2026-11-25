@@ -95,6 +95,7 @@ class SAPRPTOSSModel(AbstractTorchModel):
         default_ag_args_ensemble = super()._get_default_ag_args_ensemble(**kwargs)
         extra_ag_args_ensemble = {
             "refit_folds": True,
+            "vary_seed_across_folds": False,  # pretrained: the fold models are the refit that predicts
         }
         default_ag_args_ensemble.update(extra_ag_args_ensemble)
         return default_ag_args_ensemble

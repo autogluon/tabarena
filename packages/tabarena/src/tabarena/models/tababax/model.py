@@ -82,7 +82,11 @@ class TabAbaxModel(AbstractTorchModel):
     default_resources_physical_cores_only = True
     default_num_gpus = 1
     minimum_num_gpus = 1
-    _default_ag_args_ensemble_extra = {"fold_fitting_strategy": "sequential_local", "refit_folds": True}
+    _default_ag_args_ensemble_extra = {
+        "fold_fitting_strategy": "sequential_local",
+        "refit_folds": True,
+        "vary_seed_across_folds": False,  # pretrained: the fold models are the refit that predicts
+    }
     #: The estimator builds its network inside ``_load_model``, which ``fit`` calls. The first
     #: fit of a checkpoint in the process builds it; every later estimator of that checkpoint
     #: and device reuses it.

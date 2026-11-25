@@ -26,7 +26,7 @@ class KNNNewModel(KNNModel):
 
     ag_key = "TA-KNN"
     ag_name = "KNeighbors"
-    _default_ag_args_ensemble_extra = {"use_child_oof": True}
+    _default_ag_args_ensemble_extra = {"use_child_oof": True, "vary_seed_across_folds": True}
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)

@@ -107,6 +107,7 @@ class PerpetualBoosterModel(AbstractModel):
             "fold_fitting_strategy": "sequential_local",
             # Following https://github.com/perpetual-ml/perpetual/issues/66#issuecomment-3073175292
             "refit_folds": True,
+            "vary_seed_across_folds": True,  # trained: a seed per fold model
         }
         default_ag_args_ensemble.update(extra_ag_args_ensemble)
         return default_ag_args_ensemble

@@ -209,6 +209,7 @@ class CTBoostModel(AbstractModel):
     ag_name = "CTBoost"
     ag_priority = 65
     seed_name = "random_seed"
+    _default_ag_args_ensemble_extra: ClassVar[dict] = {"vary_seed_across_folds": True}  # trained: a seed per fold model
     _supported_problem_types = ["binary", "multiclass", "regression"]
     _default_auxiliary_params_extra = {
         "valid_raw_types": ["bool", "int", "float", "category", "object"],

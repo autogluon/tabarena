@@ -24,6 +24,7 @@ class ChimeraBoostModel(AbstractModel):
     warmup_modules: ClassVar[tuple[str, ...]] = ("chimeraboost",)
     ag_name = "ChimeraBoost"
     seed_name = "random_state"  # AutoGluon injects the framework seed here
+    _default_ag_args_ensemble_extra: ClassVar[dict] = {"vary_seed_across_folds": True}  # trained: a seed per fold model
     _supported_problem_types = ["binary", "multiclass", "regression"]
     _default_auxiliary_params_extra = {"valid_raw_types": ["int", "float", "category"]}
     default_resources_physical_cores_only = True

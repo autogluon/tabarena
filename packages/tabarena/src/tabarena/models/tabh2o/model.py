@@ -34,7 +34,11 @@ class TabH2OModel(AbstractTorchModel):
     default_num_gpus = 1
     minimum_num_gpus = 1
     _default_auxiliary_params_extra = {"valid_raw_types": ["int", "float", "category"]}
-    _default_ag_args_ensemble_extra = {"fold_fitting_strategy": "sequential_local", "refit_folds": True}
+    _default_ag_args_ensemble_extra = {
+        "fold_fitting_strategy": "sequential_local",
+        "refit_folds": True,
+        "vary_seed_across_folds": False,  # pretrained: the fold models are the refit that predicts
+    }
     #: ``TabH2O.from_pretrained`` builds the network; one build per checkpoint and device per process.
     shared_weights: ClassVar[SharedWeights] = SharedWeights(
         loader="h2ofm:TabH2O.from_pretrained", key=("pretrained_model_name_or_path", "revision")
