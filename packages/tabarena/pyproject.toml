@@ -136,6 +136,8 @@ tabstar_v1p1 = ["tabstar==1.2.0"]
 tabh2o = ["h2ofm==0.43.1"]
 # Chakra-Tab is a hosted API (systems/chakra_tab): the extra is only the HTTP client and the table encoding.
 chakra-tab = ["requests>=2.31", "pyarrow>=14"]
+# TabPFN-3.5-Thinking is a hosted API (systems/tabpfn_3_5_thinking): the extra is only the official client.
+tabpfn-3-5-thinking = ["tabpfn-client==0.10.1"]
 perpetualboosting = ["perpetual"] # We used version 2.1.0
 # The benchmark runs installed TabTune from git main (kept as `pip_extra` in models/orionmsp/info.py);
 # 0.1.18 is the PyPI release that ships the `orionmsp_v15` modules the wrapper imports.
