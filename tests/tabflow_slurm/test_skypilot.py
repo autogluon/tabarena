@@ -120,6 +120,12 @@ class TestConfiguration:
         with pytest.raises(ValueError, match="workers"):
             _setup(local_storage, workers=0)
 
+    def test_pool_downscale_delay_stays_within_the_admin_policy(self, local_storage):
+        setup = _setup(local_storage, use_pool=True, pool_downscale_delay_seconds=600)
+        assert setup.render_pool_spec(resources=_resources(), env=_env())["pool"]["downscale_delay_seconds"] == 600
+        with pytest.raises(ValueError, match="pool_downscale_delay_seconds"):
+            _setup(local_storage, use_pool=True, pool_downscale_delay_seconds=601)
+
     def test_pool_name_must_fit_the_gcp_cluster_name(self, local_storage):
         _setup(local_storage, use_pool=True, pool_name="x" * sky_mod.MAX_POOL_NAME_LENGTH)
         with pytest.raises(ValueError, match="pool_name"):
@@ -216,7 +222,13 @@ class TestRenderSpecs:
         assert "setup" not in job
         assert job["resources"] == {"cpus": "16+", "memory": "64+"}
         assert pool["name"] == "tabarena-cpu"
-        assert pool["pool"] == {"workers": 5}
+        # The cluster's admin policy rejects a fixed `workers:` count: the pool scales from zero up to `workers`.
+        assert pool["pool"] == {
+            "min_workers": 0,
+            "max_workers": 5,
+            "upscale_delay_seconds": 30,
+            "downscale_delay_seconds": 120,
+        }
         assert pool["resources"]["use_spot"] is True and pool["resources"]["disk_size"] == 128
         assert pool["envs"] == {
             "ENV_SPEC": "gs://b/me/tabarena/env/abc/env.json",
@@ -432,6 +444,8 @@ class TestGetRunCommands:
         assert "${SKYPILOT_API_SERVER_ENDPOINT:?" not in block
         assert f"sky jobs pool apply -y -p tabarena-gpu {pool_yaml}" in block
         assert "sky jobs pool status --all tabarena-gpu" in block
+        # A pool that scales from zero starts its workers only when jobs wait, so the block must not wait for READY.
+        assert "READY" not in block
         assert "sky jobs launch -y -d --pool tabarena-gpu -n bench_gpu-" in block
         assert "--num-jobs 2 " in block
         assert "sky jobs pool down -y tabarena-gpu" in block
