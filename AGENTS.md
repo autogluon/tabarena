@@ -180,6 +180,8 @@ Independent rather than a cumulative ladder because "LLM-based systems but not t
 
 `evaluation/subset_grid.py` crosses the pools with the other axes into a 1920-cell grid and owns the folder layout (`entrants_<key>/imputation_.../splits_.../tasks_.../datasets_...`), which the leaderboard Space's `Subset.rel_path` mirrors segment for segment. Adding a fourth category doubles the artifact count and the generation time; that is the price of independent toggles.
 
+BeyondArena publishes the same pools: `scripts/run_generate_beyondarena_website_artifacts.py` writes each pool's grid under `entrants_<key>/split_.../size_.../features_.../tasks_...` and its overview figures under `entrants_<key>/result_plots/`, which the Space's `BeyondSubset.rel_path` mirrors. Both builds compute pools that admit the same methods once (`group_identical_pools`) and publish them under every key, so a category no system of that arena carries costs nothing.
+
 One coupling to know about when you register a system: `eval_all.get_pool_reference_lines` returns the pool's admitted systems as `(baselines, baseline_colors)`, and `baselines` is not only what the figures draw as horizontal reference lines. `LeaderboardReporter.eval` keeps a row only when its method maps to a config framework type *or* is named in `baselines`, and a system is neither, so a system missing from that list is deleted from the pool's published numbers with nothing logged. It is derived from `method_metadata_info` for exactly that reason, and `tests/tabarena/evaluation/test_entrants.py` guards that the widest pool covers every system in the shipped collection.
 
 ### Validation protocol

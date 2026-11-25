@@ -46,6 +46,10 @@ from tabarena.models.tabpfnv2_5.info import realtabpfnv25_descriptor, tabpfnv26_
 from tabarena.models.tabswift.info import tabswift_descriptor
 from tabarena.models.xgboost.info import xgboost_descriptor
 
+# Systems (whole pipelines rather than single models) have their own per-system `info.py`, whose metadata carries the
+# system's own `validation_protocol="system"` instead of the arena protocol of `_common_kwargs` below.
+from tabarena.systems.tabpfn_3_5_thinking.info import tabpfn_3_5_thinking_max_metadata
+
 if TYPE_CHECKING:
     from tabarena.models._method_metadata import MethodMetadata
 
@@ -313,6 +317,10 @@ beyond_tababax_metadata = tababax_descriptor.method_metadata(
 )
 
 beyond_method_metadata_lst: list[MethodMetadata] = [
+    # Systems: TabPFN-3.5-Thinking at effort max, run 2026-11-19 with the 8 h time limit for systems
+    # (`beyondarena_tabpfn35thinking_core2k_19112026` in BENCHMARK_LOG.md)
+    tabpfn_3_5_thinking_max_metadata,
+    # Models
     beyond_linear_2026_09_metadata,
     beyond_random_forest_metadata,
     beyond_extra_trees_metadata,
