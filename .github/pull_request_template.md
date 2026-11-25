@@ -31,6 +31,8 @@ A submission reaches the leaderboard in five stages. This pull request is stage 
 4. Upload and merge. The maintainer processes the raw results, hosts the artifacts (results, processed predictions and raw predictions), records the hosted locations and the verification status in the method's `info.py`, registers the method in the arena's method collection, and merges the PR. A merged method therefore always has hosted results behind it.
 5. Leaderboard update. After the merge, the website artifacts are regenerated from the hosted results and the leaderboard is refreshed with a new version entry that names the method. This happens in batches with other new entries, usually within days of the merge.
 
+A method benchmarked before its public launch (a pre-launch run, see "Submission process" in the README) went through stages 2 and 3 privately; its pull request opens on the launch date with the results, and stages 4 and 5 follow.
+
 Kind: <!-- model or system; if it replaces or builds on an entrant already on the leaderboard, name it -->
 
 **Files**

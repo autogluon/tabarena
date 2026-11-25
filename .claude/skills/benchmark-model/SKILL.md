@@ -562,6 +562,19 @@ A hosted API (`tags=("closed-source-api",)`) uses
 test features, and every TabArena dataset is public, so nothing is launched before the client has
 been read and the API probed.
 
+A pre-launch run (README, "Submission process") benchmarks a method before its public launch: an API version
+already served in production but not announced, or a model whose release the pull request will pin. It follows the
+same steps, with five differences. Before the run starts, the provider names a launch date no more than two weeks
+after the run; we do not hold results for a paper decision or another event that may come later, and a launch that
+slips past the two weeks drops the run (the method can come back through the usual process once it is public). The
+evaluation is fixed when the run starts (configs, time limit, client or
+package version, the provider's settings), and a change the provider asks for afterwards is a new submission rather
+than a rerun of the same one. The run, its results and the eval stay private: no pull request, issue, PR comment,
+artifact or commit that names the version before the launch date the provider gave. Record what the run used (the
+server version in each result's `api_server_info`, the client pin, or the package version and checkpoint hash) in
+the run's notes. On the launch date, check that the launched version is the one that ran before anything is opened
+or uploaded; if it differs, nothing is published and the run is repeated on the launched version.
+
 1. Read the client. Read `system.py` for what leaves the process and how: endpoint, key handling,
    payload, retries, timeouts, which fit inputs it forwards. Then run `audit --offline`: the
    static scan plus the first request the client tries, with the network blocked, so no key is
