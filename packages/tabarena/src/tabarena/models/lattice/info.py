@@ -28,28 +28,33 @@ def _descriptor(name: str) -> ModelDescriptor:
 lattice_descriptor = _descriptor("Lattice")
 lattice_tiny_descriptor = _descriptor("Lattice-tiny")
 
-# Run lattice_19112026 (BENCHMARK_LOG.md): both sizes on all 51 datasets, every split, on a SkyPilot pool of
-# RTX PRO 6000 with the CUDA 12.8 build of torch 2.7.1 and triton 3.3.1 (the stack of Lattice's Triton fast path).
-_tabarena_run_kwargs = dict(
+_run_kwargs = dict(
     can_hpo=False,
-    date="2026-11-19",
     verified=True,
     validation_protocol="8x1",
-    suite="tabarena-2026-11-19",
     cache_type="r2",
     cache_kwargs={"bucket": "tabarena", "prefix": "cache"},
 )
+# Run lattice_24112026 (BENCHMARK_LOG.md): both sizes on all 51 datasets, every split, on a SkyPilot pool of
+# RTX PRO 6000 at 90b915af (#745): Lattice 4ab2558, torch 2.14.1, triton 3.8.0, AMP on, Lattice-tiny with 4 members,
+# the refit's KV-cache staging timed inside predict.
+_run_2026_11_24 = dict(date="2026-11-24", suite="tabarena-2026-11-24")
+# Run lattice_19112026 (BENCHMARK_LOG.md): the same protocol at dc5a176c (#737), Lattice e106f9f with the CUDA 12.8
+# build of torch 2.7.1 and triton 3.3.1, Lattice-tiny with 8 members. Superseded by the run above.
+_run_2026_11_19 = dict(date="2026-11-19", suite="tabarena-2026-11-19")
 
 
-def _method_metadata(descriptor: ModelDescriptor, model_cls: type[LatticeModel]) -> MethodMetadata:
+def _method_metadata(descriptor: ModelDescriptor, model_cls: type[LatticeModel], run: dict) -> MethodMetadata:
     name = descriptor.display_name
     return descriptor.method_metadata(
-        method=name, ag_key=model_cls.ag_key, config_default=f"{name}_c1_default_BAG_L1", **_tabarena_run_kwargs
+        method=name, ag_key=model_cls.ag_key, config_default=f"{name}_c1_default_BAG_L1", **_run_kwargs, **run
     )
 
 
-lattice_method_metadata = _method_metadata(lattice_descriptor, LatticeModel)
-lattice_tiny_method_metadata = _method_metadata(lattice_tiny_descriptor, LatticeTinyModel)
+lattice_method_metadata = _method_metadata(lattice_descriptor, LatticeModel, _run_2026_11_24)
+lattice_tiny_method_metadata = _method_metadata(lattice_tiny_descriptor, LatticeTinyModel, _run_2026_11_24)
+lattice_1911_method_metadata = _method_metadata(lattice_descriptor, LatticeModel, _run_2026_11_19)
+lattice_tiny_1911_method_metadata = _method_metadata(lattice_tiny_descriptor, LatticeTinyModel, _run_2026_11_19)
 
 
 def _model_info(model_cls: type[LatticeModel], generator, metadata: MethodMetadata) -> ModelInfo:
