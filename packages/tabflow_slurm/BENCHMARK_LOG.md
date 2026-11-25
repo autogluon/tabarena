@@ -34,6 +34,81 @@ run against `main`. To reproduce an entry, check out its recorded **git SHA**.
 
 ---
 
+## 2026-11-25 — tabsil_25112026
+
+- **Model(s):** TabSil (default config only, no search space) on all 816 TabArena-v0.1 splits, 816 items
+- **Git SHA:** `37b393b2` on `pr-753-add-tabsil`, the head of autogluon/tabarena#753 after the maintainers took it
+  over: the authors' `1360e0e8` plus `f87f9f75` (the fixes below) and a merge of `main` at `cf2c145f`, clean.
+  tabsil 0.1.0 from PyPI, weights `aiden-jeon/tabsil@bc7c0d9b` (the commit of the `v1` tag), AutoGluon
+  1.6.4b20261122 and torch 2.14.1 from PyPI.
+- **Validation protocol:** `8x1`
+- **Purpose:** Stage-2 run of the TabSil submission (#753).
+- **Notes:** SkyPilot pool `tabsil-2511` (spot RTX PRO 6000 workers, env `5b1ac78d3d71`), one item per bundle,
+  `fake_memory_for_estimates=96`, the 1 h default time limit. The generated pool YAML (`workers: 32`) was edited to
+  `min_workers: 0`, `max_workers: 32`, `upscale_delay_seconds: 30`, `downscale_delay_seconds: 120` for the admin
+  policy; one job was launched first and checked (warm-up ok, results in the bucket), then the other 31 under the
+  same launch (`tabsil_25112026_gpu-20261125-195500-7720`). Run venv `~/.venvs/tabarena_iltm_22112026` with
+  `tabsil==0.1.0` added.
+  - Before the launch: three reviewer lenses on the PR and the tabsil 0.1.0 wheel (identical to the repository's
+    `v0.1.0` tag), plus `audit_transduction` (clean on all three problem types, largest difference 4e-7),
+    `audit_warmup` and `audit_pickle` on the CPU. No blocker. Fixed in `f87f9f75`: `HF_REVISION` pinned the `v1`
+    tag object (`41bf9bd3`) instead of its commit; the members' encoded training rows (`X_trains_`, eight float64
+    NumPy copies in `model.pkl`, 8x the frame on float64 tables and about 157x on categorical ones) are stored in
+    float32 with bit-identical predictions (a developer fix; 640 to 352 B per row on the audit table); the
+    shared-weights loader runs on the fit's CPU budget. Notes without action: the authors chose the stage-1
+    training length partly on TabArena-Lite (150k vs 225k steps, 1429 vs 1423 Elo, disclosed in the PR; the
+    shipped checkpoint is the end of the schedule, not the Lite argmax); category codes follow the string order of
+    AutoGluon's integer categories for columns kept as codes (more than 20 levels); the weights were trained in
+    the authors' earlier `minipfn` code, so "synthetic data only" rests on their statement.
+  - Smoke fit on the CPU passed for all three problem types (1 min 42 s).
+  - 816 of 816 items, 0 failed, 0 recoveries, from 20:02 to about 20:35 UTC. The warm-up audit found 816 of 816
+    warm-ups ok (2.7 s on average) and no import or CUDA initialization inside a timed fit or predict. The slowest
+    item, customer_satisfaction_in_airline, took about 397 s to train and 74 s to predict.
+  - Against the authors' TabArena-Lite results (51 `results.pkl`, HF dataset `aiden-jeon/tabsil-tabarena-lite` at
+    `1c4beda3`, scanned with the restricted unpickler): split indices and labels hash-identical to this run on all
+    51 splits; test errors on split 0 within 0.47% on every dataset (median 0.0016%, 23 better and 28 worse, GPU
+    noise); our median fit and inference were 1.18x and 1.22x theirs (RTX PRO 6000 against H100). On Lite this run
+    scores 1754 (+89/-73), rank 19 of 121; the authors reported 1755 (+88/-73).
+- **Result:**
+  - Full (models and systems): rank 20 of 121, Elo 1732 (+75/-57), between AutoGluon 1.6 (extreme, 4h) (1738) and
+    Lattice-tiny (1680). Nothing imputed.
+  - Binary: rank 21 of 119 (1708). Multiclass: rank 18 of 119 (1763). Regression: rank 18 of 117 (2002).
+  - Median per 1K rows: 1.89 s train and 0.637 s inference.
+- **Upload:** processed and uploaded as suite `tabarena-2026-11-25` (`tabsil_method_metadata` in
+  `models/tabsil/info.py`, 816 splits, raw included), `verified=True` on the maintainer's sign-off, registered in
+  the TabArena collection.
+
+```python
+TabArenaV0pt1BenchmarkPlan(
+    benchmark_name="tabsil_25112026",
+    model_jobs=[
+        ModelJob(
+            models=("TabSil", 0),
+            name="gpu",
+            resources={
+                "num_gpus": 1,
+                "fake_memory_for_estimates": 96,
+            },
+        ),
+    ],
+    task_subset=TaskSubset(),
+    path_setup=PathSetup(
+        workspace="/home/lennart_priorlabs_ai/workspace/benchmarking/tabarena_workspace",
+        python_path="/home/lennart_priorlabs_ai/.venvs/tabarena_iltm_22112026/bin/python",
+    ),
+    experiment_bundle=TabArenaV0pt1ExperimentBundle(model_verbosity=2),
+    resources_setup=TabArenaV0pt1ResourcesSetup(num_cpus=None, memory_limit=None),
+    scheduler_setup=SkyPilotSetup(
+        bundle_size=1,
+        workers=32,
+        use_pool=True,
+        pool_name="tabsil-2511",
+    ),
+).setup_jobs()
+```
+
+---
+
 ## 2026-11-24 — lattice_24112026
 
 - **Model(s):** Lattice and Lattice-tiny (default config only, no search space) on all 816 TabArena-v0.1 splits each,

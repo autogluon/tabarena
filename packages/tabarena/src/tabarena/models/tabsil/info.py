@@ -18,14 +18,19 @@ tabsil_descriptor = ModelDescriptor(
     date_introduced="2026-11-24",  # the Hub upload of the v1 weights
 )
 
-# Not benchmarked by the maintainers yet: no hosted results, so the cache is local.
+# Run tabsil_25112026 (BENCHMARK_LOG.md): the maintainers' run of #753 on all 816 TabArena-v0.1 splits, tabsil 0.1.0
+# with the v1 weights (bc7c0d9b), on spot RTX PRO 6000 workers. It reproduces the authors' TabArena-Lite results.
 tabsil_method_metadata = tabsil_descriptor.method_metadata(
     method="TabSil",
     ag_key="TA-TABSIL",
+    config_default="TabSil_c1_default_BAG_L1",
     can_hpo=False,
     date="2026-11-25",
     validation_protocol="8x1",
     suite="tabarena-2026-11-25",
+    verified=True,
+    cache_type="r2",
+    cache_kwargs={"bucket": "tabarena", "prefix": "cache"},
 )
 
 tabsil_info = ModelInfo(
