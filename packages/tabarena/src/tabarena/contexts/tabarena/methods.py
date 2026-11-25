@@ -72,7 +72,12 @@ from tabarena.models.kumo_tabular.info import (
     kumo_tabular_method_metadata,
     kumo_tabular_small_method_metadata,
 )
-from tabarena.models.lattice.info import lattice_method_metadata, lattice_tiny_method_metadata
+from tabarena.models.lattice.info import (
+    lattice_1911_method_metadata,
+    lattice_method_metadata,
+    lattice_tiny_1911_method_metadata,
+    lattice_tiny_method_metadata,
+)
 from tabarena.models.lightgbm.info import lightgbm_method_metadata
 from tabarena.models.lightpfn.info import lightpfn_1p0_method_metadata, lightpfn_method_metadata
 from tabarena.models.limix.info import limix_method_metadata as limix_metadata
@@ -305,6 +310,8 @@ methods_superseded: list[MethodMetadata] = [
     seldon_mini_classification_method_metadata,  # classification only; tabarena-2026-11-08 adds regression
     lightpfn_1p0_method_metadata,  # lightpfn 1.0.0, classification only; 1.5.1 (tabarena-2026-11-11) replaced it
     limix_2_method_metadata,  # the #648 checkpoint, with its leakage warning; LimiX-2-1016 replaced it
+    lattice_1911_method_metadata,  # Lattice e106f9f (tabarena-2026-11-19); the #745 rerun (tabarena-2026-11-24) replaced it
+    lattice_tiny_1911_method_metadata,  # 8 members (tabarena-2026-11-19); the #745 rerun with 4 members replaced it
 ]
 
 # All historical results for each method = the latest collection + every superseded variant: the

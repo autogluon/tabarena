@@ -417,6 +417,13 @@ class AbstractExecModel:
         Data-dependent first-call work (kernel dispatch on the real test batch, in-context staging)
         stays inside the predict timer. A failing hook is isolated per object and logged; the timed
         predict then runs on that object unprepared.
+
+        In-context staging includes moving a cache of the encoded training context that was built
+        in the timed fit (a KV cache) to the inference device: such a cache grows with the training
+        table, and every in-context model stages its context inside the timed predict. Treating that
+        cache like fitted weights and placing it here would also be fair, but only when all in-context
+        models do it, which needs a rerun of their hosted results. Consider that refactor together
+        with such a rerun (raised in autogluon/tabarena#745).
         """
 
     def post_predict(self):

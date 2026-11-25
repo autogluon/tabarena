@@ -56,6 +56,7 @@ class LatticeModel(AbstractTorchModel):
     ag_priority = 65
     seed_name = "random_state"
     model_size: ClassVar[str] = "default"
+    default_n_estimators: ClassVar[int] = 8
     warmup_modules: ClassVar[tuple[str, ...]] = ("lattice", "huggingface_hub")
     cheap_hyperparameters: ClassVar[dict] = {"n_estimators": 1, "kv_cache": False}
     # The released checkpoints are frozen: every fit of the same file on the same
@@ -103,10 +104,11 @@ class LatticeModel(AbstractTorchModel):
         return X
 
     def _set_default_params(self):
-        self._set_default_param_value("n_estimators", 8)
+        self._set_default_param_value("n_estimators", self.default_n_estimators)
         self._set_default_param_value("kv_cache", False)
         self._set_default_param_value("preprocessing", "lattice")
         self._set_default_param_value("batch_size", "auto")
+        self._set_default_param_value("use_amp", True)
         self._set_default_param_value("use_fa3", False)
 
     def _fit(
@@ -186,6 +188,11 @@ class LatticeModel(AbstractTorchModel):
         ``__setstate__`` (which rebuilds ``inference_config_`` and reinstalls the
         fastpath on the reloaded network) does not run; the network comes back
         through ``ensure_network`` instead. Both are cheap and idempotent.
+
+        The refit's KV cache is the encoded training context, so it is not placed
+        here: the library's ``predict`` / ``predict_proba`` moves it to the device
+        inside the predict timer, as every other in-context model stages its context
+        (see the hook contract in ``tabarena.benchmark.exec_models.base``).
         """
         super().prepare_for_inference()
         model = getattr(self, "model", None)
@@ -203,3 +210,4 @@ class LatticeTinyModel(LatticeModel):
     ag_key = "TA-LATTICE-TINY"
     ag_name = "TA-Lattice-tiny"
     model_size = "tiny"
+    default_n_estimators = 4
