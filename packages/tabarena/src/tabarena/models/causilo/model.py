@@ -69,7 +69,7 @@ class CausiloModelBase(AbstractTorchModel):
             library_device = "auto" if device == "cuda" else device
             self.model = cls(device=library_device, model_version=self.model_version, **params)
             self._prepare_estimator(self.model)
-            self.model.fit(self.preprocess(X), y)
+            self.model.fit(self.preprocess(X, is_train=True), y)
         finally:
             torch.set_num_threads(previous_threads)
 
@@ -232,33 +232,63 @@ class Causilo15Model(CausiloModelBase):
         info["shared_weights"] = None if record is None else shared_network_info(record)
         return info
 
-    def _preprocess(self, X: pd.DataFrame, **kwargs) -> pd.DataFrame:
-        """Give AutoGluon's integer category codes string labels.
+    def _preprocess(self, X: pd.DataFrame, is_train: bool = False, **kwargs) -> pd.DataFrame:
+        """Give integer category labels string labels.
 
         The 1.5 runtime reads numeric category labels as ordered levels and interpolates a category
         missing from the context between its neighbours. AutoGluon codes every categorical column as
-        integers, so a fold-unseen category of a nominal column would get an interpolated code instead
-        of the library's encoding for an unseen text category. The zero-padded labels keep the codes' order, so
-        seen categories encode as before; AutoGluon drops categories seen fewer than twice, so every
-        category a test row carries is in the refit model's context and only out-of-fold rows change.
+        integers (TabArena) or keeps a dataset's integer IDs (BeyondArena), so a fold-unseen category of a
+        nominal column would get an interpolated code instead of the library's encoding for an unseen text
+        category. The zero-padded labels keep the codes' order, so seen categories encode as before;
+        AutoGluon drops categories seen fewer than twice, so every category a test row carries is in the
+        refit model's context and only out-of-fold rows change.
+
+        The fit decides which columns get labels and stores them: the same column can reach predict with
+        another category dtype (BeyondArena's preprocessing returns an ``object`` index of Python ints
+        there), and a column labelled at fit but not at predict matches no category of the context.
         """
         import pandas as pd
 
         X = super()._preprocess(X, **kwargs)
-        coded = [
+        if is_train:
+            self._labelled_categories = [
+                column
+                for column in X.columns
+                if isinstance(X[column].dtype, pd.CategoricalDtype)
+                and len(X[column].cat.categories)
+                and all(_integer_label(value) is not None for value in X[column].cat.categories)
+            ]
+        columns = [
             column
-            for column in X.columns
-            if isinstance(X[column].dtype, pd.CategoricalDtype)
-            and pd.api.types.is_integer_dtype(X[column].cat.categories)
-            and len(X[column].cat.categories)
-            and X[column].cat.categories.min() >= 0
+            for column in getattr(self, "_labelled_categories", ())
+            if column in X.columns and isinstance(X[column].dtype, pd.CategoricalDtype)
         ]
-        if not coded:
+        if not columns:
             return X
         X = X.copy(deep=False)
-        for column in coded:
-            # A fixed width (every non-negative int64) keeps a code's label the same whatever other categories
-            # the column's dtype holds: BeyondArena's preprocessing keeps unseen categories in the dtype at
-            # predict time, and a width taken from the largest code would relabel every category then.
-            X[column] = X[column].cat.rename_categories([f"c{code:019d}" for code in X[column].cat.categories])
+        for column in columns:
+            X[column] = X[column].cat.rename_categories(_category_label)
         return X
+
+
+def _integer_label(value) -> int | None:
+    """``value`` as a Python int when it is an integer (also an integral float or an ``object`` int), else None."""
+    import numbers
+
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, numbers.Integral):
+        return int(value)
+    if isinstance(value, numbers.Real) and float(value).is_integer():
+        return int(value)
+    return None
+
+
+def _category_label(value) -> str:
+    """The string label of a category: ``c`` plus the integer zero-padded to 19 digits, else ``s`` plus its text.
+
+    A fixed width keeps a code's label the same whatever other categories the column's dtype holds
+    (BeyondArena's preprocessing keeps unseen categories in the dtype at predict time).
+    """
+    code = _integer_label(value)
+    return f"c{code:019d}" if code is not None else f"s{value}"

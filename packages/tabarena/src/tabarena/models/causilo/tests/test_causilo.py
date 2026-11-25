@@ -142,3 +142,19 @@ def test_category_labels_do_not_depend_on_the_other_categories(tmp_path):
     widened = query.assign(c=pd.Categorical(query["c"].astype(int), categories=[*levels, 1234567]))
     np.testing.assert_array_equal(model.predict_proba(widened), model.predict_proba(query))
     assert model.predict_proba(query).std() > 0.05  # the categories carry the label
+
+
+def test_category_labels_survive_another_dtype_at_predict(tmp_path):
+    """BeyondArena's preprocessing hands predict an ``object`` index of Python ints for an ``int64`` column."""
+    rng = np.random.default_rng(4)
+    levels = [4675, 9999, 117961, 311867]
+    codes = rng.choice(levels, 160)
+    X = pd.DataFrame({"c": pd.Categorical(codes, categories=levels), "x": rng.normal(size=160)})
+    y = pd.Series(((codes == 9999) | (codes == 311867)).astype(int))
+    model = _fit(Causilo15Model, tmp_path, "dtypes", X, y, "binary")
+    query = X.iloc[:20]
+    as_objects = query.assign(
+        c=pd.Categorical([int(v) for v in query["c"]], categories=pd.Index([int(v) for v in levels], dtype=object))
+    )
+    assert as_objects["c"].cat.categories.dtype == object
+    np.testing.assert_array_equal(model.predict_proba(as_objects), model.predict_proba(query))
