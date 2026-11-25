@@ -32,8 +32,9 @@ per fit as their libraries ship: Mitra v1 (the TabArena ``mitra`` entry uses Aut
 ``MitraModel`` directly), the AutoGluon system's own foundation-model children (resolved through
 ``ag_model_registry``), TabPFN-3-API (no local weights), iLTM (the library caches the network
 itself), TabDPT v1.1 and TabDPT-Turbo (their ``tabdpt`` releases load inside the constructor),
-TabPFN-Wide, SAP-RPT-OSS and Causilo-1.5 (causilo 1.5.0 offers no loader the sharing can use).
-Time comparisons between them and the declaring wrappers must be read with that in mind.
+TabPFN-Wide and SAP-RPT-OSS. Time comparisons between them and the declaring wrappers must be read
+with that in mind. Causilo-1.5 declares nothing either but shares through a developer fix
+(``causilo/_estimators.py``).
 
 Scope. Warm-up runs once, in the job's main process, before the timed fit. It warms that process,
 anything disk-backed (numba's on-disk kernel cache, the Hugging Face cache), the Ray runtime, and,

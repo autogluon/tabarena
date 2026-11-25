@@ -5,6 +5,8 @@ from typing import TYPE_CHECKING, ClassVar
 from autogluon.core.models.abstract import SharedWeights
 from autogluon.tabular.models.abstract.abstract_torch_model import AbstractTorchModel
 
+from tabarena.models._weights import SharedWeightsClassSettings
+
 if TYPE_CHECKING:
     import pandas as pd
 
@@ -66,9 +68,13 @@ class CausiloModelBase(AbstractTorchModel):
             # pickle records it, so a saved GPU fit also restores on a host without one.
             library_device = "auto" if device == "cuda" else device
             self.model = cls(device=library_device, model_version=self.model_version, **params)
+            self._prepare_estimator(self.model)
             self.model.fit(self.preprocess(X), y)
         finally:
             torch.set_num_threads(previous_threads)
+
+    def _prepare_estimator(self, estimator) -> None:
+        """Hook between constructing the library's estimator and fitting it."""
 
     def _predict_proba(self, X, **kwargs):
         import numpy as np
@@ -174,13 +180,10 @@ class CausiloModel(CausiloModelBase):
 class Causilo15Model(CausiloModelBase):
     """Causilo 1.5 as used on TabArena.
 
-    Declares no ``shared_weights``: every fit loads its own copy of the network. causilo 1.5.0 has no
-    loader AutoGluon's sharing can use. The 1.5 loader, ``causilo.v1_5.checkpoints.load_model(task,
-    source)``, takes a ``ModelSource`` dataclass, which the registry records as its ``repr`` and cannot
-    pass back when it rebuilds a network after a release or in another process. The fitted engine also
-    holds execution runners with a ``threading.Lock``, so the weightless pickle that sharing uses (the
-    estimator's attributes, without the library's ``export_estimator``) fails. Loading the 1.1 GB
-    checkpoint costs about 0.1 s from the page cache plus the copy to the GPU per fit.
+    Declares no ``shared_weights``, because causilo 1.5.0 has no loader AutoGluon's sharing can take
+    over; the fits share one network per process all the same, through the developer fix in
+    ``causilo/_estimators.py``, and switch it off the way a declaring wrapper does
+    (``ag_args_fit={"share_pretrained_weights": False}`` or the ``share_weights`` class setting).
     """
 
     ag_key = "TA-CAUSILO-1.5"
@@ -200,6 +203,28 @@ class Causilo15Model(CausiloModelBase):
         "causilo.v1_5.kernels.triton.residual_normalization",
         "causilo.v1_5.kernels.triton.swiglu",
     )
+    #: The ``share_weights`` switch of ``model_class_settings``, as a declaring wrapper gets it.
+    class_settings_cls = SharedWeightsClassSettings
+
+    def _prepare_estimator(self, estimator) -> None:
+        from tabarena.models.causilo._estimators import attach_shared_network
+
+        self._shared_network = None
+        aux = self.aux_params
+        if aux.save_pretrained_weights or not getattr(aux, "share_pretrained_weights", True):
+            return
+        if not type(self).get_class_settings().share_weights:
+            return
+        task = "regression" if self.problem_type == "regression" else "classification"
+        self._shared_network = attach_shared_network(estimator, task=task)
+
+    def get_info(self, include_feature_metadata: bool = True) -> dict:
+        from tabarena.models.causilo._estimators import shared_network_info
+
+        info = super().get_info(include_feature_metadata=include_feature_metadata)
+        record = getattr(self, "_shared_network", None)
+        info["shared_weights"] = None if record is None else shared_network_info(record)
+        return info
 
     def _preprocess(self, X: pd.DataFrame, **kwargs) -> pd.DataFrame:
         """Give AutoGluon's integer category codes string labels.
@@ -207,8 +232,9 @@ class Causilo15Model(CausiloModelBase):
         The 1.5 runtime reads numeric category labels as ordered levels and interpolates a category
         missing from the context between its neighbours. AutoGluon codes every categorical column as
         integers, so a fold-unseen category of a nominal column would get an interpolated code instead
-        of the library's encoding for an unseen text category. Zero-padded labels keep the codes'
-        order, so seen categories encode as before.
+        of the library's encoding for an unseen text category. The labels keep the codes' order, so
+        seen categories encode as before; AutoGluon drops categories seen fewer than twice, so every
+        category a test row carries is in the refit model's context and only out-of-fold rows change.
         """
         import pandas as pd
 
@@ -227,5 +253,5 @@ class Causilo15Model(CausiloModelBase):
         for column in coded:
             categories = X[column].cat.categories
             width = len(str(categories.max()))
-            X[column] = X[column].cat.rename_categories([f"{code:0{width}d}" for code in categories])
+            X[column] = X[column].cat.rename_categories([f"c{code:0{width}d}" for code in categories])
         return X
