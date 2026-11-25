@@ -45,6 +45,7 @@ class TabAbaxModel(AbstractTorchModel):
     - ``n_estimators=8``: ensemble views. ``1`` is a single forward pass.
     - ``batch_size=1``: ensemble members forwarded together. ``None`` sends all of them at once.
     - ``offload_mode="auto"``: puts the large column embedding on GPU, CPU, or disk according to free memory.
+    - ``context_subsample="auto"``: the model row-samples and chunks a split only when one activation exceeds this machine. ``False`` leaves the table whole.
     - ``use_amp="auto"``: mixed precision from the table size. Off for small tables and on CPU.
     - ``use_fa3=False``: FlashAttention-3. Leave off unless the runtime provides it.
     - ``allow_auto_download=True``: download the checkpoint when ``model_path`` is missing.
@@ -178,7 +179,6 @@ class TabAbaxModel(AbstractTorchModel):
             n_jobs=num_cpus,
             disk_offload_dir=disk_offload_dir,
             verbose=X.shape[0] > 250_000,
-            inference_config=dict(COL_CONFIG=dict(cpu_safety_factor=0.75)),
         )
         X = self.preprocess(X, y=y)
         self.model = self.model.fit(X=X, y=y)
@@ -205,6 +205,7 @@ class TabAbaxModel(AbstractTorchModel):
         self._set_default_param_value("use_amp", "auto")
         self._set_default_param_value("use_fa3", False)
         self._set_default_param_value("allow_auto_download", True)
+        self._set_default_param_value("context_subsample", "auto")
 
     def get_device(self) -> str:
         return self.model.device_.type
