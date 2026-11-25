@@ -125,6 +125,77 @@ TabArenaBenchmarkPlan(
 
 ---
 
+## 2026-11-24 — lattice_24112026
+
+- **Model(s):** Lattice and Lattice-tiny (default config only, no search space) on all 816 TabArena-v0.1 splits each,
+  1,632 items
+- **Git SHA:** `90b915af` on `lattice-rerun-24112026`, the head of autogluon/tabarena#745 (the authors' `5943e3a8`:
+  Lattice `4ab2558`, torch 2.14.1, triton 3.8.0, `use_amp=True`, Lattice-tiny at 4 members instead of 8) plus the
+  maintainer's commit that drops `place_caches` from `prepare_for_inference`, pushed to the PR branch, clean.
+  Checkpoints unchanged (`hachure-ai/Lattice@38d704ff`, `hachure-ai/Lattice-tiny@c0ea3161`). AutoGluon
+  1.6.4b20261124 from PyPI.
+- **Validation protocol:** `8x1`
+- **Purpose:** Rerun of Lattice after the authors' update in #745 (categorical preprocessing, cache reuse, the fast
+  path on torch 2.9+), to replace lattice_19112026.
+- **Notes:** SkyPilot pool `lattice-2411` (spot RTX PRO 6000 workers, env `247c541adf06`), one item per bundle,
+  `fake_memory_for_estimates=96`, the 1 h default time limit. The generated pool YAML (`workers: 32`) was edited to
+  `min_workers: 0`, `max_workers: 32`, `upscale_delay_seconds: 30`, `downscale_delay_seconds: 120` for the admin
+  policy; one job was launched first and checked, then the other 31 under the same launch
+  (`lattice_24112026_gpu-20261124-230933-cbd6`). Run venv `~/.venvs/tabarena_lattice_24112026` (PyPI torch
+  2.14.1+cu130, which carries `sm_120` kernels, so no direct-URL wheel this time).
+  - Before the launch: three reviewer lenses on the PR diff and the Lattice delta `e106f9f..4ab2558`. One protocol
+    finding: the PR's `prepare_for_inference` called `place_caches(model)`, which moved the refit's KV cache (the
+    encoded training context, about 400 KiB per training row in float32 for Lattice) to the GPU in the untimed
+    `pre_predict`, while the library's own `predict_proba` / `predict` places it inside the predict timer. The run
+    drops that call so the staging stays timed like every other in-context model; predictions are unchanged. The
+    hook contract in `exec_models/base.py` now notes the alternative (place such caches untimed for every
+    in-context model, after a rerun of their hosted results). Notes without action: the wrapper's explicit
+    `categorical_indices` still switch off Lattice's low-cardinality rule on tables with a `category` column (as in
+    #737); the library's new download counter (`hf_hub_download(..., "config.json", revision="main")`) is not reached
+    because the wrapper always passes `model_path`; fold-model pickles keep redundant training-support copies.
+  - Smoke fit on the CPU passed for both sizes (25 s).
+  - 1,632 of 1,632 items, 0 failed, 0 recoveries, from 23:12 to about 23:40 UTC. The warm-up audit found 816 of 816
+    warm-ups ok per model and no import or CUDA initialization inside a timed fit or predict. The slowest item,
+    APSFailure, took about 96 s (Lattice) and 37 s (Lattice-tiny).
+- **Result:**
+  - Full: Lattice rank 12 of 122, Elo 1806 (+79/-58), between Kumo-Tabular-Small (1807) and TabFM (1805); Lattice-tiny
+    rank 22, Elo 1680 (+60/-41). Nothing imputed. The hosted #737 rows sit at 1802 and 1692; the authors reported
+    1803.1 and 1681.6 for their local run.
+  - Binary: ranks 16 (1769) and 26 (1642) of 120. Multiclass: ranks 14 (1818) and 19 (1770) of 120. Regression: ranks
+    9 (2162) and 22 (1936) of 118.
+  - Median per 1K rows: Lattice 0.934 s train and 0.0703 s inference, Lattice-tiny 0.470 s and 0.0304 s (authors:
+    0.880 / 0.0472 and 0.441 / 0.0242, with the KV staging untimed). Lattice-tiny is on the Pareto front of Elo
+    against inference time.
+- **Upload:** processed and uploaded as suite `tabarena-2026-11-24` (`lattice_method_metadata` and
+  `lattice_tiny_method_metadata` in `models/lattice/info.py`, 816 splits each, raw included), `verified=True`. They
+  replace the 19.11 run in the TabArena collection; that run stays reachable as `lattice_1911_method_metadata` and
+  `lattice_tiny_1911_method_metadata` in `methods_superseded`.
+
+```python
+TabArenaV0pt1BenchmarkPlan(
+    benchmark_name="lattice_24112026",
+    model_jobs=[
+        ModelJob(
+            models=[("Lattice", 0), ("Lattice-tiny", 0)],
+            name="gpu",
+            resources={"num_gpus": 1, "fake_memory_for_estimates": 96},
+        ),
+    ],
+    task_subset=TaskSubset(),  # the full task set, all splits
+    path_setup=PathSetup(
+        workspace="/home/lennart_priorlabs_ai/workspace/benchmarking/tabarena_workspace",
+        python_path="/home/lennart_priorlabs_ai/.venvs/tabarena_lattice_24112026/bin/python",
+    ),
+    experiment_bundle=TabArenaV0pt1ExperimentBundle(model_verbosity=2),
+    resources_setup=TabArenaV0pt1ResourcesSetup(num_cpus=None, memory_limit=None),
+    scheduler_setup=SkyPilotSetup(bundle_size=1, workers=32, use_pool=True, pool_name="lattice-2411"),
+).setup_jobs()
+# The generated pool YAML then edited to pool: {min_workers: 0, max_workers: 32, upscale_delay_seconds: 30,
+# downscale_delay_seconds: 120} for the admin policy.
+```
+
+---
+
 ## 2026-11-19 — lattice_19112026
 
 - **Model(s):** Lattice and Lattice-tiny (default config only, no search space) on all 816 TabArena-v0.1 splits each,

@@ -93,6 +93,10 @@ SMOKE_OVERRIDES: dict[str, ModelSmokeTest] = {
     "Kumo-Tabular": ModelSmokeTest({"num_estimators": 1}, verify_single_prediction_equivalent_to_multi=False),
     "Kumo-Tabular-Medium": ModelSmokeTest({"num_estimators": 1}, verify_single_prediction_equivalent_to_multi=False),
     "Kumo-Tabular-Small": ModelSmokeTest({"num_estimators": 1}, verify_single_prediction_equivalent_to_multi=False),
+    # CUDA FP16 on the toy classification fits can change probabilities by about 1e-4 between batch sizes.
+    # Exercise the strict 1e-5 single-row equivalence check in FP32. Benchmark runs use the wrapper defaults.
+    "Lattice": ModelSmokeTest({"use_amp": False}),
+    "Lattice-tiny": ModelSmokeTest({"use_amp": False}),
     # Inpriora predicts under float16 autocast on CUDA, so a row predicted alone vs. inside a batch
     # drifts ~1e-4 (the tolerance is 1e-5). The drift is numerical: with `amp=False` it is ~6e-8,
     # and `FitHelper.verify_model` passes with the check on under CUDA_VISIBLE_DEVICES="".
