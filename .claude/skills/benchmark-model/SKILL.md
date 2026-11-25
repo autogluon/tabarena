@@ -320,12 +320,14 @@ number of `results.pkl` files the run will add. Also count the results already c
 SkyPilot (`skypilot-pool`, the default, and `skypilot`): `setup` also freezes the run venv, archives
 the checkouts it installs and copies the batch plus one task file per bundle into the bucket, then
 prints a command block: an endpoint guard, `sky check gcp` (once per machine), then
-`sky jobs pool apply -y -p <pool> <pool.yaml>` (the YAML carries the worker count),
-`sky jobs pool status --all <pool>` (wait for READY) and `sky jobs launch -y -d --pool <pool> ...`
-in pool mode, or one `sky jobs launch -y -d -n <launch_id> --num-jobs N <job.yaml>` in per-job mode.
+`sky jobs pool apply -y -p <pool> <pool.yaml>` (the YAML carries `min_workers: 0` and the worker count as
+`max_workers`) and `sky jobs launch -y -d --pool <pool> ...` in pool mode, or one
+`sky jobs launch -y -d -n <launch_id> --num-jobs N <job.yaml>` in per-job mode.
 The block's first line names the launch id, the bucket queue and the bundle count, which Step 6
 needs. It ends with the eval reminder and, in pool mode, with `sky jobs pool down -y <pool>`, which
-must run when the benchmark is finished (a pool bills while idle).
+removes the pool when the benchmark is finished. The cluster's admin policy rejects a pool that does not
+scale to zero, so the pool starts with no workers, adds them as jobs wait, and stops an idle worker after
+`pool_downscale_delay_seconds` (120 by default, at most 600).
 
 SLURM (`--scheduler slurm`): the log prints the `sbatch --array=0-K%N ... <job.json>` command(s)
 after `Run the following ... command(s) to launch the jobs`. `K+1` is the array length. Several
@@ -336,12 +338,13 @@ monitoring one-liner from Step 6 with `--once`, the log location (`<run_uri>/log
 SkyPilot, `<WORKSPACE>/slurm_out/<benchmark_name>/<job_id>/` for SLURM), the `eval` command and, for
 a pool, the `pool down` command; then offer the `BENCHMARK_LOG.md` entry (Step 8).
 
-End-to-end mode: run the commands exactly as printed. For a pool, launch only once `pool status`
-shows the workers READY, then record the job ids from `sky jobs queue`; for SLURM, record the id
+End-to-end mode: run the commands exactly as printed. For a pool, launch right after the apply: its
+workers only start once jobs wait for them, so `pool status` shows none READY before the launch. Record the
+job ids from `sky jobs queue` (with `--all` once a run has more than 50 jobs); for SLURM, record the id
 from `Submitted batch job <id>`. Tell the maintainer the ids, the bundle or array counts and the
 hardware.
 
-Do not re-apply the pool YAML with a smaller `workers:` while items still run on the pool: on this
+Do not re-apply the pool YAML with a smaller `max_workers:` while items still run on the pool: on this
 cluster's fork the apply bumps the pool version and replaces every worker, and a managed job recovered
 onto a new worker resumes its claim but restarts the item from scratch with a fresh budget
 (`#RECOVERIES` in `sky jobs queue --all` increments, `sky jobs logs <id>` shows `resuming own claim`;

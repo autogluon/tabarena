@@ -56,6 +56,7 @@ class TabSilModel(AbstractTorchModel):
     _default_ag_args_ensemble_extra: ClassVar[dict] = {
         "fold_fitting_strategy": "sequential_local",
         "refit_folds": True,
+        "vary_seed_across_folds": False,  # pretrained: the fold models are the refit that predicts
     }
     default_resources_physical_cores_only = True
     default_num_gpus = 1

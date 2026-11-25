@@ -109,6 +109,97 @@ TabArenaV0pt1BenchmarkPlan(
 
 ---
 
+## 2026-11-24 — beyondarena_tababax_23112026
+
+- **Model(s):** TabAbax (default config only, no search space) on every split of BeyondArena `core2k` (142 datasets,
+  2000 items): 1869 results reused from `beyondarena_tababax_10112026`, 131 fit in this run
+- **Git SHA:** `3da1d928` (PR #744 head, `tababax-research:tababax-corrected`, archive clean) for 130 items;
+  `f428fe10` for the one item rerun after the wrapper fix, pushed to the PR as `c7080a86` (same tree). The reused
+  results ran at main `aed22c87` with tababax `125d2685`. AutoGluon `1.6.4b20261110` and torch 2.15.0 (CUDA 13.2)
+  in both runs.
+- **Validation protocol:** BeyondArena `[8x1+tiny5x5<=500+task-specific+adapt-classes]`
+- **Purpose:** Stage-2 maintainer run of PR #744 (tababax `125d2685` to `1de24dd9`, a per-machine memory and disk
+  budget that row-samples each member's context and chunks the test set when the column embedding exceeds the
+  machine). The 2026-11-10 run `beyondarena_tababax_10112026` (never evaluated or logged) failed on the three
+  datasets with more than 10 classes (device mismatch, 50 items) and on the 1M-row and wide tables (memory or
+  disk, or unfinished, 18 items).
+- **Notes:**
+  - Reuse. A dataset is reused whole or rerun whole. Rerun: what the old run left missing, the datasets with more
+    than 10 classes, and every dataset whose column embedding ((train + test rows) x (columns + 4) x 512 bytes)
+    is above 4.5 GB. The cut was first set at the offload threshold (20 GB and up, 21 datasets, 74 items, plus 9
+    canary splits of reused datasets). The canaries then showed the new pin fits and predicts about 2x slower from
+    about 12 GB on (labour_inspection_compliance 1.86x train, kickstarter 1.97x), so 12 more reused datasets
+    above 4.5 GB (48 items) were removed from the run and relaunched (`setup_timing`). Before the reuse, a CPU A/B
+    on three sklearn datasets gave old-vs-new differences equal to the new code's own run-to-run noise (at most
+    5e-7 on probabilities).
+  - Old vs new on the 63 items both runs fit (`tmp_scripts/eval_output/beyondarena_tababax_23112026/old_vs_new.csv`):
+    metric error within 2e-3 relative on all but prostate_cancer_detection (1.2e-2 on a 108-row test fold).
+    Train time unchanged up to about 10 GB (0.97x to 0.99x), then rossmann 1.16x, california_house_prices 1.22x,
+    porto_seguro 1.38x, allstate, wids_diabetes, labour, sf_permit_time and kickstarter 1.8x to 2.0x; inference
+    also 1.6x to 1.7x on early_learning_predictors and santander_customer_satisfaction.
+  - Wrapper fix. sberbank_housing_market_forecasting r3f0 crashed (`TypeError` in the library's `OrdinalEncoder`):
+    the PR's `_predict_proba` / `_predict` overrides skipped `self.preprocess`, so the model-specific feature
+    generator never ran on the rows being predicted. With the maintainer's go-ahead the overrides were deleted
+    (`f428fe10`), the item rerun on its own pool, and the commit pushed to the PR as `c7080a86`. On every other item
+    the override and the default path give the same inputs to the library (TabArena's generator keeps category
+    values), so no other item was rerun.
+  - SkyPilot: the API server's admin policy now rejects fixed-size pools, and `SkyPilotSetup` still wrote
+    `pool: workers: N`; the generated pool YAMLs were patched by hand to `min_workers: 0`, `max_workers: 32`
+    (`4` for the fix pool), `downscale_delay_seconds: 120`, which `SkyPilotSetup` writes itself since this PR. Pools `tababax-beyond-2311` (env `bcca8d52ee2b`,
+    launches `..._gpu_16h-20261123-234223-8b3d`, `..._gpu-20261123-234347-db8a`,
+    `..._gpu_16h_timing-20261124-185211-915e`, `..._gpu_16h_timing_rossmann-20261124-185251-606e`) and
+    `tababax-fix-2411` (env `49fef2e1bf45`, `..._gpu_fix_sberbank_housing_market_forecast-20261124-194345-3cac`),
+    spot RTX PRO 6000 (`g4-standard-48`, 128 GB disk), one item per bundle, `fake_memory_for_estimates=96`,
+    16 h per item on medium and large datasets, 4 h on the rest. Launched 2026-11-24 18:11 UTC; the last item
+    (maps_router_eta_1m, preempted twice and restarted from scratch each time) finished 2026-11-25 11:19 UTC after
+    10.6 h of training. 0 failed items apart from the sberbank crash.
+  - The planner's decision line logs at INFO and does not show at `model_verbosity=2`; the 1M-row tables' column
+    buffers came out at 80 to 90 GB (CPU offload), the size the budget caps them at, instead of 130 to 640 GB.
+  - `audit_warmup --results`: warm-up ok on all 2000, no packages imported inside the timed fit or predict.
+  - Eval (`core2k`, 44 methods, 0% imputed): #12, Elo 1236 (+28/-26), median 7.8 s train and 1.1 s inference
+    per 1K rows; TabICLv2 (default) #18 with 1167. Binary #13, multiclass #12, regression #10, large #26 of 38.
+  - Processed and uploaded as suite `beyondarena-2026-11-24` (`beyond_tababax_metadata` in
+    `contexts/beyondarena/methods.py`), `verified=True` on the maintainer's sign-off.
+  - Venv `~/.venvs/tabarena_tababax_pr744_23112026` (build script in the worktree's `tmp_scripts/logs/`), worktree
+    `tabarena-run-tababax-pr744`.
+
+```python
+from tabarena.benchmark.experiment import BeyondArenaExperimentBundle
+from tabarena.benchmark.task.metadata import TaskSubset
+from tabarena.contexts import BeyondArenaContext
+from tabflow_slurm import BeyondArenaResourcesSetup, ModelJob, PathSetup, SkyPilotSetup, TabArenaBenchmarkPlan
+
+gpu = {"num_gpus": 1, "fake_memory_for_estimates": 96}
+
+
+def job(name, tasks, time_limit):
+    return ModelJob(
+        models=("TabAbax", 0), name=name, resources={**gpu, "time_limit": time_limit}, tasks=TaskSubset(subset=tasks)
+    )
+
+
+TabArenaBenchmarkPlan(
+    benchmark_name="beyondarena_tababax_23112026",
+    model_jobs=[
+        job("gpu_16h", ["core2k", "medium|large"], 16 * 3600),
+        job("gpu", ["core2k", "!medium", "!large"], 4 * 3600),
+    ],
+    task_subset=TaskSubset(subset=["core2k"]),
+    context=BeyondArenaContext(),
+    experiment_bundle=BeyondArenaExperimentBundle(model_verbosity=2),
+    path_setup=PathSetup(
+        workspace="/home/lennart_priorlabs_ai/workspace/benchmarking/tabarena_workspace",
+        python_path="/home/lennart_priorlabs_ai/.venvs/tabarena_tababax_pr744_23112026/bin/python",
+    ),
+    resources_setup=BeyondArenaResourcesSetup(),
+    scheduler_setup=SkyPilotSetup(bundle_size=1, workers=32, use_pool=True, pool_name="tababax-beyond-2311"),
+).setup_jobs()
+# The timing and fix launches used the same plan with ModelJob(tasks=TaskSubset(dataset_names=[...],
+# split_indices=[...])) restricted to their items, all at 16 h; the fix launch on pool "tababax-fix-2411" (workers=4).
+```
+
+---
+
 ## 2026-11-24 — lattice_24112026
 
 - **Model(s):** Lattice and Lattice-tiny (default config only, no search space) on all 816 TabArena-v0.1 splits each,

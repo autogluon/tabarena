@@ -124,7 +124,11 @@ class LightPFNModel(AbstractTorchModel):
         "max_classes": None,
         "many_class_threshold": 10,
     }
-    _default_ag_args_ensemble_extra = {"fold_fitting_strategy": "sequential_local", "refit_folds": True}
+    _default_ag_args_ensemble_extra = {
+        "fold_fitting_strategy": "sequential_local",
+        "refit_folds": True,
+        "vary_seed_across_folds": False,  # pretrained: the fold models are the refit that predicts
+    }
     #: Each task loads a frozen network through its own backend initializer. A user-supplied model stays private.
     shared_weights: ClassVar[SharedWeights] = SharedWeights(
         loader=(

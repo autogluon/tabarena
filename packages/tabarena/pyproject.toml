@@ -223,7 +223,7 @@ tabpack = ["tabpackage[sklearn]==0.0.2.dev0"]
 # in models/tababax/info.py. The default checkpoints download from
 # huggingface.co/tababax-ai/TabAbax under CC-BY-NC-4.0.
 tababax = [
-  "tababax @ git+https://github.com/tababax-research/TabAbax.git@125d26850015597ed371993f3a00375806c0f32c",
+  "tababax @ git+https://github.com/tababax-research/TabAbax.git@1de24dd94ab40dc7671543c5c1575f7c8b908be0",
 ]
 
 # Core benchmark set: the always-on models for benchmarking, plus the plotting and

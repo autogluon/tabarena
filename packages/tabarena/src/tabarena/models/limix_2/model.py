@@ -298,7 +298,11 @@ class LimiX2Model(AbstractTorchModel):
     _default_auxiliary_params_extra = {"max_classes": None, "many_class_threshold": 10}
     #: One fold at a time, and a refit on the full data instead of the bag: same quality for an
     #: in-context model, one network at inference.
-    _default_ag_args_ensemble_extra = {"fold_fitting_strategy": "sequential_local", "refit_folds": True}
+    _default_ag_args_ensemble_extra = {
+        "fold_fitting_strategy": "sequential_local",
+        "refit_folds": True,
+        "vary_seed_across_folds": False,  # pretrained: the fold models are the refit that predicts
+    }
     default_resources_physical_cores_only = True
     default_num_gpus = 1
     minimum_num_gpus = 1

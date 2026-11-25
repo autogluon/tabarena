@@ -46,6 +46,7 @@ class RealMLPModel(AbstractTorchModel):
     cheap_hyperparameters: ClassVar[dict] = {"n_epochs": 0}
     ag_name = "TA-RealMLP"
     ag_priority = 75
+    _default_ag_args_ensemble_extra: ClassVar[dict] = {"vary_seed_across_folds": True}  # trained: a seed per fold model
     seed_name = "random_state"
     _supported_problem_types = ["binary", "multiclass", "regression"]
     default_num_gpus = 1
