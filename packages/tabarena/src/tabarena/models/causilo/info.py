@@ -93,14 +93,20 @@ causilo15_descriptor = ModelDescriptor(
     date_introduced="2026-11-25",
 )
 
+# Run causilo15_25112026: classification with causilo 1.5.1 (4 members, 2026-11-26), regression with 1.5.0
+# (8 members, 2026-11-25), which predicts bit-identically to 1.5.1 at 8 members.
 causilo15_method_metadata = causilo15_descriptor.method_metadata(
     method="Causilo-1.5",
-    date="2026-11-25",
+    date="2026-11-26",
     ag_key=Causilo15Model.ag_key,
     model_key="CAUSILO-1.5",
     config_default="Causilo-1.5_c1_default_BAG_L1",
     can_hpo=False,
     validation_protocol="8x1",
+    suite="tabarena-2026-11-26",
+    verified=True,
+    cache_type="r2",
+    cache_kwargs={"bucket": "tabarena", "prefix": "cache"},
 )
 
 causilo15_info = ModelInfo(

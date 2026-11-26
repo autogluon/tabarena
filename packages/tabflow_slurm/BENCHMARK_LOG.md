@@ -57,16 +57,21 @@ run against `main`. To reproduce an entry, check out its recorded **git SHA**.
     pva_revenue_prediction_kddcup98 (10,457 s) and ieee_fraud_detection (about 7,900 s per split). `audit_warmup
     --results` over all 2,000: warm-up `ok` on every one, no package imported and no CUDA initialized inside a timed
     fit or predict.
-- **Result:** Eval (`BeyondArenaContext(only_valid_tasks=True)`, 46 methods, 2,000 splits, 0% imputed for Causilo-1.5):
-  - `core2k`: rank 2 of 46, Elo 1449 (+49/-49), behind TabPFN-3.5-Thinking max (1513, new to the field since the
-    2026-11-25 eval) and ahead of Kumo-Tabular (1426), Kumo-Tabular-Medium (1372) and TabPFN-3.5 (1368); Causilo
-    (1.0) is 8th (1318). With 8 members for classification it was rank 1 of 44 at 1438.
-  - Rank 2 on every slice but one, each time behind TabPFN-3.5-Thinking max: without the large tables 1538, binary
-    1409, multiclass 1488, regression 1517 (the same results as before), and tiny, small, medium, iid, temporal,
-    grouped, low-dim, high-dim, text and high-cardinality. Large tables: 5 of 40 (1174).
+- **Result:** Eval (`BeyondArenaContext(only_valid_tasks=True)`, `compare(exclude_systems=True)`, 2,000 splits, 0%
+  imputed for Causilo-1.5), compared with the 45 models of the roster, no system in the field:
+  - `core2k`: rank 1 of 45, Elo 1446 (+49/-49), ahead of Kumo-Tabular (1427), Kumo-Tabular-Medium (1374) and
+    TabPFN-3.5 (1370); Causilo (1.0) is 7th (1320). With 8 members for classification it was rank 1 of 44 at 1438.
+  - Rank 1 on every slice but the large tables: without the large tables 1536, binary 1407, multiclass 1486,
+    regression 1512 (the same results as before), and tiny, small, medium, iid, temporal, grouped, low-dim, high-dim,
+    text and high-cardinality. Large tables: 5 of 39 (1170, behind the tuned and ensembled RealMLP among others).
+  - With the systems in the field (46 methods) it is second on every slice but the large tables, behind
+    TabPFN-3.5-Thinking max, a closed-source API system (`core2k` 1513 against 1449).
   - Median per 1K rows on `core2k`: 4.15 s train and 0.59 s inference (5.15 s and 0.87 s with 8 members; Kumo-Tabular
-    7.99 / 0.77, TabPFN-3.5 5.72 / 1.31, TabPFN-3.5-Thinking max 22.2 / 8.89). Figures for 16 slices under
+    7.99 / 0.77, TabPFN-3.5 5.72 / 1.31). Figures for 16 slices under
     `tmp_scripts/eval_output/beyondarena_causilo15cat_25112026/`.
+- **Hosted:** processed and uploaded to r2 on 2026-11-26 as suite `beyondarena-2026-11-26`
+  (`beyond_causilo15_metadata` in `contexts/beyondarena/methods.py`, `verified=True`), all 2,000 results with the
+  regression ones of the 2026-11-25 run.
 
 ```python
 TabArenaBenchmarkPlan(
@@ -126,6 +131,8 @@ TabArenaBenchmarkPlan(
   - Binary: rank 1 of 121 (1967; 1977 with 8 members). Multiclass: rank 2 of 121 (2119, tied with TabPFN-3.5-Thinking
     xhigh at 2119; 2140 and rank 1 with 8 members). Regression: rank 1 of 119 (2577, the same results as before).
   - Median per 1K rows: 0.88 s train and 0.27 s inference (1.16 s and 0.43 s with 8 members).
+- **Hosted:** processed and uploaded to r2 on 2026-11-26 as suite `tabarena-2026-11-26` (`causilo15_method_metadata`
+  in `models/causilo/info.py`, `verified=True`), all 816 results with the regression ones of the 2026-11-25 run.
 
 ```python
 TabArenaV0pt1BenchmarkPlan(

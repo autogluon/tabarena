@@ -46,7 +46,11 @@ from tabarena.models.agentic_mlp.info import agentic_mlp_method_metadata
 from tabarena.models.agentic_tabm.info import agentic_tabm_method_metadata
 from tabarena.models.aplr.info import aplr_method_metadata
 from tabarena.models.catboost.info import catboost_new_method_metadata
-from tabarena.models.causilo.info import causilo_method_metadata, causilo_new_method_metadata
+from tabarena.models.causilo.info import (
+    causilo15_method_metadata,
+    causilo_method_metadata,
+    causilo_new_method_metadata,
+)
 from tabarena.models.chimeraboost.info import (
     chimeraboost_method_metadata,
     chimeraboost_new_method_metadata,
@@ -286,6 +290,7 @@ tabarena_method_metadata_collection = MethodMetadataCollection(
         lattice_method_metadata,
         lattice_tiny_method_metadata,
         tabsil_method_metadata,
+        causilo15_method_metadata,
     ],
 )
 
