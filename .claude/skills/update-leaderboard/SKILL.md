@@ -1,6 +1,6 @@
 ---
 name: update-leaderboard
-description: Regenerate the TabArena website artifacts and refresh a leaderboard Space's `data/` with them. Use this skill whenever a maintainer wants to publish the latest results to the leaderboard — e.g. "update the leaderboard", "regenerate the website artifacts and refresh the LB", "push the new results to the leaderboard Space", "refresh leaderboard-testing with the latest". Runs `scripts/run_generate_website_artifacts.py`, pre-checks that any newly added *models* classify correctly (Foundation Model / Tree-based / … not `❓ Other`; systems are typed from `method_class` and need no pre-check), then swaps the generated artifacts into the Space repo's `data/` folder (deleting the old subtree first) and bumps the version history in `website_texts.py`. Optionally serves the Space locally for preview. Complements `upload-method` (which publishes one method's results so they become downloadable — run that first).
+description: Regenerate the TabArena and BeyondArena website artifacts and refresh a leaderboard Space's `data/` and `data_beyondarena/` with them. Use this skill whenever a maintainer wants to publish the latest results to the leaderboard — e.g. "update the leaderboard", "regenerate the website artifacts and refresh the LB", "push the new results to the leaderboard Space", "refresh leaderboard-testing with the latest". Decides which arenas to refresh from the arena contexts (a method of the update registered in `BeyondArenaContext()` means the BeyondArena tab is refreshed too), pre-checks that any newly added *models* classify correctly (Foundation Model / Tree-based / … not `❓ Other`; systems are typed from `method_class` and need no pre-check), runs `scripts/run_generate_website_artifacts.py` and `scripts/run_generate_beyondarena_website_artifacts.py` as needed, swaps the generated artifacts into the Space repo (deleting the old files first) and bumps the version history in `website_texts.py`. Optionally serves the Space locally for preview. Complements `upload-method` (which publishes one method's results so they become downloadable — run that first).
 argument-hint: <lb-code-dir> [<generation-venv>]
 user-invocable: true
 ---
@@ -8,7 +8,8 @@ user-invocable: true
 # Regenerate & Publish the TabArena Leaderboard
 
 This skill drives the maintainer workflow that turns the **already-uploaded** benchmark results into
-the tabarena.ai website artifacts and refreshes a leaderboard **Space repo's `data/`** with them.
+the tabarena.ai website artifacts and refreshes a leaderboard **Space repo's `data/`** (TabArena) and
+**`data_beyondarena/`** (BeyondArena) with them.
 It is the last stage of the lifecycle: `add-model` (integrate) → `benchmark-model` (run) →
 `upload-method` (publish one method's results to r2, register it in `methods.py`) → **`update-leaderboard`**
 (regenerate figures/tables + refresh the Space).
@@ -19,13 +20,16 @@ operationalizes it and bakes in the thing that is easy to get wrong: the **model
 
 ## What this skill delivers
 
+0. The **arenas to refresh**, read from the arena contexts (Step 0b): every arena whose roster registers a
+   method of this update, so a method benchmarked on BeyondArena reaches the BeyondArena tab in the same update.
 1. A **model-type pre-check** so newly added models don't ship as `❓ Other`. (Systems are exempt: they
    are typed from `MethodMetadata.method_class`, not from a name prefix.) Next to it, a logo pre-check
    so a new organization does not ship as a letter tile.
-2. A **regeneration run** of `run_generate_website_artifacts.py` (Claude runs it — background +
-   monitor; about two minutes, no credentials).
-3. A **refreshed `data/`** in the leaderboard Space repo, done the safe way (delete-then-copy), with
-   sanity counts.
+2. A **regeneration run** per arena: `run_generate_website_artifacts.py` (about two minutes) and, when
+   BeyondArena is refreshed, `run_generate_beyondarena_website_artifacts.py` (about three). Claude runs them
+   in the background, one after the other; no credentials.
+3. A **refreshed `data/`** (and `data_beyondarena/`) in the leaderboard Space repo, done the safe way
+   (delete-then-copy), with sanity counts.
 4. A **version-history bump** in the Space repo's `website_texts.py` (new dated entry + current-version line).
 5. Optionally, a **local preview server** started with the Space repo's own `.venv`.
 6. A **hand-off**: the maintainer commits + `git push`es the Space (Git LFS + Xet; no token on this box).
@@ -39,7 +43,33 @@ Parse `$ARGUMENTS`. Collect (ask only for what's missing or ambiguous):
 | `lb_code_dir` | `.../leaderboard-testing` | **Required.** The cloned HuggingFace **Space repo** (has `data/`, `main.py`, its own `.venv`). Use `leaderboard-testing` for a **safe private preview**; `leaderboard` is the **live production** Space. Default to `leaderboard-testing` and confirm before touching `leaderboard`. |
 | `generation_venv` | `~/.venvs/tabarena_<date>` | A venv with **`tabarena[benchmark]`** installed (needed to run the generator — download + ray + figures). This is **not** the Space repo's `.venv` (which only has gradio/pandas). If unset, find the maintainer's under `~/.venvs/tabarena_*`. |
 | new/changed models | `tabswift` | Which models were just added/uploaded — focus of the Step 1 pre-check. Infer from recent `git status`/`methods.py` diff if unstated. |
-| arena | `tabarena` (main) | The main leaderboard uses `run_generate_website_artifacts.py` → `data/`. **BeyondArena** is a sibling (see the note at the end) → `run_generate_beyondarena_website_artifacts.py` → `data_beyondarena/`. This skill targets the main leaderboard unless told otherwise. |
+| arenas | from Step 0b | The main leaderboard uses `run_generate_website_artifacts.py` → `data/`; **BeyondArena** uses `run_generate_beyondarena_website_artifacts.py` → `data_beyondarena/` (Step 3b). Do not wait for the maintainer to name an arena: refresh every arena whose roster registers a method of this update (Step 0b), in the same pass and under one version entry. |
+
+### Step 0b: Which arenas to refresh (read it from the contexts)
+
+A method benchmarked on BeyondArena is registered in `contexts/beyondarena/methods.py`, which is what
+`BeyondArenaContext()` loads; one benchmarked on TabArena is in `TabArenaContext()`. Look each new or changed
+method up in both rosters, by `ag_key` or `method` name (the BeyondArena entry usually carries the `TA-` name,
+e.g. `TA-Causilo-1.5` against TabArena's `Causilo-1.5`, with the same `ag_key`):
+
+```bash
+cd <tabarena> && <generation_venv>/bin/python -P - TA-CAUSILO-1.5 <<'PY'
+import sys
+from tabarena.contexts import BeyondArenaContext, TabArenaContext
+keys = {k.upper() for k in sys.argv[1:]}  # ag_keys or method names of the update's methods
+for arena, ctx in [("TabArena", TabArenaContext()), ("BeyondArena", BeyondArenaContext())]:
+    hits = [
+        f"{m.method} ({m.suite}, verified={m.verified})"
+        for m in ctx.method_metadata_collection.method_metadata_lst
+        if (m.ag_key or "").upper() in keys or m.method.upper() in keys
+    ]
+    print(f"{arena}: {hits or 'not registered'}")
+PY
+```
+
+Refresh every arena that lists a hit. A method only in one roster refreshes only that arena. If the update
+changes nothing in a roster (a UI or text change), refresh only what the change touches. Say in the report
+which arenas were refreshed and why, from this check.
 
 ## Step 1: Model-type pre-check (do this BEFORE generating)
 
@@ -116,7 +146,17 @@ cd <tabarena>/scripts
 nohup <generation_venv>/bin/python run_generate_website_artifacts.py > <scratch>/gen_website.log 2>&1 &
 ```
 
-Flags: `--elo-bootstrap-rounds 1` for a toy run (Elo CIs meaningless); `--full-figures` also renders
+When BeyondArena is refreshed too, run its generator after this one finishes (both use every core):
+
+```bash
+cd <tabarena>/scripts
+nohup <generation_venv>/bin/python run_generate_beyondarena_website_artifacts.py > <scratch>/gen_beyond.log 2>&1 &
+```
+
+It writes `generated_beyondarena_website_artifacts/clean_website_artifacts/` (emptied first), takes no flags
+and runs in about three minutes on 96 cores; Step 3b has its checks.
+
+Flags (TabArena generator): `--elo-bootstrap-rounds 1` for a toy run (Elo CIs meaningless); `--full-figures` also renders
 every cell's paper figure suite (static figures, LaTeX, GIFs) into `raw_website_artifacts/`, which is
 paper material, is not published, and takes several times as long.
 
@@ -186,6 +226,37 @@ after the switch to the pack is the exception: it deletes every `*.html` and add
 cd <lb_code_dir> && git status --short | awk '{print $1}' | sort | uniq -c   # expect only 'M'
 ```
 
+## Step 3b: Refresh the Space repo's `data_beyondarena/` (when Step 0b names BeyondArena)
+
+The BeyondArena output has the main board's layout: one `entrants_<pool>/` folder per entrant pool (16, the
+same keys as `data/`), each holding a cell folder `split_*/size_*/features_*/tasks_*/` with its
+`website_leaderboard.csv` for every cell that has a dataset (354 today) and `result_plots/*.png.zip` (the
+pool's four cross-subset overview figures), plus `n_datasets.json` and `pages.sqlite` at the top. Each cell
+has six pages in the pack (the table and five explorers); only the all-`all` cell adds
+`per_dataset_explorer.html`.
+
+```bash
+SRC=<tabarena>/scripts/generated_beyondarena_website_artifacts/clean_website_artifacts
+DST=<lb_code_dir>/data_beyondarena
+
+# 1. Nothing else lives in data_beyondarena/ (expect no output).
+find "$DST" -mindepth 1 -maxdepth 1 ! -name 'entrants_*' ! -name 'n_datasets.json' ! -name 'pages.sqlite'
+
+# 2. Delete, then copy. Deleting the pools also removes the unzipped *.png files that
+#    `data_loading.unzip_png` leaves next to the zips; they are gitignored and would be served stale.
+rm -rf "$DST"/entrants_* "$DST"/n_datasets.json "$DST"/pages.sqlite
+cp -r "$SRC"/. "$DST"/
+
+# 3. The file list matches the tracked one when no cell was added or removed (expect empty):
+diff <(cd "$SRC" && find . -type f | sed 's|^\./||' | sort) <(cd "$DST" && git ls-files | sort)
+```
+
+Then check the content, as for the main board: the new method appears in
+`entrants_models/split_all/size_all/features_all/tasks_all/website_leaderboard.csv` with the right `TypeName`
+and `Verified`; `entrants_models` has no system row (TabPFN-3.5-Thinking and the other systems compete only in
+the pools that admit them); and a model's Elo differs between `entrants_models` and a pool with systems. In
+`git status`, `data_beyondarena/` shows only modified files (`M`).
+
 ## Step 4: Bump the version history (Claude does now)
 
 Every leaderboard refresh gets a new entry in the Space repo's **`website_texts.py`** —
@@ -198,6 +269,8 @@ Space repo, not in `tabarena`. Read the block first, then `Edit`:
    - New model → `Add new verified model: <Name>` or `Add new unverified model: <Name>`. Pick
      **verified vs unverified from the model's `info.py` `verified` flag** (`verified=False` →
      "unverified"). List multiple on one line if several shipped together.
+   - A method refreshed on BeyondArena too → its own line, `BeyondArena: add new verified model <Name>, on
+     every core2k split` (or the slice it ran), as in past entries.
    - Other changes (UI, metric, system, removals) → mirror the phrasing of past entries.
 2. **Bump `**Current Version: TabArena-vX.Y.Z**`** at the top of the block to the same new number.
 
@@ -244,14 +317,14 @@ BeyondArena's `.png.zip` files;
 asked). From `<lb_code_dir>`:
 
 ```bash
-git add data website_texts.py && git commit -m "Update leaderboard data + version history" && git push
+git add data data_beyondarena website_texts.py && git commit -m "Update leaderboard data + version history" && git push
 ```
 
-`git add data` matters: an IDE commit of "changed files only" misses files a refresh adds (a new
+`git add data data_beyondarena` matters: an IDE commit of "changed files only" misses files a refresh adds (a new
 subset's CSVs) or deletes.
 
 Surface these caveats:
-- The `data/` swap only reflects methods whose results were actually **uploaded** (`upload-method`,
+- The `data/` and `data_beyondarena/` swaps only reflect methods whose results were actually **uploaded** (`upload-method`,
   the real `--no-dry-run`). A method registered in `methods.py` but not uploaded won't have artifacts.
 - `leaderboard-testing` is the **private preview**; pushing to `leaderboard` publishes **live**.
 
@@ -270,24 +343,11 @@ cd <lb_code_dir>   # HEAD must be the commit you are about to push
 <generation_venv>/bin/python <tabarena>/.claude/skills/update-leaderboard/purge_stale_lfs.py --delete   # purge, then push
 ```
 
-## Note: BeyondArena is a sibling flow
+## Note: how the BeyondArena build differs
 
-The second leaderboard has its own generator and target folder, built the same way as the main one
-(one ray task per cell, the pages packed into one file):
-`scripts/run_generate_beyondarena_website_artifacts.py` →
-`generated_beyondarena_website_artifacts/clean_website_artifacts/` (`subsets/` + `result_plots/`, and
-their twins without the methods with a leakage warning, `subsets_noleak/` + `result_plots_noleak/`, plus
-`n_datasets.json` and `pages.sqlite`) → Space repo's **`data_beyondarena/`**. Same delete-then-copy
-discipline applies. Only touch it when the maintainer asks for BeyondArena; this skill's default is the
-main leaderboard `data/`.
-
-The generator crosses four filter axes (split, size, features, tasks) and publishes every cell that
-holds at least one dataset, under `subsets/split_*/size_*/features_*/tasks_*/` (354 of the 500 cells
-today). It runs in about three minutes on 96 cores and takes no flags. Copy `n_datasets.json` (each
-cell's dataset count) and `pages.sqlite` along with the folders. Delete `subsets*/` and `result_plots*/`
-before copying: the unzipped `*.png` files that `data_loading.unzip_png` leaves there are gitignored and
-would be served stale. Then compare the file list against the Space's tracked one
-(`diff <(cd $SRC && find . -type f | sed 's|^\./||' | sort) <(cd $DST && git ls-files | sort)` is empty
-when no cell changed). Each cell is one `website_leaderboard.csv` plus six pages in the pack (the table
-and five explorers); only the all-`all` cell carries `per_dataset_explorer.html`. No figure carries the
-`core2k` protocol's name or the build's `placeholder_name` folder key: every explorer title is empty.
+`scripts/run_generate_beyondarena_website_artifacts.py` builds the tab the same way as the main board (one ray
+task per cell, the pages packed into one file, one grid per entrant pool), with these differences: it reads the
+cached results of `BeyondArenaContext()` rather than raw runs; every cell is computed on the `core2k` protocol,
+which is a filter and never a label (no figure or explorer title carries it); the grid crosses four filter axes
+(split, size, features, tasks) and skips a cell no dataset falls into; and each pool adds the cross-subset
+overview figures under `result_plots/`. Its module docstring is the reference.
