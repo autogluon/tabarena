@@ -34,6 +34,57 @@ run against `main`. To reproduce an entry, check out its recorded **git SHA**.
 
 ---
 
+## 2026-11-26 — causilo15_25112026 (classification rerun)
+
+- **Model(s):** Causilo-1.5 (default config only) on the 594 classification splits of TabArena-v0.1
+- **Git SHA:** `33a48e9f` on `causilo-1.5` (autogluon/tabarena#754), clean. causilo 1.5.1 from PyPI, torch 2.14.1,
+  AutoGluon 1.6.4b20261125, env `e88df49bb1de`.
+- **Validation protocol:** `8x1`
+- **Purpose:** Classification with the 1.5 preset of 4 members, which causilo 1.5.1 and the authors' follow-up on #754
+  make the default for classification (the 2026-11-25 run used 8). Regression keeps 8 members, so the 222 regression
+  results of the 2026-11-25 run are kept: 1.5.0 and 1.5.1 give bit-identical predictions at 8 members on the CPU and on
+  an RTX PRO 6000.
+- **Notes:** The 594 classification results of the 2026-11-25 run were deleted from the bucket and the workspace before
+  this launch. SkyPilot pool `causilo15c-2611` (16 spot RTX PRO 6000 workers, `min_workers: 0`, `max_workers: 16`,
+  `upscale_delay_seconds: 30`, `downscale_delay_seconds: 120` as generated), one item per bundle,
+  `fake_memory_for_estimates=96`, the 1 h default time limit, launch `causilo15_25112026_gpu-20261126-102019-c99a`.
+  The wrapper still shares the network through the registry workaround (`causilo/_estimators.py`): with
+  `SharedWeights` declared on 1.5.1 every saved fit pickled about 1.2 GB of the network's child modules, which
+  autogluon/autogluon#6100 fixes.
+  - 594 of 594 items, 0 failed, about 10:24 to 11:05 UTC; one job recovered from a spot preemption. `audit_warmup
+    --results` over all 816: warm-up `ok` on every one, no package imported and no CUDA initialized inside a timed fit
+    or predict.
+- **Result:** Eval over all 816 splits (594 new classification, 222 regression from the 2026-11-25 run), nothing
+  imputed for Causilo-1.5:
+  - Full: rank 1 of 123, Elo 2044 (+166/-104), ahead of LimiX-2 (2016) and TabPFN-3.5-Thinking xhigh (2009); Causilo
+    (1.0) is at 1783. With 8 members for classification it was 2053 of 121.
+  - Binary: rank 1 of 121 (1967; 1977 with 8 members). Multiclass: rank 2 of 121 (2119, tied with TabPFN-3.5-Thinking
+    xhigh at 2119; 2140 and rank 1 with 8 members). Regression: rank 1 of 119 (2577, the same results as before).
+  - Median per 1K rows: 0.88 s train and 0.27 s inference (1.16 s and 0.43 s with 8 members).
+
+```python
+TabArenaV0pt1BenchmarkPlan(
+    benchmark_name="causilo15_25112026",
+    model_jobs=[
+        ModelJob(
+            models=("Causilo-1.5", 0),
+            name="gpu",
+            resources={"num_gpus": 1, "fake_memory_for_estimates": 96},
+        ),
+    ],
+    task_subset=TaskSubset(subset="classification"),  # the classification rerun; regression results are kept
+    path_setup=PathSetup(
+        workspace="/home/lennart_priorlabs_ai/workspace/benchmarking/tabarena_workspace",
+        python_path="/home/lennart_priorlabs_ai/.venvs/tabarena_causilo15_25112026/bin/python",
+    ),
+    experiment_bundle=TabArenaV0pt1ExperimentBundle(model_verbosity=2),
+    resources_setup=TabArenaV0pt1ResourcesSetup(num_cpus=None, memory_limit=None),
+    scheduler_setup=SkyPilotSetup(bundle_size=1, workers=16, use_pool=True, pool_name="causilo15c-2611"),
+).setup_jobs()
+```
+
+---
+
 ## 2026-11-25 — beyondarena_causilo15cat_25112026
 
 - **Model(s):** Causilo-1.5 (default config only, no search space), the 2,000 splits of the BeyondArena `core2k`
