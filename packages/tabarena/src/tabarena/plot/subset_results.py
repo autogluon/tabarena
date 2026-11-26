@@ -6,9 +6,10 @@ consumes the ``{subset_label: leaderboard}`` dict returned by
 :func:`tabarena.evaluation.beyond_arena_eval.run_beyond_arena_eval` and renders, per metric
 (Elo, improvability, or a custom :class:`MetricSpec`):
 
-* ``per_family`` — one line per model family (TFM / MLP / GBDT / Baseline), aggregated to the
-  family's *best* model per subset; whiskers show that best model's CI. *Contender* models are
-  drawn as their own standalone line on top of the family lines.
+* ``per_family`` — one line per model family (TFM / MLP / GBDT / Baseline, plus System for the
+  systems passed in), aggregated to the family's *best* model per subset; whiskers show that
+  best model's CI. *Contender* models are drawn as their own standalone line on top of the family
+  lines.
 * ``per_model`` — per subset, one translucent bar + hollow marker per model with CI whiskers,
   hatched bars where scores are partially imputed, and a two-row family/model legend.
 
@@ -32,7 +33,7 @@ import seaborn as sns
 from tabarena.website.website_format import Constants, get_model_family
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Collection, Sequence
 
     from matplotlib.axes import Axes
 
@@ -88,8 +89,12 @@ SUBSET_REGION = {
 
 # --- Method grouping defaults ----------------------------------------------
 
+#: ``method_subtype`` given to a system's rows. A system has no subtype of its own; ``plot_subset_results``
+#: marks the methods passed as ``systems`` with this one.
+SYSTEM_SUBTYPE = "system"
+
 #: Subtype priority when a method entry does not pin one explicitly.
-SUBTYPE_PREFERENCE = ["tuned_ensemble", "tuned", "default"]
+SUBTYPE_PREFERENCE = ["tuned_ensemble", "tuned", "default", SYSTEM_SUBTYPE]
 
 
 def _at(methods: list[str], subtype: str) -> list[tuple[str, str]]:
@@ -135,11 +140,12 @@ SUBTYPE_STYLES: dict[str, tuple[str, object, str]] = {
     "T+E": ("s", "-", "Tuned + Ensembled"),
     "D": ("o", "--", "Default"),
     "ICL": ("X", "-", "ICL"),
+    "S": ("P", "-.", "System"),
     CONTENDER_SUBTYPE: (CONTENDER_MARKER, "-", "Contender"),
 }
 #: Pipeline-legend display order; anchor priority picks each family's legend-sort value.
-SUBTYPE_ORDER = ["ICL", "D", "T+E", CONTENDER_SUBTYPE]
-ANCHOR_PRIORITY = ["T+E", "D", "ICL", CONTENDER_SUBTYPE]
+SUBTYPE_ORDER = ["ICL", "D", "T+E", "S", CONTENDER_SUBTYPE]
+ANCHOR_PRIORITY = ["T+E", "D", "ICL", "S", CONTENDER_SUBTYPE]
 
 #: Manual per-model color overrides (palette default for RandomForest reads too close to
 #: the other yellows/oranges in the bright palette).
@@ -244,6 +250,7 @@ def plot_subset_results(
     plot_kinds: Sequence[str] = ("per_family", "per_model"),
     metrics: Sequence[str | MetricSpec] = ("elo", "improvability"),
     contenders: Sequence[str | tuple[str, str]] = (),
+    systems: Collection[str] = (),
     subset_order: Sequence[str] | None = None,
     family_groups: dict[str, dict] | None = None,
     marker_groups: dict[str, dict] | None = None,
@@ -264,6 +271,11 @@ def plot_subset_results(
         contenders: Methods highlighted as *contenders*: drawn as their own standalone line in
             the per-family plot and star-marked / top-layered in the per-model plot. Entries are
             bare method names (strongest available subtype) or ``(method, subtype)`` tuples.
+        systems: Display names of the systems in the leaderboards (``method_class == "system"``,
+            e.g. from :func:`~tabarena.website.website_format.system_display_names`). A system's rows
+            get the ``system`` subtype, keep their full name ("TabPFN-3.5-Thinking (max)") and are
+            never typed as a foundation model by their name; the systems that are not contenders
+            form a ``System`` line and marker group in the defaults.
         subset_order: x-axis order; defaults to :data:`DEFAULT_SUBSET_ORDER` filtered to the
             available labels (+ any unknown labels appended, keeping ``"full"`` last).
         family_groups: Override for :data:`DEFAULT_FAMILY_GROUPS` (per-family lines). The default
@@ -284,15 +296,26 @@ def plot_subset_results(
     if family_legend_members not in ("best", "all"):
         raise ValueError(f"family_legend_members must be 'best' or 'all', not {family_legend_members!r}")
     order = _resolve_subset_order(leaderboards, subset_order)
-    df = _prepare_frame(leaderboards, order)
-    foundation_models = _foundation_models(df)
+    systems = frozenset(systems)
+    df = _prepare_frame(leaderboards, order, systems)
+    foundation_models = _foundation_models(df, systems)
+    contender_entries = list(contenders)
+    contender_names = {_contender_name(entry) for entry in contender_entries}
+    system_methods = sorted(set(df.loc[df["method_subtype"] == SYSTEM_SUBTYPE, "method"]) - contender_names)
     if family_groups is None:
         family_groups = _with_extra_methods(DEFAULT_FAMILY_GROUPS, "TFM", foundation_models)
+        if system_methods:
+            family_groups["System"] = {
+                "family": "System",
+                "subtype": "S",
+                "methods": _at(system_methods, SYSTEM_SUBTYPE),
+            }
     if marker_groups is None:
         marker_groups = _with_extra_methods(DEFAULT_MARKER_GROUPS, "Foundation Model", foundation_models)
+        if system_methods:
+            marker_groups["System"] = {"methods": system_methods, "marker": "P"}
     family_groups = dict(family_groups)
     marker_groups = dict(marker_groups)
-    contender_entries = list(contenders)
 
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -357,21 +380,28 @@ def _resolve_subset_order(leaderboards: dict[str, pd.DataFrame], subset_order: S
     return order + extras
 
 
-def _prepare_frame(leaderboards: dict[str, pd.DataFrame], order: list[str]) -> pd.DataFrame:
+def _prepare_frame(
+    leaderboards: dict[str, pd.DataFrame], order: list[str], systems: frozenset[str] = frozenset()
+) -> pd.DataFrame:
     frames = []
     for label in order:
         sub = leaderboards[label].copy()
         sub["leaderboard"] = label
         frames.append(sub)
     df = pd.concat(frames, ignore_index=True)
-    # Strip the "(<subtype>)" display suffix; the method_subtype column already carries it.
-    df["method"] = df["method"].astype(str).str.replace(r"\s*\([^)]*\)\s*$", "", regex=True)
+    df["method"] = df["method"].astype(str)
+    is_system = df["method"].isin(systems) & df["method_subtype"].isna()
+    df.loc[is_system, "method_subtype"] = SYSTEM_SUBTYPE
+    # Strip a model's "(<subtype>)" display suffix; the method_subtype column already carries it. A system's
+    # parentheses are part of its name.
+    df.loc[~is_system, "method"] = df.loc[~is_system, "method"].str.replace(r"\s*\([^)]*\)\s*$", "", regex=True)
     return df
 
 
-def _foundation_models(df: pd.DataFrame) -> list[str]:
-    """Methods in ``df`` that the website typing places in the foundation-model family."""
-    return sorted({m for m in df["method"].unique() if get_model_family(m) == Constants.foundational})
+def _foundation_models(df: pd.DataFrame, systems: frozenset[str] = frozenset()) -> list[str]:
+    """Methods in ``df`` that the website typing places in the foundation-model family (never a system)."""
+    names = df["method"].unique()
+    return sorted({m for m in names if get_model_family(m, system_names=systems) == Constants.foundational})
 
 
 def _with_extra_methods(groups: dict[str, dict], key: str, methods: list[str]) -> dict[str, dict]:

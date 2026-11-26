@@ -119,7 +119,7 @@ agentic_mlp = ["agentic-tabular[torch] @ git+https://github.com/yandex-research/
 agentic_tabm = ["agentic-tabular[torch] @ git+https://github.com/yandex-research/agentic-hpset.git@3d7349b36df9bea48a5c236830a8f313ba1819c9", "loguru>=0.7.0"]
 
 # Extended model extras — opt-in individually or together via the `extended` union below.
-causilo = ["causilo==1.5.0"]  # Causilo 1.0 and 1.5; its 1.0 runtime matches 1.0.2 (the hosted runs) on the CPU
+causilo = ["causilo==1.5.1"]  # Supports Causilo 1.0 and 1.5
 modernnca = ["category_encoders"]
 xrfm = ["xrfm[cu12]"]
 # sap-rpt-oss and tabfm stay pinned to the git commits used for the benchmark runs, so these two
@@ -136,6 +136,8 @@ tabstar_v1p1 = ["tabstar==1.2.0"]
 tabh2o = ["h2ofm==0.43.1"]
 # Chakra-Tab is a hosted API (systems/chakra_tab): the extra is only the HTTP client and the table encoding.
 chakra-tab = ["requests>=2.31", "pyarrow>=14"]
+# TabPFN-3.5-Thinking is a hosted API (systems/tabpfn_3_5_thinking): the extra is only the official client.
+tabpfn-3-5-thinking = ["tabpfn-client==0.10.1"]
 perpetualboosting = ["perpetual"] # We used version 2.1.0
 # The benchmark runs installed TabTune from git main (kept as `pip_extra` in models/orionmsp/info.py);
 # 0.1.18 is the PyPI release that ships the `orionmsp_v15` modules the wrapper imports.
@@ -197,6 +199,8 @@ tabpfn_3_5 = ["tabpfn>=9.0.0"]
 kumo_tabular = [
   "structured-data-models @ git+https://github.com/NVIDIA/structured-data-models.git@98f61289c7a4e1bce3b33771223ac2e123b63f19",
 ]
+# TabSil; keep in sync with `pip_extra` in models/tabsil/info.py.
+tabsil = ["tabsil==0.1.0"]
 # Seldon / Seldon-Mini (Neuralk-AI). Keep in sync with `pip_extra` in models/seldon/info.py. Not in `extended`
 # because neuralk-oss and the `kumo_tabular` extra pin different versions of structured-data-models.
 seldon = ["neuralk-oss==0.3.0"]
@@ -221,7 +225,7 @@ tabpack = ["tabpackage[sklearn]==0.0.2.dev0"]
 # in models/tababax/info.py. The default checkpoints download from
 # huggingface.co/tababax-ai/TabAbax under CC-BY-NC-4.0.
 tababax = [
-  "tababax @ git+https://github.com/tababax-research/TabAbax.git@125d26850015597ed371993f3a00375806c0f32c",
+  "tababax @ git+https://github.com/tababax-research/TabAbax.git@1de24dd94ab40dc7671543c5c1575f7c8b908be0",
 ]
 
 # Core benchmark set: the always-on models for benchmarking, plus the plotting and
@@ -275,6 +279,7 @@ extended = [
   "tabarena[agentic_mlp]",
   "tabarena[agentic_tabm]",
   "tabarena[tabh2o]",
+  "tabarena[tabsil]",
 ]
 
 # Convenience: everything (core + extended + probmetrics).

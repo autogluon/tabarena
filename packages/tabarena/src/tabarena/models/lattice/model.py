@@ -74,7 +74,11 @@ class LatticeModel(AbstractTorchModel):
     default_resources_physical_cores_only = True
     default_num_gpus = 1
     minimum_num_gpus = 0
-    _default_ag_args_ensemble_extra = {"fold_fitting_strategy": "sequential_local", "refit_folds": True}
+    _default_ag_args_ensemble_extra = {
+        "fold_fitting_strategy": "sequential_local",
+        "refit_folds": True,
+        "vary_seed_across_folds": False,  # pretrained: the fold models are the refit that predicts
+    }
 
     @classmethod
     def _checkpoint_path(cls, filename: str) -> Path:

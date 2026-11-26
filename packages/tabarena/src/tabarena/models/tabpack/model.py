@@ -115,7 +115,10 @@ class TabPackModel(AbstractTorchModel):
     default_resources_physical_cores_only = True
     #: One fit trains all members at once and needs the whole GPU (the paper reports more than 12 GB
     #: for many members and features), so the bagged folds fit one after another.
-    _default_ag_args_ensemble_extra: ClassVar[dict] = {"fold_fitting_strategy": "sequential_local"}
+    _default_ag_args_ensemble_extra: ClassVar[dict] = {
+        "fold_fitting_strategy": "sequential_local",
+        "vary_seed_across_folds": True,  # trained: a seed per fold model
+    }
     warmup_modules: ClassVar[tuple[str, ...]] = ("tabpackage", "tabpackage.sklearn", "sklearn.preprocessing")
     #: Knobs that make the warm-up's dummy fit and the smoke test cheap: two members, one epoch.
     cheap_hyperparameters: ClassVar[dict] = {"n_models": 2, "max_epochs": 1}

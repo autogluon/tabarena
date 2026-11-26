@@ -68,6 +68,10 @@ WORKER_PYTHON = "$HOME/tabarena_sky/venv/bin/python"
 #: prober then fails on every pass and stops promoting finished workers to READY, and taking one of them down
 #: can delete the other's VM.
 MAX_POOL_NAME_LENGTH = 22
+#: Longest idle time before a pool worker shuts down that the cluster's admin policy accepts (seconds).
+MAX_POOL_DOWNSCALE_DELAY_SECONDS = 600
+#: How long jobs wait before the pool adds workers for them (seconds; the policy sets 60 when unset).
+POOL_UPSCALE_DELAY_SECONDS = 30
 
 
 class _LiteralDumper(yaml.SafeDumper):
@@ -121,8 +125,9 @@ class SkyPilotSetup(SchedulerSetup):
       own claims. No standing infrastructure besides SkyPilot's jobs controller.
     * ``use_pool=True``: ``sky jobs pool apply`` builds the venv once per pool worker; jobs only
       run the worker and reuse the workers' caches (datasets and weights persist across jobs),
-      which suits many short bundles and BeyondArena. A pool bills while idle; the printed block
-      ends with ``pool down``.
+      which suits many short bundles and BeyondArena. The pool scales from zero: a worker starts when
+      a job waits for one and stops ``pool_downscale_delay_seconds`` after its last job, so it bills
+      only while it has work. The printed block ends with ``pool down``.
     """
 
     bucket: str = "gs://p2or-sky-cache-eu-dev"
@@ -157,7 +162,11 @@ class SkyPilotSetup(SchedulerSetup):
     each worker (gated weights then need the token in ``secrets``)."""
     workers: int = 8
     """Worker jobs per launch (``--num-jobs``, capped at the number of bundles) and, in pool mode,
-    the pool size. The analogue of SLURM's ``%N`` concurrency cap."""
+    the pool's ``max_workers``. The analogue of SLURM's ``%N`` concurrency cap."""
+    pool_downscale_delay_seconds: int = 120
+    """Pool mode: seconds an idle worker stays up before it shuts down. The pool YAML sets
+    ``min_workers: 0`` and ``max_workers: workers``, because the cluster's admin policy rejects a pool
+    that does not scale to zero or keeps idle workers longer than 600 seconds."""
     use_pool: bool = False
     """Run on a job pool instead of one VM per managed job (see the class docstring)."""
     pool_name: str | None = None
@@ -205,6 +214,11 @@ class SkyPilotSetup(SchedulerSetup):
     def __post_init__(self) -> None:
         if self.workers < 1:
             raise ValueError(f"workers must be at least 1, got {self.workers}.")
+        if not 0 <= self.pool_downscale_delay_seconds <= MAX_POOL_DOWNSCALE_DELAY_SECONDS:
+            raise ValueError(
+                f"pool_downscale_delay_seconds must be between 0 and {MAX_POOL_DOWNSCALE_DELAY_SECONDS} (the "
+                f"cluster's admin policy rejects longer delays), got {self.pool_downscale_delay_seconds}."
+            )
         if self.pool_name is not None and len(self.pool_name) > MAX_POOL_NAME_LENGTH:
             raise ValueError(
                 f"pool_name {self.pool_name!r} has {len(self.pool_name)} characters; use at most "
@@ -540,11 +554,20 @@ class SkyPilotSetup(SchedulerSetup):
         return spec
 
     def render_pool_spec(self, *, resources: ResourcesSetup, env: EnvSpec) -> dict:
-        """The pool YAML (as a dict): the same hardware, ``workers`` and the venv build as ``setup``."""
+        """The pool YAML (as a dict): the same hardware and venv build as ``setup``, scaling from zero to ``workers``.
+
+        ``min_workers: 0`` is written out: with ``max_workers`` alone SkyPilot sets ``min_workers: 1``, which the
+        cluster's admin policy rejects like a fixed ``workers:`` count.
+        """
         return {
             "name": self.pool_for(resources),
             "resources": {**self.resources_block(resources), "use_spot": self.use_spot, "disk_size": self.disk_size},
-            "pool": {"workers": self.workers},
+            "pool": {
+                "min_workers": 0,
+                "max_workers": self.workers,
+                "upscale_delay_seconds": POOL_UPSCALE_DELAY_SECONDS,
+                "downscale_delay_seconds": self.pool_downscale_delay_seconds,
+            },
             "envs": {"ENV_SPEC": env.manifest_uri, "CACHE_ROOT": WORKER_CACHE_ROOT},
             "setup": render_env_setup_script(),
         }
@@ -589,7 +612,9 @@ class SkyPilotSetup(SchedulerSetup):
                 # The YAML carries the worker count; this sky version rejects --workers next to a YAML.
                 f"{sky} jobs pool apply -y -p {pool} {pool_yaml}    # idempotent; a new env rolls the workers"
             )
-            lines.append(f"{sky} jobs pool status --all {pool}    # wait until every worker is READY")
+            lines.append(
+                f"# workers start as the jobs below wait for them; watch them with: {sky} jobs pool status --all {pool}"
+            )
             lines.append(f"{sky} jobs launch -y -d --pool {pool} -n {launch_id} --num-jobs {num_jobs} {job_yaml}")
         else:
             lines.append(f"{sky} jobs launch -y -d -n {launch_id} --num-jobs {num_jobs} {job_yaml}")
@@ -598,7 +623,7 @@ class SkyPilotSetup(SchedulerSetup):
         )
         if pool_yaml is not None:
             lines.append(
-                f"# when done: run the eval (it syncs the results), then: {sky} jobs pool down -y {self.pool_for(resources)}    (a pool bills while idle)"
+                f"# when done: run the eval (it syncs the results), then: {sky} jobs pool down -y {self.pool_for(resources)}    (idle workers stop on their own; down removes the pool)"
             )
         else:
             lines.append(

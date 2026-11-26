@@ -145,7 +145,7 @@ With `SkyPilotSetup` the lower half becomes:
 ```
                        prints:  sky check gcp
                                 sky jobs launch -y -d -n <launch_id> --num-jobs N <job.yaml>
-                                (pool mode: sky jobs pool apply / pool status first, pool down after)
+                                (pool mode: sky jobs pool apply first, pool down after)
                                           │  you run this
                                           ▼
                        N managed jobs, each a spot VM (or a pool worker):

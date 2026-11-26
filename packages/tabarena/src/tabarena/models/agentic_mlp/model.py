@@ -80,7 +80,10 @@ class AgenticMLPModel(AbstractTorchModel):
     _supported_problem_types = ["binary", "multiclass", "regression"]
     default_num_gpus = 1
     default_resources_physical_cores_only = True
-    _default_ag_args_ensemble_extra: ClassVar[dict] = {"fold_fitting_strategy": "sequential_local"}
+    _default_ag_args_ensemble_extra: ClassVar[dict] = {
+        "fold_fitting_strategy": "sequential_local",
+        "vary_seed_across_folds": True,  # trained: a seed per fold model
+    }
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)

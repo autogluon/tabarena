@@ -167,6 +167,20 @@ results by re-running them.
 7. The results are processed, hosted and registered, and the pull request is merged.
 8. The leaderboard is regenerated from the hosted results after the merge, usually within days.
 
+A provider can also have a method benchmarked shortly before its public launch: a new version of a
+hosted API, or a model whose code and weights are published on the launch date. The launch has to be
+set and no more than two weeks after our run. A pre-launch run is for a release that is ready, so we
+do not hold results for a paper decision, a conference or any other event that may come later; if
+the launch slips past the two weeks, we drop the run and the method can be submitted the usual way
+once it is public. We run the exact version that launches (the API version already served in
+production but not announced yet, or the release the pull request will pin), and the evaluation is
+fixed when the run starts (configuration, time limit, client or package version), as for any
+submission. A change before the launch is a new submission, not a rerun of the old one. Maintainers
+keep the run and its results private. On the launch date, the pull request with the method and the
+results opens and the leaderboard update follows. If the launched version differs from the one we
+ran, nothing is published and the run is repeated on the launched version. Ask for a pre-launch run
+by mail (mail@tabarena.ai), not in a public issue.
+
 Questions go through the [issue forms](.github/ISSUE_TEMPLATE): one for model and system
 submissions, one for leaderboard or dataset questions that touch this code base. Pure leaderboard
 questions belong in the [leaderboard's Community tab](https://huggingface.co/spaces/TabArena/leaderboard/discussions),

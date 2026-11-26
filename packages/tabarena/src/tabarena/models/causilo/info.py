@@ -7,7 +7,7 @@ from tabarena.models.causilo.model import Causilo15Model, CausiloModel
 
 #: Keep in sync with packages/tabarena/pyproject.toml. One release serves both checkpoints; its 1.0 runtime
 #: reproduces the predictions of causilo 1.0.2 (the release of the hosted Causilo runs) exactly on the CPU.
-_PIP_EXTRA = ("causilo==1.5.0",)
+_PIP_EXTRA = ("causilo==1.5.1",)
 
 #: Intrinsic facts shared by every run of the model (the BeyondArena entries build on it).
 causilo_descriptor = ModelDescriptor(
@@ -83,7 +83,7 @@ causilo_info = ModelInfo(
 )
 
 causilo15_descriptor = ModelDescriptor(
-    display_name="Causilo-1.5",
+    display_name="Causilo 1.5",
     compute="gpu",
     is_bag=False,
     reference_url="https://github.com/nums-ai/causilo",

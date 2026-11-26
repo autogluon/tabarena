@@ -52,7 +52,11 @@ class FTFMModel(AbstractTorchModel):
     default_resources_physical_cores_only = True
     default_num_gpus = 1
     minimum_num_gpus = 1
-    _default_ag_args_ensemble_extra = {"fold_fitting_strategy": "sequential_local", "refit_folds": True}
+    _default_ag_args_ensemble_extra = {
+        "fold_fitting_strategy": "sequential_local",
+        "refit_folds": True,
+        "vary_seed_across_folds": False,  # pretrained: the fold models are the refit that predicts
+    }
     #: The ensemble's member ``FTFMClassifier`` builds the network in ``_load_model``, which its first
     #: ``fit`` calls; one build per checkpoint and device per process. Fitted contexts are kept on the
     #: estimator and installed per decode, so the network carries no per-fit state.

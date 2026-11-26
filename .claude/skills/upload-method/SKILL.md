@@ -53,6 +53,12 @@ unpickling, a scan of every `results.pkl` with `scripts/scan_submission.py`, spl
 our own run, hyperparameters against the search space, the claimed Elo reproduced with `compare`, and the
 impact of any problem the review finds). `verified=True` needs the maintainer's sign-off on that report.
 
+**A pre-launch run** (a method benchmarked before its public launch, README "Submission process"): the hosted
+artifacts on r2 are public, so the upload waits for the launch date the provider named. On that date, first check
+that the launched version is the one that ran (the server version in `api_server_info`, the client pin, or the
+package version and checkpoint hash recorded with the run); if it differs, nothing is uploaded and the run is
+repeated. The registration, the log entry and the merge follow the upload as usual.
+
 Parse `$ARGUMENTS`. Collect (ask only for what's missing or ambiguous):
 
 | Input | Example | Notes |

@@ -63,6 +63,9 @@
  "artifacts/beyondarena-2026-11-09/methods/TA-Seldon/results/model_results.parquet": "0f593c057f41627bb08291444192cde7",
  "artifacts/beyondarena-2026-11-12/methods/TA-LimiX-2-1016/results/hpo_results.parquet": "8a8910db8e2d57e40fdad80176882994",
  "artifacts/beyondarena-2026-11-12/methods/TA-LimiX-2-1016/results/model_results.parquet": "840b79a773c0ed9ee6f2a51d27c8bbdd",
+ "artifacts/beyondarena-2026-11-19/methods/TabPFN-3.5-Thinking_max/results/model_results.parquet": "7abdd4bfb7d32607112aba8c5d27afa6",
+ "artifacts/beyondarena-2026-11-24/methods/TA-TabAbax/results/hpo_results.parquet": "9ea25f76c27265be8aba9e29a0d6a7b9",
+ "artifacts/beyondarena-2026-11-24/methods/TA-TabAbax/results/model_results.parquet": "cae20aa69b32d1476c30a60c1b84982f",
  "artifacts/tabarena-2025-06-12/methods/AutoGluon_v130/results/model_results.parquet": "3525df816c4fd01467362a8b856b4111",
  "artifacts/tabarena-2025-06-12/methods/CatBoost/results/hpo_results.parquet": "0cb9272dd7bae3df34b61aa176d9c4e0",
  "artifacts/tabarena-2025-06-12/methods/CatBoost/results/model_results.parquet": "3877455d95edfe52d8b32e3c97feb4da",
@@ -274,6 +277,7 @@
  "artifacts/tabarena-2026-11-12/methods/LimiX-2-1016/results/model_results.parquet": "9bdd902363b61f63179b38d020d25faf",
  "artifacts/tabarena-2026-11-16/methods/Inpriora/results/hpo_results.parquet": "7dd7c650ba425801d066c0004ae927b3",
  "artifacts/tabarena-2026-11-16/methods/Inpriora/results/model_results.parquet": "182291ac99a2bac475963e474be3e7c3",
+ "artifacts/tabarena-2026-11-17/methods/TabPFN-3.5-Thinking_xhigh/results/model_results.parquet": "7508e0bf9acfff13f616c9f3cc33dca9",
  "artifacts/tabarena-2026-11-19/methods/Lattice-tiny/results/hpo_results.parquet": "d6c784850edfd77fa82d9dd176b82d61",
  "artifacts/tabarena-2026-11-19/methods/Lattice-tiny/results/model_results.parquet": "30ee5e339adba80d3f7be12eb73bd42d",
  "artifacts/tabarena-2026-11-19/methods/Lattice/results/hpo_results.parquet": "700ec59eed1889dbfcc2377c59f65160",
@@ -281,5 +285,7 @@
  "artifacts/tabarena-2026-11-24/methods/Lattice-tiny/results/hpo_results.parquet": "60661345d26fcc1591620678b2524f1a",
  "artifacts/tabarena-2026-11-24/methods/Lattice-tiny/results/model_results.parquet": "8cb5ada0e0498caf91d10b47b5eeb496",
  "artifacts/tabarena-2026-11-24/methods/Lattice/results/hpo_results.parquet": "4fe534197dbf83e1c55e1fe25589d619",
- "artifacts/tabarena-2026-11-24/methods/Lattice/results/model_results.parquet": "aba995cf257f499044e0efe06b8bae26"
+ "artifacts/tabarena-2026-11-24/methods/Lattice/results/model_results.parquet": "aba995cf257f499044e0efe06b8bae26",
+ "artifacts/tabarena-2026-11-25/methods/TabSil/results/hpo_results.parquet": "87c73b23d3d50e8af1cf50dc66e151f1",
+ "artifacts/tabarena-2026-11-25/methods/TabSil/results/model_results.parquet": "866bb85a9b1404f143fa7bf61edcc243"
 }

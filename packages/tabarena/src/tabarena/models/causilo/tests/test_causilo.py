@@ -6,8 +6,6 @@ Run with ``pytest packages/tabarena/src/tabarena/models/causilo/tests``; they ne
 
 from __future__ import annotations
 
-import pickle
-
 import numpy as np
 import pandas as pd
 import pytest
@@ -18,12 +16,14 @@ from tabarena.models import _weights as registry
 from tabarena.models.causilo.model import Causilo15Model, CausiloModel, CausiloModelBase
 
 
-def _fit(cls, tmp_path, name, X, y, problem_type, *, num_classes=None, **hyperparameters):
+def _fit(cls, tmp_path, name, X, y, problem_type, *, num_classes=None, n_estimators=1, **hyperparameters):
+    if n_estimators is not None:
+        hyperparameters["n_estimators"] = n_estimators
     model = cls(
         path=str(tmp_path / name) + "/",
         name=name,
         problem_type=problem_type,
-        hyperparameters={"n_estimators": 1, "device": "cpu", **hyperparameters},
+        hyperparameters={"device": "cpu", **hyperparameters},
     )
     model.fit(X=X, y=y, num_classes=num_classes, num_cpus=4, num_gpus=0)
     return model
@@ -57,9 +57,9 @@ def test_fits_share_one_network_and_match_an_unshared_fit(tmp_path, binary_table
     expected = unshared.predict_proba(X)
     np.testing.assert_array_equal(first.predict_proba(X), expected)
 
-    # causilo's own pickle leaves the network out; the reload loads its own copy.
-    reloaded = pickle.loads(pickle.dumps(first))
-    assert reloaded.model._engine.model is not first.model._engine.model
+    first.save()
+    reloaded = Causilo15Model.load(first.path)
+    assert reloaded.model._engine.model is first.model._engine.model
     np.testing.assert_array_equal(reloaded.predict_proba(X), expected)
 
 
@@ -118,7 +118,8 @@ def test_sampled_contexts_share_the_network_and_reload(tmp_path, binary_table):
     assert type(model.model._engine.state).__name__ == "SampledFitState"
     assert model.get_info()["shared_weights"] is not None
     expected = model.predict_proba(X)
-    reloaded = pickle.loads(pickle.dumps(model))
+    model.save()
+    reloaded = Causilo15Model.load(model.path)
     np.testing.assert_array_equal(reloaded.predict_proba(X), expected)
 
 
@@ -128,6 +129,17 @@ def test_default_context_cap_matches_no_cap_below_it(tmp_path, binary_table):
     assert capped.params["max_context"] == 200_000
     uncapped = _fit(Causilo15Model, tmp_path, "uncapped", X, y, "binary", max_context=None)
     np.testing.assert_array_equal(capped.predict_proba(X), uncapped.predict_proba(X))
+
+
+@pytest.mark.parametrize(("problem_type", "members"), [("binary", 4), ("regression", 8)])
+def test_default_ensemble_uses_the_library_preset(tmp_path, binary_table, problem_type, members):
+    X, y = binary_table
+    if problem_type == "regression":
+        y = X["a"] + X["b"]
+    default = _fit(Causilo15Model, tmp_path, "default", X, y, problem_type, n_estimators=None)
+    explicit = _fit(Causilo15Model, tmp_path, "explicit", X, y, problem_type, n_estimators=members)
+    assert default.model.n_estimators is None
+    np.testing.assert_array_equal(default.predict_proba(X), explicit.predict_proba(X))
 
 
 def test_category_labels_do_not_depend_on_the_other_categories(tmp_path):
