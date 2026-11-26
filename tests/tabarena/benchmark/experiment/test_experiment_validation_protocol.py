@@ -137,7 +137,7 @@ class TestDeclaredOutlier:
     def test_knn_declares_its_single_leave_one_out_child(self):
         from tabarena.models.knn.model import KNNNewModel
 
-        assert KNNNewModel._default_ag_args_ensemble_extra == {"use_child_oof": True}
+        assert KNNNewModel._default_ag_args_ensemble_extra["use_child_oof"] is True
 
 
 class TestTimeLimitPlacement:

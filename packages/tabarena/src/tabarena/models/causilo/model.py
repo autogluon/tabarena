@@ -161,6 +161,10 @@ class CausiloModel(CausiloModelBase):
     ag_key = "TA-CAUSILO"
     ag_name = "Causilo"
     model_version: ClassVar[str] = "1.0"
+    _default_ag_args_ensemble_extra = {
+        **CausiloModelBase._default_ag_args_ensemble_extra,
+        "vary_seed_across_folds": False,
+    }
     warmup_modules: ClassVar[tuple[str, ...]] = (
         "causilo",
         "causilo.serialization",

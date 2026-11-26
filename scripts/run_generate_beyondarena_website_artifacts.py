@@ -7,10 +7,11 @@ pages in a scratch folder that is gone when the task ends. The task hands back i
 dataset count and its pages, already cut into the pieces the page pack stores. The output folder is
 what the leaderboard Space's ``data_beyondarena/`` holds:
 
-- ``subsets[_noleak]/<cell>/website_leaderboard.csv`` for every cell, the files the Space's API hands out;
+- ``entrants_<pool>/<cell>/website_leaderboard.csv`` for every entrant pool and cell, the files the Space's
+  API hands out;
 - ``n_datasets.json``, each cell's number of datasets;
 - ``pages.sqlite``, every cell's table and explorer pages in one file (:mod:`tabarena.website.page_pack`);
-- ``result_plots[_noleak]/*.png.zip``, the cross-subset overview figures, the only static PNGs.
+- ``entrants_<pool>/result_plots/*.png.zip``, each pool's cross-subset overview figures, the only static PNGs.
 
 How it diverges from the TabArena build:
 
@@ -23,19 +24,21 @@ How it diverges from the TabArena build:
   label: no figure carries its name.
 * **Four filter axes, crossed.** The BeyondArena tab filters by split regime, dataset size, feature
   dimensionality / type and problem type (:data:`BEYOND_AXES`). Every leaderboard is one cell of
-  their cross product, written to ``subsets/split_<s>/size_<z>/features_<f>/tasks_<t>/`` (the
+  their cross product, written to ``split_<s>/size_<z>/features_<f>/tasks_<t>/`` under its pool (the
   layout the tab reads). A cell no dataset falls into is skipped, and the tab says so.
 * **Cross-subset overview figure.** Adds the per-family / per-model Elo + improvability overview
   across the single-filter cells (:func:`~tabarena.plot.subset_results.plot_subset_results`).
-* **A twin without leakage.** The grid and its overview are generated twice: as published, and
-  without the methods that carry a leakage warning (``BeyondArenaContext.methods_with_leakage``),
-  under ``subsets_noleak/`` and ``result_plots_noleak/``. The tab switches to the twin when the reader
-  turns those methods off, so every number is computed without them, as TabArena's pools do.
+* **Entrant pools, as on TabArena.** Who competes changes everyone's numbers, so the grid and its overview are
+  computed once per entrant pool (:mod:`tabarena.evaluation.entrants`): models only, each combination of the
+  system categories, and each one's twin without the methods that carry a leakage warning. Pools that admit the
+  same methods (:func:`~tabarena.evaluation.entrants.group_identical_pools`) are computed once and published under
+  every key of the group, so a category no BeyondArena system carries costs nothing.
 
 Run ``python scripts/run_generate_beyondarena_website_artifacts.py``; the output is
 ``generated_beyondarena_website_artifacts/clean_website_artifacts/``, emptied first. The tuning-trajectory
-inputs do not depend on the cell, so they are prepared once and shared through ray's object store,
-and nothing the website does not show is computed (no static figure, no temp files that outlive a cell).
+inputs depend on the pool alone, not on the cell, so they are prepared once per pool and shared through ray's
+object store, and nothing the website does not show is computed (no static figure, no temp files that outlive a
+cell).
 """
 
 from __future__ import annotations
@@ -47,6 +50,7 @@ import traceback
 from pathlib import Path
 
 from tabarena.contexts import BeyondArenaContext
+from tabarena.evaluation.entrants import filter_results_to_pool, get_entrant_pool, group_identical_pools
 from tabarena.plot.interactive.per_dataset_explorer import BEYONDARENA_SIZE_BUCKETS
 from tabarena.plot.subset_results import plot_subset_results
 from tabarena.plot.tuning_trajectories.plot_pareto_over_tuning_time import (
@@ -58,6 +62,7 @@ from tabarena.utils.parallel_for import parallel_for
 from tabarena.website.page_pack import PAGES_FILE, chunk_pages, write_page_pack
 from tabarena.website.process_artifacts_to_website import process_one_folder, write_n_datasets_index
 from tabarena.website.process_pngs import process_png_bulk
+from tabarena.website.website_format import system_display_names
 
 # The filter axes of the BeyondArena tab: axis -> {key: extra predicate(s) layered on top of the
 # always present "core2k" protocol}. Each axis's first key, "all", adds no filter. The keys are the
@@ -92,11 +97,12 @@ OVERVIEW_AXES = ("split", "size", "features")
 # star-marked in the per-model plot). Leave empty for the neutral official leaderboard.
 CONTENDER_MODELS: list[str] = []
 
-#: Each published variant of the grid, by the suffix of its folders (``subsets<suffix>/``,
-#: ``result_plots<suffix>/``), and whether it leaves out the methods with a leakage warning.
-VARIANTS: dict[str, bool] = {"": False, "_noleak": True}
-
 Cell = tuple[str, ...]
+
+
+def pool_root(pool: str) -> Path:
+    """The folder of one entrant pool's grid and overview, ``entrants_<pool>``."""
+    return Path(f"entrants_{pool}")
 
 
 def cell_rel_path(cell: Cell, axes: dict[str, dict[str, list[str]]] = BEYOND_AXES) -> Path:
@@ -131,7 +137,7 @@ def build_cell(
     *,
     cell: Cell,
     subset: list[str],
-    suffix: str,
+    pools: tuple[str, ...],
     output_dir: Path,
     context: BeyondArenaContext,
     ta_results,
@@ -139,17 +145,16 @@ def build_cell(
     trajectory_inputs,
     figure_file_type: str,
 ):
-    """Compute one cell and publish it under ``output_dir/subsets<suffix>/<cell>``.
+    """Compute one cell for the first of ``pools`` and publish it under ``output_dir/entrants_<pool>/<cell>`` for each.
 
-    Evaluates the cell (leaderboard, website table, tuning trajectories) and renders its pages in a
-    scratch folder, writes the cell's ``website_leaderboard.csv`` under ``output_dir`` and returns a
-    dict with the leaderboard, the cell's dataset count and its pages as :func:`chunk_pages` gives
-    them. Returns ``None`` when the cell failed. A failure is printed and its folder removed, so
-    one cell cannot take the grid down with it and nothing half-built is published (the tab
-    reports it as unpublished).
+    ``pools`` is a group of entrant pools that admit the same methods (``ta_results`` is already filtered to them),
+    so one evaluation serves them all. Evaluates the cell (leaderboard, website table, tuning trajectories) and
+    renders its pages in a scratch folder, writes the cell's ``website_leaderboard.csv`` under each pool's folder
+    and returns a dict with the leaderboard, the cell's dataset count and its pages as :func:`chunk_pages` gives
+    them. Returns ``None`` when the cell failed. A failure is printed and its folders removed, so one cell cannot
+    take the grid down with it and nothing half-built is published (the tab reports it as unpublished).
     """
-    rel = Path(f"subsets{suffix}") / cell_rel_path(cell)
-    dest = output_dir / rel
+    rels = [pool_root(pool) / cell_rel_path(cell) for pool in pools]
     try:
         with tempfile.TemporaryDirectory(prefix="beyondarena_cell_") as tmp:
             raw, staged = Path(tmp) / "raw", Path(tmp) / "staged"
@@ -190,6 +195,7 @@ def build_cell(
                 # so only the unfiltered one emits the per-dataset frame.
                 per_dataset_trajectories=all(key == "all" for key in cell),
                 file_ext=f".{figure_file_type}",
+                entrant_pool=pools[0],
                 prepared=trajectory_inputs,
             )
             count = process_one_folder(
@@ -200,13 +206,20 @@ def build_cell(
                 benchmark_name="BeyondArena",
                 size_buckets=BEYONDARENA_SIZE_BUCKETS,
             )
-            dest.mkdir(parents=True, exist_ok=True)
-            shutil.copy(staged / "website_leaderboard.csv", dest / "website_leaderboard.csv")
-            pages = {f"{rel.as_posix()}/{page.name}": page.read_bytes() for page in sorted(staged.glob("*.html"))}
+            # The pages do not depend on the folder they are published under, so every pool of the group
+            # gets the same ones.
+            pages = {}
+            for rel in rels:
+                (output_dir / rel).mkdir(parents=True, exist_ok=True)
+                shutil.copy(staged / "website_leaderboard.csv", output_dir / rel / "website_leaderboard.csv")
+                pages.update(
+                    {f"{rel.as_posix()}/{page.name}": page.read_bytes() for page in sorted(staged.glob("*.html"))}
+                )
     except Exception:
-        print(f"FAILED cell {cell_label(cell)} (subset={subset})")
+        print(f"FAILED cell {cell_label(cell)} (subset={subset}, pools={pools})")
         traceback.print_exc()
-        shutil.rmtree(dest, ignore_errors=True)
+        for rel in rels:
+            shutil.rmtree(output_dir / rel, ignore_errors=True)
         return None
     layout, pieces = chunk_pages(pages)
     return {"leaderboard": leaderboard, "count": count, "layout": layout, "pieces": pieces}
@@ -250,7 +263,7 @@ class BeyondArenaWebsiteArtifactGenerator:
         return list(itertools.product(*(list(keys) for keys in self.axes.values())))
 
     def build(self) -> Path:
-        """Build the whole folder (both variants, the overview figures, the index and the page pack)."""
+        """Build the whole folder (every entrant pool's grid and overview figures, the index and the page pack)."""
         output_dir = self.clean_artifacts_dir
         shutil.rmtree(output_dir, ignore_errors=True)
         output_dir.mkdir(parents=True)
@@ -262,27 +275,27 @@ class BeyondArenaWebsiteArtifactGenerator:
         # One row per dataset, the same for every cell: the per-dataset browser's filters and its
         # metadata line read it.
         dataset_metadata = context.task_metadata_collection.per_dataset_frame()
-        # The tuning-trajectory inputs depend on the context alone, not on the cell: prepare them once.
         _prefetch_hpo_trajectories(context.method_metadata_collection.method_metadata_lst)
-        trajectory_inputs = _prepare_tuning_trajectories_data(
-            tabarena_context=context,
-            extra_results=None,
-            methods_to_display=None,
-            include_baselines=True,
-            entrant_pool="open_llm_api",
-        )
+        method_metadata_info = context.method_metadata_collection.info()
 
         counts: dict[Path, int] = {}
         layout: dict[str, list[bytes]] = {}
         pieces: dict[bytes, bytes] = {}
-        for suffix, exclude_leakage in VARIANTS.items():
-            ta_results = all_results
-            if exclude_leakage:
-                ta_results = all_results[~all_results["ta_name"].isin(context.methods_with_leakage)]
-            self._build_variant(
+        # Each group of pools that admit the same methods is computed once, for its first pool.
+        for pools in group_identical_pools(method_metadata_info):
+            ta_results = filter_results_to_pool(all_results, get_entrant_pool(pools[0]), method_metadata_info)
+            # The tuning-trajectory inputs depend on the pool alone, not on the cell: prepare them once per pool.
+            trajectory_inputs = _prepare_tuning_trajectories_data(
+                tabarena_context=context,
+                extra_results=None,
+                methods_to_display=None,
+                include_baselines=True,
+                entrant_pool=pools[0],
+            )
+            self._build_pool_group(
                 context,
                 ta_results,
-                suffix,
+                tuple(pools),
                 output_dir=output_dir,
                 dataset_metadata=dataset_metadata,
                 trajectory_inputs=trajectory_inputs,
@@ -298,11 +311,11 @@ class BeyondArenaWebsiteArtifactGenerator:
         process_png_bulk(path=output_dir)
         return output_dir
 
-    def _build_variant(
+    def _build_pool_group(
         self,
         context: BeyondArenaContext,
         ta_results,
-        suffix: str,
+        pools: tuple[str, ...],
         *,
         output_dir: Path,
         dataset_metadata,
@@ -311,7 +324,7 @@ class BeyondArenaWebsiteArtifactGenerator:
         layout: dict[str, list[bytes]],
         pieces: dict[bytes, bytes],
     ) -> None:
-        """One variant of the grid (see :data:`VARIANTS`) and its overview, from ``ta_results``."""
+        """The grid and its overview for one group of pools that admit the same methods, from ``ta_results``."""
         figure_file_type = "png"
         cells = self.cells()
         inputs = []
@@ -327,7 +340,7 @@ class BeyondArenaWebsiteArtifactGenerator:
             f=build_cell,
             inputs=inputs,
             context={
-                "suffix": suffix,
+                "pools": pools,
                 "output_dir": output_dir,
                 "context": context,
                 "ta_results": ta_results,
@@ -336,11 +349,13 @@ class BeyondArenaWebsiteArtifactGenerator:
                 "figure_file_type": figure_file_type,
             },
             engine=self.engine,
-            desc="Building BeyondArena cells" + (" without leakage" if suffix else ""),
+            desc=f"Building BeyondArena cells for {pools[0]}",
         )
         failed = [x["cell"] for x, res in zip(inputs, results, strict=True) if res is None]
-        variant = " (without the methods with a leakage warning)" if suffix else ""
-        print(f"\nPublished {len(inputs) - len(failed)} of {len(cells)} cells{variant}; {len(empty)} match no dataset.")
+        print(
+            f"\nPublished {len(inputs) - len(failed)} of {len(cells)} cells for the pools {', '.join(pools)}; "
+            f"{len(empty)} match no dataset."
+        )
         if failed:
             print(f"FAILED ({len(failed)}): " + ", ".join(cell_label(c) for c in failed))
 
@@ -348,7 +363,8 @@ class BeyondArenaWebsiteArtifactGenerator:
         for x, res in zip(inputs, results, strict=True):
             if res is None:
                 continue
-            counts[Path(f"subsets{suffix}") / cell_rel_path(x["cell"], self.axes)] = res["count"]
+            for pool in pools:
+                counts[pool_root(pool) / cell_rel_path(x["cell"], self.axes)] = res["count"]
             layout.update(res["layout"])
             for digest, piece in res["pieces"].items():
                 pieces.setdefault(digest, piece)
@@ -378,16 +394,21 @@ class BeyondArenaWebsiteArtifactGenerator:
             lb["method"] = lb["method"].map(full_rename).fillna(lb["method"])
             renamed_leaderboards[label] = lb
 
-        # Cross-subset overview figure (per-family / per-model Elo + improvability across subsets).
+        # Cross-subset overview figure (per-family / per-model Elo + improvability across subsets), drawn once and
+        # published under every pool of the group.
+        first = output_dir / pool_root(pools[0]) / "result_plots"
         plot_subset_results(
             renamed_leaderboards,
-            output_dir / f"result_plots{suffix}",
+            first,
             metrics=("elo", "improvability"),
             contenders=CONTENDER_MODELS,
+            systems=system_display_names(context.method_metadata_collection.info()),
         )
         # The overview is published as PNG only (zipped by ``process_png_bulk``).
-        for pdf in (output_dir / f"result_plots{suffix}").glob("*.pdf"):
+        for pdf in first.glob("*.pdf"):
             pdf.unlink()
+        for pool in pools[1:]:
+            shutil.copytree(first, output_dir / pool_root(pool) / "result_plots")
 
 
 if __name__ == "__main__":

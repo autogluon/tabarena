@@ -308,6 +308,7 @@ class ModernNCAModel(AbstractModel):
     ag_key = "MNCA"
     warmup_modules: ClassVar[tuple[str, ...]] = ("torch", "tabarena.models.modernnca._internal.modernnca_method")
     ag_name = "ModernNCA"
+    _default_ag_args_ensemble_extra: ClassVar[dict] = {"vary_seed_across_folds": True}  # trained: a seed per fold model
     _supported_problem_types = ["binary", "multiclass", "regression"]
 
     def __init__(self, **kwargs):

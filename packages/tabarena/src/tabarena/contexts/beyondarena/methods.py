@@ -34,6 +34,7 @@ from tabarena.models.lr.info import lr_descriptor
 from tabarena.models.random_forest.info import random_forest_descriptor
 from tabarena.models.realmlp.info import realmlp_descriptor
 from tabarena.models.seldon.info import seldon_descriptor, seldon_mini_descriptor
+from tabarena.models.tababax.info import tababax_descriptor
 from tabarena.models.tabdpt.info import tabdpt_descriptor, tabdpt_v13_descriptor
 from tabarena.models.tabfm.info import tabfm_descriptor
 from tabarena.models.tabicl.info import tabiclv2_descriptor
@@ -44,6 +45,10 @@ from tabarena.models.tabpfn_3_5.info import tabpfn_3_5_descriptor, tabpfn_3_5_fa
 from tabarena.models.tabpfnv2_5.info import realtabpfnv25_descriptor, tabpfnv26_descriptor
 from tabarena.models.tabswift.info import tabswift_descriptor
 from tabarena.models.xgboost.info import xgboost_descriptor
+
+# Systems (whole pipelines rather than single models) have their own per-system `info.py`, whose metadata carries the
+# system's own `validation_protocol="system"` instead of the arena protocol of `_common_kwargs` below.
+from tabarena.systems.tabpfn_3_5_thinking.info import tabpfn_3_5_thinking_max_metadata
 
 if TYPE_CHECKING:
     from tabarena.models._method_metadata import MethodMetadata
@@ -300,7 +305,22 @@ beyond_limix2_1016_metadata = limix_2_1016_descriptor.method_metadata(
     **{**_common_fm_kwargs, "suite": "beyondarena-2026-11-12", "date": "2026-11-12", "verified": True},
 )
 
+# -- TabAbax, run 2026-11-24 (`beyondarena_tababax_23112026` in BENCHMARK_LOG.md) -------------------------------
+# The official protocol on every core2k split, up to the 1M-row tables, with tababax 1de24dd9 (PR #744): fit time
+# limits of 16 h on the tables above 10k training rows and the 4 h default on the others. The datasets the new pin
+# cannot change were carried over from the earlier run at 125d2685; the log entry lists which and why.
+beyond_tababax_metadata = tababax_descriptor.method_metadata(
+    method="TA-TabAbax",
+    ag_key="TA-TABABAX",
+    config_default="TA-TabAbax_c1_BAG_L1",
+    **{**_common_fm_kwargs, "suite": "beyondarena-2026-11-24", "date": "2026-11-24", "verified": True},
+)
+
 beyond_method_metadata_lst: list[MethodMetadata] = [
+    # Systems: TabPFN-3.5-Thinking at effort max, run 2026-11-19 with the 8 h time limit for systems
+    # (`beyondarena_tabpfn35thinking_core2k_19112026` in BENCHMARK_LOG.md)
+    tabpfn_3_5_thinking_max_metadata,
+    # Models
     beyond_linear_2026_09_metadata,
     beyond_random_forest_metadata,
     beyond_extra_trees_metadata,
@@ -328,6 +348,7 @@ beyond_method_metadata_lst: list[MethodMetadata] = [
     beyond_kumo_tabular_small_metadata,
     beyond_seldon_metadata,
     beyond_seldon_mini_metadata,
+    beyond_tababax_metadata,
 ]
 
 beyond_method_metadata_collection = MethodMetadataCollection(

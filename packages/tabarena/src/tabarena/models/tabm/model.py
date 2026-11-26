@@ -37,6 +37,7 @@ class TabMModel(AbstractTorchModel):
     cheap_hyperparameters: ClassVar[dict] = {"n_epochs": 2}
     ag_name = "TA-TabM"
     ag_priority = 85
+    _default_ag_args_ensemble_extra: ClassVar[dict] = {"vary_seed_across_folds": True}  # trained: a seed per fold model
     _supported_problem_types = ["binary", "multiclass", "regression"]
     default_num_gpus = 1
     default_resources_physical_cores_only = True

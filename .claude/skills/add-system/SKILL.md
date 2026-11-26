@@ -100,6 +100,11 @@ same command without `--offline` probes the API for transduction and label looku
 docstring), and its `fit-split` result warns when the measured fit and `fits_at_predict` disagree.
 A transduction FAIL stops the run: like every entrant, an API must predict inductively (Step 1).
 
+A provider can ask for a pre-launch run (README, "Submission process"): the API version is served in production but
+not announced yet. Then the integration stays on a private branch rather than a pull request until the launch date
+the provider names, the client pin is the release that will be public on that date, and nothing about the version
+goes into an issue, a commit message or a comment before it. The rest of this guide applies unchanged.
+
 ## Step 2: `hpo.py`
 
 ```python

@@ -34,6 +34,172 @@ run against `main`. To reproduce an entry, check out its recorded **git SHA**.
 
 ---
 
+## 2026-11-25 — tabsil_25112026
+
+- **Model(s):** TabSil (default config only, no search space) on all 816 TabArena-v0.1 splits, 816 items
+- **Git SHA:** `37b393b2` on `pr-753-add-tabsil`, the head of autogluon/tabarena#753 after the maintainers took it
+  over: the authors' `1360e0e8` plus `f87f9f75` (the fixes below) and a merge of `main` at `cf2c145f`, clean.
+  tabsil 0.1.0 from PyPI, weights `aiden-jeon/tabsil@bc7c0d9b` (the commit of the `v1` tag), AutoGluon
+  1.6.4b20261122 and torch 2.14.1 from PyPI.
+- **Validation protocol:** `8x1`
+- **Purpose:** Stage-2 run of the TabSil submission (#753).
+- **Notes:** SkyPilot pool `tabsil-2511` (spot RTX PRO 6000 workers, env `5b1ac78d3d71`), one item per bundle,
+  `fake_memory_for_estimates=96`, the 1 h default time limit. The generated pool YAML (`workers: 32`) was edited to
+  `min_workers: 0`, `max_workers: 32`, `upscale_delay_seconds: 30`, `downscale_delay_seconds: 120` for the admin
+  policy; one job was launched first and checked (warm-up ok, results in the bucket), then the other 31 under the
+  same launch (`tabsil_25112026_gpu-20261125-195500-7720`). Run venv `~/.venvs/tabarena_iltm_22112026` with
+  `tabsil==0.1.0` added.
+  - Before the launch: three reviewer lenses on the PR and the tabsil 0.1.0 wheel (identical to the repository's
+    `v0.1.0` tag), plus `audit_transduction` (clean on all three problem types, largest difference 4e-7),
+    `audit_warmup` and `audit_pickle` on the CPU. No blocker. Fixed in `f87f9f75`: `HF_REVISION` pinned the `v1`
+    tag object (`41bf9bd3`) instead of its commit; the members' encoded training rows (`X_trains_`, eight float64
+    NumPy copies in `model.pkl`, 8x the frame on float64 tables and about 157x on categorical ones) are stored in
+    float32 with bit-identical predictions (a developer fix; 640 to 352 B per row on the audit table); the
+    shared-weights loader runs on the fit's CPU budget. Notes without action: the authors chose the stage-1
+    training length partly on TabArena-Lite (150k vs 225k steps, 1429 vs 1423 Elo, disclosed in the PR; the
+    shipped checkpoint is the end of the schedule, not the Lite argmax); category codes follow the string order of
+    AutoGluon's integer categories for columns kept as codes (more than 20 levels); the weights were trained in
+    the authors' earlier `minipfn` code, so "synthetic data only" rests on their statement.
+  - Smoke fit on the CPU passed for all three problem types (1 min 42 s).
+  - 816 of 816 items, 0 failed, 0 recoveries, from 20:02 to about 20:35 UTC. The warm-up audit found 816 of 816
+    warm-ups ok (2.7 s on average) and no import or CUDA initialization inside a timed fit or predict. The slowest
+    item, customer_satisfaction_in_airline, took about 397 s to train and 74 s to predict.
+  - Against the authors' TabArena-Lite results (51 `results.pkl`, HF dataset `aiden-jeon/tabsil-tabarena-lite` at
+    `1c4beda3`, scanned with the restricted unpickler): split indices and labels hash-identical to this run on all
+    51 splits; test errors on split 0 within 0.47% on every dataset (median 0.0016%, 23 better and 28 worse, GPU
+    noise); our median fit and inference were 1.18x and 1.22x theirs (RTX PRO 6000 against H100). On Lite this run
+    scores 1754 (+89/-73), rank 19 of 121; the authors reported 1755 (+88/-73).
+- **Result:**
+  - Full (models and systems): rank 20 of 121, Elo 1732 (+75/-57), between AutoGluon 1.6 (extreme, 4h) (1738) and
+    Lattice-tiny (1680). Nothing imputed.
+  - Binary: rank 21 of 119 (1708). Multiclass: rank 18 of 119 (1763). Regression: rank 18 of 117 (2002).
+  - Median per 1K rows: 1.89 s train and 0.637 s inference.
+- **Upload:** processed and uploaded as suite `tabarena-2026-11-25` (`tabsil_method_metadata` in
+  `models/tabsil/info.py`, 816 splits, raw included), `verified=True` on the maintainer's sign-off, registered in
+  the TabArena collection.
+
+```python
+TabArenaV0pt1BenchmarkPlan(
+    benchmark_name="tabsil_25112026",
+    model_jobs=[
+        ModelJob(
+            models=("TabSil", 0),
+            name="gpu",
+            resources={
+                "num_gpus": 1,
+                "fake_memory_for_estimates": 96,
+            },
+        ),
+    ],
+    task_subset=TaskSubset(),
+    path_setup=PathSetup(
+        workspace="/home/lennart_priorlabs_ai/workspace/benchmarking/tabarena_workspace",
+        python_path="/home/lennart_priorlabs_ai/.venvs/tabarena_iltm_22112026/bin/python",
+    ),
+    experiment_bundle=TabArenaV0pt1ExperimentBundle(model_verbosity=2),
+    resources_setup=TabArenaV0pt1ResourcesSetup(num_cpus=None, memory_limit=None),
+    scheduler_setup=SkyPilotSetup(
+        bundle_size=1,
+        workers=32,
+        use_pool=True,
+        pool_name="tabsil-2511",
+    ),
+).setup_jobs()
+```
+
+---
+
+## 2026-11-24 — beyondarena_tababax_23112026
+
+- **Model(s):** TabAbax (default config only, no search space) on every split of BeyondArena `core2k` (142 datasets,
+  2000 items): 1869 results reused from `beyondarena_tababax_10112026`, 131 fit in this run
+- **Git SHA:** `3da1d928` (PR #744 head, `tababax-research:tababax-corrected`, archive clean) for 130 items;
+  `f428fe10` for the one item rerun after the wrapper fix, pushed to the PR as `c7080a86` (same tree). The reused
+  results ran at main `aed22c87` with tababax `125d2685`. AutoGluon `1.6.4b20261110` and torch 2.15.0 (CUDA 13.2)
+  in both runs.
+- **Validation protocol:** BeyondArena `[8x1+tiny5x5<=500+task-specific+adapt-classes]`
+- **Purpose:** Stage-2 maintainer run of PR #744 (tababax `125d2685` to `1de24dd9`, a per-machine memory and disk
+  budget that row-samples each member's context and chunks the test set when the column embedding exceeds the
+  machine). The 2026-11-10 run `beyondarena_tababax_10112026` (never evaluated or logged) failed on the three
+  datasets with more than 10 classes (device mismatch, 50 items) and on the 1M-row and wide tables (memory or
+  disk, or unfinished, 18 items).
+- **Notes:**
+  - Reuse. A dataset is reused whole or rerun whole. Rerun: what the old run left missing, the datasets with more
+    than 10 classes, and every dataset whose column embedding ((train + test rows) x (columns + 4) x 512 bytes)
+    is above 4.5 GB. The cut was first set at the offload threshold (20 GB and up, 21 datasets, 74 items, plus 9
+    canary splits of reused datasets). The canaries then showed the new pin fits and predicts about 2x slower from
+    about 12 GB on (labour_inspection_compliance 1.86x train, kickstarter 1.97x), so 12 more reused datasets
+    above 4.5 GB (48 items) were removed from the run and relaunched (`setup_timing`). Before the reuse, a CPU A/B
+    on three sklearn datasets gave old-vs-new differences equal to the new code's own run-to-run noise (at most
+    5e-7 on probabilities).
+  - Old vs new on the 63 items both runs fit (`tmp_scripts/eval_output/beyondarena_tababax_23112026/old_vs_new.csv`):
+    metric error within 2e-3 relative on all but prostate_cancer_detection (1.2e-2 on a 108-row test fold).
+    Train time unchanged up to about 10 GB (0.97x to 0.99x), then rossmann 1.16x, california_house_prices 1.22x,
+    porto_seguro 1.38x, allstate, wids_diabetes, labour, sf_permit_time and kickstarter 1.8x to 2.0x; inference
+    also 1.6x to 1.7x on early_learning_predictors and santander_customer_satisfaction.
+  - Wrapper fix. sberbank_housing_market_forecasting r3f0 crashed (`TypeError` in the library's `OrdinalEncoder`):
+    the PR's `_predict_proba` / `_predict` overrides skipped `self.preprocess`, so the model-specific feature
+    generator never ran on the rows being predicted. With the maintainer's go-ahead the overrides were deleted
+    (`f428fe10`), the item rerun on its own pool, and the commit pushed to the PR as `c7080a86`. On every other item
+    the override and the default path give the same inputs to the library (TabArena's generator keeps category
+    values), so no other item was rerun.
+  - SkyPilot: the API server's admin policy now rejects fixed-size pools, and `SkyPilotSetup` still wrote
+    `pool: workers: N`; the generated pool YAMLs were patched by hand to `min_workers: 0`, `max_workers: 32`
+    (`4` for the fix pool), `downscale_delay_seconds: 120`, which `SkyPilotSetup` writes itself since this PR. Pools `tababax-beyond-2311` (env `bcca8d52ee2b`,
+    launches `..._gpu_16h-20261123-234223-8b3d`, `..._gpu-20261123-234347-db8a`,
+    `..._gpu_16h_timing-20261124-185211-915e`, `..._gpu_16h_timing_rossmann-20261124-185251-606e`) and
+    `tababax-fix-2411` (env `49fef2e1bf45`, `..._gpu_fix_sberbank_housing_market_forecast-20261124-194345-3cac`),
+    spot RTX PRO 6000 (`g4-standard-48`, 128 GB disk), one item per bundle, `fake_memory_for_estimates=96`,
+    16 h per item on medium and large datasets, 4 h on the rest. Launched 2026-11-24 18:11 UTC; the last item
+    (maps_router_eta_1m, preempted twice and restarted from scratch each time) finished 2026-11-25 11:19 UTC after
+    10.6 h of training. 0 failed items apart from the sberbank crash.
+  - The planner's decision line logs at INFO and does not show at `model_verbosity=2`; the 1M-row tables' column
+    buffers came out at 80 to 90 GB (CPU offload), the size the budget caps them at, instead of 130 to 640 GB.
+  - `audit_warmup --results`: warm-up ok on all 2000, no packages imported inside the timed fit or predict.
+  - Eval (`core2k`, 44 methods, 0% imputed): #12, Elo 1236 (+28/-26), median 7.8 s train and 1.1 s inference
+    per 1K rows; TabICLv2 (default) #18 with 1167. Binary #13, multiclass #12, regression #10, large #26 of 38.
+  - Processed and uploaded as suite `beyondarena-2026-11-24` (`beyond_tababax_metadata` in
+    `contexts/beyondarena/methods.py`), `verified=True` on the maintainer's sign-off.
+  - Venv `~/.venvs/tabarena_tababax_pr744_23112026` (build script in the worktree's `tmp_scripts/logs/`), worktree
+    `tabarena-run-tababax-pr744`.
+
+```python
+from tabarena.benchmark.experiment import BeyondArenaExperimentBundle
+from tabarena.benchmark.task.metadata import TaskSubset
+from tabarena.contexts import BeyondArenaContext
+from tabflow_slurm import BeyondArenaResourcesSetup, ModelJob, PathSetup, SkyPilotSetup, TabArenaBenchmarkPlan
+
+gpu = {"num_gpus": 1, "fake_memory_for_estimates": 96}
+
+
+def job(name, tasks, time_limit):
+    return ModelJob(
+        models=("TabAbax", 0), name=name, resources={**gpu, "time_limit": time_limit}, tasks=TaskSubset(subset=tasks)
+    )
+
+
+TabArenaBenchmarkPlan(
+    benchmark_name="beyondarena_tababax_23112026",
+    model_jobs=[
+        job("gpu_16h", ["core2k", "medium|large"], 16 * 3600),
+        job("gpu", ["core2k", "!medium", "!large"], 4 * 3600),
+    ],
+    task_subset=TaskSubset(subset=["core2k"]),
+    context=BeyondArenaContext(),
+    experiment_bundle=BeyondArenaExperimentBundle(model_verbosity=2),
+    path_setup=PathSetup(
+        workspace="/home/lennart_priorlabs_ai/workspace/benchmarking/tabarena_workspace",
+        python_path="/home/lennart_priorlabs_ai/.venvs/tabarena_tababax_pr744_23112026/bin/python",
+    ),
+    resources_setup=BeyondArenaResourcesSetup(),
+    scheduler_setup=SkyPilotSetup(bundle_size=1, workers=32, use_pool=True, pool_name="tababax-beyond-2311"),
+).setup_jobs()
+# The timing and fix launches used the same plan with ModelJob(tasks=TaskSubset(dataset_names=[...],
+# split_indices=[...])) restricted to their items, all at 16 h; the fix launch on pool "tababax-fix-2411" (workers=4).
+```
+
+---
+
 ## 2026-11-24 — lattice_24112026
 
 - **Model(s):** Lattice and Lattice-tiny (default config only, no search space) on all 816 TabArena-v0.1 splits each,
@@ -105,6 +271,78 @@ TabArenaV0pt1BenchmarkPlan(
 
 ---
 
+## 2026-11-19 — beyondarena_tabpfn35thinking_core2k_19112026
+
+- **Model(s):** TabPFN-3.5-Thinking (system, config `TabPFN-3.5-Thinking_c2`: thinking mode, effort `max`) on all
+  2,000 BeyondArena `core2k` splits, 2,000 items
+- **Git SHA:** `95d324f1` on `tabpfn-3-5-thinking-system` (autogluon/tabarena#732 head `eebb0b0c` plus the `max`
+  config, base main `9f985c0f`), clean, run from the detached worktree `../tabarena-run-tabpfn35thinking-beyond`
+  with tabpfn-client 0.8.0. The reruns ran at `e1700d83` (the pin bump to tabpfn-client 0.10.1). AutoGluon
+  1.6.4b20261116 from PyPI, venv `~/.venvs/tabarena_tabpfn35thinking_beyond_19112026` (a copy of the TabArena run's).
+- **Validation protocol:** `system` (the system validates inside its own fit)
+- **Purpose:** BeyondArena run of TabPFN-3.5-Thinking at effort `max` with the 8 h time limit BeyondArena gives
+  systems (#739). The leaderboards name the two entries "TabPFN-3.5-Thinking (xhigh)" (TabArena) and
+  "TabPFN-3.5-Thinking (max)" (BeyondArena).
+- **Notes:** One on-demand `cpuhighmem16` node (`SlurmSingleNodeSetup`, `num_workers=5`, five requests in flight,
+  `--time` 336 h), the job file sorted largest tables first. The wrapper sends the 28,800 s limit as
+  `thinking_timeout_s` (the server's cap for `max` is 57,600 s). The key came from `TABPFN_TOKEN` in the launching
+  shell (read from the TabArena run venv's `tabpfn_client` login cache, never written to a file), plus
+  `TABPFN_CLIENT_DEDUP_DATASETS=false`. The server reported tabpfn 10.2.0 on all 2,000 splits. Smoke 3 of 3
+  (grouped, temporal and text splits; `group_col` / `time_col` reach the API).
+  - Job 1397736 (2026-11-19 17:26 to 2026-11-20 11:57 UTC, 18 h 31 min): 1,994 OK, 6 FAILED. Client side, two:
+    tabpfn-client 0.8.0 checked thinking fits against the non-thinking v3.5 upload limit of 500M cells and refused
+    maps_router_eta_1m r0f0 (988M) and home_credit_default_stability_1m r0f0 (711M). Server side, four:
+    ieee_fraud_detection r1f0 ("The worker failed to process this request", fit `01a1f4da-1f8b-79a1-a4f4-2aedb51cdab9`,
+    after 2.1 h), lending_club_1m r0f0 (the same, fit `01a1f5a4-0c41-7350-9c58-ce2cfa929501`, 1.9 h),
+    climate_model_weather_forecasting_1m r0f0 ("abandoned by the worker queue", fit
+    `01a1f55e-99e6-7283-91bf-701dc702a905`, 3.1 h) and consumer_complaints_1m r0f0 (about 209M text tokens over the
+    server's 50M limit, fit `01a1f674-e666-78f1-b5b5-0b34cf32cb0b`).
+  - Job 1400872 (2026-11-20 14:05 to 20:54 UTC, client 0.10.1, a job file of the 5 fixable items): 4 OK. climate
+    failed again, this time in the prediction after a successful fit (`PredictFailedError`, prediction
+    `01a1f994-1410-78a3-a54e-94a96b6ad684`, `DEADLINE_EXCEEDED`, after 4.1 h). Job 1402397 (2026-11-22 11:19 to
+    13:49 UTC) reran it alone: OK, server fit 5,155 s and predict 3,756 s.
+  - After Prior Labs raised the text limit, job 1409429 (2026-11-24 18:10 to 2026-11-25 01:22 UTC) ran
+    consumer_complaints_1m r0f0: OK, text transform 1,863 s, fit 21,436 s, predict 2,204 s. 2,000 of 2,000 items.
+  - Server-side fit time median 12.2 s, 77.7 h in total; 15 fits over 1 h, 3 over 4 h, the longest 21,436 s
+    (consumer_complaints_1m). No fit reached the 28,800 s limit.
+- **Result:** (`BeyondArenaContext(extra_methods=..., only_valid_tasks=True)`, 142 datasets, 2,000 splits, 43
+  methods, nothing imputed)
+  - `core2k`: #1 of 43, Elo 1516 (+46/-29), ahead of Kumo-Tabular (1428); the open-weights TabPFN-3.5 is #4 (1369).
+  - #1 on all 15 slices: binary 1471, multiclass 1599, regression 1563, tiny 1539, small 1655, medium 1678, large
+    1424 (of 37), iid 1609, temporal 1316, grouped 1466, low-dim 1551, high-dim 1490, text 1596, high-cardinality
+    1457. On small and iid the lead over the runner-up is inside the 95% interval.
+  - Median 22.2 s train and 8.89 s inference per 1K rows, wall-clock at the client. Figures for the 15 slices under
+    `tmp_scripts/eval_output/beyondarena_tabpfn35thinking_core2k_19112026/subsets/`.
+- **Upload:** processed and uploaded as suite `beyondarena-2026-11-19`, method `TabPFN-3.5-Thinking_max`
+  (`tabpfn_3_5_thinking_max_metadata` in `systems/tabpfn_3_5_thinking/info.py`, 2,000 splits, raw included),
+  `verified=True`.
+
+```python
+TabArenaBenchmarkPlan(
+    benchmark_name="beyondarena_tabpfn35thinking_core2k_19112026",
+    model_jobs=[
+        # The `TabPFN-3.5-Thinking_c2` (effort="max") experiment of
+        # BeyondArenaExperimentBundle(models=[(gen_tabpfn_3_5_thinking, 0)], system_experiments=True,
+        # model_verbosity=2).build_experiments(time_limit=8 * 3600)
+        ModelJob(models=experiment_c2, name="api", resources={"time_limit": 8 * 3600}),
+    ],
+    task_subset=TaskSubset(subset=["core2k"]),
+    context=BeyondArenaContext(),
+    experiment_bundle=BeyondArenaExperimentBundle(model_verbosity=2, system_experiments=True),
+    path_setup=PathSetup(
+        workspace="/home/lennart_priorlabs_ai/workspace/benchmarking/tabarena_workspace",
+        python_path="/home/lennart_priorlabs_ai/.venvs/tabarena_tabpfn35thinking_beyond_19112026/bin/python",
+    ),
+    resources_setup=BeyondArenaResourcesSetup(time_limit=8 * 3600),
+    scheduler_setup=SlurmSingleNodeSetup(partition="cpuhighmem16", num_workers=5, time_limit_hours=14 * 24),
+    prefetch_model_weights=False,  # nothing local to prefetch for an API
+).setup_jobs()
+# Launched from the worktree root with TABPFN_TOKEN and TABPFN_CLIENT_DEDUP_DATASETS=false exported; the job file
+# was re-sorted largest tables first (`..._api_sorted.json`) before the sbatch.
+```
+
+---
+
 ## 2026-11-19 — lattice_19112026
 
 - **Model(s):** Lattice and Lattice-tiny (default config only, no search space) on all 816 TabArena-v0.1 splits each,
@@ -166,6 +404,71 @@ TabArenaV0pt1BenchmarkPlan(
 # The generated pool YAML then edited to pool: {min_workers: 0, max_workers: 32, upscale_delay_seconds: 30,
 # downscale_delay_seconds: 120} for the admin policy.
 ```
+
+---
+
+## 2026-11-17 — tabpfn35thinking_17112026
+
+- **Model(s):** TabPFN-3.5-Thinking (system, one config `TabPFN-3.5-Thinking_c1_default`: thinking mode, effort
+  `xhigh`) on all 816 TabArena-v0.1 splits, 816 items
+- **Git SHA:** `eebb0b0c` on `tabpfn-3-5-thinking-system`, the head of autogluon/tabarena#732 (base main `9f985c0f`),
+  clean, run from the detached worktree `../tabarena-run-tabpfn35thinking`. tabpfn-client 0.8.0, AutoGluon
+  1.6.4b20261116 from PyPI, venv `~/.venvs/tabarena_tabpfn35thinking_17112026`.
+- **Validation protocol:** `system` (the system validates inside its own fit)
+- **Purpose:** First maintainer run of TabPFN-3.5-Thinking, Prior Labs' hosted tabular prediction system, submitted
+  in #732 as a `closed-source-api` system.
+- **Notes:** One on-demand `cpuhighmem16` node (`SlurmSingleNodeSetup`, `num_workers=5`, five requests in flight), the
+  1 h default time limit, which the wrapper sends as `thinking_timeout_s=3600` (the server's cap for `xhigh` is
+  14400 s; the submitter's run with client 0.7.1 sent none). The key came from `TABPFN_TOKEN` in the launching
+  shell (read from the run venv's `tabpfn_client` login cache, never written to a file), plus
+  `TABPFN_CLIENT_DEDUP_DATASETS=false` so every split uploads its tables fresh. The server reported tabpfn 9.2.0 and
+  checkpoint `tabpfn-v3.5-20260909.safetensors` (`api_server_info` in each `results.pkl`) on all 816 splits.
+  - Before the launch: `audit --offline` (`tmp_scripts/eval_output/tabpfn35thinking_17112026/audit_offline.json`),
+    then the live audit (`audit_live.json`): 2 FAIL, 1 WARN. Both FAILs were the jitter probe casting `uint8` test
+    columns to float against a `uint8` training schema, which the server refuses; the probe now casts the training
+    table too (#733), and the re-run with that tool (`audit_live_733.json`) gave 18 PASS, 1 WARN (egress to two hosts,
+    `api.priorlabs.ai` and the provider's GCS upload bucket). The earlier maternal_health_risk jitter WARN (+31% error
+    with 1% feature noise) is the model's: the local open-weights TabPFN-3.5 degrades +45% on the same probe, and the
+    re-run passes it (+23.7% against +16.1% for the reference). Smoke 3 of 3. No per-split results from the
+    submitter, so no reproduction check.
+  - Job 1390803 (2026-11-17 08:55 UTC) was cancelled after 5 minutes: 2 items OK, 30 failed with HTTP 429 on the
+    account's 5M-token daily limit. After Prior Labs lifted the limit, the same `sbatch` ran as job 1391060
+    (14:26 to 21:08 UTC, 6 h 41 min): 815 OK (2 of them the cached results of 1390803) and 1 FAILED, SDSS17 r1f1 with
+    `FitFailedError: ... request failed after 2 retries and was abandoned by the worker queue` (server side, fit
+    `01a1eb27-0349-7213-870e-1a4804eee090`). A job file holding only that item ran as job 1391772 (11 min, OK).
+  - Server-side fit time median 18 s, max 1258 s; the slowest split (GiveMeSomeCredit) took 1270 s at the client,
+    so no fit reached the 3600-s thinking limit. The account counted about 99M tokens for the live audit re-run and
+    the full run together.
+- **Result:**
+  - Full: #2 of 118, Elo 2008 (+145/-98), nothing imputed, between LimiX-2-1016 (2011) and Kumo-Tabular (1989).
+  - Binary: #2 of 116, Elo 1938. Multiclass: #1 of 116, Elo 2123 (+282/-118). Regression: #2 of 114, Elo 2452.
+  - Median 19.1 s train and 2.72 s inference per 1K rows, wall-clock at the client (upload, network and the
+    provider's queue included), on the Pareto front of Elo against inference time.
+  - +141 Elo over the open-weights TabPFN-3.5 default (1867).
+- **Upload:** processed and uploaded as suite `tabarena-2026-11-17`, method `TabPFN-3.5-Thinking_xhigh`
+  (`tabpfn_3_5_thinking_xhigh_metadata` in `systems/tabpfn_3_5_thinking/info.py`, 816 splits, raw included),
+  `verified=True`, registered in `contexts/tabarena/methods.py` as "TabPFN-3.5-Thinking (xhigh)".
+
+```python
+TabArenaV0pt1BenchmarkPlan(
+    benchmark_name="tabpfn35thinking_17112026",
+    model_jobs=[
+        ModelJob(models=(_info().config_generator, 0), name="api", resources={"time_limit": 3600}),  # _info() = the system's SystemInfo
+    ],
+    task_subset=TaskSubset(),  # the full task set (all splits)
+    path_setup=PathSetup(
+        workspace="/home/lennart_priorlabs_ai/workspace/benchmarking/tabarena_workspace",
+        python_path="/home/lennart_priorlabs_ai/.venvs/tabarena_tabpfn35thinking_17112026/bin/python",
+    ),
+    experiment_bundle=TabArenaV0pt1ExperimentBundle(model_verbosity=2, system_experiments=True),
+    resources_setup=TabArenaV0pt1ResourcesSetup(num_cpus=None, memory_limit=None),
+    scheduler_setup=SlurmSingleNodeSetup(partition="cpuhighmem16", num_workers=5),
+    prefetch_model_weights=False,  # nothing local to prefetch for an API
+).setup_jobs()
+# Launched from the worktree root with TABPFN_TOKEN and TABPFN_CLIENT_DEDUP_DATASETS=false exported.
+```
+
+---
 
 ---
 

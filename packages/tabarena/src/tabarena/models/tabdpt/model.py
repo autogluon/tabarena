@@ -224,6 +224,7 @@ class TabDPTModelBase(AbstractTorchModel):
         extra_ag_args_ensemble = {
             "fold_fitting_strategy": "sequential_local",
             "refit_folds": True,
+            "vary_seed_across_folds": False,  # pretrained: the fold models are the refit that predicts
         }
         default_ag_args_ensemble.update(extra_ag_args_ensemble)
         return default_ag_args_ensemble

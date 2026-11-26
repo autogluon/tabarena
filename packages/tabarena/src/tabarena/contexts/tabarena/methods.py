@@ -143,6 +143,7 @@ from tabarena.models.tabpfnv2_5.info import (
     realtabpfnv25_method_metadata as realtabpfn25_metadata,
     tabpfnv26_method_metadata as tabpfn26_metadata,
 )
+from tabarena.models.tabsil.info import tabsil_method_metadata
 from tabarena.models.tabstar_v1p1.info import tabstar_v1p1_method_metadata
 from tabarena.models.tabswift.info import (
     tabswift_2026_09_method_metadata,
@@ -156,6 +157,7 @@ from tabarena.models.xrfm.info import xrfm_method_metadata as xrfm_metadata
 from tabarena.systems.chakra_tab.info import chakra_tab_full_metadata, chakra_tab_medium_metadata
 from tabarena.systems.tabfm_plus.info import tabfm_plus_method_metadata
 from tabarena.systems.tabldm_plus.info import tabldm_plus_method_metadata
+from tabarena.systems.tabpfn_3_5_thinking.info import tabpfn_3_5_thinking_xhigh_metadata
 
 if TYPE_CHECKING:
     from tabarena.models._method_metadata import MethodMetadata
@@ -218,6 +220,7 @@ tabarena_method_metadata_collection = MethodMetadataCollection(
         chakra_tab_medium_metadata,
         tabfm_plus_method_metadata,
         tabldm_plus_method_metadata,
+        tabpfn_3_5_thinking_xhigh_metadata,
         # Default tabular models (CPU)
         aplr_method_metadata,
         catboost_new_method_metadata,
@@ -282,6 +285,7 @@ tabarena_method_metadata_collection = MethodMetadataCollection(
         inpriora_method_metadata,
         lattice_method_metadata,
         lattice_tiny_method_metadata,
+        tabsil_method_metadata,
     ],
 )
 

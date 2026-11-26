@@ -62,8 +62,8 @@ tunes under its shared protocol, a *system* owns its whole pipeline inside the f
   compare it against the cached BeyondArena baselines.
 - `run_quickstart_beyondarena_system.py` — Run a system (the AutoGluon wrapper that ships with
   TabArena) through the same loop with `system_experiments=True`; the system does its own validation,
-  tuning and ensembling. The public BeyondArena leaderboard lists models only for now, so the system
-  is compared against the cached model baselines.
+  tuning and ensembling, with the 8 h time limit BeyondArena gives systems, and is compared against the
+  cached BeyondArena baselines, the models and the hosted systems.
 - `run_generate_beyondarena_leaderboard.py` — Generate the official BeyondArena leaderboard from the
   cached results, in the website format. Its output folder also holds `results_per_split.csv`, the
   per-dataset, per-split numbers behind the leaderboard, which are not hosted anywhere else.

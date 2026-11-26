@@ -7,8 +7,8 @@ budget TabArena hands it. This is the BeyondArena counterpart of
 (``tabarena.systems.AutoGluonSystemModel``) instead. If your method is one model that TabArena
 should tune under its shared protocol, see ``run_quickstart_beyondarena_model.py`` next to this file.
 
-The public BeyondArena leaderboard lists models only for now, so a system is compared against the
-cached model baselines.
+The system is compared against the cached BeyondArena baselines, the models and the hosted systems. Systems get an
+8 h time limit on BeyondArena (models: 4 h); the bundle sets it with ``system_experiments=True``.
 """
 
 from __future__ import annotations
