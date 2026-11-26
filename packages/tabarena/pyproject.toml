@@ -119,7 +119,7 @@ agentic_mlp = ["agentic-tabular[torch] @ git+https://github.com/yandex-research/
 agentic_tabm = ["agentic-tabular[torch] @ git+https://github.com/yandex-research/agentic-hpset.git@3d7349b36df9bea48a5c236830a8f313ba1819c9", "loguru>=0.7.0"]
 
 # Extended model extras — opt-in individually or together via the `extended` union below.
-causilo = ["causilo==1.5.0"]  # Causilo 1.0 and 1.5; its 1.0 runtime matches 1.0.2 (the hosted runs) on the CPU
+causilo = ["causilo==1.5.1"]  # Supports Causilo 1.0 and 1.5
 modernnca = ["category_encoders"]
 xrfm = ["xrfm[cu12]"]
 # sap-rpt-oss and tabfm stay pinned to the git commits used for the benchmark runs, so these two
