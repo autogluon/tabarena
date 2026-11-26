@@ -858,6 +858,19 @@ class AbstractArenaContext:
         """
         return [m.method for m in self.method_metadata_collection.method_metadata_lst if m.leakage_evidence]
 
+    @property
+    def systems(self) -> list[str]:
+        """This arena's systems (``method_class="system"``), other than the new methods registered on top of them.
+
+        ``compare(exclude_systems=True)`` leaves them out of every number, so the new methods are compared
+        with individual models only. A system registered as a new method stays in.
+        """
+        return [
+            m.method
+            for m in self.method_metadata_collection.method_metadata_lst
+            if m.method_class == "system" and m.method not in self._new_method_names
+        ]
+
     def method_metadata(
         self,
         method: str,
@@ -1155,6 +1168,7 @@ class AbstractArenaContext:
         score_on_val: bool = False,
         remove_imputed: bool = False,
         exclude_leakage: bool = False,
+        exclude_systems: bool = False,
         leaderboard_kwargs: dict | None = None,
         # how the figures look
         figure_file_type: str = "pdf",
@@ -1231,6 +1245,9 @@ class AbstractArenaContext:
             exclude_leakage: leave out this arena's methods that carry a leakage warning
                 (:attr:`methods_with_leakage`), so every number and figure is computed without
                 them, as the leaderboard's own twins without them are.
+            exclude_systems: leave out this arena's systems (:attr:`systems`), so every number and figure
+                compares the new methods with individual models only, as the leaderboard's models-only pool
+                does. A system registered as a new method stays in.
             leaderboard_kwargs: forwarded to
                 :meth:`bencheval.evaluator.BenchmarkEvaluator.leaderboard` (e.g. ``include_elo``,
                 ``include_winrate``, ``elo_kwargs``).
@@ -1280,6 +1297,8 @@ class AbstractArenaContext:
             )
         if exclude_leakage and not ta_results.empty:
             ta_results = ta_results[~ta_results["ta_name"].isin(self.methods_with_leakage)]
+        if exclude_systems and not ta_results.empty:
+            ta_results = ta_results[~ta_results["ta_name"].isin(self.systems)]
 
         if new_results is not None:
             new_results = new_results.copy(deep=True)

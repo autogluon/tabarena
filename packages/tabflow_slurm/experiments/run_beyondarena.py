@@ -24,6 +24,9 @@ contender's raw ``results.pkl`` (written by `setup`) and register it via ``extra
 (``beyond_method_metadata_collection`` — the classic + neural + foundation suite, incl. TabPFN-3), so
 there is nothing to list by hand. ``only_valid_tasks=True`` scopes every leaderboard to the exact
 tasks the contender ran, and ``compare(subset=...)`` slices via BeyondArena's subset predicates.
+The hosted systems (``method_class="system"``, e.g. TabPFN-3.5-Thinking) stay out of the field unless
+``INCLUDE_SYSTEMS`` is set, so the contender is compared with individual models, as on the leaderboard's
+default models-only view; a contender that is itself a system still competes.
 
 Note: the illustrative ``CONTENDER_MODEL = "TabPFN-3"`` here is *itself* an uploaded baseline, so we
 mark this run a re-run via ``RESULT_SUFFIX`` (rendered ``TabPFN-3 [rerun]``) to keep it distinct from
@@ -53,6 +56,7 @@ WORKSPACE = "/home/lennart_priorlabs_ai/workspace/benchmarking/tabarena_workspac
 PYTHON_PATH = "/home/lennart_priorlabs_ai/.venvs/beyondarena_27052026/bin/python"
 CONTENDER_MODEL = "TabPFN-3"  # the model this run adds; baselines come from the context
 RESULT_SUFFIX = " [rerun]"  # keeps this run distinct from the uploaded TabPFN-3 baseline; None for a new method
+INCLUDE_SYSTEMS = False  # True adds the hosted systems to every leaderboard; by default the field is models only
 
 # Subset slices to evaluate, anchored on the default ``core2k`` protocol (each dataset's first splits from
 # the 2,000-split cost-weighted allocation; no need for the full ``["all"]`` split set). ``only_valid_tasks`` already
@@ -169,7 +173,12 @@ def evaluate(scheduler: str = "slurm") -> None:
         out_dir = figure_output_dir / "subsets" / label
         leaderboard = None
         for figure_file_type in FIGURE_FILE_TYPES:
-            result = context.compare(output_dir=out_dir, subset=subset or None, figure_file_type=figure_file_type)
+            result = context.compare(
+                output_dir=out_dir,
+                subset=subset or None,
+                figure_file_type=figure_file_type,
+                exclude_systems=not INCLUDE_SYSTEMS,
+            )
             leaderboard = leaderboard if leaderboard is not None else result
         print(f"\n##### Leaderboard [{label}]")
         print(leaderboard.to_markdown(index=False))

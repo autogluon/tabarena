@@ -643,6 +643,11 @@ or uploaded; if it differs, nothing is published and the run is repeated on the 
   (the Kumo-Tabular and Seldon runs in `BENCHMARK_LOG.md`), launched on one pool, the long group first. `setup` then
   warns, for the second group, that the first launch "still has N bundle(s) not done" and would be fitted twice;
   the two groups cover disjoint datasets, so that warning is a false alarm here.
+- A BeyondArena eval compares the new method with individual models only: pass `exclude_systems=True` to every
+  `compare` call (`INCLUDE_SYSTEMS = False` in `run_beyondarena.py`), which leaves the hosted systems such as
+  TabPFN-3.5-Thinking (max) out of every number and figure, as the leaderboard's default models-only view does.
+  Add the systems only when the maintainer asks, and say in the report which field the numbers come from. A new
+  method that is itself a system stays in the field.
 - Systems on BeyondArena run with an 8 h time limit (models: 4 h). `BeyondArenaResourcesSetup` applies it to every
   system job (`system_experiments=True`) without a `time_limit` of its own. For a hosted API, check that the API
   accepts that budget for the config being run (TabPFN-3.5-Thinking takes 8 h only at `effort="max"`), and give each
