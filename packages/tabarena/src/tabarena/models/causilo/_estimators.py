@@ -12,9 +12,8 @@ but its weightless pickle still carries most of the network. Every fitted execut
 their weights, about 1.2 GB in ``model_tensors.pt`` for every saved fit (the refit model is saved inside
 the timed fit), and come back as a second copy of the network on load.
 
-Until AutoGluon also detaches the submodules of a shared network (autogluon/autogluon PR
-"Shared weights: detach the submodules of a shared network"), the wrapper keeps causilo's own pickle, which
-leaves the network out, and shares only the load. :func:`attach_shared_network` takes the network from the
+Until AutoGluon also detaches the submodules of a shared network (https://github.com/autogluon/autogluon/pull/6100),
+the wrapper keeps causilo's own pickle, which leaves the network out, and shares only the load. :func:`attach_shared_network` takes the network from the
 registry (:mod:`tabarena.models._weights`), loaded through the public loader, and gives the estimator,
 before ``fit``, the engine its ``fit`` would build, holding that network. ``fit`` reuses an engine whose
 task, checkpoint, device and memory budgets match the estimator's parameters; if a later causilo changed
