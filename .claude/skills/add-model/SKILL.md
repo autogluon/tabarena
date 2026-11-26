@@ -385,7 +385,7 @@ so fitted state that only the library's protocol can pickle (a `threading.Lock`,
 every save fail. Causilo 1.5.1 exposes such a loader and fitted runners that pickle, yet a declaration
 still pickles most of its network: the runners hold the network's child modules, and the weightless
 pickle detaches only the module the loader returned. Until AutoGluon also detaches the submodules of a
-shared network, `Causilo15Model` keeps causilo's own pickle and shares through a developer fix that
+shared network (autogluon/autogluon#6100), `Causilo15Model` keeps causilo's own pickle and shares through a developer fix that
 takes the network from the registry and hands the estimator a prepared engine (`causilo/_estimators.py`).
 Before declaring `shared_weights`, check the size of a fitted model's `model_tensors.pt`: anything near
 the network's size means a reference to part of it escaped the detach.
