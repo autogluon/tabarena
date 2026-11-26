@@ -5,6 +5,8 @@ from typing import TYPE_CHECKING, ClassVar
 from autogluon.core.models.abstract import SharedWeights
 from autogluon.tabular.models.abstract.abstract_torch_model import AbstractTorchModel
 
+from tabarena.models._weights import SharedWeightsClassSettings
+
 if TYPE_CHECKING:
     import pandas as pd
 
@@ -39,7 +41,11 @@ class CausiloModelBase(AbstractTorchModel):
     default_num_gpus = 1
     minimum_num_gpus = 1
     _default_auxiliary_params_extra = {"valid_raw_types": ["int", "float", "category"]}
-    _default_ag_args_ensemble_extra = {"fold_fitting_strategy": "sequential_local", "refit_folds": True}
+    _default_ag_args_ensemble_extra = {
+        "fold_fitting_strategy": "sequential_local",
+        "refit_folds": True,
+        "vary_seed_across_folds": False,  # pretrained: the fold models are the refit that predicts
+    }
     #: Knobs that make the warm-up's dummy fit cheap without touching the network.
     cheap_hyperparameters: ClassVar[dict] = {"n_estimators": 1}
 
@@ -66,9 +72,13 @@ class CausiloModelBase(AbstractTorchModel):
             # pickle records it, so a saved GPU fit also restores on a host without one.
             library_device = "auto" if device == "cuda" else device
             self.model = cls(device=library_device, model_version=self.model_version, **params)
+            self._prepare_estimator(self.model)
             self.model.fit(self.preprocess(X, is_train=True), y)
         finally:
             torch.set_num_threads(previous_threads)
+
+    def _prepare_estimator(self, estimator) -> None:
+        """Hook between constructing the library's estimator and fitting it."""
 
     def _predict_proba(self, X, **kwargs):
         import numpy as np
@@ -152,10 +162,6 @@ class CausiloModel(CausiloModelBase):
     ag_key = "TA-CAUSILO"
     ag_name = "Causilo"
     model_version: ClassVar[str] = "1.0"
-    _default_ag_args_ensemble_extra = {
-        **CausiloModelBase._default_ag_args_ensemble_extra,
-        "vary_seed_across_folds": False,
-    }
     warmup_modules: ClassVar[tuple[str, ...]] = (
         "causilo",
         "causilo.serialization",
@@ -176,7 +182,14 @@ class CausiloModel(CausiloModelBase):
 
 
 class Causilo15Model(CausiloModelBase):
-    """Causilo 1.5 with the library's task-specific ensemble defaults."""
+    """Causilo 1.5 with the library's task-specific ensemble defaults.
+
+    Declares no ``shared_weights``: causilo 1.5.1's public loader would fit a declaration, but AutoGluon's
+    weightless pickle would still carry the network's child modules, which the fitted runners reference.
+    The fits share one network per process through the developer fix in ``causilo/_estimators.py`` instead,
+    which keeps causilo's own pickle, and switch it off the way a declaring wrapper does
+    (``ag_args_fit={"share_pretrained_weights": False}`` or the ``share_weights`` class setting).
+    """
 
     ag_key = "TA-CAUSILO-1.5"
     ag_name = "TA-Causilo-1.5"
@@ -195,18 +208,34 @@ class Causilo15Model(CausiloModelBase):
         "causilo.v1_5.kernels.triton.residual_normalization",
         "causilo.v1_5.kernels.triton.swiglu",
     )
-    shared_weights: ClassVar[SharedWeights] = SharedWeights(
-        loader="causilo:load_pretrained_model",
-        key=("task", "model_version"),
-        disabled_by=("checkpoint_path", "device_memory_budget_bytes"),
-    )
-    class_settings_per_subclass = True
+    #: The ``share_weights`` switch of ``model_class_settings``, as a declaring wrapper gets it.
+    class_settings_cls = SharedWeightsClassSettings
 
     def _set_default_params(self):
         super()._set_default_params()
         # The authors' setting for large tables: each member samples its own 200k-row context. Tables up to
         # 200k training rows (every TabArena-v0.1 split) take the same full-context path as max_context=None.
         self._set_default_param_value("max_context", 200_000)
+
+    def _prepare_estimator(self, estimator) -> None:
+        from tabarena.models.causilo._estimators import attach_shared_network
+
+        self._shared_network = None
+        aux = self.aux_params
+        if aux.save_pretrained_weights or not getattr(aux, "share_pretrained_weights", True):
+            return
+        if not type(self).get_class_settings().share_weights:
+            return
+        task = "regression" if self.problem_type == "regression" else "classification"
+        self._shared_network = attach_shared_network(estimator, task=task)
+
+    def get_info(self, include_feature_metadata: bool = True) -> dict:
+        from tabarena.models.causilo._estimators import shared_network_info
+
+        info = super().get_info(include_feature_metadata=include_feature_metadata)
+        record = getattr(self, "_shared_network", None)
+        info["shared_weights"] = None if record is None else shared_network_info(record)
+        return info
 
     def _preprocess(self, X: pd.DataFrame, is_train: bool = False, **kwargs) -> pd.DataFrame:
         """Give integer category labels string labels.

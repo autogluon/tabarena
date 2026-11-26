@@ -6,6 +6,8 @@ Run with ``pytest packages/tabarena/src/tabarena/models/causilo/tests``; they ne
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -57,10 +59,14 @@ def test_fits_share_one_network_and_match_an_unshared_fit(tmp_path, binary_table
     expected = unshared.predict_proba(X)
     np.testing.assert_array_equal(first.predict_proba(X), expected)
 
+    # causilo's own pickle leaves the network out, and the reload loads its own copy. The library sizes its
+    # prediction batches from free host memory, so a reload can differ from the fit by rounding.
     first.save()
+    assert (Path(first.path) / "model.pkl").stat().st_size < 1_000_000
+    assert not (Path(first.path) / "model_tensors.pt").exists()
     reloaded = Causilo15Model.load(first.path)
-    assert reloaded.model._engine.model is first.model._engine.model
-    np.testing.assert_array_equal(reloaded.predict_proba(X), expected)
+    assert reloaded.model._engine.model is not first.model._engine.model
+    np.testing.assert_allclose(reloaded.predict_proba(X), expected, rtol=1e-5, atol=1e-6)
 
 
 def test_class_setting_switches_sharing_off(tmp_path, binary_table):
@@ -120,7 +126,7 @@ def test_sampled_contexts_share_the_network_and_reload(tmp_path, binary_table):
     expected = model.predict_proba(X)
     model.save()
     reloaded = Causilo15Model.load(model.path)
-    np.testing.assert_array_equal(reloaded.predict_proba(X), expected)
+    np.testing.assert_allclose(reloaded.predict_proba(X), expected, rtol=1e-5, atol=1e-6)
 
 
 def test_default_context_cap_matches_no_cap_below_it(tmp_path, binary_table):
