@@ -34,6 +34,134 @@ run against `main`. To reproduce an entry, check out its recorded **git SHA**.
 
 ---
 
+## 2026-11-25 — beyondarena_causilo15cat_25112026
+
+- **Model(s):** Causilo-1.5 (default config only, no search space), the 2,000 splits of the BeyondArena `core2k`
+  protocol at every table size
+- **Git SHA:** `820ff642` on `causilo-1.5` (autogluon/tabarena#754), clean; causilo 1.5.0, PyPI torch 2.14.1 (CUDA 13.0
+  build) with triton 3.8.0, AutoGluon 1.6.4b20261125 from PyPI. The wrapper defaults to `max_context=200_000`: on
+  tables above 200k training rows each of the 8 members samples its own 200k-row context (the authors' BeyondArena
+  setting); smaller tables use the full context.
+- **Validation protocol:** BeyondArena `8x1+tiny5x5<=500+task-specific+adapt-classes`
+- **Purpose:** First BeyondArena run of Causilo-1.5, next to the TabArena run below.
+- **Notes:** SkyPilot pool `causilo15-bycat-2511` (32 spot RTX PRO 6000 workers, env `94e2c8afe603`), one item per
+  bundle, `fake_memory_for_estimates=96`, the pool YAML edited for the admin policy as in the TabArena run. Two launches
+  on the pool, the long group first: `..._gpu_16h-20261125-214946-d1c1` (medium and large tables, 184 items, 16 h
+  limit) and `..._gpu-20261125-215129-baf8` (tiny and small tables, 1,816 items, BeyondArena's 4 h default), the
+  time-limit split of the TFM, Kumo-Tabular and Seldon campaigns. The short group was launched after the long group's
+  first nine results, amazon_employee_access among them, were checked. Run venv `~/.venvs/tabarena_causilo15_25112026`.
+  - Two earlier launches were cancelled and their results must not be used: `beyondarena_causilo15_25112026` (code
+    `456ec378`) and `beyondarena_causilo15fix_25112026` (`b28ec798`). Causilo-1.5 predicted a constant on
+    amazon_employee_access (AUC error 0.5 on every split). The wrapper gives integer category labels string labels (the
+    1.5 runtime interpolates numeric categories) and decided per call from the dtype; BeyondArena's preprocessing keeps a
+    dataset's integer IDs and hands fit an `int64` index but predict an `object` index of Python ints for the same
+    column, so fit saw string labels and predict raw ints, and every category was unseen. A full BeyondArena item on
+    the CPU reproduced it (validation AUC 0.526) and confirmed the fix (`820ff642`, the labelled columns are decided at
+    fit: AUC 0.874 with one member). TabArena's category dtypes are `int64` at fit and predict, so the TabArena run is
+    unaffected. The stale outputs of both launches are still in the bucket and the workspace.
+  - 2,000 of 2,000 items, 0 failed, 0 recoveries. The short group ran from about 22:45 to 00:00 UTC; the long group
+    ended at 09:33 UTC on 2026-11-26. The slowest items were the 1M-row tables: maps_router_eta_1m took 36,071 s to fit,
+    35,003 s of it on the out-of-fold predictions (Causilo 1.0 took 5.6 h on it, TabPFN-3.5 7.4 h). `audit_warmup
+    --results`: warm-up `ok` on all 2,000, no package imported and no CUDA initialized inside the timed sections.
+- **Result:** Eval (`BeyondArenaContext(only_valid_tasks=True)`, 44 methods, 0% imputed for Causilo-1.5):
+  - `core2k`: rank 1 of 44, Elo 1438 (+54/-46), ahead of Kumo-Tabular (1425), Kumo-Tabular-Medium (1372) and
+    TabPFN-3.5 (1369); Causilo (1.0) is 7th (1318). The authors reported 1446 for one fit per split without bagging.
+  - Without the large tables: rank 1 (1525). Binary 1 (1386), multiclass 1 (1502), regression 1 (1510); tiny, small,
+    iid, temporal, grouped, low-dim, high-dim and text 1; medium and high-cardinality 2 (behind Kumo-Tabular); large
+    6 of 38 (1169, behind the tuned and ensembled RealMLP, GBM and TabM and Kumo-Tabular).
+  - Median per 1K rows on `core2k`: 5.15 s train and 0.87 s inference (Kumo-Tabular 7.99 / 0.77, TabPFN-3.5
+    5.72 / 1.31). Figures for 16 slices under `tmp_scripts/eval_output/beyondarena_causilo15cat_25112026/`.
+
+```python
+TabArenaBenchmarkPlan(
+    benchmark_name="beyondarena_causilo15cat_25112026",
+    model_jobs=[
+        ModelJob(
+            models=[("Causilo-1.5", 0)],
+            name="gpu_16h",
+            resources={"num_gpus": 1, "fake_memory_for_estimates": 96, "time_limit": 16 * 3600},
+            tasks=TaskSubset(subset=["core2k", "medium|large"]),
+        ),
+        ModelJob(
+            models=[("Causilo-1.5", 0)],
+            name="gpu",
+            resources={"num_gpus": 1, "fake_memory_for_estimates": 96, "time_limit": 4 * 3600},
+            tasks=TaskSubset(subset=["core2k", "!medium", "!large"]),
+        ),
+    ],
+    task_subset=TaskSubset(subset=["core2k"]),
+    context=BeyondArenaContext(),
+    experiment_bundle=BeyondArenaExperimentBundle(model_verbosity=2),
+    path_setup=PathSetup(
+        workspace="/home/lennart_priorlabs_ai/workspace/benchmarking/tabarena_workspace",
+        python_path="/home/lennart_priorlabs_ai/.venvs/tabarena_causilo15_25112026/bin/python",
+    ),
+    resources_setup=BeyondArenaResourcesSetup(),
+    scheduler_setup=SkyPilotSetup(bundle_size=1, workers=32, use_pool=True, pool_name="causilo15-bycat-2511"),
+).setup_jobs()
+# The generated pool YAML then edited to pool: {min_workers: 0, max_workers: 32, upscale_delay_seconds: 30,
+# downscale_delay_seconds: 120} for the admin policy.
+```
+
+---
+
+## 2026-11-25 — causilo15_25112026
+
+- **Model(s):** Causilo-1.5 (default config only, no search space) on all 816 TabArena-v0.1 splits
+- **Git SHA:** `e1f10c26` on `causilo-1.5`, the head of autogluon/tabarena#754 at the launch, clean. causilo 1.5.0 from
+  PyPI (checkpoint `nums-ai/causilo-1.5@4ca2275b`, public), PyPI torch 2.14.1 (CUDA 13.0 build) with triton 3.8.0,
+  AutoGluon 1.6.4b20261125 from PyPI. The later commits of #754 (`456ec378` the 200k-row `max_context` default,
+  `b28ec798` and `820ff642` the category labels) do not change a TabArena fit: the largest TabArena training split has
+  100k rows, and TabArena's category dtypes are the same `int64` codes at fit and predict.
+- **Validation protocol:** `8x1`
+- **Purpose:** First maintainer run of Causilo-1.5 (Nums AI), added next to Causilo in #754.
+- **Notes:** SkyPilot pool `causilo15-2511` (16 spot RTX PRO 6000 workers, `g4-standard-48`, env `7e7d53a60428`), one
+  item per bundle, `fake_memory_for_estimates=96`, the 1 h default time limit. The generated pool YAML (`workers: 16`)
+  was edited to `min_workers: 0`, `max_workers: 16`, `upscale_delay_seconds: 30`, `downscale_delay_seconds: 120` for
+  the admin policy; one job was launched first and its first result checked (warm-up `ok`, registry 1 miss in the
+  warm-up and 9 hits in the timed fits), then the other 15 under the same launch
+  (`causilo15_25112026_gpu-20261125-201826-0f7d`). Run venv `~/.venvs/tabarena_causilo15_25112026`.
+  - Before the launch: the add-model review (three reviewer lenses on the wrapper and causilo 1.5.0; findings fixed in
+    #754), and on one RTX PRO 6000 the registry fit, shared-weights and warm-up-coverage tests, the model's tests and
+    1.0.2 against 1.5.0 with `model_version="1.0"` (bit-identical on 9 fits). On the CPU: the smoke fit (52 s),
+    `audit_pickle`, `audit_transduction` and `audit_warmup`, all OK. The wrapper shares the 1.5 network per process
+    through a developer fix (`causilo/_estimators.py`), since causilo 1.5.0 has no loader `SharedWeights` can take over.
+  - 816 of 816 items, 0 failed, 0 recoveries, from about 20:22 to 21:19 UTC. The warm-up audit over the results found
+    816 of 816 warm-ups ok and no import or CUDA initialization inside a timed fit or predict.
+  - Reproduction: every one of the 51 datasets within 2% of the authors' mean errors at
+    `nums-ai/causilo-1.5@4ca2275b/benchmarks/tabarena/dataset-results.csv` (8 members), median relative difference
+    0.05%. The authors fixed `random_state=42` for every fold; this run takes the bag's per-fold seeds.
+- **Result:**
+  - Full: Causilo-1.5 rank 1 of 121, Elo 2053 (+169/-102), ahead of LimiX-2 (2015) and Kumo-Tabular (1992); Causilo
+    (1.0) is at 1786. Nothing imputed. The authors reported 2037 on their board.
+  - Binary: rank 1 of 119 (1977). Multiclass: rank 1 of 119 (2140). Regression: rank 1 of 117 (2569).
+  - Median per 1K rows: 1.16 s train and 0.43 s inference (authors: 1.27 s and 0.45 s).
+
+```python
+TabArenaV0pt1BenchmarkPlan(
+    benchmark_name="causilo15_25112026",
+    model_jobs=[
+        ModelJob(
+            models=("Causilo-1.5", 0),
+            name="gpu",
+            resources={"num_gpus": 1, "fake_memory_for_estimates": 96},
+        ),
+    ],
+    task_subset=TaskSubset(),  # the full task set, all splits
+    path_setup=PathSetup(
+        workspace="/home/lennart_priorlabs_ai/workspace/benchmarking/tabarena_workspace",
+        python_path="/home/lennart_priorlabs_ai/.venvs/tabarena_causilo15_25112026/bin/python",
+    ),
+    experiment_bundle=TabArenaV0pt1ExperimentBundle(model_verbosity=2),
+    resources_setup=TabArenaV0pt1ResourcesSetup(num_cpus=None, memory_limit=None),
+    scheduler_setup=SkyPilotSetup(bundle_size=1, workers=16, use_pool=True, pool_name="causilo15-2511"),
+).setup_jobs()
+# The generated pool YAML then edited to pool: {min_workers: 0, max_workers: 16, upscale_delay_seconds: 30,
+# downscale_delay_seconds: 120} for the admin policy.
+```
+
+---
+
 ## 2026-11-24 — lattice_24112026
 
 - **Model(s):** Lattice and Lattice-tiny (default config only, no search space) on all 816 TabArena-v0.1 splits each,
