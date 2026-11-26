@@ -83,7 +83,7 @@ causilo_info = ModelInfo(
 )
 
 causilo15_descriptor = ModelDescriptor(
-    display_name="Causilo-1.5",
+    display_name="Causilo 1.5",
     compute="gpu",
     is_bag=False,
     reference_url="https://github.com/nums-ai/causilo",

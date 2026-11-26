@@ -382,15 +382,14 @@ loader's arguments to rebuild the network in another process and keeps strings, 
 containers of them; any other object is recorded as its `repr`, which the library cannot load from.
 And the weightless pickle writes the estimator's attributes without the library's own `__getstate__`,
 so fitted state that only the library's protocol can pickle (a `threading.Lock`, a CUDA stream) makes
-every save fail. Causilo 1.5 has both (a `ModelSource` dataclass as loader input, a lock in each
-fitted execution runner), so `Causilo15Model` declares nothing and shares through a developer fix that
-takes the network from the registry and hands the estimator a prepared engine (`causilo/_estimators.py`).
+every save fail. Causilo 1.5.1 exposes a loader with plain arguments and makes fitted runners
+pickleable, so `Causilo15Model` declares `shared_weights` using the public loader.
 Wrappers that do not care about sharing simply declare nothing (TabDPT v1.1 and TabDPT-Turbo, whose
 releases have no separable loader, TabPFN-Wide, SAP-RPT-OSS, iLTM whose library caches for itself).
 
 `references/model_patterns.md` under "Shared pretrained weights" has the field-by-field reference;
-`tabicl/model.py` is the plain in-tree case, `causilo/model.py` a function loader without a device
-input, `mitra_v2/model.py` a fine-tuning model, `tabdpt/model.py` a loader the constructor calls and
+`tabicl/model.py` is the plain in-tree case, `causilo/model.py` has function loaders with and without
+a device input, `mitra_v2/model.py` a fine-tuning model, `tabdpt/model.py` a loader the constructor calls and
 `exaone_tabular/` the adapter.
 
 Tests: `tests/tabarena/models/test_shared_weights_models.py` discovers every registered class that
