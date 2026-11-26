@@ -34,6 +34,71 @@ run against `main`. To reproduce an entry, check out its recorded **git SHA**.
 
 ---
 
+## 2026-11-26 — beyondarena_causilo15cat_25112026 (classification rerun)
+
+- **Model(s):** Causilo-1.5 (default config only) on the 1,446 classification items of BeyondArena `core2k`
+- **Git SHA:** `33a48e9f` on `causilo-1.5` (autogluon/tabarena#754), clean. causilo 1.5.1 from PyPI, torch 2.14.1,
+  AutoGluon 1.6.4b20261125, env `e88df49bb1de`.
+- **Validation protocol:** `8x1+tiny5x5<=500+task-specific+adapt-classes`
+- **Purpose:** Classification with the 1.5 preset of 4 members (causilo 1.5.1), replacing the 8-member classification
+  results of the 2026-11-25 run; its 554 regression results are kept, since 1.5.0 and 1.5.1 predict bit-identically at
+  8 members.
+- **Notes:** The 1,446 classification results of the 2026-11-25 run were deleted from the bucket and the workspace
+  before this launch. SkyPilot pool `causilo15c-by-2611` (32 spot RTX PRO 6000 workers, `min_workers: 0`,
+  `max_workers: 32`, `upscale_delay_seconds: 30`, `downscale_delay_seconds: 120` as generated), one item per bundle,
+  `fake_memory_for_estimates=96`. Two launches on the pool: the medium and large tables with a 16 h limit
+  (`beyondarena_causilo15cat_25112026_gpu_16h-20261126-102407-ebcd`, 126 items, launched first), then the rest with
+  4 h (`beyondarena_causilo15cat_25112026_gpu-20261126-102635-3a82`, 1,320 items, launched after the first nine results
+  of the long group, amazon_employee_access among them, matched the other foundation models' errors). Run venv
+  `~/.venvs/tabarena_causilo15_25112026`.
+  - 1,446 of 1,446 items, 0 failed. The short group ran from about 10:40 to 11:25 UTC, the long group to 16:54 UTC.
+    The four long-group jobs still running at about 12:45 were preempted and restarted their items from scratch. The
+    slowest item was home_credit_default_stability_1m (12,852 s fit, 1,698 s predict), then
+    pva_revenue_prediction_kddcup98 (10,457 s) and ieee_fraud_detection (about 7,900 s per split). `audit_warmup
+    --results` over all 2,000: warm-up `ok` on every one, no package imported and no CUDA initialized inside a timed
+    fit or predict.
+- **Result:** Eval (`BeyondArenaContext(only_valid_tasks=True)`, 46 methods, 2,000 splits, 0% imputed for Causilo-1.5):
+  - `core2k`: rank 2 of 46, Elo 1449 (+49/-49), behind TabPFN-3.5-Thinking max (1513, new to the field since the
+    2026-11-25 eval) and ahead of Kumo-Tabular (1426), Kumo-Tabular-Medium (1372) and TabPFN-3.5 (1368); Causilo
+    (1.0) is 8th (1318). With 8 members for classification it was rank 1 of 44 at 1438.
+  - Rank 2 on every slice but one, each time behind TabPFN-3.5-Thinking max: without the large tables 1538, binary
+    1409, multiclass 1488, regression 1517 (the same results as before), and tiny, small, medium, iid, temporal,
+    grouped, low-dim, high-dim, text and high-cardinality. Large tables: 5 of 40 (1174).
+  - Median per 1K rows on `core2k`: 4.15 s train and 0.59 s inference (5.15 s and 0.87 s with 8 members; Kumo-Tabular
+    7.99 / 0.77, TabPFN-3.5 5.72 / 1.31, TabPFN-3.5-Thinking max 22.2 / 8.89). Figures for 16 slices under
+    `tmp_scripts/eval_output/beyondarena_causilo15cat_25112026/`.
+
+```python
+TabArenaBenchmarkPlan(
+    benchmark_name="beyondarena_causilo15cat_25112026",
+    model_jobs=[
+        ModelJob(
+            models=[("Causilo-1.5", 0)],
+            name="gpu_16h",
+            resources={"num_gpus": 1, "fake_memory_for_estimates": 96, "time_limit": 16 * 3600},
+            tasks=TaskSubset(subset=["core2k", "classification", "medium|large"]),
+        ),
+        ModelJob(
+            models=[("Causilo-1.5", 0)],
+            name="gpu",
+            resources={"num_gpus": 1, "fake_memory_for_estimates": 96, "time_limit": 4 * 3600},
+            tasks=TaskSubset(subset=["core2k", "classification", "!medium", "!large"]),
+        ),
+    ],
+    task_subset=TaskSubset(subset=["core2k"]),
+    context=BeyondArenaContext(),
+    experiment_bundle=BeyondArenaExperimentBundle(model_verbosity=2),
+    path_setup=PathSetup(
+        workspace="/home/lennart_priorlabs_ai/workspace/benchmarking/tabarena_workspace",
+        python_path="/home/lennart_priorlabs_ai/.venvs/tabarena_causilo15_25112026/bin/python",
+    ),
+    resources_setup=BeyondArenaResourcesSetup(),
+    scheduler_setup=SkyPilotSetup(bundle_size=1, workers=32, use_pool=True, pool_name="causilo15c-by-2611"),
+).setup_jobs()
+```
+
+---
+
 ## 2026-11-26 — causilo15_25112026 (classification rerun)
 
 - **Model(s):** Causilo-1.5 (default config only) on the 594 classification splits of TabArena-v0.1
