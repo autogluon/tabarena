@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-import logging
 import os
 import sys
-from contextlib import contextmanager
+import time
 from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar
 
+import numpy as np
 from autogluon.common.utils.resource_utils import ResourceManager
 from autogluon.tabular.models.abstract.abstract_torch_model import AbstractTorchModel
 
@@ -16,10 +16,12 @@ if TYPE_CHECKING:
     import pandas as pd
 
 
-logger = logging.getLogger(__name__)
-
 #: Hugging Face repository the library downloads its checkpoints from (``iltm.model_checkpoints.HF_REPO_ID``).
 HF_REPO_ID = "dbonet/iLTM"
+#: Commit of :data:`HF_REPO_ID` the prefetch downloads from, so the checkpoints never change silently when the
+#: repository's default branch moves (the ``.pth`` files are unchanged since b3dcd2bd, 2025-11-18). Bump
+#: deliberately, with a note on what changed.
+HF_REVISION = "ef783ec2a246686ad4bd43f35b590c196e70a1ba"
 #: Environment variable the library reads for its checkpoint directory (``iltm.model_checkpoints.CKPT_DIR_ENV``).
 CKPT_DIR_ENV = "ILTM_CKPT_DIR"
 #: The checkpoint names the library resolves (``iltm.AVAILABLE_CHECKPOINTS``); ``<name>.pth`` in the repository.
@@ -32,7 +34,7 @@ def checkpoint_dir() -> Path:
     The same rule as ``iltm.model_checkpoints._get_default_ckpt_dir``: ``ILTM_CKPT_DIR`` when the
     variable is set, else the platform cache directory (``$XDG_CACHE_HOME/iltm`` or ``~/.cache/iltm``
     on Linux, ``~/Library/Caches/iltm`` on macOS, ``%LOCALAPPDATA%/iltm`` on Windows). Replicated here
-    so the head node can prefetch without importing ``iltm`` (see :func:`_isolate_iltm_global_state`).
+    so the head node can prefetch without importing ``iltm`` and torch.
     """
     if CKPT_DIR_ENV in os.environ:
         path = Path(os.environ[CKPT_DIR_ENV])
@@ -75,7 +77,7 @@ def resolve_checkpoint(name: str, *, allow_download: bool = True) -> str:
         )
     from huggingface_hub import hf_hub_download
 
-    return str(hf_hub_download(repo_id=HF_REPO_ID, filename=filename, local_dir=str(directory)))
+    return str(hf_hub_download(repo_id=HF_REPO_ID, filename=filename, revision=HF_REVISION, local_dir=str(directory)))
 
 
 class ILTMModel(AbstractTorchModel):
@@ -90,6 +92,31 @@ class ILTMModel(AbstractTorchModel):
     own cache is left to do the sharing; the warm-up's dummy fit fills it untimed. The checkpoint config (preprocessing, tree embedding, retrieval, bottleneck) is keyed off the
     checkpoint *name*, so the name is passed through unchanged and :meth:`prefetch_weights` fills the
     library's own checkpoint directory, which its resolution reads local-first at fit time.
+
+    Validation data: every selection step runs on the passed ``X_val`` / ``y_val``. The network's
+    fine-tuning and the tree embedding early-stop on it and the adaptive retrieval alpha is chosen on
+    it. ``tree_use_external_eval_set=True`` is the library's default from iltm 0.1.7 and a default
+    parameter of this wrapper as well: with ``False`` the trees early-stop on a split of the fold's
+    training rows, which a model submission may not do (autogluon/tabarena#637).
+
+    Precision: ``allow_tf32=True`` (a default parameter) runs CUDA float32 matmuls in TF32 during the
+    fit and the predict, which the authors consider part of the method. The library sets it per call
+    and restores the caller's setting afterwards; nothing changes at import.
+
+    Small tables: a fit on at most :attr:`small_data_max_rows` training rows uses half the configured
+    ``n_ensemble`` (8 becomes 4, 12 becomes 6). The authors proposed this in autogluon/tabarena#687 to
+    cut the fixed cost per member, which dominates on small tables, where the bagged split already
+    averages 8 or 25 fold models.
+
+    Known gaps (iltm 0.1.8):
+
+    - ``fit_max_time`` is checked between steps (before and after each tree fit, each fine-tuning
+      step, the adaptive-alpha predict), so a single step can still overrun ``time_limit``. A fit whose
+      budget runs out before the first member is complete raises ``TimeoutError``, as does a budget
+      of 10 s or less.
+    - ``auto_stop_on_low_cpu_memory`` (on by default) stops adding ensemble members when host memory
+      runs low, so the member count can depend on the node; the fitted estimator reports it as
+      ``n_ensemble_`` and in its log.
 
     Paper: iLTM: Integrated Large Tabular Model (arXiv:2511.15941)
     Authors: Bonet, Comajoan Cara, Calafell, Mas Montserrat, Ioannidis
@@ -110,30 +137,82 @@ class ILTMModel(AbstractTorchModel):
     """The indices of the categorical features, detected during preprocessing."""
     default_num_gpus = 1
     default_resources_physical_cores_only = True
-    minimum_num_gpus = 1
+    #: A bagged fold claims a share of the GPU, so several folds can share one card: AutoGluon gives each fold
+    #: the larger of this and ``1 / folds in parallel``, and caps the folds in parallel with the VRAM estimate
+    #: (:meth:`_estimate_gpu_memory_usage_static`), the host-RAM estimate and the CPUs.
+    minimum_num_gpus = 1 / 64
+
+    #: The checkpoints encode the label as a 100-wide one-hot (``n_classes_limit``), so a task with more
+    #: classes would fail only after its tree embedding was fit; AutoGluon skips it up front instead.
+    _default_auxiliary_params_extra = {"max_classes": 100}
 
     warmup_modules: ClassVar[tuple[str, ...]] = ("iltm",)
-    """Importing ``iltm`` sets ``torch.backends.cuda.matmul.allow_tf32`` as a side effect (see
-    :func:`_isolate_iltm_global_state`). ``_fit`` pins that flag explicitly, so where the import happens
-    no longer changes a fit, and the warm-up may import the library."""
 
-    #: Knobs that make the warm-up's dummy fit cheap (one ensemble member, one fine-tuning epoch, a
-    #: tiny tree embedding); none of them selects or shapes the checkpoint. The dummy fit also fills
-    #: the library's class-level ``_model_cache`` untimed, which is the sharing win for iLTM.
+    #: Knobs that make the warm-up's dummy fit cheap (a short fine-tuning, a tiny tree embedding). Three
+    #: ensemble members, because a ``checkpoint_mix`` config cycles its members through cbrconcat,
+    #: xgbrconcat and rtr: the dummy fit then loads every checkpoint the config can use into the library's
+    #: class-level ``_model_cache`` untimed, which is the sharing win for iLTM.
     cheap_hyperparameters: ClassVar[dict] = {
-        "n_ensemble": 1,
+        "n_ensemble": 3,
         "finetuning_max_steps": 1,
         "tree_n_estimators": 2,
     }
 
+    #: Fits on at most this many training rows use half the configured ``n_ensemble`` (the class docstring).
+    small_data_max_rows: ClassVar[int] = 1000
+
+    @classmethod
+    def _estimate_gpu_memory_usage_static(
+        cls, *, X: pd.DataFrame, hyperparameters: dict | None = None, **kwargs
+    ) -> int:
+        """Peak VRAM of one fit and its predict, CUDA context included.
+
+        Measured as the whole-device NVML peak with iltm 0.1.8 on an RTX PRO 6000, one fit per fresh process
+        (the members run one after another, so their count does not change the peak): about 4.3 GB up to
+        2,048 training rows, where one fine-tuning batch is the whole retrieval context; 7.6-8.0 GB at 5k-20k
+        rows; 8.4-11.5 GB at 100k; 18-19.4 GB at 400k-1M. Wide tables add the fine-tuned random-feature
+        matrix (input width x ``rf_size`` in float32, with its gradient and optimizer state), which the library
+        caps near 6,000 inputs: a bagged fit with 4 members on 300 rows x 15,000 features peaked at 16 GB, and
+        8 of them in parallel at 83 GB, so the term is sized for that (+11 GB at the cap). The others are
+        rounded up by about 10%.
+        """
+        n_rows, n_features = X.shape
+        if n_rows <= 2_048:
+            base = 4.8e9
+        elif n_rows <= 20_000:
+            base = 8.8e9
+        elif n_rows <= 100_000:
+            base = 12.6e9
+        else:
+            base = 21.5e9
+        rf_size = (hyperparameters or {}).get("rf_size", 32_768)
+        return int(base + min(n_features, 6_000) * rf_size * 56)
+
+    @classmethod
+    def _estimate_memory_usage_static(cls, *, X: pd.DataFrame, **kwargs) -> int:
+        """Peak host RAM (RSS) of one fit and its predict.
+
+        About 5 GB for the libraries and the checkpoint, plus the dense one-hot tree-leaf matrices, which grow
+        with the rows: measured 10 GB at 100k rows, 48 GB at 400k and 118 GB at 1M (iltm 0.1.8, default config).
+        """
+        return int(5.5e9 + 120_000 * len(X))
+
+    def _set_default_params(self):
+        default_params = {
+            # Early-stop the tree embedding on the passed validation rows, not on a split of the training rows.
+            "tree_use_external_eval_set": True,
+            # TF32 for CUDA matmuls during fit and predict, the authors' recipe; scoped by the library.
+            "allow_tf32": True,
+        }
+        for param, val in default_params.items():
+            self._set_default_param_value(param, val)
+
     def _preprocess(self, X: pd.DataFrame, *, is_train: bool = False, **kwargs) -> pd.DataFrame:
         """Detect indices of pandas `category`-dtype columns for iLTM's `cat_features`.
 
-        iLTM only auto-detects object-dtype string columns as categorical
-        (iltm/inference_interface.py::detect_object_string_columns). AutoGluon's
-        CategoryFeatureGenerator converts categoricals to pandas 'category' dtype,
-        which CatBoost (used in iLTM's tree embedding) then rejects unless the
-        column index is listed in cat_features.
+        AutoGluon's CategoryFeatureGenerator converts categoricals to pandas 'category' dtype, which
+        CatBoost (used in iLTM's tree embedding) rejects unless the column index is listed in
+        cat_features. iltm 0.1.7 also detects such columns itself and merges them with the passed list.
         """
         X = super()._preprocess(X, **kwargs)
 
@@ -157,6 +236,8 @@ class ILTMModel(AbstractTorchModel):
         num_gpus: int = 0,
         **kwargs,
     ):
+        fit_start = time.monotonic()
+
         import torch
 
         available_num_gpus = ResourceManager.get_gpu_count_torch(cuda_only=True)
@@ -172,57 +253,64 @@ class ILTMModel(AbstractTorchModel):
                 "Please switch to CPU usage instead.",
             )
 
-        # iLTM leaks torch backend flags and root logger handlers on import / fit;
-        # see _isolate_iltm_global_state docstring for details.
-        with _isolate_iltm_global_state():
-            from iltm import iLTMClassifier, iLTMRegressor
+        from iltm import iLTMClassifier, iLTMRegressor
 
-            # Developer fix: ``import iltm`` turns TF32 matmuls on as a module-level side effect, which
-            # only the fit that first imports the library in a process would see (a later import is a
-            # no-op). Every fit runs at full fp32 precision instead, whatever imported iltm first
-            # (maintainer decision 2026-09-16); the context manager restores the caller's value after.
-            torch.backends.cuda.matmul.allow_tf32 = False
-            _ensure_iltm_logger_patched()
+        if self.problem_type in ["binary", "multiclass"]:
+            model_cls = iLTMClassifier
+        elif self.problem_type == "regression":
+            model_cls = iLTMRegressor
+        else:
+            raise AssertionError(f"Unsupported problem_type: {self.problem_type}")
 
-            if self.problem_type in ["binary", "multiclass"]:
-                model_cls = iLTMClassifier
-            elif self.problem_type == "regression":
-                model_cls = iLTMRegressor
-            else:
-                raise AssertionError(f"Unsupported problem_type: {self.problem_type}")
+        hps = self._get_model_params()
 
-            hps = self._get_model_params()
+        X = self.preprocess(X, y=y, is_train=True)
+        if X_val is not None:
+            X_val = self.preprocess(X_val)
+            eval_set = (X_val, y_val)
+        else:
+            eval_set = None
 
-            X = self.preprocess(X, y=y, is_train=True)
-            if X_val is not None:
-                X_val = self.preprocess(X_val)
-                eval_set = (X_val, y_val)
-            else:
-                eval_set = None
+        self.model = model_cls(
+            **hps,
+            device=device,
+            cat_features=self._categorical_indices,
+            n_jobs=num_cpus,
+        )
+        if len(X) <= self.small_data_max_rows:
+            self.model.set_params(n_ensemble=max(1, self.model.n_ensemble // 2))
 
-            self.model = model_cls(
-                **hps,
-                device=device,
-                cat_features=self._categorical_indices,
-            )
+        remaining_time = None if time_limit is None else max(0.0, time_limit - (time.monotonic() - fit_start))
+        self.model = self.model.fit(
+            X=X,
+            y=y,
+            eval_set=eval_set,
+            fit_max_time=remaining_time,
+        )
 
-            self.model = self.model.fit(
-                X=X,
-                y=y,
-                eval_set=eval_set,
-                fit_max_time=time_limit,
-            )
+    def _predict_proba(self, X: pd.DataFrame, **kwargs):
+        X = self.preprocess(X, **kwargs)
+        if self.problem_type == "regression":
+            return self.model.predict(X)
+        y_pred_proba = self.model.predict_proba(X)
+        return self._convert_proba_to_unified_form(self._align_proba(y_pred_proba))
 
-    def _predict_proba(self, X, **kwargs):
-        # See _ensure_iltm_logger_patched docstring: bagged child models are
-        # unpickled in the parent process without running iLTM's __init__, so
-        # the module-level `logger` referenced inside predict() is undefined
-        # unless we patch it here.
-        _ensure_iltm_logger_patched()
-        return super()._predict_proba(X, **kwargs)
+    def _align_proba(self, y_pred_proba: np.ndarray) -> np.ndarray:
+        """Widen the probabilities to the task's full class set.
+
+        The library encodes only the classes present in the fold's training rows (``np.unique(y)``), so a
+        bagged fold that misses a class (grouped and temporal inner splits make that common) returns one
+        column per seen class. Put each column back under its label and leave the missing class at zero.
+        """
+        num_classes = self.num_classes
+        if num_classes is None or y_pred_proba.ndim != 2 or y_pred_proba.shape[1] == num_classes:
+            return y_pred_proba
+        full = np.zeros((y_pred_proba.shape[0], num_classes), dtype=y_pred_proba.dtype)
+        full[:, np.asarray(self.model.classes_, dtype=int)] = y_pred_proba
+        return full
 
     def prepare_for_inference(self) -> None:
-        """Untimed, idempotent: patch the library logger, keep the network in eval mode, synchronize CUDA.
+        """Untimed, idempotent: keep the network in eval mode and synchronize CUDA.
 
         Never touches data and runs no forward pass. The network attribute is ``None`` on an estimator
         that released it after the fit (iltm 0.1.4 and later); the fitted predictors then carry
@@ -230,7 +318,6 @@ class ILTMModel(AbstractTorchModel):
         """
         if self.model is None:
             return
-        _ensure_iltm_logger_patched()
         network = getattr(self.model, "_model", None)
         if network is None:
             return
@@ -257,70 +344,3 @@ class ILTMModel(AbstractTorchModel):
         self.model.device = device
         if getattr(self.model, "_model", None) is not None:
             self.model._model = self.model._model.to(device)
-
-
-def _ensure_iltm_logger_patched() -> None:
-    """Developer fix. Workaround for upstream bug in iltm==0.1.0.
-
-    `iltm/inference_interface.py` declares `logger` only inside the predictor's
-    `__init__` (via `global logger; logger = logging.getLogger(__name__)`).
-    Any call path that reaches `_preprocess_test_data` (and other methods that
-    log via `logger.debug(...)`) without first running `__init__` in the same
-    process crashes with `NameError: name 'logger' is not defined`.
-
-    This is exactly what happens with AutoGluon bagging: child models are fit
-    in a Ray worker and pickled back to the parent; predict in the parent
-    unpickles them but never re-runs `__init__`, so the parent's
-    `iltm.inference_interface` module has no `logger` attribute.
-
-    Setting the attribute on the module is idempotent and safe to call from
-    anywhere iLTM might be used. Remove when fixed upstream.
-    """
-    import iltm.inference_interface as _ifi
-
-    if not hasattr(_ifi, "logger"):
-        _ifi.logger = logging.getLogger(_ifi.__name__)
-
-
-@contextmanager
-def _isolate_iltm_global_state():
-    """Save/restore process-wide globals that the iLTM library mutates during fit.
-
-    Upstream bugs in iltm==0.1.0 (https://github.com/AI-sandbox/iLTM) that leak
-    out of fit() and pollute the host process:
-
-    1. `iltm/inference_interface.py` sets `torch.backends.cuda.matmul.allow_tf32 = True`
-       at module import time (not under a context manager / not reset).
-    2. `iltm/utils.py::set_seed` sets `torch.backends.cudnn.deterministic = True`
-       (and `cudnn.benchmark = False`) every time a predictor is generated.
-    3. `iltm/log_config.py::setup_logging` calls `logging.getLogger().handlers = []`
-       and then `logging.basicConfig(...)`, wiping the root logger's handlers and
-       replacing them with its own `StreamHandler`.
-
-    A library should not silently mutate global torch backend flags or the host
-    application's root logger. AutoGluon's `FitHelper.verify_model` snapshots
-    these globals and asserts they're unchanged after fit, so without this guard
-    the model fails the test suite. Developer fix: remove this wrapper if iLTM
-    upstream stops leaking these settings. For (1) the fit does not rely on the
-    import-time value at all: ``_fit`` pins ``allow_tf32`` off itself right after
-    the import, so every fit computes at fp32 whether or not it was the one that
-    imported the library, and this guard only has to hand the caller's value back.
-    """
-    import torch
-
-    saved_allow_tf32 = torch.backends.cuda.matmul.allow_tf32
-    saved_cudnn_deterministic = torch.backends.cudnn.deterministic
-    saved_cudnn_benchmark = torch.backends.cudnn.benchmark
-
-    root_logger = logging.getLogger()
-    saved_handlers = list(root_logger.handlers)
-    saved_root_level = root_logger.level
-
-    try:
-        yield
-    finally:
-        torch.backends.cuda.matmul.allow_tf32 = saved_allow_tf32
-        torch.backends.cudnn.deterministic = saved_cudnn_deterministic
-        torch.backends.cudnn.benchmark = saved_cudnn_benchmark
-        root_logger.handlers = saved_handlers
-        root_logger.setLevel(saved_root_level)

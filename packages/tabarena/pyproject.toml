@@ -161,7 +161,7 @@ limix_2 = [
   "nvtx",
 ]
 tabpfnwide = ["tabpfnwide>=0.3.0"]
-iltm = ["iltm>=0.1.1"]
+iltm = ["iltm==0.1.8"]
 # The `[triton]` extra enables the fused CUDA kernels used in the run.
 inpriora = [
   "inpriora[triton] @ git+https://github.com/ai-for-data/inpriora.git@dde547d0559ee825a5e3830825c2bfff9badc6ab",
