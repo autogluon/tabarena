@@ -146,6 +146,7 @@ def get_model_family(model_name: str, system_names: Container[str] = frozenset()
         ],
         Constants.foundational: [
             "CAUSILO",
+            "CAUSILO-1.5",
             "TABDPT",
             "TABDPT_TURBO",
             "TABDPT-1.3",

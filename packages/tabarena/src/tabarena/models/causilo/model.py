@@ -1,32 +1,39 @@
 from __future__ import annotations
 
-from typing import ClassVar
+from typing import TYPE_CHECKING, ClassVar
 
 from autogluon.core.models.abstract import SharedWeights
 from autogluon.tabular.models.abstract.abstract_torch_model import AbstractTorchModel
 
+from tabarena.models._weights import SharedWeightsClassSettings
 
-class CausiloModel(AbstractTorchModel):
+if TYPE_CHECKING:
+    import pandas as pd
+
+
+class CausiloModelBase(AbstractTorchModel):
     """Pretrained tabular classification and regression by Nums AI Inc.
 
+    Paper: Causilo Technical Report (https://arxiv.org/abs/2609.22866)
+    Authors: Minyong Cho, Minho Jeong, Dooho Lee, Jinmo Lee, Jaemin Yoo
     Code and documentation: https://github.com/nums-ai/causilo
-    Code license: Apache-2.0. Weights have a separate research license:
-    https://huggingface.co/nums-ai/causilo/blob/main/LICENSE
+    Code license: Apache-2.0. The weights have separate non-commercial licenses: the Causilo License v1.0
+    for 1.0 (https://huggingface.co/nums-ai/causilo/blob/main/LICENSE) and the Nums AI Model License for
+    1.5 (https://huggingface.co/nums-ai/causilo-1.5/blob/main/LICENSE).
 
-    Pinned to causilo 1.0.2: from that release on, a label set wider than the ten-class head is fit
-    through the library's own error-correcting output codes (one context per code row over the same
-    checkpoint), so the wrapper declares no ``max_classes`` cap. 1.0.0 rejected such datasets.
+    One causilo release serves both checkpoints; ``model_version`` picks the one a subclass fits. A
+    label set wider than the checkpoint's ten-class head is fit through the library's own
+    error-correcting output codes, so the wrapper declares no ``max_classes`` cap.
+
+    ``_fit`` does not read ``time_limit``: fitting prepares the context without training, and the
+    library has no time budget for prediction, whose cost grows with context rows times query rows
+    (the out-of-fold predictions inside a bagged fit included).
     """
 
-    ag_key = "TA-CAUSILO"
-    warmup_modules: ClassVar[tuple[str, ...]] = (
-        "causilo",
-        "causilo.engine",
-        "causilo.execution.memory",
-        "causilo.execution.precision",
-        "causilo.serialization",
-    )
-    ag_name = "Causilo"
+    ag_key = "NOTSET"
+    ag_name = "NOTSET"
+    #: The checkpoint release the library loads (its ``model_version`` argument).
+    model_version: ClassVar[str] = "NOTSET"
     ag_priority = 65
     seed_name = "random_state"
     _supported_problem_types = ["binary", "multiclass", "regression"]
@@ -39,12 +46,6 @@ class CausiloModel(AbstractTorchModel):
         "refit_folds": True,
         "vary_seed_across_folds": False,  # pretrained: the fold models are the refit that predicts
     }
-    #: ``Engine.fit`` loads the network through ``causilo.checkpoints.load_pretrained_model(task)`` and
-    #: moves it to the engine's device; one build per task and device per process. The loader
-    #: has no device input, so ``_fit`` records the device on ``self.device`` before the fit.
-    shared_weights: ClassVar[SharedWeights] = SharedWeights(
-        loader="causilo.checkpoints:load_pretrained_model", key=("task",)
-    )
     #: Knobs that make the warm-up's dummy fit cheap without touching the network.
     cheap_hyperparameters: ClassVar[dict] = {"n_estimators": 1}
 
@@ -66,83 +67,233 @@ class CausiloModel(AbstractTorchModel):
         previous_threads = torch.get_num_threads()
         try:
             torch.set_num_threads(num_cpus)
-            self.device = device  # keys the shared network; the library's loader names no device
-            self.model = cls(device=device, **params)
-            self.model.fit(self.preprocess(X), y)
+            self.device = device  # keys the shared network by fit device
+            # "auto" places the network on the first visible GPU like "cuda", and the estimator's own
+            # pickle records it, so a saved GPU fit also restores on a host without one.
+            library_device = "auto" if device == "cuda" else device
+            self.model = cls(device=library_device, model_version=self.model_version, **params)
+            self._prepare_estimator(self.model)
+            self.model.fit(self.preprocess(X, is_train=True), y)
         finally:
             torch.set_num_threads(previous_threads)
 
+    def _prepare_estimator(self, estimator) -> None:
+        """Hook between constructing the library's estimator and fitting it."""
+
     def _predict_proba(self, X, **kwargs):
+        import numpy as np
         import torch
 
+        X = self.preprocess(X, **kwargs)
         previous_threads = torch.get_num_threads()
         try:
             torch.set_num_threads(self._inference_threads)
-            return super()._predict_proba(X, **kwargs)
+            if self.problem_type == "regression":
+                return self.model.predict(X)
+            proba = self.model.predict_proba(X)
         finally:
             torch.set_num_threads(previous_threads)
-
-    def _set_default_params(self):
-        self._set_default_param_value("n_estimators", 8)
+        # The library returns one column per class of the fitted labels; a fold's training rows can miss
+        # a class, so the columns are placed at their positions among AutoGluon's ``num_classes``.
+        ordered = np.zeros((len(X), self.num_classes), dtype=proba.dtype)
+        ordered[:, np.asarray(self.model.classes_, dtype=int)] = proba
+        return self._convert_proba_to_unified_form(ordered)
 
     def get_device(self):
         return str(self.model._engine.device)
 
     def _set_device(self, device):
-        from dataclasses import replace
+        """Restore the fitted context on ``device`` through the estimator's own save and load.
 
-        from causilo.engine import resolve_device
-        from causilo.execution.memory import Stage
-        from causilo.execution.precision import stage_dtype
-        from causilo.serialization import transfer_state
+        ``export_estimator`` keeps the prepared context without the network, and ``import_estimator``
+        places it on the requested device and loads the network there, as ``load_context(device=...)``
+        does from a file.
+        """
+        import torch
+        from autogluon.core.models.abstract.shared_weights import scope
+        from causilo.serialization import export_estimator, import_estimator
 
-        engine = self.model._engine
-        target = resolve_device(str(device))
-        engine.model.to(target)
-        state = engine.state
-        if state.caches is not None or state.code_caches is not None:
-            column_dtype = stage_dtype(engine.task, Stage.COLUMN, target)
-            prediction_dtype = stage_dtype(engine.task, Stage.PREDICTION, target)
+        current = self.model._engine.device
+        target = torch.device(device)
+        if target.type == current.type and target.index in (None, current.index):
+            return
+        estimator = type(self.model).__new__(type(self.model))
+        # The model owns its network (only such a model gets here), so the load neither takes from nor
+        # adds to the shared registry. "auto" keeps the pickle loadable on a host without a GPU, as in _fit.
+        with scope(self, enabled=False):
+            import_estimator(
+                estimator, export_estimator(self.model), device="auto" if str(device) == "cuda" else str(device)
+            )
+        self.model = estimator
 
-            def moved(caches):
-                return tuple(
-                    replace(
-                        cache,
-                        columns=tuple(transfer_state(c, target, dtype=column_dtype) for c in cache.columns),
-                        prediction=transfer_state(cache.prediction, target, dtype=prediction_dtype),
-                    )
-                    for cache in caches
-                )
+    @classmethod
+    def prefetch_weights(cls) -> str:
+        """Download the pinned checkpoints of ``model_version`` into the Hugging Face cache; return the snapshot folder.
 
-            if state.caches is not None:
-                state = replace(state, caches=moved(state.caches))
-            if state.code_caches is not None:  # one cache tuple per output-code row of a many-class fit
-                state = replace(state, code_caches=tuple(moved(caches) for caches in state.code_caches))
-            engine.state = state
-        engine.device = target
-        engine.device_request = str(target)
-        self.model.device = str(target)
+        The returned path lets the node staging and the SkyPilot seeding copy the repository directory,
+        including the hub's ``trees`` listing that ``snapshot_download`` of a pinned commit needs offline.
+        """
+        from causilo.model_selection import MODEL_SOURCES
+        from huggingface_hub import snapshot_download
+
+        sources = [MODEL_SOURCES[cls.model_version, task] for task in ("classification", "regression")]
+        (repository,) = {source.repository for source in sources}
+        (revision,) = {source.revision for source in sources}
+        return snapshot_download(
+            repository,
+            revision=revision,
+            allow_patterns=[
+                f"{source.folder}/{name}" for source in sources for name in ("config.json", "model.safetensors")
+            ],
+        )
+
+    @classmethod
+    def _class_tags(cls):
+        # The estimator pickles through causilo's own ``export_estimator``, which leaves the network out.
+        return {"pickles_pretrained_weights": False}
 
     def _more_tags(self):
         return {"can_refit_full": True}
 
 
-def prefetch_weights() -> str:
-    """Download the pinned Causilo checkpoints into the Hugging Face cache; return the snapshot folder.
+class CausiloModel(CausiloModelBase):
+    """Causilo 1.0 as used on TabArena."""
 
-    The returned path lets the node staging and the SkyPilot seeding copy the repository directory,
-    including the hub's ``trees`` listing that ``snapshot_download`` of a pinned commit needs offline.
-    """
-    from causilo.checkpoints import RELEASE_COMMIT, REPOSITORY
-    from huggingface_hub import snapshot_download
-
-    return snapshot_download(
-        REPOSITORY,
-        revision=RELEASE_COMMIT,
-        allow_patterns=[
-            "classifier/config.json",
-            "classifier/model.safetensors",
-            "regressor/config.json",
-            "regressor/model.safetensors",
-        ],
+    ag_key = "TA-CAUSILO"
+    ag_name = "Causilo"
+    model_version: ClassVar[str] = "1.0"
+    warmup_modules: ClassVar[tuple[str, ...]] = (
+        "causilo",
+        "causilo.serialization",
+        "causilo.v1_0.engine",
+        "causilo.v1_0.runtime",
     )
+    #: The 1.0 runtime builds the network in ``causilo.v1_0.checkpoints.load_hosted_model(task)`` and the
+    #: engine moves it to its device; one build per task and device per process. The loader has no
+    #: device input, so ``_fit`` records the device on ``self.device`` before the fit.
+    shared_weights: ClassVar[SharedWeights] = SharedWeights(
+        loader="causilo.v1_0.checkpoints:load_hosted_model", key=("task",)
+    )
+    #: Causilo 1.0 and 1.5 are registered separately; each owns its ``share_weights`` class setting.
+    class_settings_per_subclass = True
+
+    def _set_default_params(self):
+        self._set_default_param_value("n_estimators", 8)
+
+
+class Causilo15Model(CausiloModelBase):
+    """Causilo 1.5 with the library's task-specific ensemble defaults.
+
+    Declares no ``shared_weights``: causilo 1.5.1's public loader would fit a declaration, but AutoGluon's
+    weightless pickle would still carry the network's child modules, which the fitted runners reference.
+    The fits share one network per process through the developer fix in ``causilo/_estimators.py`` instead,
+    which keeps causilo's own pickle, and switch it off the way a declaring wrapper does
+    (``ag_args_fit={"share_pretrained_weights": False}`` or the ``share_weights`` class setting).
+    """
+
+    ag_key = "TA-CAUSILO-1.5"
+    ag_name = "TA-Causilo-1.5"
+    model_version: ClassVar[str] = "1.5"
+    warmup_modules: ClassVar[tuple[str, ...]] = (
+        "causilo",
+        "causilo.serialization",
+        "causilo.v1_5.engine",
+        "causilo.v1_5.runtime",
+        # Triton kernels of the CUDA path, imported at their first call.
+        "causilo.v1_5.kernels.triton.cls_attention",
+        "causilo.v1_5.kernels.triton.cls_readout",
+        "causilo.v1_5.kernels.triton.head_normalization",
+        "causilo.v1_5.kernels.triton.query_gain",
+        "causilo.v1_5.kernels.triton.regression_mean",
+        "causilo.v1_5.kernels.triton.residual_normalization",
+        "causilo.v1_5.kernels.triton.swiglu",
+    )
+    #: The ``share_weights`` switch of ``model_class_settings``, as a declaring wrapper gets it.
+    class_settings_cls = SharedWeightsClassSettings
+
+    def _set_default_params(self):
+        super()._set_default_params()
+        # The authors' setting for large tables: each member samples its own 200k-row context. Tables up to
+        # 200k training rows (every TabArena-v0.1 split) take the same full-context path as max_context=None.
+        self._set_default_param_value("max_context", 200_000)
+
+    def _prepare_estimator(self, estimator) -> None:
+        from tabarena.models.causilo._estimators import attach_shared_network
+
+        self._shared_network = None
+        aux = self.aux_params
+        if aux.save_pretrained_weights or not getattr(aux, "share_pretrained_weights", True):
+            return
+        if not type(self).get_class_settings().share_weights:
+            return
+        task = "regression" if self.problem_type == "regression" else "classification"
+        self._shared_network = attach_shared_network(estimator, task=task)
+
+    def get_info(self, include_feature_metadata: bool = True) -> dict:
+        from tabarena.models.causilo._estimators import shared_network_info
+
+        info = super().get_info(include_feature_metadata=include_feature_metadata)
+        record = getattr(self, "_shared_network", None)
+        info["shared_weights"] = None if record is None else shared_network_info(record)
+        return info
+
+    def _preprocess(self, X: pd.DataFrame, is_train: bool = False, **kwargs) -> pd.DataFrame:
+        """Give integer category labels string labels.
+
+        The 1.5 runtime reads numeric category labels as ordered levels and interpolates a category
+        missing from the context between its neighbours. AutoGluon codes every categorical column as
+        integers (TabArena) or keeps a dataset's integer IDs (BeyondArena), so a fold-unseen category of a
+        nominal column would get an interpolated code instead of the library's encoding for an unseen text
+        category. The zero-padded labels keep the codes' order, so seen categories encode as before;
+        AutoGluon drops categories seen fewer than twice, so every category a test row carries is in the
+        refit model's context and only out-of-fold rows change.
+
+        The fit decides which columns get labels and stores them: the same column can reach predict with
+        another category dtype (BeyondArena's preprocessing returns an ``object`` index of Python ints
+        there), and a column labelled at fit but not at predict matches no category of the context.
+        """
+        import pandas as pd
+
+        X = super()._preprocess(X, **kwargs)
+        if is_train:
+            self._labelled_categories = [
+                column
+                for column in X.columns
+                if isinstance(X[column].dtype, pd.CategoricalDtype)
+                and len(X[column].cat.categories)
+                and all(_integer_label(value) is not None for value in X[column].cat.categories)
+            ]
+        columns = [
+            column
+            for column in getattr(self, "_labelled_categories", ())
+            if column in X.columns and isinstance(X[column].dtype, pd.CategoricalDtype)
+        ]
+        if not columns:
+            return X
+        X = X.copy(deep=False)
+        for column in columns:
+            X[column] = X[column].cat.rename_categories(_category_label)
+        return X
+
+
+def _integer_label(value) -> int | None:
+    """``value`` as a Python int when it is an integer (also an integral float or an ``object`` int), else None."""
+    import numbers
+
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, numbers.Integral):
+        return int(value)
+    if isinstance(value, numbers.Real) and float(value).is_integer():
+        return int(value)
+    return None
+
+
+def _category_label(value) -> str:
+    """The string label of a category: ``c`` plus the integer zero-padded to 19 digits, else ``s`` plus its text.
+
+    A fixed width keeps a code's label the same whatever other categories the column's dtype holds
+    (BeyondArena's preprocessing keeps unseen categories in the dtype at predict time).
+    """
+    code = _integer_label(value)
+    return f"c{code:019d}" if code is not None else f"s{value}"

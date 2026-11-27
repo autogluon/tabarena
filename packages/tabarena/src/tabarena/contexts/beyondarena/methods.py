@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING
 from tabarena.benchmark.validation_protocol import BEYONDARENA_VALIDATION_PROTOCOL
 from tabarena.models._method_metadata_collection import MethodMetadataCollection
 from tabarena.models.catboost.info import catboost_descriptor
-from tabarena.models.causilo.info import causilo_descriptor
+from tabarena.models.causilo.info import causilo15_descriptor, causilo_descriptor
 from tabarena.models.exaone_tabular.info import exaone_tabular_descriptor
 from tabarena.models.extra_trees.info import extra_trees_descriptor
 from tabarena.models.kumo_tabular.info import (
@@ -316,6 +316,17 @@ beyond_tababax_metadata = tababax_descriptor.method_metadata(
     **{**_common_fm_kwargs, "suite": "beyondarena-2026-11-24", "date": "2026-11-24", "verified": True},
 )
 
+# -- Causilo 1.5, run 2026-11-25/26 (`beyondarena_causilo15cat_25112026` in BENCHMARK_LOG.md) ---------------------
+# The official protocol on every core2k split, up to the 1M-row tables, with fit time limits of 16 h on the medium and
+# large tables and the 4 h default on the others. Classification with causilo 1.5.1 (4 members, 2026-11-26), regression
+# with 1.5.0 (8 members, 2026-11-25), which predicts bit-identically to 1.5.1 at 8 members.
+beyond_causilo15_metadata = causilo15_descriptor.method_metadata(
+    method="TA-Causilo-1.5",
+    ag_key="TA-CAUSILO-1.5",
+    config_default="TA-Causilo-1.5_c1_BAG_L1",
+    **{**_common_fm_kwargs, "suite": "beyondarena-2026-11-26", "date": "2026-11-26", "verified": True},
+)
+
 beyond_method_metadata_lst: list[MethodMetadata] = [
     # Systems: TabPFN-3.5-Thinking at effort max, run 2026-11-19 with the 8 h time limit for systems
     # (`beyondarena_tabpfn35thinking_core2k_19112026` in BENCHMARK_LOG.md)
@@ -349,6 +360,7 @@ beyond_method_metadata_lst: list[MethodMetadata] = [
     beyond_seldon_metadata,
     beyond_seldon_mini_metadata,
     beyond_tababax_metadata,
+    beyond_causilo15_metadata,
 ]
 
 beyond_method_metadata_collection = MethodMetadataCollection(

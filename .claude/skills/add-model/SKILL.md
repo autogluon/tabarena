@@ -332,7 +332,7 @@ Report every developer fix you add in Step 9.
 the same frozen network once per fold child and once more for the refit child, inside the timed fit.
 Every such library builds its network inside one call its `fit` makes: a method on the estimator
 (tabpfn `_initialize_model_variables`, tabicl `_load_model`), a module function (causilo
-`load_pretrained_model`) or a classmethod (`Tab2D.from_pretrained`). The wrapper names that call and
+`load_hosted_model`) or a classmethod (`Tab2D.from_pretrained`). The wrapper names that call and
 the inputs that decide which network it builds; AutoGluon's `AbstractTorchModel` does the rest:
 
 ```python
@@ -377,12 +377,24 @@ re-runs its loader (tabicl) reloads shared for free; one that pickles its networ
 by the generic weightless pickle. A loader the constructor calls (tabdpt `_load_model`) works too, as
 long as the keyed attributes are set before the call; an input the constructor resolves after it
 (tabdpt `compile`) cannot go in `disabled_by`, so the wrapper overrides `_shares_weights` for it.
+Two more requirements show only at the first pickle or reload. The registry records a function
+loader's arguments to rebuild the network in another process and keeps strings, numbers, paths and
+containers of them; any other object is recorded as its `repr`, which the library cannot load from.
+And the weightless pickle writes the estimator's attributes without the library's own `__getstate__`,
+so fitted state that only the library's protocol can pickle (a `threading.Lock`, a CUDA stream) makes
+every save fail. Causilo 1.5.1 exposes such a loader and fitted runners that pickle, yet a declaration
+still pickles most of its network: the runners hold the network's child modules, and the weightless
+pickle detaches only the module the loader returned. Until AutoGluon also detaches the submodules of a
+shared network (autogluon/autogluon#6100), `Causilo15Model` keeps causilo's own pickle and shares through a developer fix that
+takes the network from the registry and hands the estimator a prepared engine (`causilo/_estimators.py`).
+Before declaring `shared_weights`, check the size of a fitted model's `model_tensors.pt`: anything near
+the network's size means a reference to part of it escaped the detach.
 Wrappers that do not care about sharing simply declare nothing (TabDPT v1.1 and TabDPT-Turbo, whose
 releases have no separable loader, TabPFN-Wide, SAP-RPT-OSS, iLTM whose library caches for itself).
 
 `references/model_patterns.md` under "Shared pretrained weights" has the field-by-field reference;
-`tabicl/model.py` is the plain in-tree case, `causilo/model.py` a function loader without a device
-input, `mitra_v2/model.py` a fine-tuning model, `tabdpt/model.py` a loader the constructor calls and
+`tabicl/model.py` is the plain in-tree case, `causilo/model.py` has function loaders with and without
+a device input, `mitra_v2/model.py` a fine-tuning model, `tabdpt/model.py` a loader the constructor calls and
 `exaone_tabular/` the adapter.
 
 Tests: `tests/tabarena/models/test_shared_weights_models.py` discovers every registered class that
