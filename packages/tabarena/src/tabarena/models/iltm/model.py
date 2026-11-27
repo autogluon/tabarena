@@ -103,7 +103,12 @@ class ILTMModel(AbstractTorchModel):
     fit and the predict, which the authors consider part of the method. The library sets it per call
     and restores the caller's setting afterwards; nothing changes at import.
 
-    Known gaps (iltm 0.1.7):
+    Small tables: a fit on at most :attr:`small_data_max_rows` training rows uses half the configured
+    ``n_ensemble`` (8 becomes 4, 12 becomes 6). The authors proposed this in autogluon/tabarena#687 to
+    cut the fixed cost per member, which dominates on small tables, where the bagged split already
+    averages 8 or 25 fold models.
+
+    Known gaps (iltm 0.1.8):
 
     - ``fit_max_time`` is checked between steps (before and after each tree fit, each fine-tuning
       step, the adaptive-alpha predict), so a single step can still overrun ``time_limit``. A fit whose
@@ -130,7 +135,10 @@ class ILTMModel(AbstractTorchModel):
     """The indices of the categorical features, detected during preprocessing."""
     default_num_gpus = 1
     default_resources_physical_cores_only = True
-    minimum_num_gpus = 1
+    #: A bagged fold claims a share of the GPU, so several folds can share one card: AutoGluon gives each fold
+    #: the larger of this and ``1 / folds in parallel``, and caps the folds in parallel with the VRAM estimate
+    #: (:meth:`_estimate_gpu_memory_usage_static`), the host-RAM estimate and the CPUs.
+    minimum_num_gpus = 1 / 64
 
     #: The checkpoints encode the label as a 100-wide one-hot (``n_classes_limit``), so a task with more
     #: classes would fail only after its tree embedding was fit; AutoGluon skips it up front instead.
@@ -147,6 +155,45 @@ class ILTMModel(AbstractTorchModel):
         "finetuning_max_steps": 1,
         "tree_n_estimators": 2,
     }
+
+    #: Fits on at most this many training rows use half the configured ``n_ensemble`` (the class docstring).
+    small_data_max_rows: ClassVar[int] = 1000
+
+    @classmethod
+    def _estimate_gpu_memory_usage_static(
+        cls, *, X: pd.DataFrame, hyperparameters: dict | None = None, **kwargs
+    ) -> int:
+        """Peak VRAM of one fit and its predict, CUDA context included.
+
+        Measured as the whole-device NVML peak with iltm 0.1.8 on an RTX PRO 6000, one fit per fresh process
+        (the members run one after another, so their count does not change the peak): about 4.3 GB up to
+        2,048 training rows, where one fine-tuning batch is the whole retrieval context; 7.6-8.0 GB at 5k-20k
+        rows; 8.4-11.5 GB at 100k; 18-19.4 GB at 400k-1M. Wide tables add the fine-tuned random-feature
+        matrix (input width x ``rf_size`` in float32, with its gradient and optimizer state), which the library
+        caps near 6,000 inputs: a bagged fit with 4 members on 300 rows x 15,000 features peaked at 16 GB, and
+        8 of them in parallel at 83 GB, so the term is sized for that (+11 GB at the cap). The others are
+        rounded up by about 10%.
+        """
+        n_rows, n_features = X.shape
+        if n_rows <= 2_048:
+            base = 4.8e9
+        elif n_rows <= 20_000:
+            base = 8.8e9
+        elif n_rows <= 100_000:
+            base = 12.6e9
+        else:
+            base = 21.5e9
+        rf_size = (hyperparameters or {}).get("rf_size", 32_768)
+        return int(base + min(n_features, 6_000) * rf_size * 56)
+
+    @classmethod
+    def _estimate_memory_usage_static(cls, *, X: pd.DataFrame, **kwargs) -> int:
+        """Peak host RAM (RSS) of one fit and its predict.
+
+        About 5 GB for the libraries and the checkpoint, plus the dense one-hot tree-leaf matrices, which grow
+        with the rows: measured 10 GB at 100k rows, 48 GB at 400k and 118 GB at 1M (iltm 0.1.8, default config).
+        """
+        return int(5.5e9 + 120_000 * len(X))
 
     def _set_default_params(self):
         default_params = {
@@ -228,6 +275,8 @@ class ILTMModel(AbstractTorchModel):
             cat_features=self._categorical_indices,
             n_jobs=num_cpus,
         )
+        if len(X) <= self.small_data_max_rows:
+            self.model.set_params(n_ensemble=max(1, self.model.n_ensemble // 2))
 
         remaining_time = None if time_limit is None else max(0.0, time_limit - (time.monotonic() - fit_start))
         self.model = self.model.fit(

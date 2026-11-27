@@ -8,7 +8,7 @@ from tabarena.utils.config_utils import CustomAGConfigGenerator
 
 
 # Provenance (autogluon/tabarena#687): this is the library's own space, ``iltm.get_hyperparameter_search_space``
-# (iltm 0.1.6 and 0.1.7), and it is derived from the library's 25-config portfolio
+# (iltm 0.1.6 to 0.1.8), and it is derived from the library's 25-config portfolio
 # (``iltm.get_hyperparameter_configs``), which the authors selected on their meta-validation datasets. Every
 # categorical choice set is the set of values the portfolio uses (``tree_subsample`` and ``tree_feature_fraction``
 # are its sampled values rounded to two decimals), the continuous ranges are the portfolio's minimum and maximum
